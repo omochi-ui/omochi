@@ -7,9 +7,9 @@ description = "Declarative, transport-independent application runtime for A2UI"
 license = "Apache-2.0"
 readme = "README.md"
 include = ["src/**", "examples/**", "README.md", "LICENSE", "Cargo.toml", "Cargo.lock"]
-repository = "https://github.com/k-kozika/omochi"
-homepage = "https://github.com/k-kozika/omochi"
-documentation = "https://github.com/k-kozika/omochi/blob/main/docs/sdk.md"
+repository = "https://github.com/omochi-ui/omochi"
+homepage = "https://github.com/omochi-ui/omochi"
+documentation = "https://github.com/omochi-ui/omochi/blob/main/docs/sdk.md"
 
 [dependencies]
 async-trait = "0.1"

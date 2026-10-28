@@ -36,7 +36,7 @@ Node.js is not required. The Python example needs **Python 3.11+**
 and **uv**. Discovery and Unix socket examples need a Unix-like environment.
 
 ```sh
-git clone https://github.com/k-kozika/omochi.git
+git clone https://github.com/omochi-ui/omochi.git
 cd omochi
 bun install --frozen-lockfile
 bun run quickstart

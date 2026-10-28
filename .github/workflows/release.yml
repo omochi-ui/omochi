@@ -246,7 +246,7 @@ jobs:
           VERSION: ${{ needs.prepare.outputs.version }}
         run: |
           status=$(curl --silent --show-error --connect-timeout 10 --max-time 30 \
-            --user-agent 'omochi-release (https://github.com/k-kozika/omochi)' \
+            --user-agent 'omochi-release (https://github.com/omochi-ui/omochi)' \
             --output "$RUNNER_TEMP/crate-version.json" --write-out '%{http_code}' \
             "https://crates.io/api/v1/crates/omochi-ui/$VERSION")
           case "$status" in

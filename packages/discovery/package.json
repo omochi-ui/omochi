@@ -40,11 +40,11 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/k-kozika/omochi.git",
+    "url": "https://github.com/omochi-ui/omochi.git",
     "directory": "packages/discovery"
   },
-  "homepage": "https://github.com/k-kozika/omochi#readme",
+  "homepage": "https://github.com/omochi-ui/omochi#readme",
   "bugs": {
-    "url": "https://github.com/k-kozika/omochi/issues"
+    "url": "https://github.com/omochi-ui/omochi/issues"
   }
 }
