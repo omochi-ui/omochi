@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState, type PointerEvent } from 'react';
 import { SurfaceView, useA2uiSession } from '@omochi-ui/renderer';
+import { Button } from './Button.js';
+import { Icon } from './Icon.js';
 import { referenceId, type Dashboard, type DashboardPreset, type Panel } from './contracts.js';
 import { placePanel } from './layout.js';
 import { groupByNode, splitSurfaceId, subscribeServices, type ServiceView } from './services.js';
@@ -152,18 +154,18 @@ export default function App() {
     <aside className="sidebar">
       <a className="brand" href="/" onClick={event => { if (editing) event.preventDefault(); }}><span className="brand-mark">o</span> omochi <span className="brand-tag">hub</span></a>
       <div className="nav-caption">WORKSPACE</div>
-      {!!presets.length && <><div className="nav-section"><span>◇</span> Presets <span className="count">{presets.length}</span></div>
+      {!!presets.length && <><div className="nav-section"><Icon name="preset" /> Presets <span className="count">{presets.length}</span></div>
       <nav aria-label="Presets">
-        {presets.map(p => <button key={p.id} className={`dashboard-link ${selected === `preset:${p.id}` ? 'selected' : ''}`} aria-current={selected === `preset:${p.id}` ? 'page' : undefined} disabled={editing || busy}
-          onClick={() => { setSelected(`preset:${p.id}`); setError(null); }}>{p.name}</button>)}
+        {presets.map(p => <Button static key={p.id} className={`dashboard-link ${selected === `preset:${p.id}` ? 'selected' : ''}`} aria-current={selected === `preset:${p.id}` ? 'page' : undefined} disabled={editing || busy}
+          onClick={() => { setSelected(`preset:${p.id}`); setError(null); }}>{p.name}</Button>)}
       </nav></>}
-      <div className="nav-section"><span>▦</span> Dashboards <span className="count">{dashboards.length}</span></div>
+      <div className="nav-section"><Icon name="dashboard" /> Dashboards <span className="count">{dashboards.length}</span></div>
       <nav aria-label="Dashboards">
-        {dashboards.map(d => <button key={d.id} className={`dashboard-link ${selected === `dashboard:${d.id}` ? 'selected' : ''}`} aria-current={selected === `dashboard:${d.id}` ? 'page' : undefined} disabled={editing || busy}
-          onClick={() => { setSelected(`dashboard:${d.id}`); setError(null); }}>{d.name}</button>)}
+        {dashboards.map(d => <Button static key={d.id} className={`dashboard-link ${selected === `dashboard:${d.id}` ? 'selected' : ''}`} aria-current={selected === `dashboard:${d.id}` ? 'page' : undefined} disabled={editing || busy}
+          onClick={() => { setSelected(`dashboard:${d.id}`); setError(null); }}>{d.name}</Button>)}
         {!dashboards.length && <p className="sidebar-hint">Your dashboards will appear here.</p>}
       </nav>
-      <button className="new-dashboard" disabled={editing || loading || busy} onClick={() => setDraft(emptyDashboard())}>＋ New dashboard</button>
+      <Button className="new-dashboard with-icon" disabled={editing || loading || busy} onClick={() => setDraft(emptyDashboard())}><Icon name="plus" /> New dashboard</Button>
       <div className="sidebar-footer"><span className={`signal ${connected ? 'online' : ''}`} />{connected ? 'Hub connected' : 'Reconnecting…'}<small>{available} apps available</small></div>
     </aside>
     <main className="workspace">
@@ -175,28 +177,28 @@ export default function App() {
           <p className="subtitle">{editing ? 'Arrange your views, then save your dashboard.' : 'Live views from your apps, together in one place.'}</p>
         </div>
         <div className="toolbar">{editing ? <>
-          <button disabled={busy} onClick={() => { setDraft(null); setPicker(false); setError(null); }}>Cancel</button>
-          <button className="primary" disabled={busy || !draft.name.trim() || draft.panels.some(p => !p.title.trim())} onClick={save}>{busy ? 'Saving…' : 'Save dashboard'}</button>
+          <Button disabled={busy} onClick={() => { setDraft(null); setPicker(false); setError(null); }}>Cancel</Button>
+          <Button className="primary" disabled={busy || !draft.name.trim() || draft.panels.some(p => !p.title.trim())} onClick={save}>{busy ? 'Saving…' : 'Save dashboard'}</Button>
         </> : current ? <>
-          <button disabled={busy} onClick={remove}>Delete</button>
-          <button className="primary" disabled={busy} onClick={() => setDraft(structuredClone(current))}>Edit dashboard</button>
-        </> : preset ? <button className="primary" disabled={busy} onClick={() => setDraft({ ...structuredClone(preset), id: '', revision: 0 })}>Save as dashboard</button> : null}</div>
+          <Button disabled={busy} onClick={remove}>Delete</Button>
+          <Button className="primary" disabled={busy} onClick={() => setDraft(structuredClone(current))}>Edit dashboard</Button>
+        </> : preset ? <Button className="primary" disabled={busy} onClick={() => setDraft({ ...structuredClone(preset), id: '', revision: 0 })}>Save as dashboard</Button> : null}</div>
       </header>
-      {error && <div className="notice error" role="alert"><span>{error}</span><button disabled={busy} onClick={() => {
+      {error && <div className="notice error" role="alert"><span>{error}</span><Button disabled={busy} onClick={() => {
         if (draft && !confirm('Discard your unsaved edits and reload the saved dashboards?')) return;
         setDraft(null); setPicker(false); void reload();
-      }}>Reload saved dashboards</button></div>}
+      }}>Reload saved dashboards</Button></div>}
       {session.error && <div className="notice" role="status">{session.error}</div>}
       {narrow && editing && <div className="notice">Use a wider screen to move and resize panels. Your saved layout is preserved.</div>}
       {active && <div className="board-bar"><span><strong>{panels.length}</strong> {panels.length === 1 ? 'view' : 'views'} <span className="separator">/</span> {editing ? 'Editing' : 'Live dashboard'}</span>
-        {editing && <button disabled={busy || panels.length >= 200} onClick={() => { setSearch(''); setPicker(true); }}>＋ Add view</button>}</div>}
+        {editing && <Button className="with-icon" disabled={busy || panels.length >= 200} onClick={() => { setSearch(''); setPicker(true); }}><Icon name="plus" /> Add view</Button>}</div>}
       {loading ? <div className="empty-state">Loading dashboards…</div> : !panels.length ? <div className="empty-state">
-        <div className="empty-symbol">▦</div><h2>{editing ? 'Start with a view' : active ? 'This dashboard is ready for views' : 'Make room for what matters'}</h2>
+        <div className="empty-symbol"><Icon name="dashboard" /></div><h2>{editing ? 'Start with a view' : active ? 'This dashboard is ready for views' : 'Make room for what matters'}</h2>
         <p>Bring views from your apps into a dashboard.<br />Arrange them to fit the way you work.</p>
-        <button className="primary" disabled={busy || !!error} onClick={() => {
+        <Button className="primary with-icon" disabled={busy || !!error} onClick={() => {
           if (!draft) setDraft(current ? structuredClone(current) : emptyDashboard());
           setSearch(''); setPicker(true);
-        }}>＋ {active ? 'Add your first view' : 'Create a dashboard'}</button>
+        }}><Icon name="plus" /> {active ? 'Add your first view' : 'Create a dashboard'}</Button>
       </div> : <div ref={grid} className={`panel-grid ${editing ? 'editing' : ''}`}>
         {panels.map(panel => {
           const id = referenceId(panel.reference);
@@ -204,15 +206,15 @@ export default function App() {
           const present = connected && service?.status === 'connected' && session.surfaceIds.includes(id);
           return <article className="panel" key={panel.id} style={{ gridColumn: `${panel.x + 1} / span ${panel.w}`, gridRow: `${panel.y + 1} / span ${panel.h}` }}>
             <header className="panel-header">
-              {editing && !narrow && <button aria-label={`Move ${panel.title}`} className="drag-handle" disabled={busy}
-                onPointerDown={e => beginGesture(e, panel, 'move')} onPointerMove={moveGesture} onPointerUp={endGesture} onPointerCancel={endGesture}>⠿</button>}
+              {editing && !narrow && <Button static aria-label={`Move ${panel.title}`} className="drag-handle" disabled={busy}
+                onPointerDown={e => beginGesture(e, panel, 'move')} onPointerMove={moveGesture} onPointerUp={endGesture} onPointerCancel={endGesture}><Icon name="grip" /></Button>}
               <div className="panel-heading">{editing ? <input aria-label={`Panel title ${panel.title}`} maxLength={200} disabled={busy} value={panel.title} onChange={e => changePanel({ ...panel, title: e.target.value })} /> : <h2 title={panel.title}>{panel.title}</h2>}
                 <small title={`${service?.node?.name ?? panel.reference.nodeId} / ${service?.name ?? panel.reference.serviceId}`}>{service?.node?.name ?? panel.reference.nodeId} / {service?.name ?? panel.reference.serviceId}</small></div>
-              {editing ? <button className="icon-button" aria-label={`Remove ${panel.title}`} disabled={busy} onClick={() => setDraft(d => d ? { ...d, panels: d.panels.filter(p => p.id !== panel.id) } : d)}>×</button>
+              {editing ? <Button className="icon-button" aria-label={`Remove ${panel.title}`} disabled={busy} onClick={() => setDraft(d => d ? { ...d, panels: d.panels.filter(p => p.id !== panel.id) } : d)}><Icon name="close" /></Button>
                 : <span className={`signal ${present ? 'online' : ''}`} role="img" aria-label={present ? 'Live' : 'Unavailable'} title={present ? 'Live' : 'Unavailable'} />}
             </header>
             <div className="panel-content">{present ? <SurfaceView session={session} surfaceId={id} />
-              : <div className="unavailable"><span>○</span><strong>View unavailable</strong><p>{service?.detail ?? 'Waiting for this app to publish its view.'}</p></div>}</div>
+              : <div className="unavailable"><Icon name="unavailable" /><strong>View unavailable</strong><p>{service?.detail ?? 'Waiting for this app to publish its view.'}</p></div>}</div>
             {editing && !narrow && <footer className="panel-editor">
               {(['x', 'y', 'w', 'h'] as const).map(key => <label key={key}>{({ x: 'X', y: 'Y', w: 'W', h: 'H' })[key]}<input type="number" aria-label={`${panel.title} ${key}`} disabled={busy}
                 min={key === 'w' || key === 'h' ? 1 : 0} max={key === 'x' ? 12 - panel.w : key === 'w' ? 12 - panel.x : key === 'h' ? 1000 : 100000}
@@ -220,8 +222,8 @@ export default function App() {
                   const value = e.target.valueAsNumber;
                   if (Number.isInteger(value) && e.target.validity.valid) changePanel({ ...panel, [key]: value });
                 }} /></label>)}
-              <button className="resize-handle" aria-label={`Resize ${panel.title}`} disabled={busy}
-                onPointerDown={e => beginGesture(e, panel, 'resize')} onPointerMove={moveGesture} onPointerUp={endGesture} onPointerCancel={endGesture}>↘</button>
+              <Button static className="resize-handle" aria-label={`Resize ${panel.title}`} disabled={busy}
+                onPointerDown={e => beginGesture(e, panel, 'resize')} onPointerMove={moveGesture} onPointerUp={endGesture} onPointerCancel={endGesture}><Icon name="resize" /></Button>
             </footer>}
           </article>;
         })}
@@ -229,7 +231,7 @@ export default function App() {
       <footer className="workspace-footer">omochi hub <span>Views stay connected to their apps.</span></footer>
     </main>
     {picker && <dialog ref={pickerDialog} aria-labelledby="picker-title" className="picker" onCancel={() => setPicker(false)}>
-      <header><div><div className="eyebrow">COMPOSE YOUR DASHBOARD</div><h2 id="picker-title">Add a view</h2></div><button aria-label="Close view picker" onClick={() => setPicker(false)}>×</button></header>
+      <header><div><div className="eyebrow">COMPOSE YOUR DASHBOARD</div><h2 id="picker-title">Add a view</h2></div><Button className="icon-button" aria-label="Close view picker" onClick={() => setPicker(false)}><Icon name="close" /></Button></header>
       <p>Choose a surface published by one of your apps.</p>
       <input autoFocus className="search" aria-label="Search views" placeholder="Search apps or views…" value={search} onChange={e => setSearch(e.target.value)} />
       <div className="view-options">
@@ -238,7 +240,7 @@ export default function App() {
             const ids = session.surfaceIds.filter(id => splitSurfaceId(id).channelId === service.id && `${service.name} ${splitSurfaceId(id).surfaceId}`.toLowerCase().includes(search.toLowerCase()));
             return ids.length ? <div className="app-options" key={service.id}><h4>{service.name}</h4>{ids.map(id => {
               const added = draft?.panels.some(p => referenceId(p.reference) === id);
-              return <button key={id} disabled={added} onClick={() => addSurface(service, id)}><span>▧ <strong>{splitSurfaceId(id).surfaceId}</strong></span><span>{added ? 'Added' : '＋ Add'}</span></button>;
+              return <Button static key={id} disabled={added} onClick={() => addSurface(service, id)}><span><Icon name="view" /><strong>{splitSurfaceId(id).surfaceId}</strong></span><span>{added ? 'Added' : <><Icon name="plus" /> Add</>}</span></Button>;
             })}</div> : null;
           })}</section>)}
         {!session.surfaceIds.length && <p className="picker-empty">No views available yet. Start an app with a discoverable Unix socket to add its surfaces.</p>}
