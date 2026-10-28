@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "hooks": {
+    "preToolUse": [
+      {
+        "command": "bun \"/absolute/path/to/omochi/examples/agent-approval/hook.ts\" cursor",
+        "matcher": ".*",
+        "timeout": 360,
+        "failClosed": false
+      }
+    ]
+  }
+}

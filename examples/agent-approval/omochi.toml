@@ -1,0 +1,16 @@
+version = 1
+id = "agent-approval"
+
+[services.agent-approval]
+command = ["bun", "run", "app.ts"]
+
+[dashboard]
+name = "Agent approvals"
+
+[[dashboard.rows]]
+panels = ["approvals"]
+height = "large"
+
+[dashboard.panels.approvals]
+title = "Agent approvals"
+service = "agent-approval"

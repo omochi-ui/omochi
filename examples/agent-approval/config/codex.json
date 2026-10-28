@@ -1,0 +1,17 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": ".*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bun \"/absolute/path/to/omochi/examples/agent-approval/hook.ts\" codex",
+            "timeout": 360,
+            "statusMessage": "Waiting for Omochi approval"
+          }
+        ]
+      }
+    ]
+  }
+}

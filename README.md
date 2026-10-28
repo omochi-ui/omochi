@@ -83,6 +83,10 @@ Other examples use the same preview:
 See the [SDK guide](docs/sdk.md) for code examples, state, actions, components,
 and transports in all three languages.
 
+The [agent approval example](examples/agent-approval/README.md) provides a shared
+Approve/Reject panel for Codex, Claude Code, Cursor, and OpenCode tool hooks,
+including optional rejection notes and an agent-free demo.
+
 ## Choose a command
 
 All commands below are invoked with `bun run omochi-ui` from this checkout.

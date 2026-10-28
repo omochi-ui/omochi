@@ -6,7 +6,8 @@
   "scripts": {
     "build": "bun run --bun --filter '*' build",
     "quickstart": "bun run build && bun run omochi-ui up --open examples/quickstart/omochi.toml",
-    "test": "bun run build && bun run --bun --filter '*' test",
+    "test": "bun run build && bun run --bun --filter '*' test && bun run test:approval",
+    "test:approval": "tsc -p examples/agent-approval/tsconfig.json && bun test ./examples/agent-approval/test",
     "test:python": "PYTHONPATH=packages/sdk/python/src python3 -m unittest discover -s packages/sdk/python/tests -v",
     "test:rust": "cargo test --manifest-path packages/sdk/rust/Cargo.toml",
     "release:check": "bun scripts/release.ts check",

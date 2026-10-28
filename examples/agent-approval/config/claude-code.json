@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": ".*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bun \"/absolute/path/to/omochi/examples/agent-approval/hook.ts\" claude-code",
+            "timeout": 360
+          }
+        ]
+      }
+    ]
+  }
+}
