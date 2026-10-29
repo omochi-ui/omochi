@@ -85,6 +85,7 @@ test("start sends a full snapshot even after pre-render and exposes lifecycle", 
   const sent: JsonObject[] = [];
   const transport = { capabilities: new Set<string>(), async send(message: JsonObject) { sent.push(message); }, async *[Symbol.asyncIterator]() {} };
   await runtime.start(transport);
-  assert.equal(sent[0]!.createSurface !== undefined, true);
+  assert.deepEqual(sent[0], { omochi: "resources/1", kind: "hello" });
+  assert.equal(sent[1]!.createSurface !== undefined, true);
   await runtime.ready(); await runtime.waitClosed();
 });

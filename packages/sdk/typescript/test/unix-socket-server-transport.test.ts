@@ -23,6 +23,7 @@ function connectClient(socketPath: string): { socket: Socket; next: () => Promis
   createInterface({ input: socket, crlfDelay: Infinity }).on("line", (line) => {
     if (!line.trim()) return;
     const message = JSON.parse(line) as JsonObject;
+    if (message.omochi === "resources/1") return;
     const waiter = waiters.shift();
     if (waiter) waiter(message);
     else pending.push(message);

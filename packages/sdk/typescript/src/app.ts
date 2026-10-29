@@ -1,3 +1,5 @@
+import { resourceHello } from "@omochi-ui/core";
+import { ResourceRegistry } from "./resources.js";
 import { UI } from "./builder.js";
 import { BASIC_CATALOG, type BasicComponentMap, type CatalogDefinition, type ComponentMap } from "./catalog.js";
 import { DeclarationError, ProtocolError } from "./errors.js";
@@ -17,7 +19,7 @@ export class App<State, Components extends ComponentMap = BasicComponentMap> {
   private readonly views = new Map<string, View<State, Components>>();
   private readonly actions = new Map<string, RegisteredAction<State>>();
   private built = false;
-  constructor(readonly state: State, readonly catalog: CatalogDefinition<Components> = BASIC_CATALOG as CatalogDefinition<Components>) {}
+  constructor(readonly state: State, readonly catalog: CatalogDefinition<Components> = BASIC_CATALOG as CatalogDefinition<Components>, readonly resources = new ResourceRegistry()) {}
   surface(surfaceId: string, view: View<State, Components>): this {
     if (this.built) throw new DeclarationError("app is already built");
     if (this.views.has(surfaceId)) throw new DeclarationError(`surface already registered: ${JSON.stringify(surfaceId)}`);
@@ -30,7 +32,7 @@ export class App<State, Components extends ComponentMap = BasicComponentMap> {
   }
   build(): Runtime<State, Components> {
     if (this.built) throw new DeclarationError("app is already built");
-    this.built = true; return new Runtime(this.state, this.catalog, this.views, this.actions);
+    this.built = true; return new Runtime(this.state, this.catalog, this.views, this.actions, this.resources);
   }
   async start(transport: Transport = new StdioTransport()): Promise<void> { await this.build().start(transport); }
 }
@@ -50,7 +52,7 @@ export class Runtime<State, Components extends ComponentMap = BasicComponentMap>
   private readonly taskControllers = new Set<AbortController>();
   private pendingUpdates: Array<{ mutator: (state: State) => void | Promise<void>; resolve: (messages: A2UIMessage[]) => void; reject: (error: unknown) => void }> = [];
   private updateScheduled = false;
-  constructor(private readonly state: State, private readonly catalog: CatalogDefinition<Components>, private readonly views: Map<string, View<State, Components>>, private readonly actions: Map<string, RegisteredAction<State>>) {}
+  constructor(private readonly state: State, private readonly catalog: CatalogDefinition<Components>, private readonly views: Map<string, View<State, Components>>, private readonly actions: Map<string, RegisteredAction<State>>, readonly resources = new ResourceRegistry()) {}
   get appRevision(): number { return this.revision; }
   declaration(surfaceId: string): Declaration {
     const view = this.views.get(surfaceId);
@@ -131,13 +133,15 @@ export class Runtime<State, Components extends ComponentMap = BasicComponentMap>
     this.tasks.add(running); this.taskControllers.add(controller);
     void running.finally(() => { this.tasks.delete(running); this.taskControllers.delete(controller); });
   }
-  async shutdown(): Promise<void> { if (this.closed) return; this.closed = true; for (const controller of this.taskControllers) controller.abort(); await Promise.allSettled(this.tasks); this.closedResolve(); }
+  async shutdown(): Promise<void> { if (this.closed) return; this.closed = true; for (const controller of this.taskControllers) controller.abort(); await Promise.allSettled(this.tasks); this.resources.close(); this.closedResolve(); }
   waitClosed(): Promise<void> { return this.closedPromise; }
   async start(transport: Transport = new StdioTransport()): Promise<void> {
     if (this.started) throw new DeclarationError("runtime has already been started");
     this.started = true; this.transport = transport; this.reconciler = new Reconciler(transport.capabilities);
-    await this.renderAllAndSend(); this.readyResolve();
+    transport.resources = this.resources;
     try {
+      await transport.send(resourceHello());
+      await this.renderAllAndSend(); this.readyResolve();
       for await (const message of transport) {
         const responses = await this.handle(message);
         if (message.type === "getSurface") for (const response of responses) await transport.send(response);

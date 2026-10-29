@@ -31,7 +31,9 @@ async def read_messages(reader: asyncio.StreamReader, count: int) -> list[dict]:
         if not line:
             raise AssertionError("the service closed the connection")
         if line.strip():
-            messages.append(json.loads(line))
+            message = json.loads(line)
+            if message.get("omochi") != "resources/1":
+                messages.append(message)
     return messages
 
 

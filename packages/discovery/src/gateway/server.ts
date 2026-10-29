@@ -1,3 +1,4 @@
+import { ResourceClient, ResourceError, isResourceFrame, validResourceRequest } from '@omochi-ui/core'
 import { rm } from 'node:fs/promises'
 import { hostname } from 'node:os'
 import process from 'node:process'
@@ -126,6 +127,7 @@ export async function startGateway(options: GatewayOptions = {}): Promise<Gatewa
   const connector = options.connector ?? createUnixConnector()
   const provider = options.discovery ?? createXdgManifestProvider({ root })
   const services = new Map<string, GatewayService>()
+  const resources = new Map<string, ResourceClient>()
   const startedAt = Date.now()
   let closed = false
 
@@ -185,6 +187,7 @@ export async function startGateway(options: GatewayOptions = {}): Promise<Gatewa
     if (!connection) return
     // Clearing the slot first makes the connector's own close callback a no-op, so the
     // reason recorded here survives instead of being overwritten by the teardown.
+    resources.get(serviceId)?.close()
     service.connection = null
     connection.close()
     retractSurfaces(serviceId, service)
@@ -197,6 +200,8 @@ export async function startGateway(options: GatewayOptions = {}): Promise<Gatewa
   const connect = (serviceId: string, service: GatewayService) => {
     if (closed) return
     try {
+      const resource = new ResourceClient(frame => { if (!service.connection) throw new Error('disconnected'); service.connection.send(frame) })
+      resources.set(serviceId, resource)
       service.connection = connector.connect(service.descriptor, {
         onOpen() {
           service.attempt = 0
@@ -205,6 +210,7 @@ export async function startGateway(options: GatewayOptions = {}): Promise<Gatewa
           publish()
         },
         onMessage(value) {
+          if (resource.receive(value)) return
           try {
             service.snapshot.apply(value)
           } catch (error) {
@@ -231,6 +237,7 @@ export async function startGateway(options: GatewayOptions = {}): Promise<Gatewa
     if (service.retry) clearTimeout(service.retry)
     service.retry = null
     const connection = service.connection
+    resources.get(serviceId)?.close()
     service.connection = null
     connection?.close()
     retractSurfaces(serviceId, service)
@@ -294,6 +301,7 @@ export async function startGateway(options: GatewayOptions = {}): Promise<Gatewa
       if (!service) return
       teardown(serviceId, service)
       services.delete(serviceId)
+      resources.delete(serviceId)
       publish()
     },
   })
@@ -364,7 +372,24 @@ export async function startGateway(options: GatewayOptions = {}): Promise<Gatewa
   const onA2uiConnection = (socket: WebSocket) => {
     const client = webSocketClient(socket)
     a2ui.add(client)
+    const controller = new AbortController()
+    socket.once('close', () => controller.abort())
     socket.on('message', (data, isBinary) => {
+      if (!isBinary) {
+        let value: unknown
+        try { value = JSON.parse(data.toString()) } catch { /* handled below */ }
+        if (isResourceFrame(value)) {
+          const request = value
+          const upstream = typeof request.service === 'string' ? resources.get(request.service) : undefined
+          const work = validResourceRequest(request) && upstream
+            ? upstream.request({ op: request.op as 'stat' | 'read', resource: String(request.resource), offset: request.offset as number, length: request.length as number }, controller.signal)
+            : Promise.reject(new ResourceError(404, 'unknown resource service'))
+          void work.then(result => { if (!controller.signal.aborted) client.send(JSON.stringify({ ...result, id: request.id })) }, error => {
+            if (!controller.signal.aborted) client.send(JSON.stringify({ omochi: 'resources/1', kind: 'response', id: request.id, status: error instanceof ResourceError ? error.status : 503 }))
+          })
+          return
+        }
+      }
       const frame = parseClientFrame(data, isBinary)
       if (!frame.ok) {
         closeSocket(socket, frame.code, frame.reason)

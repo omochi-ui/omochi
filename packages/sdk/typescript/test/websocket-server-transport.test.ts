@@ -20,6 +20,7 @@ function messages(socket: WebSocket): () => Promise<JsonObject> {
   const waiters: Array<(message: JsonObject) => void> = [];
   socket.on("message", (data) => {
     const message = JSON.parse(data.toString()) as JsonObject;
+    if (message.omochi === "resources/1") return;
     const waiter = waiters.shift();
     if (waiter) waiter(message);
     else pending.push(message);

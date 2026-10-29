@@ -1,3 +1,4 @@
+import { ResourceClient, ResourceError, serveResources } from '@omochi-ui/core'
 import { DashboardStore, dashboardEndpoints, presetEndpoints } from './dashboards.js'
 import { serveHubUi } from './static-ui.js'
 import process from 'node:process'
@@ -110,6 +111,7 @@ export async function startHub(options: HubOptions = {}): Promise<HubHandle> {
   const gatewaySocket = options.gatewaySocket ?? gatewaySocketPath(omochiRuntimeRoot())
   const locators = [...(options.gateways ?? [createLocalLocator(gatewaySocket)])]
   const nodes = new Map<string, HubNode>()
+  const resources = new Map<HubNode, ResourceClient>()
   const byNodeId = new Map<string, HubNode>()
   let supervisor: GatewaySupervisor | null = null
   let closed = false
@@ -130,6 +132,7 @@ export async function startHub(options: HubOptions = {}): Promise<HubHandle> {
         node.retry = null
         node.authorization += 1
         const client = node.client
+        resources.get(node)?.close()
         node.client = null
         client?.close()
         retractSurfaces(node)
@@ -205,6 +208,7 @@ export async function startHub(options: HubOptions = {}): Promise<HubHandle> {
     if (!client) return
     // Clearing the slot first makes the client's own close callback a no-op, so the
     // reason recorded here survives instead of being overwritten by the teardown.
+    resources.get(node)?.close()
     node.client = null
     client.close()
     retractSurfaces(node)
@@ -235,8 +239,11 @@ export async function startHub(options: HubOptions = {}): Promise<HubHandle> {
 
   const attach = (node: HubNode, tls?: ReturnType<typeof mtlsClientOptions>) => {
     if (closed) return
+    const resource = new ResourceClient(frame => { if (!node.client) throw new Error('disconnected'); node.client.send(frame) })
+    resources.set(node, resource)
     node.client = connectGateway(node.candidate.endpoint, {
       onOpen(info) {
+        resource.supported = true
         node.attempt = 0
         node.nodeId = info.nodeId
         node.nodeName = info.name
@@ -250,6 +257,7 @@ export async function startHub(options: HubOptions = {}): Promise<HubHandle> {
         publish()
       },
       onMessage(message) {
+        if (resource.receive(message)) return
         if (node.nodeId === null) return
         const readdressed = readdressServerMessage(node.nodeId, message)
         if (readdressed === null) {
@@ -304,6 +312,7 @@ export async function startHub(options: HubOptions = {}): Promise<HubHandle> {
     node.retry = null
     node.authorization += 1
     const client = node.client
+    resources.get(node)?.close()
     node.client = null
     client?.close()
     retractSurfaces(node)
@@ -333,6 +342,7 @@ export async function startHub(options: HubOptions = {}): Promise<HubHandle> {
       if (!node) return
       teardown(node)
       nodes.delete(key)
+      resources.delete(node)
       publish()
     },
   }
@@ -356,7 +366,13 @@ export async function startHub(options: HubOptions = {}): Promise<HubHandle> {
           response.writeHead(403).end('Forbidden origin')
           return true
         }
-        return endpoints.handleRequest(request, response) || dashboards(request, response) || presets(request, response) || serveHubUi(request, response)
+        return serveResources(request, response, async (routeId, query, signal) => {
+          const route = splitRouteId(routeId)
+          const node = route ? byNodeId.get(route.nodeId) : undefined
+          const resource = node ? resources.get(node) : undefined
+          if (!route || !resource || node?.status !== 'connected') throw new ResourceError(503, 'node unavailable')
+          return resource.request({ ...query, service: route.serviceId } as typeof query, signal)
+        }, endpoints.isAllowedOrigin) || endpoints.handleRequest(request, response) || dashboards(request, response) || presets(request, response) || serveHubUi(request, response)
       },
       // WebSocket upgrades are exempt from CORS, so any page the user has open could
       // otherwise drive every discovered service. Restrict them the same way.

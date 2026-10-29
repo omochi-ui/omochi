@@ -11,7 +11,7 @@ import type { RequestOptions } from 'node:http'
 import { isValidNodeId, type ServiceView } from '@omochi-ui/core'
 
 /** Bumped on any breaking change. A hub refuses a version it does not know. */
-export const GATEWAY_PROTOCOL = 2
+export const GATEWAY_PROTOCOL = 3
 
 export const GATEWAY_NODE_PATH = '/v1/node'
 export const GATEWAY_SERVICES_PATH = '/v1/services'

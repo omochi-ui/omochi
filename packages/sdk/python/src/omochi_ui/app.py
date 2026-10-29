@@ -6,6 +6,7 @@ from copy import deepcopy
 from dataclasses import dataclass, is_dataclass
 from typing import Any, Callable, Generic, TypeVar, cast, get_type_hints
 
+from .resources import ResourceRegistry, hello
 from .builder import UI
 from .catalog import BASIC_CATALOG, Catalog
 from .errors import DeclarationError, ProtocolError
@@ -41,7 +42,8 @@ class ActionContext(Generic[StateType]):
             self._messages.extend(await self._runtime._render_all_and_send())
 
 class App(Generic[StateType, UIType]):
-    def __init__(self, state: StateType, *, catalog: Catalog[UIType] = cast(Catalog[UIType], BASIC_CATALOG)):
+    def __init__(self, state: StateType, *, catalog: Catalog[UIType] = cast(Catalog[UIType], BASIC_CATALOG), resources: ResourceRegistry | None = None):
+        self.resources = resources or ResourceRegistry()
         self.state, self.catalog = state, catalog
         self._views: dict[str, Callable[[UIType, StateType], Any]] = {}
         self._actions: dict[str, Callable[..., Any]] = {}
@@ -65,12 +67,13 @@ class App(Generic[StateType, UIType]):
     def build(self) -> "Runtime[StateType, UIType]":
         if self._built: raise DeclarationError("app is already built")
         self._built = True
-        return Runtime(self.state, self.catalog, self._views, self._actions)
+        return Runtime(self.state, self.catalog, self._views, self._actions, self.resources)
     async def start(self, transport: Transport | None = None) -> None:
         await self.build().start(transport)
 
 class Runtime(Generic[StateType, UIType]):
-    def __init__(self, state, catalog, views, actions):
+    def __init__(self, state, catalog, views, actions, resources=None):
+        self.resources = resources or ResourceRegistry()
         self.state, self.catalog = state, catalog
         self._views, self._actions = dict(views), dict(actions)
         self._reconciler = Reconciler()
@@ -160,14 +163,17 @@ class Runtime(Generic[StateType, UIType]):
     async def shutdown(self):
         for task in self._tasks: task.cancel()
         if self._tasks: await asyncio.gather(*self._tasks, return_exceptions=True)
+        self.resources.close()
         self._closed.set()
     async def wait_closed(self): await self._closed.wait()
     async def start(self, transport: Transport | None = None):
         if self._started: raise DeclarationError("runtime has already been started")
         self._started = True; self._transport = transport or StdioTransport()
         self._reconciler = Reconciler(set(self._transport.capabilities))
-        await self._render_all_and_send(); self._ready.set()
+        self._transport.resources = self.resources
         try:
+            await self._transport.send(hello())
+            await self._render_all_and_send(); self._ready.set()
             async for message in self._transport.receive():
                 responses = await self.handle(message)
                 if message.get("type") == "getSurface":

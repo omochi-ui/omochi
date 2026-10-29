@@ -9,6 +9,7 @@ export default defineConfig({
   server: {
     proxy: {
       '/ws': { target: bridge, ws: true },
+      '/resources': { target: bridge },
     },
   },
 })

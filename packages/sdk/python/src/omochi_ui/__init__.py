@@ -34,3 +34,5 @@ __all__ = [
     "WebSocketTransport",
     "omochi_runtime_root",
 ]
+
+from .resources import ResourceRegistry

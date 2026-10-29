@@ -1,3 +1,4 @@
+import { ResourceClient, ResourceError, serveResources } from '@omochi-ui/core'
 import type { ChildProcessWithoutNullStreams } from 'node:child_process'
 import process from 'node:process'
 
@@ -45,8 +46,10 @@ export async function startStdioWebSocketBridge(
     if (endpoint?.httpServer.listening) endpoint.httpServer.close()
   }
 
+  const resources = new ResourceClient(frame => session.writeLine(frame))
   const session = spawnChildSession(options.command, {
     onExit(exitCode) {
+      resources.close()
       if (!childProtocolFailed) {
         fanOut.closeAll(exitCode === 0 ? 1000 : 1011, `child process exited with code ${exitCode}`)
       }
@@ -61,6 +64,7 @@ export async function startStdioWebSocketBridge(
   readJsonlMessages({
     input: session.child.stdout,
     onMessage(value, raw) {
+      if (resources.receive(value)) return
       snapshot.apply(value)
       fanOut.broadcast(raw)
     },
@@ -74,7 +78,7 @@ export async function startStdioWebSocketBridge(
   })
 
   try {
-    endpoint = await startWsEndpoint({ host, port })
+    endpoint = await startWsEndpoint({ host, port, onRequest: (request, response) => serveResources(request, response, (route, query, signal) => { if (route !== '_') throw new ResourceError(404, 'unknown resource route'); return resources.request(query, signal) }) })
   } catch (error) {
     session.kill('SIGTERM')
     throw error
@@ -101,6 +105,7 @@ export async function startStdioWebSocketBridge(
     child: session.child,
     exited: session.exited,
     async close() {
+      resources.close()
       fanOut.closeAll(1001, 'bridge shutting down')
       session.kill('SIGTERM')
       await endpoint.close()

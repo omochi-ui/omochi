@@ -23,3 +23,6 @@ pub use transport::{CallbackTransport, StdioTransport, Transport};
 pub use unix_server::{
     UnixSocketServerOptions, UnixSocketServerTransport, omochi_runtime_root, validate_service_id,
 };
+
+pub mod resources;
+pub use resources::ResourceRegistry;

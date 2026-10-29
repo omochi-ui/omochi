@@ -1,7 +1,10 @@
 {
   "name": "@omochi-ui/sdk",
   "version": "0.1.2",
-  "publishConfig": { "access": "public", "registry": "https://registry.npmjs.org/" },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
   "description": "Declarative, transport-independent application runtime for A2UI",
   "license": "Apache-2.0",
   "type": "module",
@@ -22,11 +25,11 @@
   ],
   "dependencies": {
     "@a2ui/web_core": "0.10.5",
-    "ws": "^8.18.0"
+    "ws": "^8.18.0",
+    "@omochi-ui/core": "workspace:*"
   },
   "devDependencies": {
-    "@types/ws": "^8.18.0",
-    "@omochi-ui/core": "workspace:*"
+    "@types/ws": "^8.18.0"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",

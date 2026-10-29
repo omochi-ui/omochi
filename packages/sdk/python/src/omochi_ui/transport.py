@@ -8,7 +8,35 @@ from collections.abc import AsyncIterator, Awaitable, Callable
 from typing import Any
 
 
+from .resources import is_resource
+
+
+async def resource_messages(transport, source):
+    queue = asyncio.Queue()
+    async def pump():
+        try:
+            async for message in source:
+                if transport.resources and is_resource(message):
+                    if message.get("kind") == "request":
+                        await transport.send(transport.resources.respond(message))
+                else:
+                    await queue.put(message)
+        except Exception as error:
+            await queue.put(error)
+        finally:
+            await queue.put(None)
+    task = asyncio.create_task(pump())
+    try:
+        while (message := await queue.get()) is not None:
+            if isinstance(message, Exception): raise message
+            yield message
+    finally:
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+
+
 class Transport(ABC):
+    resources = None
     capabilities: set[str] = set()
 
     @abstractmethod
@@ -36,6 +64,10 @@ class StdioTransport(Transport):
         sys.stdout.flush()
 
     async def receive(self) -> AsyncIterator[dict[str, Any]]:
+        async for message in resource_messages(self, self._receive()):
+            yield message
+
+    async def _receive(self) -> AsyncIterator[dict[str, Any]]:
         reader = asyncio.StreamReader()
         protocol = asyncio.StreamReaderProtocol(reader)
         loop = asyncio.get_running_loop()
@@ -64,7 +96,7 @@ class CallbackTransport(Transport):
         await self._send(message)
 
     def receive(self) -> AsyncIterator[dict[str, Any]]:
-        return self._receive()
+        return resource_messages(self, self._receive())
 
 
 class WebSocketTransport(CallbackTransport):

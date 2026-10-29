@@ -14,6 +14,7 @@ from contextlib import suppress
 from pathlib import Path
 from typing import Any
 
+from .resources import is_resource, hello
 from .snapshot import A2uiSnapshot
 from .transport import Transport
 
@@ -144,7 +145,8 @@ class UnixSocketServerTransport(Transport):
 
     async def send(self, message: dict[str, Any]) -> None:
         await self.start()
-        self._snapshot.apply(message)
+        if not is_resource(message):
+            self._snapshot.apply(message)
         line = json.dumps(message, separators=(",", ":"), ensure_ascii=False) + "\n"
         for writer in list(self._writers):
             self._write(writer, line)
@@ -195,6 +197,8 @@ class UnixSocketServerTransport(Transport):
     async def _accept(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
         self._writers.add(writer)
         try:
+            if self.resources:
+                self._write(writer, json.dumps(hello()) + "\n")
             for message in self._snapshot.messages():
                 self._write(writer, json.dumps(message, separators=(",", ":"), ensure_ascii=False) + "\n")
             await writer.drain()
@@ -206,6 +210,11 @@ class UnixSocketServerTransport(Transport):
                     message = json.loads(text)
                 except ValueError:
                     break
+                if self.resources and is_resource(message):
+                    if message.get("kind") == "request":
+                        self._write(writer, json.dumps(self.resources.respond(message)) + "\n")
+                        await writer.drain()
+                    continue
                 # "{error}" is a valid client message but carries no action for the
                 # Runtime to invoke; dropping it keeps a client-side report from tearing
                 # the application down.

@@ -220,3 +220,47 @@ The A2UI wire format has no omochi-ui session envelope. A `Transport` still host
 exactly one application, and session membership stays outside the messages: the
 hub keeps one connection per service and namespaces surface ids instead of
 wrapping the frames.
+
+## Registered media
+
+Register an immutable copy of a local file or bytes and pass its URI to Image,
+Video, or AudioPlayer. This works through stdio dev preview and local/remote hubs;
+the browser never needs access to the application's filesystem or localhost.
+
+```python
+photo = app.resources.file("photo.png")
+clip = app.resources.bytes(video_bytes, mime_type="video/mp4")
+# In a surface:
+ui.image(photo)
+ui.video(clip)
+```
+
+TypeScript uses `app.resources.file(path, mimeType?)` and
+`app.resources.bytes(data, mimeType)`. Rust uses
+`app.resources.file(path, Option<&str>)?` and
+`app.resources.bytes(&data, mime)?`. All return `omochi://resources/<id>` strings.
+Registration performs bounded synchronous disk I/O: register large files before
+starting the app, or use a worker/thread when registering during interaction.
+
+`release(uri)` prevents further reads. Keep media registered while a surface can
+reference it, including while audio/video is playing. Runtime shutdown closes its
+registry. Changed content must be registered again and its new URI rendered.
+
+Storage limits default to 1 GiB per file and 4 GiB total. To change them, supply a
+`ResourceRegistry` to the TypeScript App's third constructor argument, Python's
+`resources=` argument, or Rust's public `app.resources` field. The registry accepts
+per-file and total byte limits. Files infer common image/audio/video MIME types by
+extension; byte registration requires a MIME type. There is no codec conversion.
+
+Runnable examples: `examples/media/app.py`, `examples/media/app.ts`, and
+`cargo run --manifest-path packages/sdk/rust/Cargo.toml --example media -- photo.png audio.wav clip.webm`.
+Pass the same three filenames to the Python/TypeScript examples, and use `omochi-ui dev --`
+to wrap the command. The Python SDK must be installed or on PYTHONPATH.
+
+Custom transports must preserve resource frames separately from A2UI snapshots and
+reply to the originating connection. The bundled transports provide this handling. The browser renderer's
+`useA2uiSession(wsUrl, resourceBaseUrl?)` accepts an HTTP base override for custom
+hosting; by default the WebSocket origin supplies the HTTP resource endpoint.
+
+See [the resource wire contract](../spec/resources.md). Hub and gateway must both
+use gateway protocol 3; existing SDKs without resource support can still display UI.

@@ -1,3 +1,4 @@
+use crate::resources::{ResourceRegistry, hello};
 use std::{
     collections::HashMap,
     future::Future,
@@ -67,6 +68,7 @@ impl<S> ActionContext<S> {
 }
 
 pub struct App<S> {
+    pub resources: ResourceRegistry,
     catalog_id: String,
     state: Arc<Mutex<S>>,
     views: HashMap<String, View<S>>,
@@ -79,6 +81,7 @@ impl<S: Send + Sync + 'static> App<S> {
     }
     pub fn with_catalog(state: S, catalog_id: impl Into<String>) -> Self {
         Self {
+            resources: ResourceRegistry::default(),
             catalog_id: catalog_id.into(),
             state: Arc::new(Mutex::new(state)),
             views: HashMap::new(),
@@ -141,6 +144,7 @@ impl<S: Send + Sync + 'static> App<S> {
 }
 
 pub struct Runtime<S> {
+    pub resources: ResourceRegistry,
     catalog_id: String,
     state: Arc<Mutex<S>>,
     views: HashMap<String, View<S>>,
@@ -157,6 +161,7 @@ pub struct Runtime<S> {
 impl<S: Send + Sync + 'static> Runtime<S> {
     fn new(app: App<S>) -> Self {
         Self {
+            resources: app.resources,
             catalog_id: app.catalog_id,
             state: app.state,
             views: app.views,
@@ -308,7 +313,7 @@ impl<S: Send + Sync + 'static> Runtime<S> {
     pub async fn dispatch(&mut self, message: Value) -> Result<Vec<Value>> {
         self.handle(message).await
     }
-    pub async fn start_with<T: Transport + 'static>(&mut self, transport: T) -> Result<()> {
+    pub async fn start_with<T: Transport + 'static>(&mut self, mut transport: T) -> Result<()> {
         if self.started {
             return Err(Error::Declaration(
                 "runtime has already been started".into(),
@@ -316,8 +321,10 @@ impl<S: Send + Sync + 'static> Runtime<S> {
         }
         self.started = true;
         self.reconciler = Reconciler::new(transport.capabilities());
+        transport.set_resources(self.resources.clone());
         self.transport = Some(Box::new(transport));
         let result = async {
+            self.transport.as_mut().unwrap().send(&hello()).await?;
             self.render_all_and_send().await?;
             self.ready = true;
             loop {
@@ -339,6 +346,7 @@ impl<S: Send + Sync + 'static> Runtime<S> {
         }
         .await;
         self.shutdown().await;
+        self.resources.close();
         result
     }
     pub async fn start(&mut self) -> Result<()> {

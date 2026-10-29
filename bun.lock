@@ -131,10 +131,10 @@
       "version": "0.1.2",
       "dependencies": {
         "@a2ui/web_core": "0.10.5",
+        "@omochi-ui/core": "workspace:*",
         "ws": "^8.18.0",
       },
       "devDependencies": {
-        "@omochi-ui/core": "workspace:*",
         "@types/ws": "^8.18.0",
       },
     },

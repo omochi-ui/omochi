@@ -41,3 +41,4 @@ export {
   type WsEndpointCommonOptions,
   type WsEndpointOptions,
 } from './ws-endpoint.js'
+export { RESOURCE_PROTOCOL, RESOURCE_CHUNK, ResourceClient, ResourceError, isResourceFrame, resourceHello, validResourceRequest, serveResources, resourceOriginAllowed, type ResourceFrame, type ResourceRequest } from './resources.js'

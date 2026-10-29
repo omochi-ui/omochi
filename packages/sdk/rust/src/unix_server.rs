@@ -1,3 +1,4 @@
+use crate::resources::{ResourceRegistry, hello, is_resource};
 use std::collections::BTreeSet;
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
@@ -108,6 +109,7 @@ impl UnixSocketServerOptions {
 }
 
 struct Shared {
+    resources: std::sync::RwLock<Option<ResourceRegistry>>,
     clients: Mutex<Vec<mpsc::UnboundedSender<String>>>,
     snapshot: Mutex<A2uiSnapshot>,
 }
@@ -176,6 +178,7 @@ impl UnixSocketServerTransport {
         fs::set_permissions(&socket_path, fs::Permissions::from_mode(0o600))?;
 
         let shared = Arc::new(Shared {
+            resources: std::sync::RwLock::new(None),
             clients: Mutex::new(Vec::new()),
             snapshot: Mutex::new(A2uiSnapshot::new()),
         });
@@ -244,12 +247,17 @@ impl Drop for UnixSocketServerTransport {
 
 #[async_trait]
 impl Transport for UnixSocketServerTransport {
+    fn set_resources(&mut self, resources: ResourceRegistry) {
+        *self.shared.resources.write().unwrap() = Some(resources);
+    }
     fn capabilities(&self) -> BTreeSet<String> {
         self.capabilities.clone()
     }
 
     async fn send(&mut self, message: &Value) -> Result<()> {
-        self.shared.snapshot.lock().await.apply(message)?;
+        if !is_resource(message) {
+            self.shared.snapshot.lock().await.apply(message)?;
+        }
         self.shared
             .broadcast(format!("{}\n", serde_json::to_string(message)?))
             .await;
@@ -304,6 +312,9 @@ async fn serve_connection(
 ) {
     let (reader, mut writer) = stream.into_split();
     let (sender, mut outbound) = mpsc::unbounded_channel::<String>();
+    if shared.resources.read().unwrap().is_some() {
+        let _ = sender.send(format!("{}\n", hello()));
+    }
     for message in shared.snapshot.lock().await.messages() {
         let Ok(encoded) = serde_json::to_string(&message) else {
             continue;
@@ -312,7 +323,7 @@ async fn serve_connection(
             return;
         }
     }
-    shared.clients.lock().await.push(sender);
+    shared.clients.lock().await.push(sender.clone());
 
     let writing = tokio::spawn(async move {
         while let Some(line) = outbound.recv().await {
@@ -330,6 +341,14 @@ async fn serve_connection(
         let Ok(value) = serde_json::from_str::<Value>(&line) else {
             break;
         };
+        if is_resource(&value) {
+            if value["kind"] == "request" {
+                if let Some(resources) = shared.resources.read().unwrap().as_ref() {
+                    let _ = sender.send(format!("{}\n", resources.respond(&value)));
+                }
+            }
+            continue;
+        }
         // "{error}" is a valid client message but carries no action for the Runtime to
         // invoke; dropping it keeps a client-side report from tearing the application down.
         if value.get("action").is_none() {

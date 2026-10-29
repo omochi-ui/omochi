@@ -1,3 +1,5 @@
+import { isResourceFrame, resourceHello, serveResources, type ResourceFrame } from "@omochi-ui/core";
+import { ResourceRegistry } from "../resources.js";
 import { chmod, rmdir } from "node:fs/promises";
 import { createServer, type Server, type Socket } from "node:net";
 import path from "node:path";
@@ -50,6 +52,7 @@ const SOCKET_FILE_NAME = "a2ui.sock";
  * renderer and merges their inbound messages into a single stream for the Runtime.
  */
 export class UnixSocketServerTransport implements Transport {
+  resources?: ResourceRegistry;
   readonly capabilities: ReadonlySet<string>;
   readonly ready: Promise<void>;
 
@@ -95,8 +98,8 @@ export class UnixSocketServerTransport implements Transport {
     return this.resolvedDirectory;
   }
 
-  async send(message: A2UIMessage): Promise<void> {
-    this.snapshot.apply(message);
+  async send(message: A2UIMessage | ResourceFrame): Promise<void> {
+    if (!isResourceFrame(message)) this.snapshot.apply(message);
     const encoded = `${JSON.stringify(message)}\n`;
     for (const client of this.clients) {
       if (client.writable) client.write(encoded);
@@ -175,6 +178,7 @@ export class UnixSocketServerTransport implements Transport {
   private accept(socket: Socket): void {
     if (this.closed) { socket.destroy(); return; }
     this.clients.add(socket);
+    if (this.resources) socket.write(`${JSON.stringify(resourceHello())}\n`);
     socket.setNoDelay(true);
     socket.on("error", () => this.clients.delete(socket));
     socket.on("close", () => this.clients.delete(socket));
@@ -183,6 +187,10 @@ export class UnixSocketServerTransport implements Transport {
       if (!line.trim()) return;
       try {
         const value: unknown = JSON.parse(line);
+        if (this.resources && isResourceFrame(value)) {
+          if (value.kind === "request") socket.write(`${JSON.stringify(this.resources.respond(value))}\n`);
+          return;
+        }
         const parsed = A2uiClientMessageSchema.safeParse(value);
         if (!parsed.success || parsed.data.version !== "v0.9") {
           throw new Error(parsed.success ? `unsupported version: ${parsed.data.version}` : "expected an A2UI v0.9 client message");

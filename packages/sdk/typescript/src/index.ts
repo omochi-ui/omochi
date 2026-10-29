@@ -24,3 +24,5 @@ export type {
   View,
 } from "./types.js";
 export type { Transport, WebSocketLike } from "./transport.js";
+
+export { ResourceRegistry } from "./resources.js";

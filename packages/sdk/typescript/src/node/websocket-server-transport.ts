@@ -1,3 +1,5 @@
+import { isResourceFrame, ResourceError, resourceHello, serveResources, type ResourceFrame } from "@omochi-ui/core";
+import { ResourceRegistry } from "../resources.js";
 import { createServer, type Server } from "node:http";
 
 import { A2uiClientMessageSchema } from "@a2ui/web_core/v0_9";
@@ -34,6 +36,7 @@ function displayHost(host: string): string {
 }
 
 export class WebSocketServerTransport implements Transport {
+  resources?: ResourceRegistry;
   readonly capabilities: ReadonlySet<string>;
   readonly ready: Promise<void>;
 
@@ -58,7 +61,15 @@ export class WebSocketServerTransport implements Transport {
     this.path = options.path ?? "/ws";
     if (!this.path.startsWith("/")) throw new TypeError("path must start with /");
     this.capabilities = new Set(options.capabilities ?? []);
-    this.httpServer = createServer((_request, response) => response.writeHead(404).end("Not found"));
+    this.httpServer = createServer((request, response) => {
+      if (serveResources(request, response, async (route, query) => {
+        if (route !== "_") throw new ResourceError(404, "unknown resource route");
+        const result = this.resources?.respond({ omochi: "resources/1", kind: "request", id: "http", ...query });
+        if (!result || result.status !== 200) throw new ResourceError(Number(result?.status ?? 503), "resource unavailable");
+        return result;
+      })) return;
+      response.writeHead(404).end("Not found");
+    });
 
     this.httpServer.on("upgrade", (request, socket, head) => {
       const pathname = new URL(request.url ?? "/", "http://localhost").pathname;
@@ -99,8 +110,8 @@ export class WebSocketServerTransport implements Transport {
     return this.resolvedUrl;
   }
 
-  async send(message: A2UIMessage): Promise<void> {
-    this.snapshot.apply(message);
+  async send(message: A2UIMessage | ResourceFrame): Promise<void> {
+    if (!isResourceFrame(message)) this.snapshot.apply(message);
     const encoded = JSON.stringify(message);
     for (const client of this.clients) {
       if (client.readyState === WebSocket.OPEN) client.send(encoded);
@@ -136,6 +147,7 @@ export class WebSocketServerTransport implements Transport {
 
   private accept(socket: WebSocket): void {
     this.clients.add(socket);
+    if (this.resources) socket.send(JSON.stringify(resourceHello()));
     for (const message of this.snapshot.messages()) socket.send(JSON.stringify(message));
     socket.on("message", (data, isBinary) => {
       if (isBinary) {
@@ -144,6 +156,10 @@ export class WebSocketServerTransport implements Transport {
       }
       try {
         const value: unknown = JSON.parse(data.toString());
+        if (this.resources && isResourceFrame(value)) {
+          if (value.kind === "request") socket.send(JSON.stringify(this.resources.respond(value)));
+          return;
+        }
         const parsed = A2uiClientMessageSchema.safeParse(value);
         if (!parsed.success || parsed.data.version !== "v0.9" || !("action" in parsed.data)) {
           throw new Error(parsed.success ? `unsupported version: ${parsed.data.version}` : "expected an A2UI v0.9 client message");

@@ -1,4 +1,5 @@
-import { basicCatalog, type ReactComponentImplementation } from '@a2ui/react/v0_9'
+import { resourceCatalog } from './resources.js'
+import { type ReactComponentImplementation } from '@a2ui/react/v0_9'
 import {
   MessageProcessor,
   type A2uiClientAction,
@@ -57,7 +58,7 @@ export class A2uiWebSocketClient {
     this.socket = socket
     socket.onopen = () => {
       this.processor = new MessageProcessor<ReactComponentImplementation>(
-        [basicCatalog],
+        [resourceCatalog],
         (action: A2uiClientAction) => this.sendAction(action),
       )
       this.callbacks.onProcessor(this.processor)
@@ -69,6 +70,7 @@ export class A2uiWebSocketClient {
       // must not take the others down with it. Report it and keep the stream open.
       try {
         const message: unknown = JSON.parse(String(event.data))
+        if (message && typeof message === 'object' && 'omochi' in message && message.omochi === 'resources/1' && 'kind' in message && message.kind === 'hello') return
         if (!isA2uiMessage(message)) throw new Error('expected one A2UI v0.9 server message')
         if (!this.processor) throw new Error('received an A2UI message before the connection opened')
         this.processor.processMessages([message])
