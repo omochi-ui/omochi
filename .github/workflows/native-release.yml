@@ -81,8 +81,8 @@ jobs:
       - run: python3 -B scripts/test_native_packaging.py
       - run: python3 scripts/package-native.py
       - run: python3 scripts/smoke-native.py artifacts/native/*.tar.gz
-      - run: cargo test --release --locked --manifest-path packages/server-rust/Cargo.toml --workspace
-      - run: OMOCHI_NATIVE_TEST=1 OMOCHI_NATIVE_PROFILE=release bun test packages/renderer/test/native.test.ts packages/utils/test/native-mcp.test.ts
+      - run: cargo test --release --locked --manifest-path crates/Cargo.toml --workspace
+      - run: OMOCHI_NATIVE_TEST=1 OMOCHI_NATIVE_PROFILE=release bun test packages/renderer/test/native.test.ts tests/native/mcp.test.ts
       - run: python3 scripts/package-native-npm.py --partial artifacts/native/*.tar.gz
       - run: bun run release:native:smoke:npm
       - uses: actions/upload-artifact@v7

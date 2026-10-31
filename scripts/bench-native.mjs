@@ -8,6 +8,8 @@ import { join, resolve } from 'node:path';
 import { createHash } from 'node:crypto';
 
 if (process.platform !== 'linux') throw new Error('This benchmark reads Linux /proc');
+const legacyRoot = process.env.OMOCHI_LEGACY_ROOT;
+if (!legacyRoot) throw new Error('Set OMOCHI_LEGACY_ROOT to a built pre-Rust-cleanup checkout (for example b8a2f85).');
 const repetitions = Number(process.env.OMOCHI_BENCH_RUNS ?? 5);
 if (!Number.isInteger(repetitions) || repetitions < 1 || repetitions > 20) throw new Error('invalid run count');
 const hz = Number(execFileSync('getconf',['CLK_TCK'],{encoding:'utf8'}).trim());
@@ -67,7 +69,7 @@ async function sample(mode) {
     });
   });
   await new Promise((resolve,reject)=>{ fixture.once('error',reject);fixture.listen(join(service,'a2ui.sock'),resolve); });
-  const argv=mode==='rust' ? [join(root,'packages/server-rust/target/release/omochi-ui'),'--config-dir',join(directory,'config','native'),'--runtime-dir',runtime,'hub','--port','0'] : [process.execPath,join(root,'packages/cli/dist/cli.js'),'hub','--port','0'];
+  const argv=mode==='rust' ? [join(root,'crates/target/release/omochi-ui'),'--config-dir',join(directory,'config','native'),'--runtime-dir',runtime,'hub','--port','0'] : [process.execPath,join(legacyRoot,'packages/cli/dist/cli.js'),'hub','--port','0'];
   let child, ws;
   const started=performance.now();
   try {
@@ -130,6 +132,6 @@ for(let index=0;index<repetitions;index++) {
     console.error(`${mode}: startup ${result.startupMs.toFixed(1)} ms, PSS ${(result.pssKiB/1024).toFixed(1)} MiB`);
   }
 }
-const provenance={commit:execFileSync('git',['rev-parse','HEAD'],{cwd:root,encoding:'utf8'}).trim(),dirty:!!execFileSync('git',['status','--porcelain'],{cwd:root,encoding:'utf8'}).trim(),nativeSha256:createHash('sha256').update(readFileSync(join(root,'packages/server-rust/target/release/omochi-ui'))).digest('hex')};
+const provenance={commit:execFileSync('git',['rev-parse','HEAD'],{cwd:root,encoding:'utf8'}).trim(),dirty:!!execFileSync('git',['status','--porcelain'],{cwd:root,encoding:'utf8'}).trim(),nativeSha256:createHash('sha256').update(readFileSync(join(root,'crates/target/release/omochi-ui'))).digest('hex')};
 const report={...provenance,timestamp:new Date().toISOString(),platform:`Linux ${release()}`,cpu:cpus()[0].model,logicalCpus:cpus().length,bun:process.versions.bun,rust:execFileSync('rustc',['--version'],{encoding:'utf8'}).trim(),repetitions,method:'Fresh config; warm OS cache; local synthetic Unix SDK echo; 25 warmup + 200 measured actions per payload; 2s idle; process-tree RSS/PSS incl. gateway; no browser rendering or remote transport',results};
 const output=join(root,'artifacts/bench/native-local.json');mkdirSync(join(root,'artifacts/bench'),{recursive:true});writeFileSync(output,JSON.stringify(report,null,2)+'\n');console.log(output);

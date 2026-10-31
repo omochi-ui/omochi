@@ -44,7 +44,7 @@ def pack(directory, manifest, output):
     (directory / 'package.json').write_text(json.dumps(manifest, indent=2) + '\n')
     shutil.copy2(ROOT / 'LICENSE', directory / 'LICENSE')
     if not (directory / 'README.md').exists():
-        shutil.copy2(ROOT / 'packages/server-rust/DISTRIBUTION.md', directory / 'README.md')
+        shutil.copy2(ROOT / 'crates/DISTRIBUTION.md', directory / 'README.md')
     result = subprocess.check_output(['npm', 'pack', '--ignore-scripts', '--json', '--pack-destination', str(output)], cwd=directory, text=True)
     artifact = json.loads(result)[0]
     return {k: artifact[k] for k in ['name', 'version', 'filename', 'integrity']}
@@ -56,7 +56,7 @@ def main():
     parser.add_argument('--partial', action='store_true', help='local smoke only; publication refuses an incomplete platform set')
     parser.add_argument('--output', type=Path, default=ROOT / 'artifacts/native-npm')
     args = parser.parse_args()
-    version = tomllib.loads((ROOT / 'packages/server-rust/Cargo.toml').read_text())['workspace']['package']['version']
+    version = tomllib.loads((ROOT / 'crates/Cargo.toml').read_text())['workspace']['package']['version']
     validated = [validate_archive(p, version) for p in args.archives]
     targets = [row[0]['target'] for row in validated]
     if len(set(targets)) != len(targets):
@@ -82,15 +82,19 @@ def main():
             if 'libc' in target:
                 manifest['libc'] = [target['libc']]
             packages.append(pack(directory, manifest, output))
-    for name, binary in [('cli', 'omochi-ui'), ('utils', 'omochi-utils')]:
+    for name in ['cli', 'utils']:
+        stub = json.loads((ROOT / 'packages/npm' / name / 'package.json').read_text())
+        binary = stub['omochiNative']['binary']
+        if stub['omochiNative']['crate'] != 'omochi-' + name or stub['name'] != '@omochi-ui/' + name:
+            raise ValueError('Invalid native npm stub')
         with tempfile.TemporaryDirectory(prefix='omochi-native-wrapper-') as temporary:
             directory = Path(temporary)
             (directory / 'bin').mkdir()
             launcher = directory / 'bin' / (binary + '.cjs')
-            shutil.copy2(ROOT / 'scripts/native/launcher.cjs', launcher)
+            shutil.copy2(ROOT / 'packages/npm/launcher.cjs', launcher)
             launcher.chmod(0o755)
-            manifest = {'name': '@omochi-ui/' + name, 'version': version, 'description': 'Native Omochi ' + name,
-                        'files': ['bin'], 'engines': {'node': '>=22'}, 'bin': {binary: './bin/' + launcher.name},
+            manifest = {'name': stub['name'], 'version': version, 'description': stub['description'],
+                        'files': ['bin'], 'engines': stub['engines'], 'bin': {binary: './bin/' + launcher.name},
                         'nativeBinary': binary,
                         'nativePlatforms': {f"{t['os']}-{t['cpu']}": platform_name(t) for t in TARGETS},
                         'optionalDependencies': {platform_name(t): version for t in TARGETS}}

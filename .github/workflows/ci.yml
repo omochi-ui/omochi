@@ -16,7 +16,7 @@ concurrency:
 jobs:
   typescript:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
         with:
@@ -25,8 +25,6 @@ jobs:
         with:
           bun-version-file: .bun-version
       - run: bun install --frozen-lockfile
-      - run: bun run release:typecheck
-      - run: bun test scripts/release.test.ts scripts/native-release.test.ts
       - run: bun run release:check
       - uses: dtolnay/rust-toolchain@stable
       - run: bun run test

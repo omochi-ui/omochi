@@ -1,0 +1,22 @@
+[package]
+name = "omochi-gateway"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Native Omochi application gateway"
+readme = "README.md"
+include = ["src/**", "tests/**", "Cargo.toml", "Cargo.lock", "README.md", "LICENSE"]
+[dependencies]
+anyhow.workspace = true
+tokio.workspace = true
+serde_json.workspace = true
+serde.workspace = true
+omochi-transport = { path = "../transport", version = "=0.2.0" }
+omochi-protocol = { path = "../protocol", version = "=0.2.0" }
+omochi-local-discovery = { path = "../discovery", version = "=0.2.0" }
+omochi-ui = { path = "../../packages/sdk/rust", version = "=0.1.2" }
+futures-util = { version = "0.3", features = ["sink"] }
+tokio-util = { version = "0.7", features = ["codec", "rt"] }
+[dev-dependencies]
+tempfile = "3"

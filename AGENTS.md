@@ -2,16 +2,18 @@
 
 ## Project Structure & Module Organization
 
-This workspace implements the same declarative A2UI runtime in three languages. TypeScript lives in `packages/sdk/typescript/src`, Python in `packages/sdk/python/src/omochi_ui`, and Rust in `packages/sdk/rust/src`. The shared browser renderer is in `packages/renderer`, the development preview is in `packages/dev-server`, and the dashboard frontend is in `packages/hub-ui`; transport primitives shared by every server-side component are in `packages/core`; service discovery and the gateway are in `packages/discovery`; the CLI, the WebSocket bridge, and the discovery hub are in `packages/cli`; runnable integrations are under `examples/`. Shared protocol contracts and conformance data belong in `spec/`, especially `spec/ir.schema.json` and `spec/fixtures/basic.json`. Keep cross-language behavior aligned, and do not hand-edit generated `dist/` or `dist-test/` output.
+This workspace implements the same declarative A2UI runtime in three languages. TypeScript lives in `packages/sdk/typescript/src`, Python in `packages/sdk/python/src/omochi_ui`, and Rust in `packages/sdk/rust/src`. The shared browser renderer is in `packages/renderer`, the development preview is in `packages/dev-server`, and the dashboard frontend is in `packages/hub-ui`; TypeScript SDK/browser transport helpers are in `packages/core`; native server implementations are the Cargo workspace in `crates/` (`protocol`, `transport`, `discovery`, `gateway`, `hub`, `cli`, `utils`); `packages/npm/cli` and `packages/npm/utils` are thin launcher stubs with no server implementation; runnable integrations are under `examples/`. Shared protocol contracts and conformance data belong in `spec/`, especially `spec/ir.schema.json` and `spec/fixtures/basic.json`. Keep cross-language behavior aligned, and do not hand-edit generated `dist/` or `dist-test/` output.
 
 ## Build, Test, and Development Commands
 
 - `bun install`: install workspace JavaScript dependencies (Bun 1.4.3+).
-- `bun run build`: compile the TypeScript SDK and build the Vite dev server.
-- `bun run test`: run TypeScript SDK, CLI, and dev-server tests.
+- `bun run build`: build JavaScript packages and the native Rust binaries.
+- `bun run test`: run SDK/browser, native Rust, native client integration and sample composition tests.
+- `bun run test:server-rust`: run the Rust server workspace tests.
+- `bun run test:native-mcp`: verify the MCP client against native services.
 - `bun run test:python`: run Python `unittest` tests with the local package on `PYTHONPATH`.
 - `bun run test:rust`: run the Rust crate tests.
-- `OMOCHI_MDNS_TEST=1 bun run --filter @omochi-ui/discovery test`: also run the real-multicast mDNS tests, which are skipped by default because most CI has no multicast. Run them by hand when bumping `bonjour-service`.
+- `cargo test --manifest-path crates/Cargo.toml mdns_resolves -- --ignored --nocapture`: explicitly run real-multicast discovery verification.
 - `bun run --filter @omochi-ui/dev-server dev`: start the Vite frontend during renderer work.
 
 For an end-to-end example, build first, then run `bun run omochi-ui dev -- uv run --project examples/python examples/python/app.py`.
@@ -32,10 +34,10 @@ Use short, imperative commit subjects such as `align rust reconciliation fixture
 
 The dev server is unauthenticated and has no TLS. Keep its default `127.0.0.1` binding unless external exposure is explicitly required, and never commit credentials or local environment files.
 
-Local service discovery trusts `$XDG_RUNTIME_DIR` being mode 0700: reaching a service's `a2ui.sock`, or the gateway's `gateway.sock`, is the only authentication. Because WebSocket upgrades are exempt from CORS, the hub restricts both upgrades and its HTTP endpoints to loopback origins unless `--allow-origin` widens the list — keep that check when touching `packages/cli/src/hub`. A manifest is written by an arbitrary local process, so keep validating `serviceId`, `socket`, and `icon` before acting on one.
+Local service discovery trusts `$XDG_RUNTIME_DIR` being mode 0700: reaching a service's `a2ui.sock`, or the gateway's `gateway.sock`, is the only authentication. Because WebSocket upgrades are exempt from CORS, the hub restricts both upgrades and its HTTP endpoints to loopback origins unless `--allow-origin` widens the list — keep that check when touching `crates/hub`. A manifest is written by an arbitrary local process, so keep validating `serviceId`, `socket`, and `icon` before acting on one.
 
-Remote access is off unless asked for. A gateway binds TCP only with `--listen` (or `--lan`). Normal HTTPS/WSS requires TLS 1.3 and mutually authenticated device certificates, pinned to an exact certificate fingerprint and peer role. Keep both TLS version bounds pinned in `packages/discovery/src/auth/tls.ts`. On Bun 1.4.3 the remote TLS path uses the installed `ws` package because native ws cannot complete the pinned mTLS handshake or upgrade the TLS socket passed to HTTP. Ordinary HTTP/Unix WebSocket servers still use Bun's built-in implementation. Never weaken verification to work around runtime limitations.
+Remote access is opt-in. iroh authenticates exact EndpointIds; application authorization also requires a registered peer role. Discovery is not authorization. Keep invitation enrollment separate from ordinary gateway traffic, and never advertise bearer secrets. Native identities and trust are separate from legacy state; require re-pairing rather than migrating trust.
 
-`--pair` opens a separate temporary HTTPS listener on an OS-selected port, exposing only pairing routes. The CLI prints that port; it differs from the normal gateway port. Initial TLS has no trusted identity yet: SPAKE2 authenticates the code and binds both device IDs, roles, certificate fingerprints, session nonce, protocol version and normal service port. Verify private-key possession and both confirmations before registering a peer. Never derive a TLS key from the short code. Count a guess when an exchange starts, not when confirmation fails. Keep the RFC 9382 Appendix B vectors unchanged.
+Store writes are serialized across processes and re-read under the lock. `trust forget` succeeds only after all registered live processes acknowledge updated authorization and destruction of revoked connections; acknowledgement failure must remain an error. Do not restore deleted records from stale caches. Keep generation guards and bounded frame/queue sizes. See `spec/gateway-v4.md` for the active wire contract.
 
-TLS-PSK trust records are not migrated into trusted certificates; require re-pairing. Store writes are serialized across processes and re-read under the lock. `trust forget` succeeds only after all registered live processes acknowledge updated authorization and destruction of revoked connections; acknowledgement failure must remain an error. Do not restore deleted records from stale caches. Outgoing HTTPS uses `agent: false`, and WSS must not reuse TLS sessions across credentials. mDNS is discovery only: TXT records contain protocol version, node ID and base path, never pairing codes or secrets.
+The Rust workspace is the source of truth for native versions and behavior. npm stub manifests use private placeholder versions; public manifests and exact platform dependencies are generated from Cargo. Keep SDK/browser releases separate from native releases. Do not add service implementations or legacy TypeScript dependencies to npm stubs.

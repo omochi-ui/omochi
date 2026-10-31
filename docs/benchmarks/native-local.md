@@ -43,9 +43,10 @@ Memory is measured after both payload scenarios. The SDK fixture and measurement
 client run outside the measured process tree for both implementations.
 
 ```sh
-bun run build
+git worktree add --detach ../omochi-typescript b8a2f85
+(cd ../omochi-typescript && bun install --frozen-lockfile && bun run build)
 bun run build:native:release
-bun scripts/bench-native.mjs
+OMOCHI_LEGACY_ROOT="$PWD/../omochi-typescript" bun scripts/bench-native.mjs
 ```
 
 The script is Linux-only because it reads `/proc` for process-tree PSS/RSS and CPU.

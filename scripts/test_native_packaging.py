@@ -1,8 +1,9 @@
-"""Regression checks for the archive boundary before any npm package is created."""
+"""Regression checks for native Cargo and npm packaging, without publishing."""
 import hashlib
 import importlib.util
 import io
 import json
+import os
 import tarfile
 import tempfile
 import unittest
@@ -69,11 +70,11 @@ class CrateSourceTests(unittest.TestCase):
         self.temporary = tempfile.TemporaryDirectory(prefix='omochi-crate-source-')
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name)
-        self.workspace = self.root / 'packages/server-rust'
+        self.workspace = self.root / 'crates'
         (self.workspace / 'hub').mkdir(parents=True)
         (self.workspace / 'Cargo.toml').write_text('[workspace]\nmembers = ["hub"]\n[workspace.package]\nversion = "0.2.0"\n')
         (self.workspace / 'hub/Cargo.toml').write_text('[package]\nname = "omochi-hub"\n')
-        (self.root / '.gitignore').write_text('/packages/server-rust/hub/assets/\n/packages/server-rust/target/\n/packages/hub-ui/dist/\n/artifacts/\n')
+        (self.root / '.gitignore').write_text('/crates/hub/assets/\n/crates/target/\n/packages/hub-ui/dist/\n/artifacts/\n')
         source = self.root / 'packages/hub-ui/dist'
         source.mkdir(parents=True)
         (source / 'index.html').write_text('<html>generated</html>')
@@ -101,11 +102,37 @@ class CrateSourceTests(unittest.TestCase):
         self.assertFalse((self.workspace / 'hub/assets').exists())
         self.assertEqual(subprocess.check_output(['git', 'status', '--porcelain'], cwd=self.root), b'')
 
+    def test_real_cargo_packages_and_verifies_gitignored_dashboard_assets(self):
+        (self.workspace / 'hub/Cargo.toml').write_text(
+            '[package]\nname = "omochi-hub"\nversion.workspace = true\n'
+            'edition = "2024"\nlicense = "Apache-2.0"\n'
+            'include = ["src/**", "assets/**", "Cargo.toml", "Cargo.lock"]\n')
+        (self.workspace / 'hub/src').mkdir()
+        (self.workspace / 'hub/src/lib.rs').write_text(
+            'pub const DASHBOARD: &str = include_str!("../assets/index.html");\n')
+        subprocess.run(['cargo', 'generate-lockfile', '--offline', '--manifest-path',
+                        str(self.workspace / 'Cargo.toml')], cwd=self.root, check=True)
+        subprocess.run(['git', 'add', '.'], cwd=self.root, check=True)
+        subprocess.run(['git', '-c', 'user.name=Test', '-c', 'user.email=test@example.invalid',
+                        '-c', 'commit.gpgsign=false', 'commit', '-qm', 'real crate'], cwd=self.root, check=True)
+        with patch.object(self.crates, 'ROOT', self.root), patch.object(self.crates, 'WORKSPACE', self.workspace), patch.object(sys, 'argv', ['package-crates.py']), patch.dict(os.environ, {'CARGO_NET_OFFLINE': 'true'}):
+            self.crates.main()
+        manifest = json.loads((self.root / 'artifacts/crates/manifest.json').read_text())
+        self.assertTrue(manifest['verified'])
+        self.assertFalse(manifest['dirty'])
+        with tarfile.open(self.root / 'artifacts/crates/omochi-hub-0.2.0.crate') as archive:
+            self.assertEqual(archive.extractfile('omochi-hub-0.2.0/assets/index.html').read(),
+                             b'<html>generated</html>')
+        self.assertFalse((self.workspace / 'hub/assets').exists())
+        self.assertEqual(subprocess.check_output(['git', 'status', '--porcelain'], cwd=self.root), b'')
+
     def test_source_edits_are_rejected_before_cargo_or_asset_staging(self):
         with (self.workspace / 'hub/Cargo.toml').open('a') as file:
             file.write('# uncommitted source edit\n')
-        with self.assertRaises(SystemExit):
+        with patch.object(sys, 'stderr', io.StringIO()) as stderr, self.assertRaises(SystemExit) as error:
             self.run_pack()
+        self.assertEqual(error.exception.code, 2)
+        self.assertIn('Commit source changes before packaging', stderr.getvalue())
         self.assertFalse((self.workspace / 'hub/assets').exists())
         self.assertFalse((self.root / 'artifacts/crates/manifest.json').exists())
 

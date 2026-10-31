@@ -2,7 +2,7 @@
 
 Native services release independently as `native-v0.2.0`. SDK/browser packages
 retain their existing `vX.Y.Z` release train. The native version is owned by
-`packages/server-rust/Cargo.toml`; generated npm manifests use that same version.
+`crates/Cargo.toml`; generated npm manifests use that same version.
 No registry publication happens when running ordinary build/package/test commands.
 
 ## Existing package names
@@ -22,10 +22,12 @@ can keep using it. Native 0.2.0 is intentionally breaking: stop old services,
 re-pair devices and recreate saved dashboards. Direct imports of old server-side
 TypeScript modules are not part of the new CLI package contract.
 
-The source `packages/cli` and `packages/utils` manifests remain private development
-packages for the legacy tests and checkout launchers. **Do not npm-publish those
-folders.** `scripts/package-native-npm.py` generates the public 0.2.0 wrappers in
-`artifacts/native-npm`, without shipping the old TypeScript implementation.
+Rust implementation and version metadata live in `crates/`. The private source
+stubs in `packages/npm/cli` and `packages/npm/utils` contain only a manifest and
+checkout launcher, with placeholder version `0.0.0`. Do not publish those folders
+directly. `scripts/package-native-npm.py` reads their metadata, takes the release
+version from Cargo, and bundles `packages/npm/launcher.cjs` into the public wrappers.
+The old TypeScript services are retained in Git history, not the active workspace.
 
 ## Installation after publication
 

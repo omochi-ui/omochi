@@ -69,7 +69,7 @@ hub and exchanges a 128 KiB framed payload. It asserts relay paths and absence o
 IP paths. Run it with:
 
 ```sh
-cargo test --release --manifest-path packages/server-rust/Cargo.toml -p omochi-transport --test relay
+cargo test --release --manifest-path crates/Cargo.toml -p omochi-transport --test relay
 ```
 
 This validates protocol behavior through a relay, not the deployed host's DNS,

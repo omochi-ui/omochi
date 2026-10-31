@@ -1,6 +1,6 @@
 # SDK guide
 
-[Overview](../README.md) · [Architecture](architecture.md) · [CLI reference](../packages/cli/README.md)
+[Overview](../README.md) · [Architecture](architecture.md) · [CLI reference](../docs/cli.md)
 
 Examples below use the local packages in this repository. Build the workspace
 before running TypeScript examples. The APIs produce A2UI v0.9 messages;

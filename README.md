@@ -10,6 +10,10 @@ Use it to add controls to a script, preview a single application, or compose
 surfaces from several running applications into a dashboard. Application state
 and callbacks stay in the host process. The browser owns unfinished form input.
 
+The native implementation lives in [`crates/`](crates/README.md). npm CLI packages
+are thin stubs in [`packages/npm/`](packages/npm/README.md); SDKs and browser
+packages retain their existing directories. Cargo owns native versions and behavior.
+
 ## How it fits together
 
 ```mermaid
@@ -73,7 +77,7 @@ Open **http://127.0.0.1:5173/**. The preview connects to the bridge on port 5555
 you should see the example's controls. Stop both processes with Ctrl+C.
 
 `dev` launches your application and a bridge. The browser preview is a separate
-server. If either port is occupied, see [CLI troubleshooting](packages/cli/README.md#troubleshooting).
+server. If either port is occupied, see [CLI troubleshooting](docs/cli.md#troubleshooting).
 
 Other examples use the same preview:
 
@@ -111,9 +115,9 @@ bun run omochi-ui dev --help
 bun run omochi-ui help hub
 ```
 
-The [CLI reference](packages/cli/README.md) lists all options, defaults, and examples.
+The [CLI reference](docs/cli.md) lists all options, defaults, and examples.
 
-For lightweight entry points, [@omochi-ui/utils](packages/utils/README.md) can publish
+For lightweight entry points, [@omochi-ui/utils](docs/utils.md) can publish
 command buttons, watches, processes, logs, streams, HTTP health views, or
 agent-created A2UI surfaces over MCP:
 
@@ -160,7 +164,7 @@ and have no authentication or TLS.
 | --- | --- |
 | [Architecture](docs/architecture.md) | Runtime flow, process diagrams, ownership, and package map |
 | [SDK guide](docs/sdk.md) | Python, TypeScript, Rust, components, and transports |
-| [CLI reference](packages/cli/README.md) | Commands, flags, defaults, and troubleshooting |
+| [CLI reference](docs/cli.md) | Commands, flags, defaults, and troubleshooting |
 | [Discovery and dashboards](docs/discovery.md) | Local services, remote access, and routing |
 | [Contributing](CONTRIBUTING.md) | Setup, tests, and change guidelines |
 
@@ -170,7 +174,7 @@ contracts and fixtures under `spec/`.
 The CLI and utilities ship as native archives with the dashboard embedded.
 [Native registry releases](docs/native-releasing.md) also prepare `omochi-cli` /
 `omochi-utils` on crates.io and retain `@omochi-ui/cli` / `@omochi-ui/utils` on npm.
-See the [native distribution guide](packages/server-rust/DISTRIBUTION.md) for
+See the [native distribution guide](crates/DISTRIBUTION.md) for
 installation and pairing. Bun is a source-build tool, not a service runtime.
 `bun run build:native:release` builds an archive for the current host.
 

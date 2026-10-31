@@ -3,7 +3,7 @@
 import argparse, hashlib, io, json, platform, subprocess, tarfile, tomllib
 from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
-WORKSPACE = ROOT / "packages/server-rust"
+WORKSPACE = ROOT / "crates"
 def run(*args):
     return subprocess.check_output(args, cwd=ROOT, text=True).strip()
 def main():

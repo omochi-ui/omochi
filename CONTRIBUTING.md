@@ -1,18 +1,19 @@
 # Contributing
 
-Start with the [architecture](docs/architecture.md) and [CLI reference](packages/cli/README.md)
+Start with the [architecture](docs/architecture.md) and [CLI reference](docs/cli.md)
 to find the component you want to change. Development commands run from the
 repository root unless stated otherwise.
 
 ## Setup
 
 Use Bun 1.4.3 or newer, with the version pinned in `.bun-version` and
-`package.json`. Node.js is not required. Python changes need Python 3.11+; Rust changes need
-Rust 1.85+ and Cargo. The Python example uses uv. Discovery tests use Unix domain sockets and a Unix-like environment.
+`package.json`. npm packaging smoke tests need Node.js 22+. The default test suite and Python changes need Python 3.11+; Rust changes need
+current stable Rust and Cargo. The Python example uses uv. Discovery tests use Unix domain sockets and a Unix-like environment.
 
 ```sh
 bun install
 bun run build
+bun run build:native
 ```
 
 Follow the [quick start](README.md#quick-start) to run an app in the browser.
@@ -25,13 +26,14 @@ set `OMOCHI_HUB` to use another address.
 | Change | Verification |
 | --- | --- |
 | JavaScript/TypeScript workspace | `bun run test` (builds all packages, then runs tests) |
-| CLI after building dependencies | `bun run --filter @omochi-ui/cli test` |
+| CLI after building dependencies | `bun run test:server-rust` |
 | Python SDK | `bun run test:python` |
 | Rust SDK | `bun run test:rust` |
 | Preview frontend | `bun run --filter @omochi-ui/dev-server lint` |
 | Dashboard frontend | `bun run --filter @omochi-ui/hub-ui lint` |
 | Rust formatting | `cargo fmt --manifest-path packages/sdk/rust/Cargo.toml --check` |
-| Release versions and dependency graph | `bun test scripts/release.test.ts && bun run release:check` |
+| Cargo/npm packaging (also included in `bun run test`) | `bun run test:packaging` |
+| Release versions and dependency graph | `bun run release:check` |
 | npm distributions after building | `bun run release:pack && bun run release:smoke` (requires Node/npm) |
 
 Run the checks affected by your change. Protocol messages, stable IDs,
@@ -45,10 +47,10 @@ smoke test with Chromium. Set `CHROMIUM_BIN` if necessary. Screenshots go to
 Real multicast tests are opt-in because many environments cannot use multicast:
 
 ```sh
-OMOCHI_MDNS_TEST=1 bun run --filter @omochi-ui/discovery test
+cargo test --manifest-path crates/Cargo.toml mdns_resolves -- --ignored --nocapture
 ```
 
-Run those when changing mDNS integration or updating `bonjour-service`.
+Run those when changing mDNS integration or updating iroh/mDNS dependencies.
 
 ## Changes and pull requests
 

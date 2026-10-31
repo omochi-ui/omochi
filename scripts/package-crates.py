@@ -9,7 +9,7 @@ import tomllib
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-WORKSPACE = ROOT / 'packages/server-rust'
+WORKSPACE = ROOT / 'crates'
 
 
 def source_state():

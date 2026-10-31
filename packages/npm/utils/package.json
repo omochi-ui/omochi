@@ -1,0 +1,25 @@
+{
+  "name": "@omochi-ui/utils",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Native Omochi utils launcher",
+  "license": "Apache-2.0",
+  "bin": {
+    "omochi-utils": "./bin/omochi-utils"
+  },
+  "files": [
+    "bin"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "omochiNative": {
+    "crate": "omochi-utils",
+    "binary": "omochi-utils"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/omochi-ui/omochi.git",
+    "directory": "packages/npm/utils"
+  }
+}

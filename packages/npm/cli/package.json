@@ -1,0 +1,25 @@
+{
+  "name": "@omochi-ui/cli",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Native Omochi cli launcher",
+  "license": "Apache-2.0",
+  "bin": {
+    "omochi-ui": "./bin/omochi-ui"
+  },
+  "files": [
+    "bin"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "omochiNative": {
+    "crate": "omochi-cli",
+    "binary": "omochi-ui"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/omochi-ui/omochi.git",
+    "directory": "packages/npm/cli"
+  }
+}

@@ -12,7 +12,7 @@ const targets = await Bun.file(path.join(root, 'scripts/native/targets.json')).j
 export const npmNames = [...targets.map(t => `@omochi-ui/native-${t.os}-${t.cpu}`), '@omochi-ui/cli', '@omochi-ui/utils'];
 
 export async function nativeVersion(): Promise<string> {
-  const toml = Bun.TOML.parse(await Bun.file(path.join(root, 'packages/server-rust/Cargo.toml')).text()) as { workspace: { package: { version: string } } };
+  const toml = Bun.TOML.parse(await Bun.file(path.join(root, 'crates/Cargo.toml')).text()) as { workspace: { package: { version: string } } };
   const version = toml.workspace.package.version;
   if (!/^\d+\.\d+\.\d+$/.test(version)) throw new Error('Native release needs a stable version');
   return version;
@@ -21,11 +21,11 @@ export async function nativeVersion(): Promise<string> {
 export async function validateNativeSources(): Promise<void> {
   const version = await nativeVersion();
   const sdk = Bun.TOML.parse(await Bun.file(path.join(root, 'packages/sdk/rust/Cargo.toml')).text()) as { package: { version: string } };
-  const workspace = Bun.TOML.parse(await Bun.file(path.join(root, 'packages/server-rust/Cargo.toml')).text()) as { workspace: { members: string[] } };
+  const workspace = Bun.TOML.parse(await Bun.file(path.join(root, 'crates/Cargo.toml')).text()) as { workspace: { members: string[] } };
   const names: string[] = [];
   const license = await readFile(path.join(root, 'LICENSE'));
   for (const member of workspace.workspace.members) {
-    const directory = path.join(root, 'packages/server-rust', member);
+    const directory = path.join(root, 'crates', member);
     const manifest = Bun.TOML.parse(await Bun.file(path.join(directory, 'Cargo.toml')).text()) as Record<string, any>;
     names.push(manifest.package.name);
     if (manifest.package.version?.workspace !== true) throw new Error(`${member} must inherit the native version`);
@@ -39,6 +39,15 @@ export async function validateNativeSources(): Promise<void> {
     }
   }
   if (names.length !== crateNames.length || crateNames.some(name => !names.includes(name))) throw new Error('Native crate publication graph differs from the workspace');
+  for (const name of ['cli', 'utils']) {
+    const stub = await Bun.file(path.join(root, 'packages/npm', name, 'package.json')).json();
+    if (!stub.private || stub.version !== '0.0.0' || stub.name !== `@omochi-ui/${name}`
+        || stub.omochiNative?.crate !== `omochi-${name}` || !crateNames.includes(stub.omochiNative.crate)
+        || stub.dependencies || stub.devDependencies || stub.scripts || stub.exports) {
+      throw new Error(`${name}: npm source must remain a private launcher stub; versions and implementation belong to Cargo`);
+    }
+  }
+
 }
 
 export function validateBundle(bundle: Bundle, version: string, kind: 'npm' | 'crates'): void {
@@ -106,13 +115,13 @@ async function crates(publish: boolean): Promise<void> {
     return;
   }
   if (!pending.length) return;
-  const assets = path.join(root, 'packages/server-rust/hub/assets');
+  const assets = path.join(root, 'crates/hub/assets');
   if (await Bun.file(path.join(assets, 'index.html')).exists()) throw new Error('Stale hub/assets directory');
   try {
     await cp(path.join(root, 'packages/hub-ui/dist'), assets, { recursive: true });
     if (run('git', ['status', '--porcelain'])) throw new Error('Source tree changed before publishing');
     // Explicitly included generated assets are dirty to Cargo even when gitignored.
-    const args = ['publish', '--manifest-path', 'packages/server-rust/Cargo.toml', '--workspace', '--locked', '--allow-dirty'];
+    const args = ['publish', '--manifest-path', 'crates/Cargo.toml', '--workspace', '--locked', '--allow-dirty'];
     for (const name of crateNames) if (!pending.some(p => p.name === name)) args.push('--exclude', name);
     const result = spawnSync('cargo', args, { cwd: root, stdio: 'inherit', timeout: 1_800_000 });
     if (result.error) throw result.error;

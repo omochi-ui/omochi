@@ -2,8 +2,8 @@
 
 This is the breaking Rust gateway/hub contract. SDK Unix JSONL, A2UI v0.9 and
 browser HTTP/WebSocket contracts remain separate. The executable definitions are
-in `packages/server-rust/protocol/src/{lib,session}.rs`; enrollment is in
-`packages/server-rust/transport/src/pairing.rs`.
+in `crates/protocol/src/{lib,session}.rs`; enrollment is in
+`crates/transport/src/pairing.rs`.
 
 ## Identity and connectivity
 

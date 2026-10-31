@@ -42,10 +42,10 @@ jobs:
       - run: bun run release:native:smoke:npm
       - if: runner.os == 'Linux'
         run: python3 scripts/package-crates.py
-      - run: cargo test --manifest-path packages/server-rust/Cargo.toml --release --locked --workspace
-      - run: OMOCHI_NATIVE_TEST=1 OMOCHI_NATIVE_PROFILE=release bun test packages/utils/test/native-mcp.test.ts
+      - run: cargo test --manifest-path crates/Cargo.toml --release --locked --workspace
+      - run: OMOCHI_NATIVE_TEST=1 OMOCHI_NATIVE_PROFILE=release bun test tests/native/mcp.test.ts
       - run: OMOCHI_NATIVE_TEST=1 OMOCHI_NATIVE_PROFILE=release bun test packages/renderer/test/native.test.ts
-      - run: cargo clippy --manifest-path packages/server-rust/Cargo.toml --release --locked --all-targets -- -D warnings
+      - run: cargo clippy --manifest-path crates/Cargo.toml --release --locked --all-targets -- -D warnings
       - if: runner.os == 'Linux'
         run: cargo install --locked iroh-relay --version '=1.4.1' --features server --root "$RUNNER_TEMP/relay-tool"
       - if: runner.os == 'Linux'

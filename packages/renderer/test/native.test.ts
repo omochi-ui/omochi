@@ -10,7 +10,7 @@ import { A2uiWebSocketClient, type Processor } from '../src/client.js';
 test.skipIf(!process.env.OMOCHI_NATIVE_TEST)('renderer consumes native utility snapshots, dispatches actions and follows service restart', async () => {
   const profile = process.env.OMOCHI_NATIVE_PROFILE ?? 'debug';
   if (!['debug', 'release'].includes(profile)) throw new Error('invalid native profile');
-  const binaries = resolve(import.meta.dirname, '../../server-rust/target', profile);
+  const binaries = resolve(import.meta.dirname, '../../../crates/target', profile);
   const root = await mkdtemp(join(tmpdir(), 'omochi-renderer-'));
   const runtime = join(root, 'omochi');
   const processes: ChildProcess[] = [];

@@ -14,6 +14,7 @@ export interface Manifest {
   name: string;
   version: string;
   private?: boolean;
+  omochiNative?: { crate: string; binary: string };
   files?: string[];
   main?: string;
   types?: string;
@@ -132,7 +133,7 @@ export async function loadRelease(tag?: string): Promise<{ version: string; pack
   const rust = Bun.TOML.parse(await Bun.file(path.join(root, 'packages/sdk/rust/Cargo.toml')).text()) as { package: { version: string } };
   const version = python.project.version;
   validateVersion(version, {
-    ...Object.fromEntries(workspaces.map(({ manifest }) => [manifest.name, manifest.version])),
+    ...Object.fromEntries(workspaces.filter(({ manifest }) => !manifest.omochiNative).map(({ manifest }) => [manifest.name, manifest.version])),
     'Python workspace': pythonRoot.project.version, 'Rust SDK': rust.package.version,
   }, tag);
   const license = await readFile(path.join(root, 'LICENSE'));
