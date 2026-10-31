@@ -2641,7 +2641,7 @@ dependencies = [
 
 [[package]]
 name = "omochi-cli"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "anyhow",
  "clap",
@@ -2668,7 +2668,7 @@ dependencies = [
 
 [[package]]
 name = "omochi-gateway"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "anyhow",
  "futures-util",
@@ -2685,7 +2685,7 @@ dependencies = [
 
 [[package]]
 name = "omochi-hub"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "anyhow",
  "async-stream",
@@ -2712,7 +2712,7 @@ dependencies = [
 
 [[package]]
 name = "omochi-local-discovery"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "anyhow",
  "notify",
@@ -2724,7 +2724,7 @@ dependencies = [
 
 [[package]]
 name = "omochi-protocol"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -2733,7 +2733,7 @@ dependencies = [
 
 [[package]]
 name = "omochi-transport"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "anyhow",
  "fs2",
@@ -2764,7 +2764,7 @@ dependencies = [
 
 [[package]]
 name = "omochi-utils"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "anyhow",
  "chrono",
