@@ -1,0 +1,17 @@
+[package]
+name = "omochi-ui-macros"
+version = "0.1.2"
+edition = "2024"
+rust-version = "1.85"
+license = "Apache-2.0"
+repository = "https://github.com/omochi-ui/omochi"
+include = ["src/**", "Cargo.toml", "LICENSE", "README.md"]
+description = "Typed action input generation for omochi-ui"
+
+[lib]
+proc-macro = true
+
+[dependencies]
+proc-macro2 = "1"
+quote = "1"
+syn = { version = "2", features = ["full", "extra-traits"] }

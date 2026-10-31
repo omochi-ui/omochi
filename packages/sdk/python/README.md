@@ -14,4 +14,8 @@ Requires Python 3.11 or newer. The CLI is distributed separately as
 See the [SDK guide](https://github.com/omochi-ui/omochi/blob/main/docs/sdk.md)
 and [project README](https://github.com/omochi-ui/omochi) for examples.
 
+The next minor release introduces typed action inputs and requires migrating
+action registration and local field references. See the SDK guide migration section.
+Python wheels include `py.typed`; both mypy and Pyright are tested.
+
 Licensed under Apache-2.0.

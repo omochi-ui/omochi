@@ -134,8 +134,8 @@ test("client timeout and interruption remove pending actions; malformed actions 
   expect((await timed).outcome).toBe("abstain");
   await waitFor(() => app.queue.pending.size === 0);
   await app.runtime.invoke("decide", { id, outcome: "approve" });
-  await app.runtime.invoke("decide", null);
-  await app.runtime.invoke("decide", { id, outcome: "invalid" });
+  await expect(app.runtime.invoke("decide", null)).rejects.toThrow("expected object");
+  await expect(app.runtime.invoke("decide", { id, outcome: "invalid" })).rejects.toThrow("union");
   const controller = new AbortController();
   const aborted = requestApproval(request, { socketPath: app.socketPath, signal: controller.signal });
   await waitFor(() => app.queue.pending.size === 1);

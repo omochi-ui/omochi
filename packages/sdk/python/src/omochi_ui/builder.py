@@ -3,7 +3,9 @@ from __future__ import annotations
 from contextlib import AbstractContextManager, contextmanager
 from copy import deepcopy
 from dataclasses import dataclass
-from typing import Any, Callable, Iterator, Literal, Sequence, Unpack, overload
+from .expression import Expr, encode_input
+from .schema import Field
+from typing import Generic, TypeVar, Any, Callable, Iterator, Literal, Sequence, Unpack, overload
 
 from .catalog import (
     BASIC_CATALOG, ButtonOptions, ButtonProps, CardProps, Catalog, CheckableOptions, CommonProps,
@@ -26,7 +28,10 @@ def _escape_pointer(value: str) -> str:
 def _unescape_pointer(value: str) -> str:
     return value.replace("~1", "/").replace("~0", "~")
 
-class ModelBinding(dict[str, str]):
+T = TypeVar("T")
+F = TypeVar("F")
+
+class ModelBinding(dict[str, str], Generic[T]):
     def __init__(self, path: str):
         dict.__init__(self, path=path)
 
@@ -43,19 +48,22 @@ class ModelBinding(dict[str, str]):
     def __deepcopy__(self, _memo: dict[int, Any]) -> dict[str, str]:
         return {"path": self.path}
 
-class Local:
-    __slots__ = ("key", "_bindings")
-    def __init__(self, key: str, bindings: set[int]):
+class Local(Generic[T]):
+    __slots__ = ("key", "_bindings", "_path")
+    def __init__(self, key: str, bindings: set[int], path: str = ""):
         self.key = key
         self._bindings = bindings
-    def bind(self, path: str) -> ModelBinding:
+        self._path = path
+    def field(self, field: Field[T, F]) -> Local[F]:
+        return Local(self.key, self._bindings, self._path + "/" + _escape_pointer(field.name))
+    def bind(self) -> ModelBinding[T]:
+        path = self._path
         _validate_pointer(path)
         binding = ModelBinding(_local_path(self.key, path))
         self._bindings.add(id(binding))
         return binding
-    def value(self, path: str) -> dict[str, str]:
-        _validate_pointer(path)
-        return {"$local": self.key, "path": path}
+    def value(self) -> Expr[T]:
+        return Expr(_local_path(self.key, self._path))
 
 @dataclass(frozen=True, slots=True)
 class Tab:
@@ -81,10 +89,10 @@ class UI:
         self._auto_key = 0
         self._keys = {"root"}
 
-    def local(self, key: str, initial: Any, *, reset_key: Any = _MISSING) -> Local:
+    def local(self, key: str, initial: T, *, reset_key: Any = _MISSING) -> Local[T]:
         if not key or key in self._locals:
             raise DeclarationError(f"local key must be unique and non-empty: {key!r}")
-        declaration = {"initial": deepcopy(initial)}
+        declaration = {"initial": encode_input(initial)}
         if reset_key is not _MISSING:
             declaration["resetKey"] = deepcopy(reset_key)
         self._locals[key] = declaration
@@ -201,7 +209,7 @@ class UI:
         action_name = call.action
         node = self._append("Button", {
             **props,
-            "action": {"event": {"name": action_name, "context": {"input": _resolve_local_values(call.input)}}},
+            "action": {"event": {"name": action_name, "context": {"input": call.input}}},
         }, key or f"action:{action_name}")
         self._slot(node, "/child", "single", lambda ui: ui.text(label, key=f"{node.key}:label"))
 
@@ -223,11 +231,11 @@ class UI:
             raise DeclarationError("default and bind cannot be used together")
         self._input(component, name, fallback if default is _MISSING else default, bind, props, key)
 
-    def text_field(self, name: str, *, label: DynamicString, default: Any = _MISSING, bind: ModelBinding | None = None, key: str | None = None, **props: Unpack[TextFieldOptions]) -> None: self._input_control("TextField", name, "", default, bind, {"label": label, **props}, key)
-    def check_box(self, name: str, *, label: DynamicString, default: Any = _MISSING, bind: ModelBinding | None = None, key: str | None = None, **props: Unpack[CheckableOptions]) -> None: self._input_control("CheckBox", name, False, default, bind, {"label": label, **props}, key)
-    def choice_picker(self, name: str, *, options: list[dict[str, Any]], default: Any = _MISSING, bind: ModelBinding | None = None, key: str | None = None, **props: Unpack[ChoicePickerOptions]) -> None: self._input_control("ChoicePicker", name, [], default, bind, {"options": options, **props}, key)
-    def slider(self, name: str, minimum: float, maximum: float, *, default: Any = _MISSING, bind: ModelBinding | None = None, key: str | None = None, **props: Unpack[SliderOptions]) -> None: self._input_control("Slider", name, minimum, default, bind, {"min": minimum, "max": maximum, **props}, key)
-    def date_time_input(self, name: str, *, default: Any = _MISSING, bind: ModelBinding | None = None, key: str | None = None, **props: Unpack[DateTimeInputOptions]) -> None: self._input_control("DateTimeInput", name, "", default, bind, props, key)
+    def text_field(self, name: str, *, label: DynamicString, default: Any = _MISSING, bind: ModelBinding[str] | None = None, key: str | None = None, **props: Unpack[TextFieldOptions]) -> None: self._input_control("TextField", name, "", default, bind, {"label": label, **props}, key)
+    def check_box(self, name: str, *, label: DynamicString, default: Any = _MISSING, bind: ModelBinding[bool] | None = None, key: str | None = None, **props: Unpack[CheckableOptions]) -> None: self._input_control("CheckBox", name, False, default, bind, {"label": label, **props}, key)
+    def choice_picker(self, name: str, *, options: list[dict[str, Any]], default: Any = _MISSING, bind: ModelBinding[list[str]] | None = None, key: str | None = None, **props: Unpack[ChoicePickerOptions]) -> None: self._input_control("ChoicePicker", name, [], default, bind, {"options": options, **props}, key)
+    def slider(self, name: str, minimum: float, maximum: float, *, default: Any = _MISSING, bind: ModelBinding[float] | None = None, key: str | None = None, **props: Unpack[SliderOptions]) -> None: self._input_control("Slider", name, minimum, default, bind, {"min": minimum, "max": maximum, **props}, key)
+    def date_time_input(self, name: str, *, default: Any = _MISSING, bind: ModelBinding[str] | None = None, key: str | None = None, **props: Unpack[DateTimeInputOptions]) -> None: self._input_control("DateTimeInput", name, "", default, bind, props, key)
 
     def build(self) -> Declaration:
         for name in list(self._data["inputs"]):
@@ -241,12 +249,3 @@ def _validate_pointer(path: str) -> None:
 
 def _local_path(key: str, path: str) -> str:
     return f"/$local/{_escape_pointer(key)}{path}"
-
-def _resolve_local_values(value: Any) -> Any:
-    if isinstance(value, dict) and isinstance(value.get("$local"), str) and isinstance(value.get("path"), str):
-        return {"path": _local_path(value["$local"], value["path"])}
-    if isinstance(value, dict):
-        return {key: _resolve_local_values(item) for key, item in value.items()}
-    if isinstance(value, list):
-        return [_resolve_local_values(item) for item in value]
-    return value

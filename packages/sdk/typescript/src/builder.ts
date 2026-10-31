@@ -1,3 +1,4 @@
+import { Expr } from "./expression.js";
 import type {
   AudioPlayerProps, BasicComponentMap, ButtonProps, CardProps, CatalogDefinition, CheckBoxProps,
   ChoicePickerProps, CommonProps, ComponentMap, DateTimeInputProps, DividerProps,
@@ -10,8 +11,8 @@ import type { ActionCall, Declaration, JsonObject, JsonValue, LocalDeclaration, 
 export const STANDARD_CATALOG = BASIC_CATALOG.id;
 const escapePointer = (value: string): string => value.replaceAll("~", "~0").replaceAll("/", "~1");
 type Keyed<T> = Omit<T, "child" | "children" | "tabs" | "trigger" | "content" | "value" | "action"> & { key?: string };
-export interface ModelBinding { readonly path: string }
-type InputControl<T> = { default?: T; bind?: never } | { bind: ModelBinding; default?: never };
+export interface ModelBinding<T = unknown> { readonly path: string; readonly __value: (value: T) => T }
+type InputControl<T> = { default?: T; bind?: never } | { bind: ModelBinding<T>; default?: never };
 
 const clone = <T>(value: T): T => structuredClone(value);
 
@@ -35,10 +36,10 @@ export class UI<Components extends ComponentMap = BasicComponentMap> {
     this.data = { inputs: inputs !== null && typeof inputs === "object" && !Array.isArray(inputs) ? clone(inputs) : {} };
   }
 
-  local(key: string, initial: JsonValue, options: { resetKey?: JsonValue } = {}): Local {
+  local<T extends JsonValue>(key: string, initial: T, options: { resetKey?: JsonValue } = {}): Local<T> {
     if (!key || key in this.locals) throw new DeclarationError(`local key must be unique and non-empty: ${JSON.stringify(key)}`);
     this.locals[key] = { initial: clone(initial), ...(Object.hasOwn(options, "resetKey") ? { resetKey: clone(options.resetKey!) } : {}) };
-    return new Local(key, this.bindings);
+    return new Local<T>(key, this.bindings);
   }
 
   private key(key?: string): string {
@@ -115,12 +116,12 @@ export class UI<Components extends ComponentMap = BasicComponentMap> {
     const { key, ...props } = options;
     const node = this.append("Button", {
       ...props,
-      action: { event: { name: actionName, context: { input: resolveLocalValues(call.input) } } },
+      action: { event: { name: actionName, context: { input: call.input } } },
     } as unknown as JsonObject, key ?? `action:${actionName}`);
     this.slot(node, "/child", "single", (ui) => ui.text(label, { key: `${node.key}:label` }));
   }
 
-  private input(name: string, component: string, value: unknown, bind: ModelBinding | undefined, props: JsonObject, key?: string): void {
+  private input(name: string, component: string, value: unknown, bind: ModelBinding<any> | undefined, props: JsonObject, key?: string): void {
     if ("onChange" in props || "on_change" in props) throw new DeclarationError(`${component} does not define an input change action in the Basic Catalog`);
     const path = bind?.path ?? `/inputs/${escapePointer(name)}`;
     if (bind && !this.bindings.has(bind)) throw new DeclarationError("bind must be a reference returned by local.bind()");
@@ -130,7 +131,7 @@ export class UI<Components extends ComponentMap = BasicComponentMap> {
     }
     this.append(component, { ...props, value: { path } }, key ?? `input:${name}`);
   }
-  private assertControl(options: { default?: unknown; bind?: ModelBinding }): void {
+  private assertControl(options: { default?: unknown; bind?: ModelBinding<any> }): void {
     if (options.bind && Object.prototype.hasOwnProperty.call(options, "default")) throw new DeclarationError("default and bind cannot be used together");
   }
   textField(name: string, options: Omit<TextFieldProps, "value"> & { key?: string } & InputControl<string>): void { this.assertControl(options); const { default: initial = "", bind, key, ...props } = options; this.input(name, "TextField", initial, bind, props as unknown as JsonObject, key); }
@@ -146,35 +147,14 @@ export class UI<Components extends ComponentMap = BasicComponentMap> {
   }
 }
 
-export class Local {
-  constructor(private readonly key: string, private readonly bindings: WeakSet<object>) {}
-
-  bind(path: string): ModelBinding {
-    assertPointer(path);
-    const binding = Object.freeze({ path: localPath(this.key, path) });
+export class Local<T> {
+  constructor(private readonly key: string, private readonly bindings: WeakSet<object>, private readonly pointer = "") {}
+  field<K extends T extends readonly unknown[] ? never : keyof T & string>(key: K): Local<T[K]> { return new Local(this.key, this.bindings, `${this.pointer}/${escapePointer(key)}`); }
+  bind(): ModelBinding<T> {
+    const binding = Object.freeze({ path: localPath(this.key, this.pointer) }) as ModelBinding<T>;
     this.bindings.add(binding);
     return binding;
   }
-
-  value(path: string): LocalValueExpression {
-    assertPointer(path);
-    return Object.freeze({ $local: this.key, path });
-  }
+  value(): Expr<T> { return Expr.reference<T>(localPath(this.key, this.pointer)); }
 }
-
-function assertPointer(path: string): void {
-  if (path !== "" && !path.startsWith("/")) throw new DeclarationError(`local path must be a JSON Pointer: ${JSON.stringify(path)}`);
-}
-
-function localPath(key: string, path: string): string {
-  return `/$local/${escapePointer(key)}${path}`;
-}
-
-function resolveLocalValues(value: JsonValue): JsonValue {
-  if (value !== null && typeof value === "object" && !Array.isArray(value) && typeof value.$local === "string" && typeof value.path === "string") {
-    return { path: localPath(value.$local, value.path) };
-  }
-  if (Array.isArray(value)) return value.map(resolveLocalValues);
-  if (value !== null && typeof value === "object") return Object.fromEntries(Object.entries(value).map(([key, child]) => [key, resolveLocalValues(child)]));
-  return value;
-}
+function localPath(key: string, path: string): string { return `/$local/${escapePointer(key)}${path}`; }

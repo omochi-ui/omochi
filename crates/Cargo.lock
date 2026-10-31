@@ -2756,10 +2756,20 @@ version = "0.1.2"
 dependencies = [
  "async-trait",
  "futures",
+ "omochi-ui-macros",
  "serde",
  "serde_json",
  "thiserror 2.0.21",
  "tokio",
+]
+
+[[package]]
+name = "omochi-ui-macros"
+version = "0.1.2"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.119",
 ]
 
 [[package]]

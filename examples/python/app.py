@@ -1,34 +1,44 @@
 import asyncio
 import os
 from dataclasses import dataclass
+from typing import TypedDict
 
-from omochi_ui import App, UnixSocketServerTransport
+from omochi_ui import schema, Expr, InputSchema, ActionContext, UI, App, UnixSocketServerTransport
 
 
 @dataclass
 class State:
-    temperature: int = 50
+    temperature: float = 50
     result: str | None = None
 
 @dataclass
 class RunInput:
-    temperature: int
+    temperature: float
+
+class RunInputExpr(TypedDict):
+    temperature: float | Expr[float]
+
+RUN_INPUT = InputSchema(RunInput, RunInputExpr)
+TEMPERATURE = RUN_INPUT.field("temperature", schema.number())
+
 
 
 app = App(State())
 
 
-@app.action("run")
-async def run(input: RunInput, context):
-    await context.update(lambda state: (setattr(state, "temperature", input.temperature), setattr(state, "result", f"Ran at temperature {input.temperature}")))
+@app.action("run", schema=RUN_INPUT)
+async def run(input: RunInput, context: ActionContext[State]):
+    async with context.update() as state:
+        state.temperature = input.temperature
+        state.result = f"Ran at temperature {input.temperature:g}"
 
 
 @app.surface("main")
-def main(ui, state):
-    form = ui.local("form", {"temperature": state.temperature})
+def main(ui: UI, state: State) -> None:
+    form = ui.local("form", RunInput(state.temperature))
     ui.text("Hello", key="title", variant="h2")
-    ui.slider("temperature", 0, 100, bind=form.bind("/temperature"))
-    ui.button("Run", run.call({"temperature": form.value("/temperature")}), variant="primary")
+    ui.slider("temperature", 0, 100, bind=form.field(TEMPERATURE).bind())
+    ui.button("Run", run.call({"temperature": form.field(TEMPERATURE).value()}), variant="primary")
     if state.result:
         ui.text(state.result, key="result")
 

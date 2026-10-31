@@ -1,4 +1,4 @@
-use omochi_ui::{App, ImageOptions, Result};
+use omochi_ui::{App, AudioPlayer, Image, Result, Video};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -9,9 +9,9 @@ async fn main() -> Result<()> {
     let audio = app.resources.file(&paths[1], None)?;
     let video = app.resources.file(&paths[2], None)?;
     app.surface("main", move |ui, _| {
-        ui.image(photo.clone(), ImageOptions::default())?;
-        ui.audio_player(audio.clone(), None, None)?;
-        ui.video(video.clone(), None)
+        ui.add(Image::new(photo.clone()))?;
+        ui.add(AudioPlayer::new(audio.clone()))?;
+        ui.add(Video::new(video.clone()))
     })?;
     app.start().await
 }

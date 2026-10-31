@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "@omochi-ui/core/testing";
-import { App, type JsonObject } from "../src/index.js";
+import { schema, App, type JsonObject } from "../src/index.js";
 
 function gate() {
   let resolve!: () => void;
@@ -28,7 +28,7 @@ test("action updates send progress before completion without duplicates", { time
   const sent: JsonObject[] = [];
   const app = new App({ status: "idle" });
   for (const id of ["one", "two"]) app.surface(id, (ui, state) => ui.text(state.status, { key: "status" }));
-  app.action("work", async (_, ctx) => {
+  app.action("work", schema.literal(null), async (_, ctx) => {
     await ctx.update((state) => { state.status = "working"; });
     entered.resolve();
     await release.promise;
@@ -55,7 +55,7 @@ test("action updates send progress before completion without duplicates", { time
 test("concurrent context updates stay ordered and offline invocation returns all changes", async () => {
   const app = new App({ value: 0 });
   app.surface("main", (ui, state) => ui.text(String(state.value), { key: "value" }));
-  app.action("work", async (_, ctx) => {
+  app.action("work", schema.literal(null), async (_, ctx) => {
     await Promise.all([
       ctx.update(async (state) => { await Promise.resolve(); state.value = 1; }),
       ctx.update((state) => { state.value = 2; }),
@@ -70,11 +70,11 @@ test("action and send failures propagate without rolling back prior updates or w
   const state = { value: 0 };
   const app = new App(state);
   app.surface("main", (ui, state) => ui.text(String(state.value), { key: "value" }));
-  app.action("fail", async (_, ctx) => {
+  app.action("fail", schema.literal(null), async (_, ctx) => {
     await ctx.update((state) => { state.value = 1; });
     throw new Error("action failed");
   });
-  app.action("set", async (_, ctx) => ctx.update((state) => { state.value++; }));
+  app.action("set", schema.literal(null), async (_, ctx) => ctx.update((state) => { state.value++; }));
   const runtime = app.build();
   // An empty receiver attaches a transport without starting a background reader.
   let failSend = false;

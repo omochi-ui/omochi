@@ -10,29 +10,50 @@ before running TypeScript examples. The APIs produce A2UI v0.9 messages;
 
 ```python
 import asyncio
+from dataclasses import dataclass
+from typing import TypedDict
 
-from omochi_ui import App
+from omochi_ui import schema, Expr, InputSchema, ActionContext, UI, App
 
-state = {"temperature": 50, "result": None}
-app = App(state)
 
-@app.action("run")
-async def run(input, ctx):
-    await ctx.update(lambda state: state.update(
-        temperature=input["temperature"],
-        result=f'Result: {input["temperature"]}',
-    ))
+@dataclass
+class State:
+    temperature: float = 50
+    result: str | None = None
+
+@dataclass
+class RunInput:
+    temperature: float
+
+class RunInputExpr(TypedDict):
+    temperature: float | Expr[float]
+
+RUN_INPUT = InputSchema(RunInput, RunInputExpr)
+TEMPERATURE = RUN_INPUT.field("temperature", schema.number())
+
+
+
+app = App(State())
+
+
+@app.action("run", schema=RUN_INPUT)
+async def run(input: RunInput, context: ActionContext[State]):
+    async with context.update() as state:
+        state.temperature = input.temperature
+        state.result = f"Ran at temperature {input.temperature:g}"
+
 
 @app.surface("main")
-def main(ui, state):
-    form = ui.local("form", {"temperature": state["temperature"]})
-    ui.text("Hello", key="title")
-    ui.slider("temperature", 0, 100, bind=form.bind("/temperature"))
-    ui.button("Run", run.call({"temperature": form.value("/temperature")}))
-    if state["result"]:
-        ui.text(state["result"], key="result")
+def main(ui: UI, state: State) -> None:
+    form = ui.local("form", RunInput(state.temperature))
+    ui.text("Hello", key="title", variant="h2")
+    ui.slider("temperature", 0, 100, bind=form.field(TEMPERATURE).bind())
+    ui.button("Run", run.call({"temperature": form.field(TEMPERATURE).value()}), variant="primary")
+    if state.result:
+        ui.text(state.result, key="result")
 
-asyncio.run(app.start())  # JSONL over stdin/stdout by default
+
+asyncio.run(app.start())
 ```
 
 Run the bundled example from the repository root:
@@ -46,24 +67,25 @@ See the [quick start](../README.md#quick-start) to connect it to a browser.
 ## TypeScript
 
 ```ts
-import { App } from "@omochi-ui/sdk";
+import { schema, App } from "@omochi-ui/sdk";
 
-const state = { temperature: 50, result: null as string | null };
+const state: { temperature: number; result: string | null } = {
+  temperature: 50,
+  result: null,
+};
+
 const app = new App(state);
 
-const run = app.action<{ temperature: number }>("run", async (input, ctx) => {
-  await ctx.update((state) => {
-    state.temperature = input.temperature;
-    state.result = `Result: ${input.temperature}`;
-  });
+const run = app.action("run", schema.object({ temperature: schema.number() }), async (input, context) => {
+  await context.update((current) => { current.temperature = input.temperature; current.result = `Ran at temperature ${input.temperature}`; });
 });
 
-app.surface("main", (ui, state) => {
-  const form = ui.local("form", { temperature: state.temperature });
-  ui.text("Hello", { key: "title" });
-  ui.slider("temperature", 0, 100, { bind: form.bind("/temperature") });
-  ui.button("Run", run.call({ temperature: form.value("/temperature") }));
-  if (state.result) ui.text(state.result, { key: "result" });
+app.surface("main", (ui, current) => {
+  const form = ui.local("form", { temperature: current.temperature });
+  ui.text("Hello", { key: "title", variant: "h2" });
+  ui.slider("temperature", 0, 100, { bind: form.field("temperature").bind() });
+  ui.button("Run", run.call({ temperature: form.field("temperature").value() }), { variant: "primary" });
+  if (current.result) ui.text(current.result, { key: "result" });
 });
 
 await app.start();
@@ -93,32 +115,69 @@ The crate is named `omochi-ui` and imported as `omochi_ui`. Typed application
 state is mutated only through Runtime transactions.
 
 ```rust
-use omochi_ui::{App, ButtonOptions, Result, SliderOptions};
-use serde::Deserialize;
+use omochi_ui::{ActionInput, Button, ButtonVariant, Input, Slider, Text, TextVariant};
+use omochi_ui::{App, Result};
+use serde::{Deserialize, Serialize};
 
-#[derive(Default)]
-struct State { result: Option<f64> }
-#[derive(Deserialize)]
-struct RunInput { temperature: f64 }
+struct State {
+    temperature: f64,
+    result: Option<String>,
+}
+#[derive(Deserialize, Serialize, ActionInput)]
+struct RunInput {
+    temperature: f64,
+}
+
+impl Default for State {
+    fn default() -> Self {
+        Self {
+            temperature: 50.0,
+            result: None,
+        }
+    }
+}
 
 #[tokio::main]
 async fn main() -> Result<()> {
     let mut app = App::new(State::default());
+
     let run = app.action::<RunInput, _, _>("run", |input, context| async move {
-        context.update(|state| { state.result = Some(input.temperature); }).await?;
+        context
+            .update(|state| {
+                state.temperature = input.temperature;
+                state.result = Some(format!("Ran at temperature {}", input.temperature));
+            })
+            .await?;
         Ok(())
     })?;
+
     app.surface("main", move |ui, state| {
-        let form = ui.local("form", serde_json::json!({ "temperature": 50.0 }))?;
-        ui.text("Hello")?;
-        ui.slider("temperature", 0.0, 100.0,
-            SliderOptions { bind: Some(form.bind("/temperature")?), ..Default::default() })?;
-        ui.button("Run", run.call(serde_json::json!({ "temperature": form.value("/temperature")? }))?, ButtonOptions::default())?;
-        if let Some(result) = state.result {
-            ui.text(result)?;
+        let form = ui.local(
+            "form",
+            RunInput {
+                temperature: state.temperature,
+            },
+        )?;
+        ui.add(Text::new("Hello").key("title").variant(TextVariant::H2))?;
+        ui.add(
+            Slider::new("temperature", 0.0, 100.0)
+                .bind(form.field(RunInput::field_temperature()).bind()?),
+        )?;
+        ui.add(
+            Button::new("Run")
+                .on_press(run.call(RunInputInput {
+                    temperature: Input::expression(
+                        form.field(RunInput::field_temperature()).value(),
+                    ),
+                })?)
+                .variant(ButtonVariant::Primary),
+        )?;
+        if let Some(result) = &state.result {
+            ui.add(Text::new(result.clone()).key("result"))?;
         }
         Ok(())
     })?;
+
     app.start().await
 }
 ```
@@ -168,11 +227,13 @@ bindings alone does not add those components to the bundled browser UI.
 In all three SDKs, await each context update before continuing the operation:
 
 ```python
-@app.action("run")
-async def run(input, context):
-    await context.update(lambda state: setattr(state, "status", "Working"))
+@app.action("work", schema=schema.string())
+async def work(input: str, context: ActionContext[State]) -> None:
+    async with context.update() as state:
+        state.status = "Working"
     await do_work(input)
-    await context.update(lambda state: setattr(state, "status", "Done"))
+    async with context.update() as state:
+        state.status = "Done"
 ```
 
 Multiple updates in an action expose intermediate states. Group
@@ -264,3 +325,71 @@ hosting; by default the WebSocket origin supplies the HTTP resource endpoint.
 
 See [the resource wire contract](../spec/resources.md). Hub and gateway must both
 use gateway protocol 3; existing SDKs without resource support can still display UI.
+
+## Typed inputs and migration
+
+This API change targets the next minor SDK release. A2UI v0.9 and existing
+component/local IDs are unchanged. Existing applications must migrate action
+registration and form references before updating.
+
+TypeScript actions now require a schema: `app.action("run", schema.object({
+temperature: schema.number() }), handler)`. The handler input is inferred from
+that schema. Replace `form.bind("/temperature")` with
+`form.field("temperature").bind()` and use `.value()` for an action expression.
+The compiler checks required fields, nested structures and expression result types.
+
+Python actions require `schema=...`. `InputSchema(Concrete, Expression)` connects
+a dataclass or TypedDict to an explicit expression TypedDict. Field names and
+value types must agree. Declare typed references with
+`inputs.field("temperature", schema.number())`, then pass them to `local.field()`.
+Use `App[State, UI]` when an explicit application annotation is useful. Both
+synchronous and asynchronous action handlers are supported. Surface decorators
+preserve function signatures; annotate their arguments explicitly. Wheels include
+`py.typed` for mypy and Pyright consumers.
+
+`schema` provides string, boolean, number, integer, literal, nullable, optional,
+array, tuple, map, object and union validators. Python names tuple/map/object
+constructors `tuple_`, `map_`, `object_`. Python also provides `from_type` for
+explicit annotations. Object schemas reject unknown fields by default; set
+`unknownKeys` (TS) or `unknown_keys` (Python) to `strip` or `allow` explicitly.
+`custom` supplies a typed conversion boundary for domain-specific validation.
+No string-to-number conversion occurs. Boolean is not an integer in Python's
+validator. Invalid wire input raises `ProtocolError` before invoking the handler;
+invalid or cyclic declaration values raise `DeclarationError`.
+
+Python update blocks and callback updates share the same lock. Normal exit
+increments the revision once and waits for transport sends. An exception or
+cancellation in the block retains mutations but does not increment the revision
+or render. Send failures retain already applied changes and sent messages.
+Same-task nesting raises `DeclarationError`; separate tasks serialize. An update
+after the action completes is rejected. Long-running work should be placed between
+update blocks so intermediate progress can be sent.
+
+Rust uses `#[derive(Serialize, Deserialize, ActionInput)]`. A type named `Request`
+generates `RequestInput`; its fields contain `Input<T>`. Use `.into()` for concrete
+values or expressions, and `Input::fields(...)` for a nested generated input,
+array, tuple, option or string-keyed map. `Request::field_name()` produces a typed
+projection. Enum payloads require `local.variant(Request::variant_name())`;
+projection returns `None` when the current initial value is another variant.
+Generated variant field descriptors are named `RequestVariantFields`.
+
+Serde handles the concrete input at invocation. All four enum representations,
+struct forms, generics, rename/default/skip attributes and flatten are supported
+by the generated expression serializer. Flattened duplicate keys and non-finite
+numbers are rejected. A skip predicate is evaluated only for a concrete value;
+unresolved expressions remain present. Custom Serde serialization requires
+`#[action_input(adapter = Adapter)]` and an `ExpressionAdapter<T>` implementation
+that declares the serialized `Wire` type, encodes literals/expressions and defines field projection paths. Bindings use `Wire` so a number serialized as a string cannot accidentally be attached to a numeric control.
+Apply the adapter to a field or the entire input type. An adapter may reject
+expressions it cannot faithfully encode.
+
+Rust Basic Catalog builders use `ui.add(...)`. For example,
+`Button::new("Run").variant(ButtonVariant::Primary).on_press(run.call(input)?)`.
+Input builders expose mutually exclusive `.default(...)` and `.bind(...)` methods.
+`CatalogComponent::new(key, props)` adds generated custom-catalog properties
+through the same interface. Layout closures and `App::build(self)` keep their
+existing ownership semantics.
+
+Run `python scripts/test-sdk-types.py` with mypy and Pyright installed for Python
+positive/negative API checks. TypeScript checks run with the SDK test compiler;
+Rust compile-fail examples run with `cargo test --doc`.

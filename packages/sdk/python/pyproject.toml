@@ -14,7 +14,7 @@ dependencies = []
 
 [project.optional-dependencies]
 websocket = ["websockets>=14"]
-test = ["pytest>=8"]
+test = ["pytest>=8", "mypy>=1.18", "pyright>=1.1.400"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/omochi_ui"]

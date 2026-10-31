@@ -140,11 +140,7 @@ jobs:
           components: rustfmt
       - run: cargo fmt --manifest-path packages/sdk/rust/Cargo.toml --check
       - run: cargo test --manifest-path packages/sdk/rust/Cargo.toml --locked
-      - run: cargo package --manifest-path packages/sdk/rust/Cargo.toml --locked
-      - name: Verify packaged examples
-        env:
-          VERSION: ${{ needs.prepare.outputs.version }}
-        run: cargo check --manifest-path "packages/sdk/rust/target/package/omochi-ui-$VERSION/Cargo.toml" --locked --examples
+      - run: python3 scripts/check-sdk-crates.py
       - uses: actions/upload-artifact@v7
         with:
           name: rust-distribution
@@ -268,8 +264,9 @@ jobs:
         env:
           VERSION: ${{ needs.prepare.outputs.version }}
         run: |
-          cargo package --manifest-path packages/sdk/rust/Cargo.toml --locked
+          python3 scripts/check-sdk-crates.py
           cmp "artifacts/rust/omochi-ui-$VERSION.crate" "packages/sdk/rust/target/package/omochi-ui-$VERSION.crate"
+          cmp "artifacts/rust/omochi-ui-macros-$VERSION.crate" "packages/sdk/rust/target/package/omochi-ui-macros-$VERSION.crate"
       - uses: rust-lang/crates-io-auth-action@v1
         id: auth
         if: steps.existing.outputs.publish == 'true' && !inputs.bootstrap
@@ -283,4 +280,17 @@ jobs:
             echo 'Set CRATES_IO_BOOTSTRAP_TOKEN in the crates-io environment for the first publication.' >&2
             exit 1
           fi
+          macro_status=$(curl --silent --show-error --location --retry 3 \
+            --user-agent 'omochi-release (https://github.com/omochi-ui/omochi)' \
+            --output "$RUNNER_TEMP/macro-version.json" --write-out '%{http_code}' \
+            "https://crates.io/api/v1/crates/omochi-ui-macros/${{ needs.prepare.outputs.version }}")
+          case "$macro_status" in
+            200)
+              expected=$(sha256sum "artifacts/rust/omochi-ui-macros-${{ needs.prepare.outputs.version }}.crate" | cut -d' ' -f1)
+              actual=$(jq -r '.version.checksum' "$RUNNER_TEMP/macro-version.json")
+              test "$actual" = "$expected"
+              ;;
+            404) cargo publish --manifest-path packages/sdk/rust/macros/Cargo.toml --locked ;;
+            *) echo "macro crate lookup failed: HTTP $macro_status" >&2; exit 1 ;;
+          esac
           cargo publish --manifest-path packages/sdk/rust/Cargo.toml --locked

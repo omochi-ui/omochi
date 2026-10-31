@@ -12,6 +12,7 @@ homepage = "https://github.com/omochi-ui/omochi"
 documentation = "https://github.com/omochi-ui/omochi/blob/main/docs/sdk.md"
 
 [dependencies]
+omochi-ui-macros = { version = "=0.1.2", path = "macros" }
 async-trait = "0.1"
 futures = "0.3"
 serde = { version = "1", features = ["derive"] }
@@ -21,3 +22,7 @@ tokio = { version = "1", features = ["io-std", "io-util", "macros", "net", "rt-m
 
 [dev-dependencies]
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
+
+[workspace]
+members = ["macros"]
+resolver = "3"

@@ -2,21 +2,21 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "@omochi-ui/core/testing";
 
-import { App, DeclarationError, type JsonObject } from "../src/index.js";
+import { schema, App, DeclarationError, type JsonObject } from "../src/index.js";
 
 const fixture = JSON.parse(readFileSync(new URL("../../../../spec/fixtures/basic.json", import.meta.url), "utf8")) as { initialMessages: JsonObject[]; action: JsonObject; afterActionMessages: JsonObject[] };
 
 function makeRuntime() {
   const state = { temperature: 50, result: null as string | null };
   const app = new App(state);
-  const run = app.action<{ temperature: number }>("run", async (input, context) => {
+  const run = app.action("run", schema.object({ temperature: schema.number() }), async (input, context) => {
     await context.update((current) => { current.temperature = input.temperature; current.result = `Result: ${input.temperature}`; });
   });
   app.surface("main", (ui, current) => {
     const form = ui.local("form", { temperature: current.temperature });
     ui.text("Hello", { key: "hello" });
-    ui.slider("temperature", 0, 100, { bind: form.bind("/temperature") });
-    ui.button("Run", run.call({ temperature: form.value("/temperature") }));
+    ui.slider("temperature", 0, 100, { bind: form.field("temperature").bind() });
+    ui.button("Run", run.call({ temperature: form.field("temperature").value() }));
     if (current.result) ui.text(current.result, { key: "result" });
   });
   return { runtime: app.build(), state };
@@ -32,7 +32,7 @@ test("matches the shared State/Surface/Action fixture", async () => {
 test("invokes a typed action without a Surface", async () => {
   const state = { value: 0 };
   const app = new App(state);
-  app.action<{ value: number }>("set", async (input, context) => context.update((current) => { current.value = input.value; }));
+  app.action("set", schema.object({ value: schema.number() }), async (input, context) => context.update((current) => { current.value = input.value; }));
   const runtime = app.build();
   assert.deepEqual(await runtime.handle({ type: "invoke", action: "set", input: { value: 7 } }), []);
   assert.equal(state.value, 7);
@@ -41,7 +41,7 @@ test("invokes a typed action without a Surface", async () => {
 test("keeps local drafts across rerenders and resets only on resetKey changes", async () => {
   const state = { title: "one", revision: 0 };
   const app = new App(state);
-  app.surface("main", (ui, current) => { const form = ui.local("form", { draft: current.title }, { resetKey: current.revision }); ui.textField("draft", { label: "Draft", bind: form.bind("/draft") }); });
+  app.surface("main", (ui, current) => { const form = ui.local("form", { draft: current.title }, { resetKey: current.revision }); ui.textField("draft", { label: "Draft", bind: form.field("draft").bind() }); });
   const runtime = app.build();
   runtime.render();
   assert.deepEqual(await runtime.update((current) => { current.title = "two"; }), []);
@@ -52,7 +52,7 @@ test("keeps local drafts across rerenders and resets only on resetKey changes", 
 test("updates every Surface through the same transaction", async () => {
   const state = { value: 0 };
   const app = new App(state);
-  const increment = app.action<null>("increment", async (_input, context) => context.update((current) => { current.value++; }));
+  const increment = app.action("increment", schema.literal(null), async (_input, context) => context.update((current) => { current.value++; }));
   app.surface("one", (ui, current) => { ui.text(String(current.value), { key: "value" }); ui.button("+", increment.call(null)); });
   app.surface("two", (ui, current) => { ui.text(String(current.value), { key: "value" }); });
   const runtime = app.build(); runtime.render("one"); runtime.render("two");

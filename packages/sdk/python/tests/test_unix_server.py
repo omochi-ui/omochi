@@ -6,13 +6,13 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from omochi_ui import App, UnixSocketServerTransport
+from omochi_ui import schema, Expr, InputSchema, ActionContext, UI, App, UnixSocketServerTransport
 
 
 def counter_app() -> App:
     app = App({"count": 0})
 
-    @app.action("increment")
+    @app.action("increment", schema=schema.literal(None))
     async def increment(input, context):
         await context.update(lambda current: current.update(count=current["count"] + 1))
 

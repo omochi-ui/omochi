@@ -131,10 +131,11 @@ export async function loadRelease(tag?: string): Promise<{ version: string; pack
   const python = Bun.TOML.parse(await Bun.file(path.join(root, 'packages/sdk/python/pyproject.toml')).text()) as { project: { version: string } };
   const pythonRoot = Bun.TOML.parse(await Bun.file(path.join(root, 'pyproject.toml')).text()) as { project: { version: string } };
   const rust = Bun.TOML.parse(await Bun.file(path.join(root, 'packages/sdk/rust/Cargo.toml')).text()) as { package: { version: string } };
+  const macros = Bun.TOML.parse(await Bun.file(path.join(root, 'packages/sdk/rust/macros/Cargo.toml')).text()) as { package: { version: string } };
   const version = python.project.version;
   validateVersion(version, {
     ...Object.fromEntries(workspaces.filter(({ manifest }) => !manifest.omochiNative).map(({ manifest }) => [manifest.name, manifest.version])),
-    'Python workspace': pythonRoot.project.version, 'Rust SDK': rust.package.version,
+    'Python workspace': pythonRoot.project.version, 'Rust SDK': rust.package.version, 'Rust SDK macros': macros.package.version,
   }, tag);
   const license = await readFile(path.join(root, 'LICENSE'));
   for (const sdk of ['python', 'rust']) {

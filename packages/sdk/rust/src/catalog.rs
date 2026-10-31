@@ -6,6 +6,12 @@ use crate::JsonObject;
 pub trait ComponentProps {
     const NAME: &'static str;
     fn into_props(self) -> JsonObject;
+    fn into_component(self, key: impl Into<String>) -> crate::CatalogComponent<Self>
+    where
+        Self: Sized,
+    {
+        crate::CatalogComponent::new(key, self)
+    }
 }
 
 fn object<T: Serialize>(value: T) -> JsonObject {

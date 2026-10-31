@@ -20,10 +20,10 @@ pub struct ActionCall {
 }
 
 impl<I> ActionHandle<I> {
-    pub fn call(&self, input: Value) -> Result<ActionCall> {
+    pub fn call(&self, input: impl crate::IntoActionInput<I>) -> Result<ActionCall> {
         Ok(ActionCall {
             action: self.0.clone(),
-            input,
+            input: input.encode()?,
         })
     }
 }
@@ -61,7 +61,7 @@ pub struct ButtonOptions {
 #[derive(Default)]
 pub struct TextFieldOptions {
     pub default: Option<String>,
-    pub bind: Option<ModelBinding>,
+    pub bind: Option<ModelBinding<String>>,
     pub label: Value,
     pub key: Option<String>,
     pub variant: Option<String>,
@@ -70,21 +70,21 @@ pub struct TextFieldOptions {
 #[derive(Default)]
 pub struct SliderOptions {
     pub default: Option<f64>,
-    pub bind: Option<ModelBinding>,
+    pub bind: Option<ModelBinding<f64>>,
     pub key: Option<String>,
     pub label: Option<Value>,
 }
 #[derive(Default)]
 pub struct CheckBoxOptions {
     pub default: Option<bool>,
-    pub bind: Option<ModelBinding>,
+    pub bind: Option<ModelBinding<bool>>,
     pub label: Value,
     pub key: Option<String>,
 }
 #[derive(Default)]
 pub struct ChoicePickerOptions {
     pub default: Option<Vec<String>>,
-    pub bind: Option<ModelBinding>,
+    pub bind: Option<ModelBinding<Vec<String>>>,
     pub label: Option<Value>,
     pub key: Option<String>,
     pub variant: Option<String>,
@@ -94,7 +94,7 @@ pub struct ChoicePickerOptions {
 #[derive(Default)]
 pub struct DateTimeInputOptions {
     pub default: Option<String>,
-    pub bind: Option<ModelBinding>,
+    pub bind: Option<ModelBinding<String>>,
     pub key: Option<String>,
     pub label: Option<Value>,
     pub enable_date: Option<bool>,
@@ -111,43 +111,62 @@ pub struct Tab<F> {
 static MODEL_TOKEN: AtomicU64 = AtomicU64::new(1);
 
 #[derive(Clone, Debug)]
-pub struct ModelBinding {
+pub struct ModelBinding<T = Value> {
+    marker: PhantomData<fn(T) -> T>,
     path: String,
     token: u64,
 }
 
-impl From<ModelBinding> for Value {
-    fn from(binding: ModelBinding) -> Self {
+impl<T> From<ModelBinding<T>> for Value {
+    fn from(binding: ModelBinding<T>) -> Self {
         json!({ "path": binding.path })
     }
 }
 
-pub struct Local {
+pub struct Local<T = Value> {
+    source: std::sync::Arc<Value>,
+    marker: PhantomData<fn() -> T>,
+    path: String,
     key: String,
     token: u64,
 }
 
-impl Local {
-    pub fn bind(&self, path: &str) -> Result<ModelBinding> {
-        validate_pointer(path)?;
+impl<T> Local<T> {
+    pub fn bind(&self) -> Result<ModelBinding<T>> {
+        let path = &self.path;
         Ok(ModelBinding {
+            marker: PhantomData,
             path: local_path(&self.key, path),
             token: self.token,
         })
     }
-    pub fn value(&self, path: &str) -> Result<Value> {
-        validate_pointer(path)?;
-        Ok(json!({ "$local": self.key, "path": path }))
+    pub fn variant<V>(&self, variant: crate::Variant<T, V>) -> Option<Local<V>> {
+        if !(variant.matches)(self.source.pointer(&self.path)?) {
+            return None;
+        }
+        Some(Local {
+            source: self.source.clone(),
+            key: self.key.clone(),
+            token: self.token,
+            path: format!("{}{}", self.path, variant.path),
+            marker: PhantomData,
+        })
     }
-}
-
-fn validate_pointer(path: &str) -> Result<()> {
-    if !path.is_empty() && !path.starts_with('/') {
-        return Err(Error::Declaration(
-            "local path must be a JSON Pointer".into(),
-        ));
+    pub fn field<F>(&self, field: crate::Field<T, F>) -> Local<F> {
+        Local {
+            source: self.source.clone(),
+            key: self.key.clone(),
+            token: self.token,
+            path: format!("{}{}", self.path, field.path),
+            marker: PhantomData,
+        }
     }
-    Ok(())
+    pub fn value(&self) -> crate::Expr<T> {
+        crate::Expr {
+            path: local_path(&self.key, &self.path),
+            marker: PhantomData,
+        }
+    }
 }
 
 pub struct Ui {
@@ -201,15 +220,21 @@ impl Ui {
         }
     }
 
-    pub fn local(&mut self, key: impl Into<String>, initial: Value) -> Result<Local> {
-        self.local_with(key, initial, None)
-    }
-    pub fn local_with(
+    pub fn local<T: serde::Serialize>(
         &mut self,
         key: impl Into<String>,
-        initial: Value,
+        initial: T,
+    ) -> Result<Local<T>> {
+        self.local_with(key, initial, None)
+    }
+    pub fn local_with<T: serde::Serialize>(
+        &mut self,
+        key: impl Into<String>,
+        initial: T,
         reset_key: Option<Value>,
-    ) -> Result<Local> {
+    ) -> Result<Local<T>> {
+        let mut initial = crate::checked_json(initial)?;
+        normalize_numbers(&mut initial);
         let key = key.into();
         if key.is_empty() || self.locals.contains_key(&key) {
             return Err(Error::Declaration(format!(
@@ -218,9 +243,16 @@ impl Ui {
         }
         let token = MODEL_TOKEN.fetch_add(1, Ordering::Relaxed);
         self.model_tokens.insert(token);
+        let source = std::sync::Arc::new(initial.clone());
         self.locals
             .insert(key.clone(), LocalDeclaration { initial, reset_key });
-        Ok(Local { key, token })
+        Ok(Local {
+            source,
+            key,
+            token,
+            path: String::new(),
+            marker: PhantomData,
+        })
     }
 
     fn resolve_key(&mut self, key: Option<String>) -> Result<String> {
@@ -246,7 +278,12 @@ impl Ui {
         nodes
     }
 
-    fn append(
+    pub(crate) fn extend_last(&mut self, props: JsonObject) {
+        if let Some(node) = self.target_mut().last_mut() {
+            node.props.extend(props);
+        }
+    }
+    pub(crate) fn append(
         &mut self,
         component: impl Into<String>,
         props: JsonObject,
@@ -446,7 +483,7 @@ impl Ui {
                 .or_else(|| Some(format!("action:{}", action.action))),
         )?;
         let label_key = self.resolve_key(Some(format!("{key}:label")))?;
-        let mut props = json!({ "action": { "event": { "name": action.action, "context": { "input": resolve_local_values(action.input) } } } }).as_object().unwrap().clone();
+        let mut props = json!({ "action": { "event": { "name": action.action, "context": { "input": action.input } } } }).as_object().unwrap().clone();
         optional(&mut props, "variant", options.variant);
         self.target_mut().push(Node {
             key,
@@ -467,12 +504,12 @@ impl Ui {
         Ok(())
     }
 
-    fn input(
+    fn input<T>(
         &mut self,
         component: &str,
         name: &str,
         default: Value,
-        bind: Option<ModelBinding>,
+        bind: Option<ModelBinding<T>>,
         mut props: JsonObject,
         key: Option<String>,
     ) -> Result<()> {
@@ -621,40 +658,12 @@ impl Ui {
 fn local_path(key: &str, path: &str) -> String {
     format!("/$local/{}{path}", escape_pointer(key))
 }
-fn resolve_local_values(value: Value) -> Value {
-    match value {
-        Value::Object(mut object)
-            if object.get("$local").and_then(Value::as_str).is_some()
-                && object.get("path").and_then(Value::as_str).is_some() =>
-        {
-            let key = object
-                .remove("$local")
-                .unwrap()
-                .as_str()
-                .unwrap()
-                .to_owned();
-            let path = object.remove("path").unwrap().as_str().unwrap().to_owned();
-            json!({ "path": local_path(&key, &path) })
-        }
-        Value::Object(object) => Value::Object(
-            object
-                .into_iter()
-                .map(|(key, value)| (key, resolve_local_values(value)))
-                .collect(),
-        ),
-        Value::Array(values) => {
-            Value::Array(values.into_iter().map(resolve_local_values).collect())
-        }
-        value => value,
-    }
-}
-
 fn optional(map: &mut JsonObject, key: &str, value: Option<String>) {
     if let Some(value) = value {
         map.insert(key.into(), value.into());
     }
 }
-fn validate_control<T>(default: &Option<T>, bind: &Option<ModelBinding>) -> Result<()> {
+fn validate_control<T, B>(default: &Option<T>, bind: &Option<ModelBinding<B>>) -> Result<()> {
     if default.is_some() && bind.is_some() {
         return Err(Error::Declaration(
             "default and bind cannot be used together".into(),
@@ -675,5 +684,28 @@ fn number_value(value: f64) -> Value {
         Value::from(value as i64)
     } else {
         Value::from(value)
+    }
+}
+
+fn normalize_numbers(value: &mut Value) {
+    match value {
+        Value::Number(n) if n.is_f64() => {
+            if let Some(v) = n.as_f64() {
+                if v.fract() == 0.0 && v.abs() < 9007199254740992.0 {
+                    *value = json!(v as i64);
+                }
+            }
+        }
+        Value::Array(a) => {
+            for v in a {
+                normalize_numbers(v);
+            }
+        }
+        Value::Object(o) => {
+            for v in o.values_mut() {
+                normalize_numbers(v);
+            }
+        }
+        _ => {}
     }
 }

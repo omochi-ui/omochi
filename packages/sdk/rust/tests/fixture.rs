@@ -1,18 +1,19 @@
 use std::path::PathBuf;
 
-use omochi_ui::{App, ButtonOptions, Result, SliderOptions, TextOptions};
-use serde::Deserialize;
+use omochi_ui::{ActionInput, Button, Input, Slider, Text};
+use omochi_ui::{App, Result, TextOptions};
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 #[derive(Default)]
 struct State {
-    temperature: i64,
+    temperature: f64,
     result: Option<String>,
     revision: u64,
 }
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize, ActionInput)]
 struct RunInput {
-    temperature: i64,
+    temperature: f64,
 }
 
 fn fixture() -> Value {
@@ -21,7 +22,7 @@ fn fixture() -> Value {
 }
 fn runtime() -> Result<omochi_ui::Runtime<State>> {
     let mut app = App::new(State {
-        temperature: 50,
+        temperature: 50.0,
         ..Default::default()
     });
     let run = app.action::<RunInput, _, _>("run", |input, context| async move {
@@ -34,36 +35,22 @@ fn runtime() -> Result<omochi_ui::Runtime<State>> {
         Ok(())
     })?;
     app.surface("main", move |ui, state| {
-        let form = ui.local("form", json!({ "temperature": state.temperature }))?;
-        ui.text_with(
-            "Hello",
-            TextOptions {
-                key: Some("hello".into()),
-                ..Default::default()
+        let form = ui.local(
+            "form",
+            RunInput {
+                temperature: state.temperature,
             },
         )?;
-        ui.slider(
-            "temperature",
-            0.0,
-            100.0,
-            SliderOptions {
-                bind: Some(form.bind("/temperature")?),
-                ..Default::default()
-            },
+        ui.add(Text::new("Hello").key("hello"))?;
+        ui.add(
+            Slider::new("temperature", 0.0, 100.0)
+                .bind(form.field(RunInput::field_temperature()).bind()?),
         )?;
-        ui.button(
-            "Run",
-            run.call(json!({ "temperature": form.value("/temperature")? }))?,
-            ButtonOptions::default(),
-        )?;
+        ui.add(Button::new("Run").on_press(run.call(RunInputInput {
+            temperature: Input::expression(form.field(RunInput::field_temperature()).value()),
+        })?))?;
         if let Some(result) = &state.result {
-            ui.text_with(
-                result.clone(),
-                TextOptions {
-                    key: Some("result".into()),
-                    ..Default::default()
-                },
-            )?;
+            ui.add(Text::new(result.clone()).key("result"))?;
         }
         Ok(())
     })?;
@@ -154,23 +141,20 @@ async fn external_update_renders_all_surfaces() {
 #[tokio::test]
 async fn local_state_resets_only_when_reset_key_changes() {
     let mut app = App::new(State {
-        temperature: 50,
+        temperature: 50.0,
         ..Default::default()
     });
     app.surface("main", |ui, state| {
         let form = ui.local_with(
             "form",
-            json!({ "temperature": state.temperature }),
+            RunInput {
+                temperature: state.temperature,
+            },
             Some(json!(state.revision)),
         )?;
-        ui.slider(
-            "temperature",
-            0.0,
-            100.0,
-            SliderOptions {
-                bind: Some(form.bind("/temperature")?),
-                ..Default::default()
-            },
+        ui.add(
+            Slider::new("temperature", 0.0, 100.0)
+                .bind(form.field(RunInput::field_temperature()).bind()?),
         )
     })
     .unwrap();
@@ -179,7 +163,7 @@ async fn local_state_resets_only_when_reset_key_changes() {
     assert!(
         runtime
             .update(|state| {
-                state.temperature = 75;
+                state.temperature = 75.0;
             })
             .await
             .unwrap()

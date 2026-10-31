@@ -4,7 +4,7 @@ import { test } from "@omochi-ui/core/testing";
 
 import { WebSocket } from "ws";
 
-import { App } from "../src/index.js";
+import { schema, App } from "../src/index.js";
 import { WebSocketServerTransport } from "../src/node/index.js";
 import type { JsonObject } from "../src/index.js";
 
@@ -47,7 +47,7 @@ test("hosts one shared app and snapshots its latest state for late clients", asy
 
   const state = { count: 0 };
   const app = new App(state);
-  const increment = app.action<null>("increment", async (_input, context) => {
+  const increment = app.action("increment", schema.literal(null), async (_input, context) => {
     await context.update((current) => { current.count += 1; });
   });
   app.surface("main", (ui, current) => {

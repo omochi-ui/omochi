@@ -4,7 +4,10 @@ import asyncio
 import inspect
 from copy import deepcopy
 from dataclasses import dataclass, is_dataclass
-from typing import Any, Callable, Generic, TypeVar, cast, get_type_hints
+from typing import Any, Callable, Generic, TypeVar, cast, get_type_hints, overload, Coroutine
+from contextlib import asynccontextmanager, AbstractAsyncContextManager
+from .schema import Schema, InputSchema
+from .expression import encode_input
 
 from .resources import ResourceRegistry, hello
 from .builder import UI
@@ -15,6 +18,8 @@ from .transport import StdioTransport, Transport
 
 InputType = TypeVar("InputType")
 StateType = TypeVar("StateType")
+ExpressionType = TypeVar("ExpressionType")
+ViewType = TypeVar("ViewType", bound=Callable[..., Any])
 UIType = TypeVar("UIType", bound=UI)
 
 @dataclass(frozen=True, slots=True)
@@ -22,9 +27,9 @@ class ActionCall:
     action: str
     input: Any
 
-class Action(Generic[InputType]):
+class Action(Generic[InputType, ExpressionType]):
     def __init__(self, name: str): self.name = name
-    def call(self, input: InputType) -> ActionCall: return ActionCall(self.name, deepcopy(input))
+    def call(self, input: InputType | ExpressionType) -> ActionCall: return ActionCall(self.name, encode_input(input))
 
 class ActionContext(Generic[StateType]):
     def __init__(self, runtime: "Runtime[StateType, Any]"):
@@ -32,38 +37,63 @@ class ActionContext(Generic[StateType]):
         self._messages: list[dict[str, Any]] = []
         self._update_lock = asyncio.Lock()
         self._active = True
-    async def update(self, mutator: Callable[[StateType], Any]) -> None:
-        # The invocation holds the Runtime lock; only serialize its own updates here.
+    @overload
+    def update(self) -> AbstractAsyncContextManager[StateType]: ...
+    @overload
+    def update(self, mutator: Callable[[StateType], Any]) -> Coroutine[Any, Any, None]: ...
+    def update(self, mutator=None):
+        return self._block() if mutator is None else self._mutate(mutator)
+
+    @asynccontextmanager
+    async def _block(self):
+        task = asyncio.current_task()
+        if getattr(self, "_owner", None) is task:
+            raise DeclarationError("nested action updates are not supported")
         async with self._update_lock:
             if not self._active: raise DeclarationError("action has already completed")
-            result = mutator(self._runtime.state)
+            self._owner = task
+            try:
+                yield self._runtime.state
+                self._runtime._revision += 1
+                self._messages.extend(await self._runtime._render_all_and_send())
+            finally:
+                self._owner = None
+
+    async def _mutate(self, mutator):
+        async with self._block() as state:
+            result = mutator(state)
             if inspect.isawaitable(result): await result
-            self._runtime._revision += 1
-            self._messages.extend(await self._runtime._render_all_and_send())
 
 class App(Generic[StateType, UIType]):
+    @overload
+    def __init__(self: App[StateType, UI], state: StateType, *, resources: ResourceRegistry | None = None) -> None: ...
+    @overload
+    def __init__(self, state: StateType, *, catalog: Catalog[UIType], resources: ResourceRegistry | None = None) -> None: ...
     def __init__(self, state: StateType, *, catalog: Catalog[UIType] = cast(Catalog[UIType], BASIC_CATALOG), resources: ResourceRegistry | None = None):
         self.resources = resources or ResourceRegistry()
         self.state, self.catalog = state, catalog
         self._views: dict[str, Callable[[UIType, StateType], Any]] = {}
-        self._actions: dict[str, Callable[..., Any]] = {}
+        self._actions: dict[str, tuple[Callable[..., Any], Schema[Any]]] = {}
         self._built = False
-    def surface(self, surface_id: str = "main"):
-        def register(view):
+    def surface(self, surface_id: str = "main") -> Callable[[ViewType], ViewType]:
+        def register(view: ViewType) -> ViewType:
             if self._built: raise DeclarationError("app is already built")
             if surface_id in self._views: raise DeclarationError(f"surface already registered: {surface_id!r}")
             self._views[surface_id] = view
             return view
         return register
-    def action(self, name: str | Callable[..., Any] | None = None):
-        explicit = name if isinstance(name, str) else None
+    @overload
+    def action(self, name: str | None = None, *, schema: InputSchema[InputType, ExpressionType]) -> Callable[[Callable[[InputType, ActionContext[StateType]], Any]], Action[InputType, ExpressionType]]: ...
+    @overload
+    def action(self, name: str | None = None, *, schema: Schema[InputType]) -> Callable[[Callable[[InputType, ActionContext[StateType]], Any]], Action[InputType, InputType]]: ...
+    def action(self, name=None, *, schema):
         def register(handler):
-            action_name = explicit or handler.__name__
+            action_name = name or handler.__name__
             if self._built: raise DeclarationError("app is already built")
             if action_name in self._actions: raise DeclarationError(f"action already registered: {action_name!r}")
-            self._actions[action_name] = handler
+            self._actions[action_name] = (handler, schema)
             return Action(action_name)
-        return register(name) if callable(name) else register
+        return register
     def build(self) -> "Runtime[StateType, UIType]":
         if self._built: raise DeclarationError("app is already built")
         self._built = True
@@ -130,11 +160,11 @@ class Runtime(Generic[StateType, UIType]):
                 for _, future in batch:
                     if not future.done(): future.set_exception(error)
     async def invoke(self, name: str, input: Any):
-        try: handler = self._actions[name]
+        try: handler, schema = self._actions[name]
         except KeyError as error: raise ProtocolError(f"unknown action: {name!r}") from error
         async with self._lock:
             context = ActionContext(self)
-            value = _coerce_input(handler, input)
+            value = schema.parse(input)
             try:
                 result = handler(value, context)
                 if inspect.isawaitable(result): await result
@@ -179,11 +209,3 @@ class Runtime(Generic[StateType, UIType]):
                 if message.get("type") == "getSurface":
                     for response in responses: await self._transport.send(response)
         finally: await self.shutdown()
-
-def _coerce_input(handler, value):
-    parameters = list(inspect.signature(handler).parameters.values())
-    if not parameters: return value
-    annotation = get_type_hints(handler).get(parameters[0].name, parameters[0].annotation)
-    if annotation is inspect.Parameter.empty: return value
-    if isinstance(value, dict) and isinstance(annotation, type) and is_dataclass(annotation): return annotation(**value)
-    return value

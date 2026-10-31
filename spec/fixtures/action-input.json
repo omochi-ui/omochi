@@ -1,0 +1,14 @@
+{
+  "valid": [
+    {"temperature": 75},
+    {"temperature": 12.5, "note": "warm"}
+  ],
+  "invalid": [
+    {},
+    {"temperature": "75"},
+    {"temperature": true},
+    {"temperature": null},
+    {"temperature": 75, "unexpected": 1},
+    {"temperature": 75, "note": 1}
+  ]
+}
