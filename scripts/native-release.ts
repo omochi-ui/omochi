@@ -98,6 +98,7 @@ async function stageNpm(): Promise<void> {
 }
 
 async function crates(publish: boolean): Promise<void> {
+  if (publish && run('git', ['status', '--porcelain'])) throw new Error('Commit source changes before publishing native crates');
   const { bundle } = await artifacts('crates');
   const pending = await missing('crates', bundle);
   if (!publish) {
@@ -109,7 +110,9 @@ async function crates(publish: boolean): Promise<void> {
   if (await Bun.file(path.join(assets, 'index.html')).exists()) throw new Error('Stale hub/assets directory');
   try {
     await cp(path.join(root, 'packages/hub-ui/dist'), assets, { recursive: true });
-    const args = ['publish', '--manifest-path', 'packages/server-rust/Cargo.toml', '--workspace', '--locked'];
+    if (run('git', ['status', '--porcelain'])) throw new Error('Source tree changed before publishing');
+    // Explicitly included generated assets are dirty to Cargo even when gitignored.
+    const args = ['publish', '--manifest-path', 'packages/server-rust/Cargo.toml', '--workspace', '--locked', '--allow-dirty'];
     for (const name of crateNames) if (!pending.some(p => p.name === name)) args.push('--exclude', name);
     const result = spawnSync('cargo', args, { cwd: root, stdio: 'inherit', timeout: 1_800_000 });
     if (result.error) throw result.error;

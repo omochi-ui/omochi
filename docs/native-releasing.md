@@ -70,6 +70,12 @@ cannot be published. `--no-verify` is only for inspecting crate contents and is
 rejected by the publisher. Both publishers verify artifact checksums and refuse
 an already-published version with different bytes.
 
+The crate packager and publisher check Git source cleanliness before staging the
+dashboard. Cargo itself receives `--allow-dirty` because explicitly included
+gitignored assets count as changes to Cargo. This does not allow source edits in
+a release; the bundle manifest records source-tree cleanliness separately from
+Cargo's generated-asset VCS dirty flag.
+
 ## GitHub Actions and registry setup
 
 `.github/workflows/native-release.yml` builds and tests four platform archives,

@@ -6,6 +6,9 @@ import json
 import tarfile
 import tempfile
 import unittest
+import subprocess
+import sys
+from unittest.mock import patch
 from pathlib import Path
 
 spec = importlib.util.spec_from_file_location('native_npm', Path(__file__).with_name('package-native-npm.py'))
@@ -56,6 +59,55 @@ class ArchiveTests(unittest.TestCase):
             archive.write_bytes(b'not the original archive')
             with self.assertRaisesRegex(ValueError, 'Archive checksum mismatch'):
                 packaging.validate_archive(archive, '0.2.0')
+
+
+class CrateSourceTests(unittest.TestCase):
+    def setUp(self):
+        spec = importlib.util.spec_from_file_location('native_crates', Path(__file__).with_name('package-crates.py'))
+        self.crates = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(self.crates)
+        self.temporary = tempfile.TemporaryDirectory(prefix='omochi-crate-source-')
+        self.addCleanup(self.temporary.cleanup)
+        self.root = Path(self.temporary.name)
+        self.workspace = self.root / 'packages/server-rust'
+        (self.workspace / 'hub').mkdir(parents=True)
+        (self.workspace / 'Cargo.toml').write_text('[workspace]\nmembers = ["hub"]\n[workspace.package]\nversion = "0.2.0"\n')
+        (self.workspace / 'hub/Cargo.toml').write_text('[package]\nname = "omochi-hub"\n')
+        (self.root / '.gitignore').write_text('/packages/server-rust/hub/assets/\n/packages/server-rust/target/\n/packages/hub-ui/dist/\n/artifacts/\n')
+        source = self.root / 'packages/hub-ui/dist'
+        source.mkdir(parents=True)
+        (source / 'index.html').write_text('<html>generated</html>')
+        for args in [['init', '-q'], ['add', '.'], ['-c', 'user.name=Test', '-c', 'user.email=test@example.invalid', '-c', 'commit.gpgsign=false', 'commit', '-qm', 'fixture']]:
+            subprocess.run(['git', *args], cwd=self.root, check=True)
+
+    def run_pack(self):
+        original_run = subprocess.run
+        def fake_cargo(command, **kwargs):
+            if command[0] != 'cargo':
+                return original_run(command, **kwargs)
+            self.assertIn('--allow-dirty', command)
+            self.assertTrue((self.workspace / 'hub/assets/index.html').exists())
+            package = self.workspace / 'target/package'
+            package.mkdir(parents=True)
+            (package / 'omochi-hub-0.2.0.crate').write_bytes(b'fixture archive')
+            return subprocess.CompletedProcess(command, 0)
+        with patch.object(self.crates, 'ROOT', self.root), patch.object(self.crates, 'WORKSPACE', self.workspace), patch.object(sys, 'argv', ['package-crates.py']), patch('subprocess.run', side_effect=fake_cargo):
+            self.crates.main()
+
+    def test_clean_sources_allow_generated_assets_without_marking_release_dirty(self):
+        self.run_pack()
+        manifest = json.loads((self.root / 'artifacts/crates/manifest.json').read_text())
+        self.assertFalse(manifest['dirty'])
+        self.assertFalse((self.workspace / 'hub/assets').exists())
+        self.assertEqual(subprocess.check_output(['git', 'status', '--porcelain'], cwd=self.root), b'')
+
+    def test_source_edits_are_rejected_before_cargo_or_asset_staging(self):
+        with (self.workspace / 'hub/Cargo.toml').open('a') as file:
+            file.write('# uncommitted source edit\n')
+        with self.assertRaises(SystemExit):
+            self.run_pack()
+        self.assertFalse((self.workspace / 'hub/assets').exists())
+        self.assertFalse((self.root / 'artifacts/crates/manifest.json').exists())
 
 
 if __name__ == '__main__':
