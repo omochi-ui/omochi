@@ -9,6 +9,8 @@ import { Reconciler } from "./reconcile.js";
 import { StdioTransport, type Transport } from "./transport.js";
 import type { A2UIMessage, ActionCall, ActionContext, ActionHandler, Declaration, JsonObject, JsonValue } from "./types.js";
 
+class InputValidationError extends ProtocolError {}
+
 type RegisteredAction<State> = (input: JsonValue, context: ActionContext<State>) => unknown | Promise<unknown>;
 type View<State, Components extends ComponentMap> = (ui: UI<Components>, state: State) => void;
 
@@ -30,7 +32,12 @@ export class App<State, Components extends ComponentMap = BasicComponentMap> {
   action<Input>(name: string, schema: Schema<Input>, handler: ActionHandler<Input, State>): Action<Input> {
     if (this.built) throw new DeclarationError("app is already built");
     if (this.actions.has(name)) throw new DeclarationError(`action already registered: ${JSON.stringify(name)}`);
-    this.actions.set(name, (input, context) => handler(schema.parse(input), context)); return new Action<Input>(name);
+    this.actions.set(name, (input, context) => {
+      let parsed: Input;
+      try { parsed = schema.parse(input); }
+      catch (error) { if (error instanceof ProtocolError) throw new InputValidationError(error.message); throw error; }
+      return handler(parsed, context);
+    }); return new Action<Input>(name);
   }
   build(): Runtime<State, Components> {
     if (this.built) throw new DeclarationError("app is already built");
@@ -145,7 +152,9 @@ export class Runtime<State, Components extends ComponentMap = BasicComponentMap>
       await transport.send(resourceHello());
       await this.renderAllAndSend(); this.readyResolve();
       for await (const message of transport) {
-        const responses = await this.handle(message);
+        let responses: A2UIMessage[];
+        try { responses = await this.handle(message); }
+        catch (error) { if (error instanceof InputValidationError) continue; throw error; }
         if (message.type === "getSurface") for (const response of responses) await transport.send(response);
       }
     } finally { await this.shutdown(); }

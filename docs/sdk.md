@@ -393,3 +393,70 @@ existing ownership semantics.
 Run `python scripts/test-sdk-types.py` with mypy and Pyright installed for Python
 positive/negative API checks. TypeScript checks run with the SDK test compiler;
 Rust compile-fail examples run with `cargo test --doc`.
+
+### Flatten and object composition
+
+Use object composition when an action combines fields with an entire browser
+object whose keys may change. The shared renderer resolves each operand on click
+and rejects duplicate keys. See [the input expression contract](../spec/action-input.md).
+
+TypeScript infers the resulting input type:
+
+```ts
+import { mergeObjects, MERGE_OBJECTS_CAPABILITY, StdioTransport } from "@omochi-ui/sdk";
+// Within a surface; run expects { title: string; count: number }.
+const counts = ui.local("counts", { count: 1 });
+ui.button("Run", run.call(mergeObjects({ title: "x" }, counts.value())));
+// When this integration uses the updated omochi renderer:
+await app.start(new StdioTransport([MERGE_OBJECTS_CAPABILITY]));
+```
+
+Python uses schemas for each operand and the result, preserving the action's
+concrete input type. `Schema.input()` accepts a concrete value or `Expr[T]`;
+`merge_objects()` checks field types and requiredness against the result schema.
+Dynamic maps require a matching map result schema.
+
+```python
+from omochi_ui import Expr, merge_objects, schema, StdioTransport, MERGE_OBJECTS_CAPABILITY
+
+title = schema.object_({"title": schema.string()})
+counts = schema.object_({"count": schema.integer()})
+result = schema.object_({"title": schema.string(), "count": schema.integer()})
+input_expr = merge_objects(
+    result,
+    title.input({"title": "x"}),
+    counts.input(Expr("/$local/counts")),
+)
+# run is registered with result (or a matching concrete dataclass schema).
+ui.button("Run", run.call(input_expr))
+await app.start(StdioTransport(capabilities={MERGE_OBJECTS_CAPABILITY}))
+```
+
+Rust uses the existing generated input fields without a new construction syntax:
+
+```rust
+#[derive(serde::Serialize, serde::Deserialize, omochi_ui::ActionInput)]
+struct RunInput {
+    title: String,
+    #[serde(flatten)]
+    counts: std::collections::BTreeMap<String, i64>,
+}
+// counts is a Local<BTreeMap<String, i64>>.
+let call = run.call(RunInputInput {
+    title: "x".into(),
+    counts: counts.value().into(),
+})?;
+// Configure StdioTransport::with_capabilities([MERGE_OBJECTS_CAPABILITY])
+// when connecting to the updated omochi renderer.
+```
+
+Existing concrete flatten inputs retain their Serde wire shape. Unresolved
+flatten inputs now require the renderer capability instead of producing an
+incorrect object containing `path` alongside sibling fields. Custom Rust
+serialization still requires an adapter; unresolved fields with
+`skip_serializing_if` are rejected because arbitrary Rust predicates cannot run
+in the browser. No server trust or gateway protocol changes are required.
+
+TypeScript client schema failures are isolated to the received action: the
+handler does not run, and the service continues accepting messages. Direct
+`invoke()` still rejects. Handler exceptions and transport failures propagate.

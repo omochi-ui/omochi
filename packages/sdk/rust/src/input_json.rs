@@ -15,7 +15,8 @@ struct Sequence {
 }
 struct Object {
     values: Map<String, Value>,
-    key: Option<String>,
+    key: Option<InputKey>,
+    spreads: Vec<Value>,
     variant: Option<String>,
 }
 impl Object {
@@ -27,7 +28,13 @@ impl Object {
         Ok(())
     }
     fn finish(self) -> Value {
-        let v = Value::Object(self.values);
+        let v = if self.spreads.is_empty() {
+            Value::Object(self.values)
+        } else {
+            let mut objects = vec![Value::Object(self.values)];
+            objects.extend(self.spreads);
+            serde_json::json!({"call":"omochiMergeObjects", "args":{"objects":objects}, "returnType":"object"})
+        };
         if let Some(tag) = self.variant {
             serde_json::json!({tag: v})
         } else {
@@ -163,6 +170,7 @@ impl Serializer for Checked {
         Ok(Object {
             values: Map::new(),
             key: None,
+            spreads: vec![],
             variant: None,
         })
     }
@@ -179,6 +187,7 @@ impl Serializer for Checked {
         Ok(Object {
             values: Map::new(),
             key: None,
+            spreads: vec![],
             variant: Some(variant.into()),
         })
     }
@@ -251,11 +260,7 @@ impl ser::SerializeMap for Object {
     type Ok = Value;
     type Error = Error;
     fn serialize_key<T: ?Sized + Serialize>(&mut self, key: &T) -> Result<(), Error> {
-        let v = key.serialize(Checked)?;
-        self.key = Some(match v {
-            Value::String(s) => s,
-            _ => return Err(Error::custom("input map keys must be strings")),
-        });
+        self.key = Some(key.serialize(InputKeySerializer)?);
         Ok(())
     }
     fn serialize_value<T: ?Sized + Serialize>(&mut self, v: &T) -> Result<(), Error> {
@@ -263,7 +268,13 @@ impl ser::SerializeMap for Object {
             .key
             .take()
             .ok_or_else(|| Error::custom("missing map key"))?;
-        self.insert(k, v)
+        match k {
+            InputKey::Named(k) => self.insert(k, v),
+            InputKey::Flatten => {
+                self.spreads.push(v.serialize(Checked)?);
+                Ok(())
+            }
+        }
     }
     fn end(self) -> Result<Value, Error> {
         Ok(self.finish())
@@ -295,5 +306,127 @@ impl ser::SerializeStructVariant for Object {
     }
     fn end(self) -> Result<Value, Error> {
         Ok(self.finish())
+    }
+}
+
+// A typed key avoids reserving a user-visible JSON property or accepting non-string map keys.
+enum InputKey {
+    Named(String),
+    Flatten,
+}
+struct InputKeySerializer;
+macro_rules! invalid_key {
+    ($name:ident, $ty:ty) => {
+        fn $name(self, _: $ty) -> Result<InputKey, Error> {
+            Err(Error::custom("input map keys must be strings"))
+        }
+    };
+}
+impl Serializer for InputKeySerializer {
+    type Ok = InputKey;
+    type Error = Error;
+    type SerializeSeq = ser::Impossible<InputKey, Error>;
+    type SerializeTuple = ser::Impossible<InputKey, Error>;
+    type SerializeTupleStruct = ser::Impossible<InputKey, Error>;
+    type SerializeTupleVariant = ser::Impossible<InputKey, Error>;
+    type SerializeMap = ser::Impossible<InputKey, Error>;
+    type SerializeStruct = ser::Impossible<InputKey, Error>;
+    type SerializeStructVariant = ser::Impossible<InputKey, Error>;
+    fn serialize_str(self, value: &str) -> Result<InputKey, Error> {
+        Ok(InputKey::Named(value.into()))
+    }
+    fn serialize_char(self, value: char) -> Result<InputKey, Error> {
+        Ok(InputKey::Named(value.to_string()))
+    }
+    fn serialize_unit_struct(self, name: &'static str) -> Result<InputKey, Error> {
+        if name == "__omochi_flatten_expression" {
+            Ok(InputKey::Flatten)
+        } else {
+            self.serialize_unit()
+        }
+    }
+    fn serialize_unit_variant(
+        self,
+        _: &'static str,
+        _: u32,
+        value: &'static str,
+    ) -> Result<InputKey, Error> {
+        self.serialize_str(value)
+    }
+    fn serialize_newtype_struct<T: ?Sized + Serialize>(
+        self,
+        _: &'static str,
+        value: &T,
+    ) -> Result<InputKey, Error> {
+        value.serialize(self)
+    }
+    fn serialize_some<T: ?Sized + Serialize>(self, value: &T) -> Result<InputKey, Error> {
+        value.serialize(self)
+    }
+    fn serialize_unit(self) -> Result<InputKey, Error> {
+        Err(Error::custom("input map keys must be strings"))
+    }
+    fn serialize_none(self) -> Result<InputKey, Error> {
+        self.serialize_unit()
+    }
+    invalid_key!(serialize_bool, bool);
+    invalid_key!(serialize_i8, i8);
+    invalid_key!(serialize_i16, i16);
+    invalid_key!(serialize_i32, i32);
+    invalid_key!(serialize_i64, i64);
+    invalid_key!(serialize_i128, i128);
+    invalid_key!(serialize_u8, u8);
+    invalid_key!(serialize_u16, u16);
+    invalid_key!(serialize_u32, u32);
+    invalid_key!(serialize_u64, u64);
+    invalid_key!(serialize_u128, u128);
+    invalid_key!(serialize_f32, f32);
+    invalid_key!(serialize_f64, f64);
+    invalid_key!(serialize_bytes, &[u8]);
+    fn serialize_newtype_variant<T: ?Sized + Serialize>(
+        self,
+        _: &'static str,
+        _: u32,
+        _: &'static str,
+        _: &T,
+    ) -> Result<InputKey, Error> {
+        self.serialize_unit()
+    }
+    fn serialize_seq(self, _: Option<usize>) -> Result<Self::SerializeSeq, Error> {
+        Err(Error::custom("input map keys must be strings"))
+    }
+    fn serialize_tuple(self, _: usize) -> Result<Self::SerializeTuple, Error> {
+        self.serialize_seq(None)
+    }
+    fn serialize_tuple_struct(
+        self,
+        _: &'static str,
+        _: usize,
+    ) -> Result<Self::SerializeTupleStruct, Error> {
+        self.serialize_seq(None)
+    }
+    fn serialize_tuple_variant(
+        self,
+        _: &'static str,
+        _: u32,
+        _: &'static str,
+        _: usize,
+    ) -> Result<Self::SerializeTupleVariant, Error> {
+        self.serialize_seq(None)
+    }
+    fn serialize_map(self, _: Option<usize>) -> Result<Self::SerializeMap, Error> {
+        self.serialize_seq(None)
+    }
+    fn serialize_struct(self, _: &'static str, _: usize) -> Result<Self::SerializeStruct, Error> {
+        self.serialize_seq(None)
+    }
+    fn serialize_struct_variant(
+        self,
+        _: &'static str,
+        _: u32,
+        _: &'static str,
+        _: usize,
+    ) -> Result<Self::SerializeStructVariant, Error> {
+        self.serialize_seq(None)
     }
 }

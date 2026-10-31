@@ -1,4 +1,4 @@
-import { Expr } from "./expression.js";
+import { Expr, usesObjectMerge, MERGE_OBJECTS_CAPABILITY } from "./expression.js";
 import type {
   AudioPlayerProps, BasicComponentMap, ButtonProps, CardProps, CatalogDefinition, CheckBoxProps,
   ChoicePickerProps, CommonProps, ComponentMap, DateTimeInputProps, DividerProps,
@@ -12,6 +12,7 @@ export const STANDARD_CATALOG = BASIC_CATALOG.id;
 const escapePointer = (value: string): string => value.replaceAll("~", "~0").replaceAll("/", "~1");
 type Keyed<T> = Omit<T, "child" | "children" | "tabs" | "trigger" | "content" | "value" | "action"> & { key?: string };
 export interface ModelBinding<T = unknown> { readonly path: string; readonly __value: (value: T) => T }
+type Widen<T> = T extends string ? string : T extends number ? number : T extends boolean ? boolean : T;
 type InputControl<T> = { default?: T; bind?: never } | { bind: ModelBinding<T>; default?: never };
 
 const clone = <T>(value: T): T => structuredClone(value);
@@ -36,10 +37,10 @@ export class UI<Components extends ComponentMap = BasicComponentMap> {
     this.data = { inputs: inputs !== null && typeof inputs === "object" && !Array.isArray(inputs) ? clone(inputs) : {} };
   }
 
-  local<T extends JsonValue>(key: string, initial: T, options: { resetKey?: JsonValue } = {}): Local<T> {
+  local<T extends JsonValue>(key: string, initial: T, options: { resetKey?: JsonValue } = {}): Local<Widen<T>> {
     if (!key || key in this.locals) throw new DeclarationError(`local key must be unique and non-empty: ${JSON.stringify(key)}`);
     this.locals[key] = { initial: clone(initial), ...(Object.hasOwn(options, "resetKey") ? { resetKey: clone(options.resetKey!) } : {}) };
-    return new Local<T>(key, this.bindings);
+    return new Local<Widen<T>>(key, this.bindings);
   }
 
   private key(key?: string): string {
@@ -141,6 +142,7 @@ export class UI<Components extends ComponentMap = BasicComponentMap> {
   dateTimeInput(name: string, options: Omit<DateTimeInputProps, "value"> & { key?: string } & InputControl<string>): void { this.assertControl(options); const { default: initial = "", bind, key, ...props } = options; this.input(name, "DateTimeInput", initial, bind, props as JsonObject, key); }
 
   build(): Declaration {
+    if (usesObjectMerge(this.root as unknown as JsonValue)) this.requiredCapabilities.add(MERGE_OBJECTS_CAPABILITY);
     const inputs = this.data.inputs as JsonObject;
     for (const name of Object.keys(inputs)) if (!this.uncontrolledInputNames.has(name)) delete inputs[name];
     return { irVersion: "2", surfaceId: this.surfaceId, catalogId: this.catalog.id, root: this.root, data: this.data, locals: clone(this.locals), requiredCapabilities: [...this.requiredCapabilities].sort() };

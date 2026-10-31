@@ -1,14 +1,58 @@
 {
   "valid": [
-    {"temperature": 75},
-    {"temperature": 12.5, "note": "warm"}
+    {
+      "temperature": 75
+    },
+    {
+      "temperature": 12.5,
+      "note": "warm"
+    }
   ],
   "invalid": [
     {},
-    {"temperature": "75"},
-    {"temperature": true},
-    {"temperature": null},
-    {"temperature": 75, "unexpected": 1},
-    {"temperature": 75, "note": 1}
-  ]
+    {
+      "temperature": "75"
+    },
+    {
+      "temperature": true
+    },
+    {
+      "temperature": null
+    },
+    {
+      "temperature": 75,
+      "unexpected": 1
+    },
+    {
+      "temperature": 75,
+      "note": 1
+    }
+  ],
+  "merge": {
+    "model": {
+      "$local": {
+        "nested": {
+          "count": 3
+        }
+      }
+    },
+    "expression": {
+      "call": "omochiMergeObjects",
+      "args": {
+        "objects": [
+          {
+            "title": "x"
+          },
+          {
+            "path": "/$local/nested"
+          }
+        ]
+      },
+      "returnType": "object"
+    },
+    "resolved": {
+      "title": "x",
+      "count": 3
+    }
+  }
 }

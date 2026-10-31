@@ -21,7 +21,7 @@ for checker in ("mypy", "pyright"):
         count = result.stdout.count(": error:")
     else:
         count = json.loads(result.stdout)["summary"]["errorCount"]
-    if result.returncode != 1 or count != 6:
+    if result.returncode != 1 or count != 8:
         print(result.stdout, result.stderr)
-        raise SystemExit(f"{checker}: expected precisely six negative-case diagnostics, found {count}")
-    print(f"{checker}: all six invalid uses rejected")
+        raise SystemExit(f"{checker}: expected precisely eight negative-case diagnostics, found {count}")
+    print(f"{checker}: all eight invalid uses rejected")

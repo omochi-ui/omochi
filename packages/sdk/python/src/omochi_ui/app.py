@@ -7,7 +7,7 @@ from dataclasses import dataclass, is_dataclass
 from typing import Any, Callable, Generic, TypeVar, cast, get_type_hints, overload, Coroutine
 from contextlib import asynccontextmanager, AbstractAsyncContextManager
 from .schema import Schema, InputSchema
-from .expression import encode_input
+from .expression import Expr, encode_input
 
 from .resources import ResourceRegistry, hello
 from .builder import UI
@@ -29,7 +29,7 @@ class ActionCall:
 
 class Action(Generic[InputType, ExpressionType]):
     def __init__(self, name: str): self.name = name
-    def call(self, input: InputType | ExpressionType) -> ActionCall: return ActionCall(self.name, encode_input(input))
+    def call(self, input: InputType | ExpressionType | Expr[InputType]) -> ActionCall: return ActionCall(self.name, encode_input(input))
 
 class ActionContext(Generic[StateType]):
     def __init__(self, runtime: "Runtime[StateType, Any]"):

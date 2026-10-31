@@ -75,3 +75,51 @@ class InputTests(unittest.IsolatedAsyncioTestCase):
         for value in fixture["valid"]: self.assertEqual(validator.parse(value), value)
         for value in fixture["invalid"]:
             with self.assertRaises(ProtocolError): validator.parse(value)
+
+    async def test_complete_field_schema_identity(self):
+        @dataclass
+        class Maps:
+            props: dict[str, str]
+        obj = schema.from_type(Maps)
+        obj.field("props", schema.map_(schema.string()))
+        with self.assertRaises(DeclarationError): obj.field("props", schema.map_(schema.number()))
+        for left, right in [
+            (schema.tuple_(schema.string()), schema.tuple_(schema.number())),
+            (schema.union(schema.string(), schema.integer()), schema.union(schema.string(), schema.boolean())),
+            (schema.literal(1), schema.literal(True)),
+            (schema.object_({"x":schema.string()}), schema.object_({"x":schema.number()})),
+            (schema.array(schema.custom(str)), schema.array(schema.custom(str))),
+        ]:
+            owner = schema.object_({"value": left})
+            with self.assertRaises(DeclarationError): owner.field("value", right)
+
+    async def test_whole_value_expression(self):
+        app = App({})
+        @app.action(schema=schema.string())
+        def run(value: str, ctx): pass
+        self.assertEqual(run.call(Expr[str]("/$local/name")).input, {"path":"/$local/name"})
+
+    async def test_merge_schema_and_fixture(self):
+        from pathlib import Path
+        from omochi_ui import merge_objects, MERGE_OBJECTS_CAPABILITY, CapabilityError, Reconciler
+        fixture = json.loads((Path(__file__).parents[4] / "spec/fixtures/action-input.json").read_text())
+        title = schema.object_({"title": schema.string()})
+        nested = schema.object_({"count": schema.integer()})
+        result = schema.object_({"title": schema.string(), "count": schema.integer()})
+        expr = merge_objects(result, title.input({"title":"x"}), nested.input(Expr("/$local/nested")))
+        app = App({})
+        @app.action(schema=result)
+        def run(value, ctx): pass
+        self.assertEqual(run.call(expr).input, fixture["merge"]["expression"])
+        @app.surface("main")
+        def main(ui, state): ui.button("Run", run.call(expr))
+        declaration = app.build().declaration("main")
+        self.assertEqual(declaration.required_capabilities, {MERGE_OBJECTS_CAPABILITY})
+        with self.assertRaises(CapabilityError): Reconciler().render(declaration)
+        Reconciler({MERGE_OBJECTS_CAPABILITY}).render(declaration)
+        with self.assertRaises(DeclarationError): merge_objects(result, title.input({"title":"x"}))
+        with self.assertRaises(DeclarationError): merge_objects(result, nested.input({"count":2}), nested.input({"count":3}))
+        with self.assertRaises(DeclarationError): merge_objects(nested, schema.object_({"count":schema.string()}).input({"count":"bad"}))
+        mapping = schema.map_(schema.integer())
+        dynamic = merge_objects(mapping, mapping.input(Expr("/$local/map")), mapping.input({"count":1}))
+        self.assertEqual(run.call(dynamic).input["call"], "omochiMergeObjects")

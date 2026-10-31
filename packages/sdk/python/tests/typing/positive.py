@@ -31,3 +31,12 @@ def view(ui: UI, state: State) -> None:
     ui.slider("temperature", 0, 100, bind=form.field(temperature).bind())
     ui.button("Run", run.call({"temperature": form.field(temperature).value()}))
 
+
+from omochi_ui import merge_objects
+
+@app.action(schema=schema.string())
+def name_action(value: str, ctx: ActionContext[State]) -> None:
+    pass
+
+name_action.call(Expr[str]("/$local/name"))
+run.call(merge_objects(schema.from_type(RunInput), schema.from_type(RunInput).input(Expr[RunInput]("/$local/form"))))

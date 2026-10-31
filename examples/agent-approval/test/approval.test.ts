@@ -116,6 +116,7 @@ test("browser actions cross A2UI and resolve only the selected hook socket", asy
     version: "v0.9",
     action: { name: "decide", surfaceId: "main", sourceComponentId: "root", timestamp: new Date().toISOString(), context: { input: { id, outcome, note } } },
   })}\n`);
+  invoke(secondId!, "invalid");
   invoke(secondId!, "reject", "Please run tests first.");
   expect(await second).toEqual({ requestId: secondId, outcome: "reject", reason: "Please run tests first." });
   invoke(secondId!, "approve");

@@ -3,7 +3,7 @@ from __future__ import annotations
 from contextlib import AbstractContextManager, contextmanager
 from copy import deepcopy
 from dataclasses import dataclass
-from .expression import Expr, encode_input
+from .expression import Expr, encode_input, uses_object_merge, MERGE_OBJECTS_CAPABILITY
 from .schema import Field
 from typing import Generic, TypeVar, Any, Callable, Iterator, Literal, Sequence, Unpack, overload
 
@@ -241,6 +241,7 @@ class UI:
         for name in list(self._data["inputs"]):
             if name not in self._uncontrolled_inputs:
                 del self._data["inputs"][name]
+        if uses_object_merge(self._root.to_dict()): self._required_capabilities.add(MERGE_OBJECTS_CAPABILITY)
         return Declaration(surface_id=self.surface_id, catalog_id=self.catalog.id, root=self._root, data=self._data, locals=self._locals, required_capabilities=self._required_capabilities)
 
 def _validate_pointer(path: str) -> None:

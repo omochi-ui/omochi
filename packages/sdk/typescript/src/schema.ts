@@ -15,7 +15,7 @@ export const schema = {
   number: (): Schema<number> => primitive("finite number", v => typeof v === "number" && Number.isFinite(v)),
   integer: (): Schema<number> => primitive("integer", v => typeof v === "number" && Number.isSafeInteger(v)),
   literal: <const T extends string | number | boolean | null>(value: T): Schema<T> => primitive(JSON.stringify(value), v => v === value),
-  nullable: <T>(inner: Schema<T>): Schema<T | null> => new Schema((v, p) => v === null ? null : inner.decode(v, p)),
+  nullable: <T>(inner: Schema<T>): Schema<T | null> => new Schema((v, p) => v === null ? null : inner.decode(v, p), inner.optional),
   optional: <T>(inner: Schema<T>): Schema<T | undefined> => new Schema((v, p) => v === undefined ? undefined : inner.decode(v, p), true),
   array: <T>(inner: Schema<T>): Schema<T[]> => new Schema((v, p) => Array.isArray(v) ? v.map((x, i) => inner.decode(x, `${p}/${i}`)) : fail(p, "array")),
   tuple: <S extends readonly Schema<unknown>[]>(...items: S): Schema<{ [K in keyof S]: Infer<S[K]> }> => new Schema((v, p) => {
@@ -43,7 +43,7 @@ export const schema = {
   union: <S extends readonly Schema<unknown>[]>(...items: S): Schema<Infer<S[number]>> => new Schema((v, p) => {
     for (const s of items) { try { return s.decode(v, p) as Infer<S[number]>; } catch (error) { if (!(error instanceof ProtocolError)) throw error; } }
     return fail(p, "matching union member");
-  }),
+  }, items.some(s => s.optional)),
   custom: <T>(decode: (value: unknown) => T): Schema<T> => new Schema((v, p) => { try { return decode(v); } catch (error) { throw new ProtocolError(`${p}: ${String(error)}`); } }),
 };
 function isObject(v: unknown): v is Record<string, unknown> { return v !== null && typeof v === "object" && !Array.isArray(v); }

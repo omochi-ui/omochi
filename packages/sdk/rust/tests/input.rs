@@ -310,3 +310,224 @@ fn skip_predicate_with_multiple_type_parameters() {
         json!({"second":1})
     );
 }
+
+#[test]
+fn flattened_whole_expression_is_deferred() {
+    let mut ui = omochi_ui::Ui::new("main", omochi_ui::STANDARD_CATALOG);
+    let nested = ui.local("nested", Nested { count: 1 }).unwrap();
+    assert_eq!(
+        FormInput {
+            title: "x".into(),
+            nested: nested.value().into()
+        }
+        .encode()
+        .unwrap(),
+        json!({"call":"omochiMergeObjects","args":{"objects":[{"title":"x"},{"path":"/$local/nested"}]},"returnType":"object"})
+    );
+}
+
+#[derive(Serialize, Deserialize, ActionInput)]
+struct SkippedTuple(#[serde(skip)] (), String);
+#[derive(Serialize, Deserialize, ActionInput)]
+enum SkippedVariant {
+    Item(#[serde(skip)] (), String),
+    Raw { r#type: String },
+}
+#[derive(Serialize, Deserialize, ActionInput)]
+struct Raw {
+    r#type: String,
+}
+
+#[test]
+fn serialized_tuple_positions_and_raw_names() {
+    let mut ui = omochi_ui::Ui::new("main", omochi_ui::STANDARD_CATALOG);
+    let value = ui.local("tuple", SkippedTuple((), "x".into())).unwrap();
+    assert_eq!(
+        omochi_ui::checked_json(value.field(SkippedTuple::field_1()).value()).unwrap(),
+        json!({"path":"/$local/tuple/0"})
+    );
+    let raw = ui.local("raw", Raw { r#type: "x".into() }).unwrap();
+    assert_eq!(
+        omochi_ui::checked_json(raw.field(Raw::field_type()).value()).unwrap(),
+        json!({"path":"/$local/raw/type"})
+    );
+    let variant = ui.local("v", SkippedVariant::Item((), "x".into())).unwrap();
+    let v = variant.variant(SkippedVariant::variant_item()).unwrap();
+    assert_eq!(
+        omochi_ui::checked_json(v.field(SkippedVariantItemFields::field_1()).value()).unwrap(),
+        json!({"path":"/$local/v/Item/0"})
+    );
+    let _ = SkippedVariantRawFields::field_type();
+}
+
+#[derive(Serialize, Deserialize, ActionInput)]
+struct DynamicForm {
+    title: String,
+    #[serde(flatten)]
+    values: std::collections::BTreeMap<String, i64>,
+}
+#[derive(Serialize, Deserialize, ActionInput)]
+#[serde(tag = "kind")]
+enum FlatEnum {
+    Item {
+        title: String,
+        #[serde(flatten)]
+        nested: Nested,
+    },
+}
+
+#[test]
+fn dynamic_map_and_tagged_enum_flatten() {
+    let mut ui = omochi_ui::Ui::new("main", omochi_ui::STANDARD_CATALOG);
+    let values = ui
+        .local(
+            "values",
+            std::collections::BTreeMap::from([("count".to_owned(), 3i64)]),
+        )
+        .unwrap();
+    let encoded = DynamicFormInput {
+        title: "x".into(),
+        values: values.value().into(),
+    }
+    .encode()
+    .unwrap();
+    assert_eq!(
+        encoded["args"]["objects"][1],
+        json!({"path":"/$local/values"})
+    );
+    let nested = ui.local("nested", Nested { count: 2 }).unwrap();
+    let encoded = FlatEnumInput::Item {
+        title: "x".into(),
+        nested: nested.value().into(),
+    }
+    .encode()
+    .unwrap();
+    assert_eq!(
+        encoded["args"]["objects"][0],
+        json!({"kind":"Item", "title":"x"})
+    );
+}
+
+#[test]
+fn conditional_omission_rejects_unresolved_values() {
+    let mut ui = omochi_ui::Ui::new("main", omochi_ui::STANDARD_CATALOG);
+    let value = ui.local("value", Some("x".to_owned())).unwrap();
+    assert!(
+        OptionalInput {
+            value: value.value().into()
+        }
+        .encode()
+        .unwrap_err()
+        .to_string()
+        .contains("skip_serializing_if")
+    );
+}
+
+#[test]
+fn merge_matches_shared_fixture_and_requires_capability() {
+    let fixture: serde_json::Value =
+        serde_json::from_str(include_str!("../../../../spec/fixtures/action-input.json")).unwrap();
+    let mut app = App::new(());
+    let run = app
+        .action::<Form, _, _>("run", |_, _| async { Ok(()) })
+        .unwrap();
+    let mut ui = omochi_ui::Ui::new("main", omochi_ui::STANDARD_CATALOG);
+    let nested = ui.local("nested", Nested { count: 3 }).unwrap();
+    let call = run
+        .call(FormInput {
+            title: "x".into(),
+            nested: nested.value().into(),
+        })
+        .unwrap();
+
+    ui.button("Run", call, Default::default()).unwrap();
+    let declaration = ui.build();
+    assert_eq!(
+        declaration.root.slots[0].nodes[0].props["action"]["event"]["context"]["input"],
+        fixture["merge"]["expression"]
+    );
+    assert!(
+        declaration
+            .required_capabilities
+            .contains(omochi_ui::MERGE_OBJECTS_CAPABILITY)
+    );
+    assert!(
+        omochi_ui::Reconciler::default()
+            .render(declaration)
+            .is_err()
+    );
+}
+
+#[derive(Serialize, Deserialize, ActionInput)]
+struct RecursiveFlat {
+    label: String,
+    #[serde(flatten)]
+    form: Form,
+}
+#[derive(Serialize, Deserialize, ActionInput)]
+enum ExternalFlat {
+    Item {
+        title: String,
+        #[serde(flatten)]
+        nested: Nested,
+    },
+}
+#[derive(Serialize, Deserialize, ActionInput)]
+#[serde(tag = "kind", content = "data")]
+enum AdjacentFlat {
+    Item {
+        title: String,
+        #[serde(flatten)]
+        nested: Nested,
+    },
+}
+#[derive(Serialize, Deserialize, ActionInput)]
+#[serde(untagged)]
+enum UntaggedFlat {
+    Item {
+        title: String,
+        #[serde(flatten)]
+        nested: Nested,
+    },
+}
+
+#[test]
+fn recursive_and_enum_flatten_preserve_their_outer_shape() {
+    let mut ui = omochi_ui::Ui::new("main", omochi_ui::STANDARD_CATALOG);
+    let nested = ui.local("nested", Nested { count: 3 }).unwrap();
+    let nested_form = Input::fields(FormInput {
+        title: "x".into(),
+        nested: nested.value().into(),
+    })
+    .unwrap();
+    let result = RecursiveFlatInput {
+        label: "outer".into(),
+        form: nested_form,
+    }
+    .encode()
+    .unwrap();
+    assert_eq!(result["args"]["objects"][0], json!({"label":"outer"}));
+    assert_eq!(result["args"]["objects"][1]["call"], "omochiMergeObjects");
+    let external = ExternalFlatInput::Item {
+        title: "x".into(),
+        nested: nested.value().into(),
+    }
+    .encode()
+    .unwrap();
+    assert_eq!(external["Item"]["call"], "omochiMergeObjects");
+    let adjacent = AdjacentFlatInput::Item {
+        title: "x".into(),
+        nested: nested.value().into(),
+    }
+    .encode()
+    .unwrap();
+    assert_eq!(adjacent["kind"], "Item");
+    assert_eq!(adjacent["data"]["call"], "omochiMergeObjects");
+    let untagged = UntaggedFlatInput::Item {
+        title: "x".into(),
+        nested: nested.value().into(),
+    }
+    .encode()
+    .unwrap();
+    assert_eq!(untagged["call"], "omochiMergeObjects");
+}

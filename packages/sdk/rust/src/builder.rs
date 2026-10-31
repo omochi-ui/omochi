@@ -639,6 +639,10 @@ impl Ui {
     }
 
     pub fn build(mut self) -> Declaration {
+        if crate::input::uses_object_merge(&serde_json::to_value(&self.root).expect("JSON node")) {
+            self.required_capabilities
+                .insert(crate::MERGE_OBJECTS_CAPABILITY.into());
+        }
         self.data["inputs"]
             .as_object_mut()
             .unwrap()

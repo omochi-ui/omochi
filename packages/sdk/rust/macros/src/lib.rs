@@ -1,5 +1,6 @@
 use proc_macro::TokenStream;
 use quote::{format_ident, quote};
+use syn::ext::IdentExt;
 use syn::{
     Data, DeriveInput, Fields, Meta, Token, parse_macro_input, parse_quote, punctuated::Punctuated,
 };
@@ -83,7 +84,7 @@ fn rename_field(name: &str, rule: &str) -> String {
 }
 fn expand(input: DeriveInput) -> syn::Result<proc_macro2::TokenStream> {
     let name = &input.ident;
-    let generated = format_ident!("{}Input", name);
+    let generated = format_ident!("{}Input", name.unraw());
     if let Some(adapter) = adapter(&input.attrs)? {
         let (ig, tg, wc) = input.generics.split_for_impl();
         let vis = &input.vis;
@@ -121,6 +122,7 @@ fn expand(input: DeriveInput) -> syn::Result<proc_macro2::TokenStream> {
     let helper_generics = &input.generics;
     let mut transform = |fields: &mut Fields, project: bool, rename_all: &str| -> syn::Result<()> {
         let newtype = matches!(fields, Fields::Unnamed(f) if f.unnamed.len() == 1);
+        let mut serialized_index = 0usize;
         for (index, field) in fields.iter_mut().enumerate() {
             let ty = field.ty.clone();
             let adapter = adapter(&field.attrs)?;
@@ -133,12 +135,14 @@ fn expand(input: DeriveInput) -> syn::Result<proc_macro2::TokenStream> {
             let mut wire = field
                 .ident
                 .as_ref()
-                .map(|x| x.to_string())
+                .map(|x| x.unraw().to_string())
                 .unwrap_or(index.to_string());
             wire = serde_name(&field.attrs, "rename")?
                 .unwrap_or_else(|| rename_field(&wire, &rename_all));
             let mut flatten = newtype || transparent;
             let mut skipped = false;
+            let mut real_flatten = false;
+            let mut conditional = false;
             for attr in &mut field.attrs {
                 if !attr.path().is_ident("serde") {
                     continue;
@@ -148,6 +152,7 @@ fn expand(input: DeriveInput) -> syn::Result<proc_macro2::TokenStream> {
                 for meta in &mut attrs {
                     if meta.path().is_ident("flatten") {
                         flatten = true;
+                        real_flatten = true;
                     }
                     if meta.path().is_ident("skip") || meta.path().is_ident("skip_serializing") {
                         skipped = true;
@@ -172,12 +177,13 @@ fn expand(input: DeriveInput) -> syn::Result<proc_macro2::TokenStream> {
                             }
                         }
                         if nv.path.is_ident("skip_serializing_if") {
+                            conditional = true;
                             let syn::Expr::Lit(lit) = &nv.value else {
                                 continue;
                             };
                             let syn::Lit::Str(s) = &lit.lit else { continue };
                             let predicate: syn::Path = s.parse()?;
-                            let helper = format_ident!("__omochi_{}_skip_{}", name, count);
+                            let helper = format_ident!("__omochi_{}_skip_{}", name.unraw(), count);
                             count += 1;
                             predicates.push(quote! { #[allow(non_snake_case)] fn #helper #helper_generics (value: &#helper_ty) -> bool { value.literal_matches(#predicate) } });
                             let (_, args, _) = input.generics.split_for_impl();
@@ -197,6 +203,48 @@ fn expand(input: DeriveInput) -> syn::Result<proc_macro2::TokenStream> {
                     .collect();
                 *attr = parse_quote!(#[serde(#attrs)]);
             }
+            if !skipped && (real_flatten || conditional) {
+                let helper = format_ident!("__omochi_{}_serialize_{}", name.unraw(), count);
+                count += 1;
+                let mut hg = input.generics.clone();
+                hg.params.push(parse_quote!(__S: ::serde::Serializer));
+                if adapter.is_none() {
+                    hg.make_where_clause()
+                        .predicates
+                        .push(parse_quote!(#ty: ::serde::Serialize));
+                }
+                let (ig, _, wc) = hg.split_for_impl();
+                predicates.push(quote! {
+                    #[allow(non_snake_case)] fn #helper #ig(value: &#helper_ty, serializer: __S) -> ::std::result::Result<__S::Ok, __S::Error> #wc {
+                        ::omochi_ui::serialize_input_field(value, serializer, #real_flatten, #conditional)
+                    }
+                });
+                let args: Vec<_> = input
+                    .generics
+                    .params
+                    .iter()
+                    .filter_map(|p| match p {
+                        syn::GenericParam::Type(t) => {
+                            let id = &t.ident;
+                            Some(quote!(#id))
+                        }
+                        syn::GenericParam::Const(c) => {
+                            let id = &c.ident;
+                            Some(quote!(#id))
+                        }
+                        _ => None,
+                    })
+                    .collect();
+                let helper_path = if args.is_empty() {
+                    helper.to_string()
+                } else {
+                    quote!(#helper::<#(#args,)* _>).to_string()
+                };
+                let path = syn::LitStr::new(&helper_path, name.span());
+                field
+                    .attrs
+                    .push(parse_quote!(#[serde(serialize_with = #path)]));
+            }
             if !skipped && adapter.is_none() {
                 all_types.push(ty.clone());
             }
@@ -206,13 +254,19 @@ fn expand(input: DeriveInput) -> syn::Result<proc_macro2::TokenStream> {
             } else {
                 parse_quote!(::omochi_ui::Input<#ty>)
             };
+            if field.ident.is_none() {
+                wire = serialized_index.to_string();
+            }
+            if !skipped {
+                serialized_index += 1;
+            }
             if project && !skipped {
                 let method = format_ident!(
                     "field_{}",
                     field
                         .ident
                         .as_ref()
-                        .map(|x| x.to_string())
+                        .map(|x| x.unraw().to_string())
                         .unwrap_or(index.to_string())
                 );
                 let path = if flatten {
@@ -286,10 +340,10 @@ fn expand(input: DeriveInput) -> syn::Result<proc_macro2::TokenStream> {
         });
         for variant in &data.variants {
             let id = &variant.ident;
-            let marker = format_ident!("{}{}Fields", name, id);
-            let method = format_ident!("variant_{}", snake(&id.to_string()));
+            let marker = format_ident!("{}{}Fields", name.unraw(), id.unraw());
+            let method = format_ident!("variant_{}", snake(&id.unraw().to_string()));
             let wire = serde_name(&variant.attrs, "rename")?
-                .unwrap_or_else(|| rename_variant(&id.to_string(), &rename_all));
+                .unwrap_or_else(|| rename_variant(&id.unraw().to_string(), &rename_all));
             let path = if untagged || (tag.is_some() && content.is_none()) {
                 String::new()
             } else {
@@ -312,6 +366,7 @@ fn expand(input: DeriveInput) -> syn::Result<proc_macro2::TokenStream> {
             let fields_rule = serde_name(&variant.attrs, "rename_all")?
                 .or(serde_name(&input.attrs, "rename_all_fields")?)
                 .unwrap_or_default();
+            let mut serialized_index = 0usize;
             for (index, field) in variant.fields.iter().enumerate() {
                 let ty = &field.ty;
                 let metas: Vec<Meta> = field
@@ -333,11 +388,16 @@ fn expand(input: DeriveInput) -> syn::Result<proc_macro2::TokenStream> {
                 let raw = field
                     .ident
                     .as_ref()
-                    .map(|i| i.to_string())
+                    .map(|i| i.unraw().to_string())
                     .unwrap_or(index.to_string());
                 let field_method = format_ident!("field_{}", raw);
-                let wire = serde_name(&field.attrs, "rename")?
-                    .unwrap_or_else(|| rename_field(&raw, &fields_rule));
+                let wire = if field.ident.is_none() {
+                    serialized_index.to_string()
+                } else {
+                    serde_name(&field.attrs, "rename")?
+                        .unwrap_or_else(|| rename_field(&raw, &fields_rule))
+                };
+                serialized_index += 1;
                 let path = if newtype || flatten {
                     String::new()
                 } else {

@@ -458,3 +458,60 @@ impl<
         crate::checked_json(self)
     }
 }
+
+/// Internal Serde bridge: a flattened unresolved object stays an expression until the click.
+#[doc(hidden)]
+pub trait FlattenInput: Serialize {
+    fn unresolved(&self) -> bool;
+}
+impl<T: Serialize> FlattenInput for Input<T> {
+    fn unresolved(&self) -> bool {
+        !matches!(self, Self::Literal(_))
+    }
+}
+impl<T, A: ExpressionAdapter<T>> FlattenInput for AdaptedInput<T, A> {
+    fn unresolved(&self) -> bool {
+        self.input.is_err()
+    }
+}
+#[doc(hidden)]
+pub fn serialize_input_field<T: FlattenInput, S: Serializer>(
+    value: &T,
+    serializer: S,
+    flatten: bool,
+    conditional: bool,
+) -> std::result::Result<S::Ok, S::Error> {
+    if conditional && value.unresolved() {
+        return Err(serde::ser::Error::custom(
+            "skip_serializing_if cannot evaluate an unresolved input",
+        ));
+    }
+    if flatten && value.unresolved() {
+        let encoded = crate::checked_json(value).map_err(serde::ser::Error::custom)?;
+        if encoded.get("path").is_some() || encoded.get("call").is_some() {
+            use serde::ser::SerializeMap;
+            let mut map = serializer.serialize_map(Some(1))?;
+            map.serialize_entry(&FlattenKey, &encoded)?;
+            return map.end();
+        }
+    }
+    value.serialize(serializer)
+}
+struct FlattenKey;
+impl Serialize for FlattenKey {
+    fn serialize<S: Serializer>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error> {
+        serializer.serialize_unit_struct("__omochi_flatten_expression")
+    }
+}
+
+pub const MERGE_OBJECTS_CAPABILITY: &str = "omochi.mergeObjects/1";
+pub(crate) fn uses_object_merge(value: &Value) -> bool {
+    match value {
+        Value::Object(map) => {
+            map.get("call").and_then(Value::as_str) == Some("omochiMergeObjects")
+                || map.values().any(uses_object_merge)
+        }
+        Value::Array(items) => items.iter().any(uses_object_merge),
+        _ => false,
+    }
+}
