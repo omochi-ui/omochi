@@ -155,8 +155,21 @@ impl Running {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    async fn finish(mut run: Running) -> Outcome {
+        // A watchdog only: this deadline never coordinates the child startup.
+        match tokio::time::timeout(Duration::from_secs(10), &mut run.result).await {
+            Ok(result) => result.unwrap(),
+            Err(_) => {
+                run.result.abort();
+                let _ = run.result.await;
+                panic!("command did not terminate");
+            }
+        }
+    }
+
     #[tokio::test]
-    async fn captures_both_streams_and_times_out_term_resistant_group() {
+    async fn captures_both_streams() {
         let mut run = Running::start(
             Options {
                 argv: vec![
@@ -174,22 +187,58 @@ mod tests {
         }
         assert_eq!(run.result.await.unwrap().code, Some(0));
         assert!(output.contains("stdout") && output.contains("stderr"));
+    }
+
+    #[tokio::test]
+    async fn timeout_terminates_and_reaps_the_command() {
         let run = Running::start(
             Options {
-                argv: vec![
-                    "/bin/sh".into(),
-                    "-c".into(),
-                    "trap '' TERM; while :; do :; done".into(),
-                ],
+                argv: vec!["/bin/sh".into(), "-c".into(), "while :; do :; done".into()],
                 cwd: None,
             },
             Some(Duration::from_millis(30)),
         );
-        let result = tokio::time::timeout(Duration::from_secs(3), run.result)
-            .await
-            .unwrap()
-            .unwrap();
+        let result = finish(run).await;
         assert!(result.timed_out);
+        assert!(result.error.is_none());
+        // The deadline may expire before the shell finishes starting. Either
+        // termination signal is valid; successful wait/reaping is what matters.
+        assert!(result.signal.is_some());
+    }
+
+    #[tokio::test]
+    async fn cancellation_kills_a_ready_term_resistant_command() {
+        let mut run = Running::start(
+            Options {
+                argv: vec![
+                    "/bin/sh".into(),
+                    "-c".into(),
+                    "trap '' TERM; printf 'READY\\n'; while :; do :; done".into(),
+                ],
+                cwd: None,
+            },
+            None,
+        );
+        let ready = tokio::time::timeout(Duration::from_secs(10), async {
+            let mut output = String::new();
+            while let Some(chunk) = run.output.recv().await {
+                output.push_str(&chunk);
+                if output.contains("READY\n") {
+                    return true;
+                }
+            }
+            false
+        })
+        .await;
+        if !matches!(ready, Ok(true)) {
+            run.result.abort();
+            let _ = run.result.await;
+            panic!("command did not acknowledge its SIGTERM handler");
+        }
+        run.stop.cancel();
+        let result = finish(run).await;
+        assert!(!result.timed_out);
+        assert!(result.error.is_none());
         assert_eq!(result.signal, Some(libc::SIGKILL));
     }
 }
