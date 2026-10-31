@@ -54,3 +54,12 @@ $HOME/.config/omochi/rust-v1. Legacy state is left untouched.
 Linux binaries use their build runner's libc; choose an OS/architecture-compatible
 archive and libc, or build from source. This script does not codesign or notarize
 macOS binaries.
+
+## Registry distributions
+
+Native releases also prepare npm `@omochi-ui/cli` and `@omochi-ui/utils` under
+the existing package names, using exact-version platform binary dependencies.
+The npm launcher needs Node.js 22+; the native archives above do not. Published
+Cargo sources can be installed with `cargo install omochi-cli --locked` and
+`cargo install omochi-utils --locked`. The existing `omochi-ui` crate remains the SDK.
+See docs/native-releasing.md in the repository for release setup and migration.

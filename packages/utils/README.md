@@ -1,5 +1,8 @@
 # omochi-utils
 
+Native npm releases retain this package name; Cargo releases use `omochi-utils`.
+See [registry installation and migration](../../docs/native-releasing.md).
+
 Publish command controls, development observations, and agent-created A2UI
 surfaces through the existing Omochi gateway. Requires a Unix-like environment,
 like the discovery transport. Build with `bun install && bun run build:native`

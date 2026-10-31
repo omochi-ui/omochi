@@ -3,12 +3,16 @@ name = "omochi-transport"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+repository.workspace = true
+description = "Iroh transport and device enrollment for Omochi"
+readme = "README.md"
+include = ["src/**", "tests/**", "Cargo.toml", "Cargo.lock", "README.md", "LICENSE"]
 
 [dependencies]
 iroh.workspace = true
 tokio.workspace = true
 anyhow.workspace = true
-omochi-protocol = { path = "../protocol" }
+omochi-protocol = { path = "../protocol", version = "=0.2.0" }
 iroh-mdns-address-lookup = "=0.6.1"
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true

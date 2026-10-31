@@ -1,0 +1,214 @@
+name: Native registry release
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing native-vX.Y.Z tag on main'
+        required: true
+        type: string
+      registry:
+        type: choice
+        options: [all, npm, crates]
+        default: all
+      dry_run:
+        description: 'Build and verify without registry writes'
+        type: boolean
+        default: true
+      bootstrap:
+        description: 'Use temporary npm/crates.io secrets for first publication'
+        type: boolean
+        default: false
+permissions:
+  contents: read
+concurrency:
+  group: native-release-${{ inputs.tag || github.event.release.tag_name }}
+  cancel-in-progress: false
+jobs:
+  prepare:
+    if: github.event_name != 'release' || (startsWith(github.event.release.tag_name, 'native-v') && !github.event.release.prerelease)
+    runs-on: ubuntu-22.04
+    outputs:
+      commit: ${{ steps.metadata.outputs.commit }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.tag || github.event.release.tag_name }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+      - run: bun run release:native:check "$RELEASE_TAG"
+        env:
+          RELEASE_TAG: ${{ inputs.tag || github.event.release.tag_name }}
+      - id: metadata
+        run: echo "commit=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+  build:
+    needs: prepare
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+          - os: ubuntu-22.04-arm
+            target: aarch64-unknown-linux-gnu
+          - os: macos-15-intel
+            target: x86_64-apple-darwin
+          - os: macos-15
+            target: aarch64-apple-darwin
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.prepare.outputs.commit }}
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+      - uses: dtolnay/rust-toolchain@stable
+      - run: bun install --frozen-lockfile
+      - run: python3 -B scripts/test_native_packaging.py
+      - run: python3 scripts/package-native.py
+      - run: python3 scripts/smoke-native.py artifacts/native/*.tar.gz
+      - run: cargo test --release --locked --manifest-path packages/server-rust/Cargo.toml --workspace
+      - run: OMOCHI_NATIVE_TEST=1 OMOCHI_NATIVE_PROFILE=release bun test packages/renderer/test/native.test.ts packages/utils/test/native-mcp.test.ts
+      - run: python3 scripts/package-native-npm.py --partial artifacts/native/*.tar.gz
+      - run: bun run release:native:smoke:npm
+      - uses: actions/upload-artifact@v7
+        with:
+          name: native-release-${{ matrix.target }}
+          path: artifacts/native/
+          if-no-files-found: error
+  npm:
+    needs: [prepare, build]
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.prepare.outputs.commit }}
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: native-release-*
+          merge-multiple: true
+          path: artifacts/native/
+      - run: python3 scripts/package-native-npm.py artifacts/native/*.tar.gz
+      - uses: actions/upload-artifact@v7
+        with:
+          name: native-npm-distributions
+          path: artifacts/native-npm/
+          if-no-files-found: error
+  crates:
+    needs: prepare
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.prepare.outputs.commit }}
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+      - uses: dtolnay/rust-toolchain@stable
+      - run: bun install --frozen-lockfile
+      - run: bun run --filter @omochi-ui/renderer build && bun run --filter @omochi-ui/hub-ui build
+      - run: python3 scripts/package-crates.py
+      - uses: actions/upload-artifact@v7
+        with:
+          name: native-crate-distributions
+          path: artifacts/crates/
+          if-no-files-found: error
+  publish-npm:
+    name: Stage native npm packages for maintainer approval
+    needs: [prepare, npm, crates]
+    if: (github.event_name == 'release' || !inputs.dry_run) && (github.event_name == 'release' || inputs.registry == 'all' || inputs.registry == 'npm')
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+    environment: npm
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.prepare.outputs.commit }}
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          registry-url: 'https://registry.npmjs.org'
+          package-manager-cache: false
+      - run: npm install --global npm@11.20.0
+      - uses: actions/download-artifact@v8
+        with:
+          name: native-npm-distributions
+          path: artifacts/native-npm/
+      - run: bun run release:native:stage:npm
+        env:
+          NODE_AUTH_TOKEN: ${{ inputs.bootstrap && secrets.NPM_BOOTSTRAP_TOKEN || '' }}
+  publish-crates:
+    needs: [prepare, npm, crates]
+    if: (github.event_name == 'release' || !inputs.dry_run) && (github.event_name == 'release' || inputs.registry == 'all' || inputs.registry == 'crates')
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+    environment: crates-io
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.prepare.outputs.commit }}
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/download-artifact@v8
+        with:
+          name: native-crate-distributions
+          path: artifacts/crates-verified/
+      - run: bun install --frozen-lockfile
+      - run: bun run --filter @omochi-ui/renderer build && bun run --filter @omochi-ui/hub-ui build
+      - name: Reproduce verified crates before obtaining credentials
+        run: |
+          python3 scripts/package-crates.py
+          for archive in artifacts/crates-verified/*.crate; do
+            cmp "$archive" "artifacts/crates/$(basename "$archive")"
+          done
+          bun scripts/native-release.ts check-crates
+      - uses: rust-lang/crates-io-auth-action@v1
+        id: auth
+        if: '!inputs.bootstrap'
+      - run: bun scripts/native-release.ts publish-crates
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ inputs.bootstrap && secrets.CRATES_IO_BOOTSTRAP_TOKEN || steps.auth.outputs.token }}

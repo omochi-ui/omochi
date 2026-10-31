@@ -32,7 +32,7 @@ concurrency:
 
 jobs:
   prepare:
-    if: github.event_name != 'release' || !github.event.release.prerelease
+    if: github.event_name != 'release' || (startsWith(github.event.release.tag_name, 'v') && !github.event.release.prerelease)
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
@@ -74,7 +74,8 @@ jobs:
           package-manager-cache: false
       - run: bun install --frozen-lockfile
       - run: bun run release:typecheck
-      - run: bun test scripts/release.test.ts
+      - run: bun test scripts/release.test.ts scripts/native-release.test.ts
+      - uses: dtolnay/rust-toolchain@stable
       - run: bun run test
       - run: bun run --bun --filter '*' lint
       - run: bun run release:pack

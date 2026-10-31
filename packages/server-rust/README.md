@@ -162,6 +162,7 @@ then creates a host-specific archive and checksum under `artifacts/native`.
 The archive includes an installer and per-file checksums. Run
 `python3 scripts/smoke-native.py artifacts/native/<archive>.tar.gz` to verify an
 isolated installation and embedded UI with language runtimes absent from PATH.
-The native CI workflow builds/tests Linux and macOS; it does not publish releases.
-Public npm packages contain the SDK, core and browser assets. CLI, discovery and
-utils workspace packages are private and no longer publish Bun service runtimes.
+The native CI workflow builds/tests Linux and macOS. The separate native release
+workflow publishes the Cargo crates and stages generated npm CLI/utils wrappers
+under their existing names. Source server workspaces remain private; only the
+generated npm distributions are published. See [native registry releases](../../docs/native-releasing.md).

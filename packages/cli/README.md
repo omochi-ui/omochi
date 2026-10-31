@@ -1,5 +1,8 @@
 # CLI reference
 
+Native npm releases retain this package name; Cargo releases use `omochi-cli`.
+See [registry installation and migration](../../docs/native-releasing.md).
+
 [Overview](../../README.md) · [Architecture](../../docs/architecture.md) · [Discovery guide](../../docs/discovery.md)
 
 Build the workspace with `bun install`, `bun run build` and

@@ -19,7 +19,12 @@
     "release:stage:npm": "bun scripts/release.ts stage-npm",
     "build:native": "bun run --filter @omochi-ui/renderer build && bun run --filter @omochi-ui/hub-ui build && cargo build --manifest-path packages/server-rust/Cargo.toml --locked -p omochi-cli -p omochi-utils",
     "build:native:release": "python3 scripts/package-native.py",
-    "test:native-renderer": "cargo build --manifest-path packages/server-rust/Cargo.toml -p omochi-utils -p omochi-cli && OMOCHI_NATIVE_TEST=1 bun test packages/renderer/test/native.test.ts"
+    "test:native-renderer": "cargo build --manifest-path packages/server-rust/Cargo.toml -p omochi-utils -p omochi-cli && OMOCHI_NATIVE_TEST=1 bun test packages/renderer/test/native.test.ts",
+    "release:native:check": "bun scripts/native-release.ts check",
+    "release:native:pack:crates": "python3 scripts/package-crates.py",
+    "release:native:pack:npm": "python3 scripts/package-native-npm.py",
+    "release:native:smoke:npm": "bun scripts/smoke-native-npm.ts",
+    "release:native:stage:npm": "bun scripts/native-release.ts stage-npm"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",

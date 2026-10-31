@@ -168,6 +168,8 @@ The repository contains SDKs under `packages/sdk/<lang>/` and tools under
 `packages/`, runnable applications under `examples/`, and shared protocol
 contracts and fixtures under `spec/`.
 The CLI and utilities ship as native archives with the dashboard embedded.
+[Native registry releases](docs/native-releasing.md) also prepare `omochi-cli` /
+`omochi-utils` on crates.io and retain `@omochi-ui/cli` / `@omochi-ui/utils` on npm.
 See the [native distribution guide](packages/server-rust/DISTRIBUTION.md) for
 installation and pairing. Bun is a source-build tool, not a service runtime.
 `bun run build:native:release` builds an archive for the current host.

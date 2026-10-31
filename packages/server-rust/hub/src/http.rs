@@ -296,8 +296,7 @@ async fn dashboards(
             .into_response())
     }
 }
-static BUNDLED_UI: include_dir::Dir =
-    include_dir::include_dir!("$CARGO_MANIFEST_DIR/../../hub-ui/dist");
+static BUNDLED_UI: include_dir::Dir = include_dir::include_dir!("$OMOCHI_DASHBOARD_ASSETS");
 
 async fn static_ui(State(state): State<Arc<HttpState>>, request: Request) -> Response {
     if request.method() != Method::GET && request.method() != Method::HEAD {
