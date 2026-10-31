@@ -166,6 +166,7 @@ and have no authentication or TLS.
 | [SDK guide](docs/sdk.md) | Python, TypeScript, Rust, components, and transports |
 | [CLI reference](docs/cli.md) | Commands, flags, defaults, and troubleshooting |
 | [Discovery and dashboards](docs/discovery.md) | Local services, remote access, and routing |
+| [Design system](docs/design-system.md) | Shared palette, tokens, components, and connection states |
 | [Contributing](CONTRIBUTING.md) | Setup, tests, and change guidelines |
 
 The repository contains SDKs under `packages/sdk/<lang>/` and tools under
