@@ -174,7 +174,7 @@ async fn up_serves_preset_and_terminates_owned_service_group() {
 version = 1
 id = "example"
 [services.worker]
-command = ["/bin/sh", "-c", "echo $$ > worker.pid; exec /bin/sleep 120"]
+command = ["/bin/sh", "-c", "echo $$ > worker.pid; while :; do :; done"]
 [dashboard]
 name = "Example"
 rows = [{panels = ["main"]}]

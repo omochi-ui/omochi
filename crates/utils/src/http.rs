@@ -231,7 +231,7 @@ mod integration {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     async fn server(
         response: Vec<u8>,
-        delay: Duration,
+        respond: bool,
     ) -> (reqwest::Url, tokio::task::JoinHandle<()>) {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let url = format!("http://{}/", listener.local_addr().unwrap())
@@ -241,7 +241,9 @@ mod integration {
             let (mut socket, _) = listener.accept().await.unwrap();
             let mut headers = [0u8; 8192];
             let _ = socket.read(&mut headers).await;
-            tokio::time::sleep(delay).await;
+            if !respond {
+                std::future::pending::<()>().await;
+            }
             let _ = socket.write_all(&response).await;
         });
         (url, task)
@@ -264,7 +266,7 @@ mod integration {
     async fn late_body_match_json_binary_expectation_and_timeout() {
         let mut body = vec![b'x'; 1600000];
         body.extend_from_slice("日本語".as_bytes());
-        let (url, task) = server(response(200, "text/plain", &body), Duration::ZERO).await;
+        let (url, task) = server(response(200, "text/plain", &body), true).await;
         let mut config = options(url);
         config.expect_body = Some("日本語".into());
         let result = request(client().unwrap(), config).await;
@@ -274,25 +276,21 @@ mod integration {
         task.await.unwrap();
         let (url, task) = server(
             response(200, "application/problem+json", br#"{"ok":true}"#),
-            Duration::ZERO,
+            true,
         )
         .await;
         let result = request(client().unwrap(), options(url)).await;
         assert!(result.healthy);
         assert!(result.body.text.contains("\n  \"ok\": true"));
         task.await.unwrap();
-        let (url, task) = server(
-            response(200, "application/octet-stream", b"needle"),
-            Duration::ZERO,
-        )
-        .await;
+        let (url, task) = server(response(200, "application/octet-stream", b"needle"), true).await;
         let mut config = options(url);
         config.expect_body = Some("needle".into());
         let result = request(client().unwrap(), config).await;
         assert!(!result.healthy);
         assert!(result.body.text.is_empty());
         task.await.unwrap();
-        let (url, task) = server(response(200, "text/plain", b"ok"), Duration::from_secs(10)).await;
+        let (url, task) = server(response(200, "text/plain", b"ok"), false).await;
         let mut config = options(url);
         config.timeout = Duration::from_millis(20);
         let result = request(client().unwrap(), config).await;

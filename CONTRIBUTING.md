@@ -40,6 +40,14 @@ Run the checks affected by your change. Protocol messages, stable IDs,
 reconciliation, and component catalogs must stay aligned across all three SDKs;
 update their tests and shared fixtures in `spec/fixtures` together.
 
+Native lifecycle tests must wait for observable readiness, command completion or
+acknowledgement, rather than sleeping for an assumed processing time. Test timer
+boundaries with Tokio's paused clock and controlled outcomes, without real child
+processes. Verify suppression (no restart or no duplicate output) at the state
+transition boundary; a short period without socket traffic is not proof. E2E
+checks cover the wiring to real processes. Polling an explicit condition and
+bounded timeouts to catch hangs are still appropriate.
+
 After building, `bun packages/hub-ui/test/browser.mjs` runs the dashboard browser
 smoke test with Chromium. Set `CHROMIUM_BIN` if necessary. Screenshots go to
 `/tmp/omochi-hub-screenshots`, or `SCREENSHOT_DIR` when set.

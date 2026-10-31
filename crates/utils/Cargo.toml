@@ -27,4 +27,5 @@ omochi-protocol = { path = "../protocol", version = "=0.2.0" }
 omochi-local-discovery = { path = "../discovery", version = "=0.2.0" }
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 [dev-dependencies]
+tokio = { workspace = true, features = ["test-util"] }
 tempfile = "3"

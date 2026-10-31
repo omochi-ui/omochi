@@ -134,10 +134,21 @@ mod tests {
                 .is_err()
         );
         assert!(!store.peers().unwrap().1.contains_key(&peer.to_string()));
+        let before = store.peers().unwrap().0;
         let copy = store.clone();
         let task = tokio::spawn(async move { forget(copy, peer, Duration::from_secs(2)).await });
-        tokio::time::sleep(Duration::from_millis(50)).await;
-        lease.acknowledge(store.peers().unwrap().0).unwrap();
+        let generation = tokio::time::timeout(Duration::from_secs(2), async {
+            loop {
+                let generation = store.peers().unwrap().0;
+                if generation > before {
+                    break generation;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("revocation generation was not recorded");
+        lease.acknowledge(generation).unwrap();
         task.await.unwrap().unwrap();
         drop(lease);
         forget(

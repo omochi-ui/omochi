@@ -32,7 +32,7 @@ mod tests {
     use super::*;
     use omochi_protocol::read_frame;
 
-    #[tokio::test]
+    #[tokio::test(start_paused = true)]
     async fn matching_pongs_keep_session_alive_but_stale_pongs_do_not() {
         let (writer, mut reader) = tokio::io::duplex(1024);
         let (pong, replies) = watch::channel(0);

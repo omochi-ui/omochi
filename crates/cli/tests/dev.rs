@@ -7,7 +7,7 @@ use tokio::{
 };
 use tokio_tungstenite::{connect_async, tungstenite::Message};
 const CHILD: &str = r#"
-import json, sys, base64, time
+import json, sys, base64, threading
 def send(v): print(json.dumps(v),flush=True)
 send({"omochi":"resources/1","kind":"hello"})
 send({"version":"v0.9","createSurface":{"surfaceId":"main","catalogId":"test"}})
@@ -25,7 +25,7 @@ for line in sys.stdin:
         if action["name"]=="exit0": sys.exit(0)
         if action["name"]=="bad":
             print("not json",flush=True)
-            time.sleep(30)
+            threading.Event().wait()
         send({"version":"v0.9","updateDataModel":{"surfaceId":action["surfaceId"],"path":"/echo","value":message}})
 "#;
 #[tokio::test]

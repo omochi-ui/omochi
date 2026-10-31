@@ -14,6 +14,18 @@ pub async fn run(
     options: Options,
     stop: CancellationToken,
 ) -> Result<()> {
+    run_with(publisher, name, options, stop, |options| {
+        Running::start(options, None)
+    })
+    .await
+}
+async fn run_with(
+    publisher: Publisher,
+    name: String,
+    options: Options,
+    stop: CancellationToken,
+    mut launch: impl FnMut(Options) -> Running,
+) -> Result<()> {
     let mut surface = TextSurface::new(publisher.clone(), name);
     let mut current: Option<Running> = None;
     let mut output = OutputBuffer::default();
@@ -37,7 +49,7 @@ pub async fn run(
                         let action = &event["message"]["action"];
                         if action["surfaceId"] == "main" && action["name"] == "run" && current.is_none() {
                             output.reset(""); status = "Running…".into(); dirty = true;
-                            current = Some(Running::start(options.clone(),None));
+                            current = Some(launch(options.clone()));
                         }
                     }
                     if page["closed"] == true { break; }
@@ -60,4 +72,69 @@ pub async fn run(
         let _ = run.result.await;
     }
     result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::command::Outcome;
+    use omochi_ui::UnixSocketServerOptions;
+    use std::os::unix::fs::PermissionsExt;
+
+    #[tokio::test]
+    async fn duplicate_actions_do_not_start_another_command_before_completion() {
+        let root = tempfile::tempdir().unwrap();
+        std::fs::set_permissions(root.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
+        let (publisher, task) =
+            Publisher::open(UnixSocketServerOptions::new("button").with_runtime_dir(root.path()))
+                .await
+                .unwrap();
+        for _ in 0..3 {
+            publisher.events.push(serde_json::json!({
+                "version":"v0.9", "action":{"surfaceId":"main", "name":"run", "context":{}}
+            }));
+        }
+        // The closed page is an explicit end-of-input barrier: run_with must
+        // consume all queued actions, cancel the command and join it before returning.
+        publisher.events.close();
+        let mut launches = 0;
+        tokio::time::timeout(
+            Duration::from_secs(5),
+            run_with(
+                publisher,
+                "Button".into(),
+                Options {
+                    argv: vec![],
+                    cwd: None,
+                },
+                CancellationToken::new(),
+                |_| {
+                    launches += 1;
+                    let (_output, receiver) = tokio::sync::mpsc::channel(1);
+                    let stop = CancellationToken::new();
+                    let cancelled = stop.clone();
+                    let result = tokio::spawn(async move {
+                        cancelled.cancelled().await;
+                        Outcome {
+                            code: None,
+                            signal: Some(libc::SIGTERM),
+                            error: None,
+                            timed_out: false,
+                            duration: Duration::ZERO,
+                        }
+                    });
+                    Running {
+                        output: receiver,
+                        result,
+                        stop,
+                    }
+                },
+            ),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert_eq!(launches, 1);
+        task.close().await.unwrap();
+    }
 }

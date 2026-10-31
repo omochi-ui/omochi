@@ -23,6 +23,51 @@ impl Restart {
         }
     }
 }
+#[derive(Default)]
+struct Schedule {
+    next: Option<Instant>,
+    manual_restart: bool,
+    suppressed: bool,
+}
+impl Schedule {
+    async fn wait(&self) {
+        match self.next {
+            Some(at) => tokio::time::sleep_until(at).await,
+            None => std::future::pending().await,
+        }
+    }
+    fn start(&mut self) {
+        self.next = None;
+        self.suppressed = false;
+        self.manual_restart = false;
+    }
+    fn stop(&mut self) {
+        self.next = None;
+        self.suppressed = true;
+        self.manual_restart = false;
+    }
+    fn restart(&mut self, running: bool) {
+        self.stop();
+        if running {
+            self.manual_restart = true;
+        } else {
+            self.start();
+        }
+    }
+    // Return true only when a pending manual restart should launch immediately.
+    fn finished(&mut self, policy: Restart, outcome: &Outcome, delay: Duration) -> bool {
+        if self.manual_restart {
+            self.start();
+            return true;
+        }
+        self.next = if !self.suppressed && policy.allows(outcome) {
+            Some(Instant::now() + delay)
+        } else {
+            None
+        };
+        false
+    }
+}
 fn launch(options: &Options, output: &mut OutputBuffer, automatic: bool) -> Running {
     output.append(&format!(
         "\n--- {} at {} ---\n",
@@ -50,9 +95,7 @@ pub async fn run(
     let mut cursor = 0;
     let mut dirty = true;
     let mut count = 0;
-    let mut next: Option<Instant> = None;
-    let mut manual_restart = false;
-    let mut suppressed = false;
+    let mut schedule = Schedule::default();
     let events_cancel = CancellationToken::new();
     let mut interval = tokio::time::interval(Duration::from_millis(50));
     let result = async {
@@ -65,9 +108,9 @@ pub async fn run(
                     surface.render_controls(&format!("{status} · automatic restarts: {count}"),&output,controls).await?;
                     dirty = false;
                 },
-                _ = async { match next { Some(at)=>tokio::time::sleep_until(at).await,None=>std::future::pending().await } } => {
-                    next = None; count += 1; current = Some(launch(&options,&mut output,true));
-                    status = "Running…".into(); suppressed = false; dirty = true;
+                _ = schedule.wait() => {
+                    schedule.start(); count += 1; current = Some(launch(&options,&mut output,true));
+                    status = "Running…".into(); dirty = true;
                 },
                 page = publisher.events.read(cursor,30000,&events_cancel) => {
                     let page = page?; cursor = page["nextCursor"].as_u64().unwrap();
@@ -76,18 +119,18 @@ pub async fn run(
                         if action["surfaceId"] != "main" { continue; }
                         match action["name"].as_str() {
                             Some("start") if current.is_none() => {
-                                next = None; suppressed = false; manual_restart = false;
+                                schedule.start();
                                 current = Some(launch(&options,&mut output,false)); status = "Running…".into(); dirty = true;
                             },
                             Some("stop") => {
-                                next = None; suppressed = true; manual_restart = false;
+                                schedule.stop();
                                 if let Some(run) = &current { run.stop.cancel(); }
-                                status = "Stopped".into(); dirty = true;
+                                status = if current.is_some() { "Stopping…" } else { "Stopped" }.into(); dirty = true;
                             },
                             Some("restart") => {
-                                next = None; suppressed = true;
-                                if let Some(run) = &current { manual_restart = true; run.stop.cancel(); }
-                                else { suppressed = false; current = Some(launch(&options,&mut output,false)); status = "Running…".into(); }
+                                schedule.restart(current.is_some());
+                                if let Some(run) = &current { run.stop.cancel(); }
+                                else { current = Some(launch(&options,&mut output,false)); status = "Running…".into(); }
                                 dirty = true;
                             },
                             _=>{},
@@ -103,12 +146,11 @@ pub async fn run(
                     let outcome = outcome?;
                     if let Some(mut finished) = current.take() { while let Ok(chunk) = finished.output.try_recv() { output.append(&chunk); } }
                     output.append(&format!("\n--- {} at {} ---\n",outcome.describe(),chrono::Utc::now().to_rfc3339()));
-                    status = if suppressed { "Stopped".into() } else { outcome.describe() }; dirty = true;
-                    if manual_restart {
-                        manual_restart = false; suppressed = false;
+                    status = if schedule.suppressed { "Stopped".into() } else { outcome.describe() }; dirty = true;
+                    if schedule.finished(policy, &outcome, delay) {
                         current = Some(launch(&options,&mut output,false)); status = "Running…".into();
-                    } else if !suppressed && policy.allows(&outcome) {
-                        status.push_str(" · restarting soon…"); next = Some(Instant::now()+delay);
+                    } else if schedule.next.is_some() {
+                        status.push_str(" · restarting soon…");
                     }
                 },
             }
@@ -120,4 +162,83 @@ pub async fn run(
         let _ = run.result.await;
     }
     result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use futures_util::poll;
+
+    fn outcome(code: i32) -> Outcome {
+        Outcome {
+            code: Some(code),
+            signal: None,
+            error: None,
+            timed_out: false,
+            duration: Duration::ZERO,
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn restart_policy_schedules_only_allowed_outcomes_after_the_full_delay() {
+        for (policy, code, automatic) in [
+            (Restart::Never, 0, false),
+            (Restart::Never, 2, false),
+            (Restart::OnFailure, 0, false),
+            (Restart::OnFailure, 2, true),
+            (Restart::Always, 0, true),
+            (Restart::Always, 2, true),
+        ] {
+            let mut schedule = Schedule::default();
+            schedule.start();
+            assert!(!schedule.finished(policy, &outcome(code), Duration::from_secs(5)));
+            let wait = schedule.wait();
+            tokio::pin!(wait);
+            assert!(poll!(&mut wait).is_pending());
+            tokio::time::advance(Duration::from_secs(4)).await;
+            assert!(poll!(&mut wait).is_pending());
+            tokio::time::advance(Duration::from_secs(1)).await;
+            assert_eq!(poll!(&mut wait).is_ready(), automatic);
+            if !automatic {
+                tokio::time::advance(Duration::from_secs(3600)).await;
+                assert!(poll!(&mut wait).is_pending());
+            }
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn stop_cancels_scheduled_restarts_and_suppresses_in_flight_completion() {
+        for already_completed in [false, true] {
+            let mut schedule = Schedule::default();
+            schedule.start();
+            if already_completed {
+                schedule.finished(Restart::Always, &outcome(0), Duration::from_secs(5));
+            }
+            schedule.stop();
+            if !already_completed {
+                assert!(!schedule.finished(Restart::Always, &outcome(2), Duration::from_secs(5)));
+            }
+            tokio::time::advance(Duration::from_secs(3600)).await;
+            assert!(poll!(std::pin::pin!(schedule.wait())).is_pending());
+            // A manual restart of an idle process launches immediately in the caller.
+            schedule.restart(false);
+            assert!(!schedule.suppressed);
+            assert!(!schedule.manual_restart);
+            schedule.finished(Restart::Always, &outcome(0), Duration::from_secs(5));
+            assert!(schedule.next.is_some());
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn manual_restart_waits_for_reaping_and_a_later_stop_cancels_it() {
+        let mut schedule = Schedule::default();
+        schedule.restart(true);
+        assert!(poll!(std::pin::pin!(schedule.wait())).is_pending());
+        assert!(schedule.finished(Restart::Never, &outcome(0), Duration::from_secs(5)));
+        assert!(!schedule.manual_restart);
+        schedule.restart(true);
+        schedule.stop();
+        assert!(!schedule.finished(Restart::Always, &outcome(0), Duration::from_secs(5)));
+        assert!(poll!(std::pin::pin!(schedule.wait())).is_pending());
+    }
 }
