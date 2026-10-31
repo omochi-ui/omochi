@@ -9,6 +9,9 @@ const host = `@omochi-ui/native-${process.platform}-${process.arch}`;
 const selected = artifacts.packages.filter(p => [host, '@omochi-ui/cli', '@omochi-ui/utils'].includes(p.name));
 if (selected.length !== 3) throw new Error('Missing host npm artifacts');
 const staging = await mkdtemp(path.join(tmpdir(), 'omochi-native-installed-'));
+// macOS TMPDIR can already consume most of sockaddr_un.sun_path. Keep sockets
+// in a separate short, private directory; npm installation still uses TMPDIR.
+const runtime = await mkdtemp('/tmp/omochi-npm-');
 try {
   await writeFile(path.join(staging, 'package.json'), JSON.stringify({ private: true,
     dependencies: Object.fromEntries(selected.map(p => [p.name, `file:${path.join(directory, p.filename)}`])),
@@ -21,7 +24,7 @@ try {
   // Starting a real hub checks assets and signal forwarding across the npm launcher.
   const node = run('node', ['-p', 'process.execPath']);
   const child = Bun.spawn([node, path.join(staging, 'node_modules/@omochi-ui/cli/bin/omochi-ui.cjs'),
-    '--config-dir', path.join(staging, 'config'), '--runtime-dir', path.join(staging, 'runtime/omochi'), 'hub', '--port', '0'],
+    '--config-dir', path.join(staging, 'config'), '--runtime-dir', path.join(runtime, 'omochi'), 'hub', '--port', '0'],
     { cwd: staging, env: { ...process.env, PATH: '/nonexistent' }, stdout: 'ignore', stderr: 'pipe' });
   let logs = '';
   const reading = (async () => { for await (const chunk of child.stderr) logs += Buffer.from(chunk).toString(); })();
@@ -43,4 +46,7 @@ try {
     await reading;
   }
   console.log('Native npm tarballs: isolated install, both commands, bundled dashboard and SIGTERM passed');
-} finally { await rm(staging, { recursive: true, force: true }); }
+} finally {
+  await rm(runtime, { recursive: true, force: true });
+  await rm(staging, { recursive: true, force: true });
+}
