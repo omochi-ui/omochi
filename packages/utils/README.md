@@ -1,9 +1,10 @@
-# @omochi-ui/utils
+# omochi-utils
 
 Publish command controls, development observations, and agent-created A2UI
 surfaces through the existing Omochi gateway. Requires a Unix-like environment,
-like the discovery transport. Build with `bun install && bun run build` from the
-repository root.
+like the discovery transport. Build with `bun install && bun run build:native`
+from the repository root, or install both native binaries from a distribution
+archive. The Rust executable needs no Bun runtime.
 
 ## Turn a command into a button
 
@@ -87,21 +88,21 @@ methods, headers, authentication, or request bodies, use `watch -- curl ...`.
 
 ## Let an agent publish surfaces over MCP
 
-Configure a stdio MCP server in your agent. For a source checkout, point Node to
-the absolute path of the built CLI:
+Configure a stdio MCP server in your agent. Use the installed native binary (or the absolute path to
+`packages/server-rust/target/debug/omochi-utils` in a built source checkout):
 
 ```json
 {
   "mcpServers": {
     "omochi": {
-      "command": "bun",
-      "args": ["/absolute/path/to/omochi-ui/packages/utils/bin/omochi-utils.js", "mcp", "--name", "Agent"]
+      "command": "/absolute/path/to/omochi-utils",
+      "args": ["mcp", "--name", "Agent"]
     }
   }
 }
 ```
 
-The process publishes through `UnixSocketServerTransport`; an existing gateway
+The process publishes using the existing SDK manifest and Unix JSONL protocol; an existing gateway
 discovers it automatically. Start `omochi-ui hub` separately to view surfaces.
 The agent, gateway and hub must share the same user and `XDG_RUNTIME_DIR` for
 local discovery. Existing SSH/paired-gateway routing works without changes.
@@ -200,3 +201,9 @@ gateway access controls apply to these services as to other Omochi apps.
 runs command execution, watch/diff, process restart, tail/stream, HTTP, shutdown,
 event cursor, stdio MCP, and gateway integration tests. Temporary runtime
 directories keep tests separate from real services.
+
+Native utilities require an owned runtime directory with mode `0700`. They create
+missing runtime directories privately and reject existing shared directories.
+Slow clients are disconnected when their update backlog exceeds the bounded
+buffer; reconnecting obtains the current snapshot. Publication/action queues
+reject overload instead of accumulating pending messages indefinitely.

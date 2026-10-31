@@ -1,0 +1,25 @@
+# iroh-relay 1.4.1. Replace hostname/contact before enabling the service.
+http_bind_addr = "0.0.0.0:80"
+enable_relay = true
+enable_quic_addr_discovery = true
+enable_metrics = true
+metrics_bind_addr = "127.0.0.1:9090"
+access = "everyone"
+key_cache_capacity = 16384
+
+[limits]
+accept_conn_limit = 10.0
+accept_conn_burst = 20
+
+[limits.client.rx]
+bytes_per_second = 1048576
+max_burst_bytes = 4194304
+
+[tls]
+https_bind_addr = "0.0.0.0:443"
+quic_bind_addr = "0.0.0.0:7842"
+hostname = ["relay.example.invalid"]
+contact = "operator@example.invalid"
+cert_mode = "LetsEncrypt"
+cert_dir = "/var/lib/omochi-relay/certs"
+prod_tls = true

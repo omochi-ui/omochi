@@ -12,7 +12,7 @@ test("documented composition serves the dashboard and routes all four demo decis
   const env: NodeJS.ProcessEnv = { ...process.env, XDG_RUNTIME_DIR: root, XDG_CONFIG_HOME: path.join(root, "config") };
   // Explicit endpoint avoids inheriting an unrelated developer override in the demo.
   env.OMOCHI_APPROVAL_SOCKET = path.join(root, "omochi", "agent-approval", "approval.sock");
-  const hub = Bun.spawn([process.execPath, "packages/cli/bin/omochi-ui.js", "up", "--port", "0", "examples/agent-approval/omochi.toml"], {
+  const hub = Bun.spawn(["packages/cli/bin/omochi-ui", "up", "--port", "0", "examples/agent-approval/omochi.toml"], {
     cwd: repository, env, stdout: "ignore", stderr: "pipe",
   });
   let log = "";

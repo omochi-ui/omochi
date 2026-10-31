@@ -12,7 +12,7 @@ export function resolveResourceUrl(value: string, endpoint: string, surfaceId: s
   const url = new URL(baseUrl ?? endpoint, globalThis.location?.href ?? 'http://localhost');
   url.protocol = url.protocol === 'wss:' ? 'https:' : url.protocol === 'ws:' ? 'http:' : url.protocol;
   const channel = surfaceId.split('/')[0]!;
-  const route = /^[a-z2-7]{16}~[A-Za-z0-9._-]{1,64}$/.test(channel) ? channel : '_';
+  const route = /^(?:[a-z2-7]{16}|[a-f0-9]{64})~[A-Za-z0-9._-]{1,64}$/.test(channel) ? channel : '_';
   url.pathname = `/resources/${encodeURIComponent(route)}/${id}`;
   url.search = ''; url.hash = '';
   return url.href;

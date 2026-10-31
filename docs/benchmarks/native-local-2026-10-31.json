@@ -1,0 +1,255 @@
+{
+  "timestamp": "2026-10-31T14:15:20.676Z",
+  "platform": "Linux 7.3.0-5-cachyos",
+  "cpu": "AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M",
+  "logicalCpus": 24,
+  "bun": "1.4.3",
+  "rust": "rustc 1.99.0 (b940084d7 2026-09-28)",
+  "repetitions": 5,
+  "method": "Fresh config; warm OS cache; local synthetic Unix SDK echo; 25 warmup + 200 measured actions per payload; 2s idle; process-tree RSS/PSS incl. gateway; no browser rendering or remote transport",
+  "results": [
+    {
+      "mode": "typescript",
+      "startupMs": 598.81102,
+      "processes": 2,
+      "rssKiB": 164036,
+      "pssKiB": 118098,
+      "idleCpuPercent": 0.9925115081151079,
+      "scenarios": [
+        {
+          "payloadBytes": 64,
+          "samples": 200,
+          "p50Ms": 0.11252100000001519,
+          "p95Ms": 0.28787099999999555,
+          "meanMs": 0.14256566000000193
+        },
+        {
+          "payloadBytes": 65536,
+          "samples": 200,
+          "p50Ms": 0.4270719999999528,
+          "p95Ms": 1.479799000000071,
+          "meanMs": 0.5876122649999991
+        }
+      ]
+    },
+    {
+      "mode": "rust",
+      "startupMs": 5.23126400000001,
+      "processes": 1,
+      "rssKiB": 16140,
+      "pssKiB": 13582,
+      "idleCpuPercent": 0,
+      "scenarios": [
+        {
+          "payloadBytes": 64,
+          "samples": 200,
+          "p50Ms": 0.052127999999811436,
+          "p95Ms": 0.0942880000002333,
+          "meanMs": 0.05639395499999637
+        },
+        {
+          "payloadBytes": 65536,
+          "samples": 200,
+          "p50Ms": 0.37590599999975893,
+          "p95Ms": 0.781257000000096,
+          "meanMs": 0.4261478249999982
+        }
+      ]
+    },
+    {
+      "mode": "rust",
+      "startupMs": 4.787811999999576,
+      "processes": 1,
+      "rssKiB": 16452,
+      "pssKiB": 13923,
+      "idleCpuPercent": 0,
+      "scenarios": [
+        {
+          "payloadBytes": 64,
+          "samples": 200,
+          "p50Ms": 0.055473999999776424,
+          "p95Ms": 0.07832699999926263,
+          "meanMs": 0.05919220999998288
+        },
+        {
+          "payloadBytes": 65536,
+          "samples": 200,
+          "p50Ms": 0.40577200000006997,
+          "p95Ms": 0.8526710000005551,
+          "meanMs": 0.48676386000001004
+        }
+      ]
+    },
+    {
+      "mode": "typescript",
+      "startupMs": 639.2232540000005,
+      "processes": 2,
+      "rssKiB": 164020,
+      "pssKiB": 117197,
+      "idleCpuPercent": 1.4884616211513058,
+      "scenarios": [
+        {
+          "payloadBytes": 64,
+          "samples": 200,
+          "p50Ms": 0.1318169999995007,
+          "p95Ms": 0.3006539999996676,
+          "meanMs": 0.15991700999998557
+        },
+        {
+          "payloadBytes": 65536,
+          "samples": 200,
+          "p50Ms": 0.4623379999993631,
+          "p95Ms": 1.4388019999996686,
+          "meanMs": 0.6278409449999981
+        }
+      ]
+    },
+    {
+      "mode": "typescript",
+      "startupMs": 650.2625889999999,
+      "processes": 2,
+      "rssKiB": 163332,
+      "pssKiB": 116572,
+      "idleCpuPercent": 1.4887291420654483,
+      "scenarios": [
+        {
+          "payloadBytes": 64,
+          "samples": 200,
+          "p50Ms": 0.1406040000001667,
+          "p95Ms": 0.3445369999990362,
+          "meanMs": 0.16798281999992468
+        },
+        {
+          "payloadBytes": 65536,
+          "samples": 200,
+          "p50Ms": 0.4785990000000311,
+          "p95Ms": 1.5411239999993995,
+          "meanMs": 0.6395134450000023
+        }
+      ]
+    },
+    {
+      "mode": "rust",
+      "startupMs": 5.166822999999567,
+      "processes": 1,
+      "rssKiB": 16268,
+      "pssKiB": 13663,
+      "idleCpuPercent": 0,
+      "scenarios": [
+        {
+          "payloadBytes": 64,
+          "samples": 200,
+          "p50Ms": 0.06286800000088988,
+          "p95Ms": 0.08188399999926332,
+          "meanMs": 0.0651898350000647
+        },
+        {
+          "payloadBytes": 65536,
+          "samples": 200,
+          "p50Ms": 0.5623759999998583,
+          "p95Ms": 1.0131320000000414,
+          "meanMs": 0.6225155499999527
+        }
+      ]
+    },
+    {
+      "mode": "rust",
+      "startupMs": 5.256702000000587,
+      "processes": 1,
+      "rssKiB": 16100,
+      "pssKiB": 13571,
+      "idleCpuPercent": 0,
+      "scenarios": [
+        {
+          "payloadBytes": 64,
+          "samples": 200,
+          "p50Ms": 0.06260699999984354,
+          "p95Ms": 0.09558000000106404,
+          "meanMs": 0.06715060000001358
+        },
+        {
+          "payloadBytes": 65536,
+          "samples": 200,
+          "p50Ms": 0.2870390000007319,
+          "p95Ms": 0.6562229999999545,
+          "meanMs": 0.35482642000013587
+        }
+      ]
+    },
+    {
+      "mode": "typescript",
+      "startupMs": 538.9926720000003,
+      "processes": 2,
+      "rssKiB": 164080,
+      "pssKiB": 117423,
+      "idleCpuPercent": 0.49639727294051433,
+      "scenarios": [
+        {
+          "payloadBytes": 64,
+          "samples": 200,
+          "p50Ms": 0.1283610000027693,
+          "p95Ms": 0.3417220000010275,
+          "meanMs": 0.15815391499992984
+        },
+        {
+          "payloadBytes": 65536,
+          "samples": 200,
+          "p50Ms": 0.48252599999977974,
+          "p95Ms": 1.59352299999955,
+          "meanMs": 0.6564664150000681
+        }
+      ]
+    },
+    {
+      "mode": "typescript",
+      "startupMs": 615.8195820000001,
+      "processes": 2,
+      "rssKiB": 164444,
+      "pssKiB": 117642,
+      "idleCpuPercent": 1.9858451746066537,
+      "scenarios": [
+        {
+          "payloadBytes": 64,
+          "samples": 200,
+          "p50Ms": 0.11125900000115507,
+          "p95Ms": 0.24709399999846937,
+          "meanMs": 0.12852174000003289
+        },
+        {
+          "payloadBytes": 65536,
+          "samples": 200,
+          "p50Ms": 0.4841390000001411,
+          "p95Ms": 1.5613029999985883,
+          "meanMs": 0.642893600000043
+        }
+      ]
+    },
+    {
+      "mode": "rust",
+      "startupMs": 5.047839999999269,
+      "processes": 1,
+      "rssKiB": 16312,
+      "pssKiB": 13782,
+      "idleCpuPercent": 0.4974774193606421,
+      "scenarios": [
+        {
+          "payloadBytes": 64,
+          "samples": 200,
+          "p50Ms": 0.06214700000055018,
+          "p95Ms": 0.09715199999845936,
+          "meanMs": 0.06579854999978124
+        },
+        {
+          "payloadBytes": 65536,
+          "samples": 200,
+          "p50Ms": 0.5675159999991592,
+          "p95Ms": 1.0071119999993243,
+          "meanMs": 0.6203739650001626
+        }
+      ]
+    }
+  ],
+  "commit": "bd4dd4f588ae66bdbd811e334f0dd97baaa58f37",
+  "dirty": true,
+  "nativeSha256": "b96e8706f3d39726417156b2c1f86f0c0241f03cd87927d88c50b91d50769dd3"
+}

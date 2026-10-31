@@ -20,7 +20,7 @@
       "name": "@omochi-ui/cli",
       "version": "0.1.2",
       "bin": {
-        "omochi-ui": "./bin/omochi-ui.js",
+        "omochi-ui": "./bin/omochi-ui",
       },
       "dependencies": {
         "@a2ui/web_core": "0.10.5",
@@ -142,7 +142,7 @@
       "name": "@omochi-ui/utils",
       "version": "0.1.2",
       "bin": {
-        "omochi-utils": "./bin/omochi-utils.js",
+        "omochi-utils": "./bin/omochi-utils",
       },
       "dependencies": {
         "@modelcontextprotocol/sdk": "^1.31.0",

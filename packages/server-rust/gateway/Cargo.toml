@@ -1,0 +1,18 @@
+[package]
+name = "omochi-gateway"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+[dependencies]
+anyhow.workspace = true
+tokio.workspace = true
+serde_json.workspace = true
+serde.workspace = true
+omochi-transport = { path = "../transport" }
+omochi-protocol = { path = "../protocol" }
+omochi-local-discovery = { path = "../discovery" }
+omochi-ui = { path = "../../sdk/rust" }
+futures-util = { version = "0.3", features = ["sink"] }
+tokio-util = { version = "0.7", features = ["codec", "rt"] }
+[dev-dependencies]
+tempfile = "3"

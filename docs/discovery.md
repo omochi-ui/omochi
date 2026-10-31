@@ -2,6 +2,12 @@
 
 [Overview](../README.md) · [Architecture](architecture.md) · [CLI reference](../packages/cli/README.md)
 
+Remote access changed with the native Rust services: use a gateway invitation
+on the hub PC, then registered gateways reconnect automatically over iroh.
+See the [current pairing guide](../packages/cli/README.md#pair). The local SDK
+manifest examples below still apply; the TCP/TLS, short-code and SSH instructions
+in this document describe the previous TypeScript services.
+
 The **hub** is a dashboard application: it combines live views from apps on one or
 more machines. The development server remains a separate single-app preview.
 

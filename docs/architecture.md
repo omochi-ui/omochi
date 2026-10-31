@@ -2,9 +2,13 @@
 
 [Overview](../README.md) · [SDK guide](sdk.md) · [CLI reference](../packages/cli/README.md) · [Discovery guide](discovery.md)
 
-This document maps the current implementation: all nine packages, the processes
-started by the CLI, the protocols between them, and the ownership of state and
-persistent data. The diagrams describe existing behavior, not a future design.
+The diagrams below document the previous TypeScript server implementation.
+The source checkout now launches Rust gateway, hub, CLI and utilities, with iroh
+for remote connections and invitation-based enrollment. SDK APIs, local SDK
+manifests and the dashboard remain in place. See the
+[native implementation status](../packages/server-rust/README.md) and
+[current CLI reference](../packages/cli/README.md) for the active server boundary.
+The legacy TCP/TLS and SSH paths below do not describe the native CLI.
 
 | View | What it answers |
 | --- | --- |

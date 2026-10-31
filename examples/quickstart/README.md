@@ -21,9 +21,8 @@ with the absolute path to this checkout:
 {
   "mcpServers": {
     "omochi-quickstart": {
-      "command": "bun",
+      "command": "/absolute/path/to/omochi-ui/packages/utils/bin/omochi-utils",
       "args": [
-        "/absolute/path/to/omochi-ui/packages/utils/bin/omochi-utils.js",
         "mcp",
         "--service-id",
         "quickstart-agent",

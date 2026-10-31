@@ -5,16 +5,21 @@
   "packageManager": "bun@1.4.3",
   "scripts": {
     "build": "bun run --bun --filter '*' build",
-    "quickstart": "bun run build && bun run omochi-ui up --open examples/quickstart/omochi.toml",
+    "quickstart": "bun run build && bun run build:native && bun run omochi-ui up --open examples/quickstart/omochi.toml",
     "test": "bun run build && bun run --bun --filter '*' test && bun run test:approval",
-    "test:approval": "tsc -p examples/agent-approval/tsconfig.json && bun test ./examples/agent-approval/test",
+    "test:approval": "bun run build:native && tsc -p examples/agent-approval/tsconfig.json && bun test ./examples/agent-approval/test",
     "test:python": "PYTHONPATH=packages/sdk/python/src python3 -m unittest discover -s packages/sdk/python/tests -v",
     "test:rust": "cargo test --manifest-path packages/sdk/rust/Cargo.toml",
+    "test:native-mcp": "cargo build --manifest-path packages/server-rust/Cargo.toml -p omochi-utils -p omochi-cli && OMOCHI_NATIVE_TEST=1 bun test packages/utils/test/native-mcp.test.ts",
+    "test:server-rust": "cargo test --manifest-path packages/server-rust/Cargo.toml",
     "release:check": "bun scripts/release.ts check",
     "release:typecheck": "tsc -p scripts/tsconfig.json",
     "release:pack": "bun scripts/release.ts pack",
     "release:smoke": "bun scripts/smoke-npm.ts",
-    "release:stage:npm": "bun scripts/release.ts stage-npm"
+    "release:stage:npm": "bun scripts/release.ts stage-npm",
+    "build:native": "bun run --filter @omochi-ui/renderer build && bun run --filter @omochi-ui/hub-ui build && cargo build --manifest-path packages/server-rust/Cargo.toml --locked -p omochi-cli -p omochi-utils",
+    "build:native:release": "python3 scripts/package-native.py",
+    "test:native-renderer": "cargo build --manifest-path packages/server-rust/Cargo.toml -p omochi-utils -p omochi-cli && OMOCHI_NATIVE_TEST=1 bun test packages/renderer/test/native.test.ts"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",

@@ -1,0 +1,23 @@
+[package]
+name = "omochi-transport"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+iroh.workspace = true
+tokio.workspace = true
+anyhow.workspace = true
+omochi-protocol = { path = "../protocol" }
+iroh-mdns-address-lookup = "=0.6.1"
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
+fs2 = "0.4.3"
+rand = "0.9"
+sha2 = "0.11.1"
+hex = "0.4.3"
+
+[dev-dependencies]
+tempfile = "3.27.0"
+
+iroh-relay = { version = "=1.4.1", features = ["server"] }

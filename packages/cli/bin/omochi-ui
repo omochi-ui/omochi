@@ -1,0 +1,10 @@
+#!/bin/sh
+set -eu
+script=$0
+while [ -L "$script" ]; do
+  base=$(CDPATH= cd -P "$(dirname "$script")" && pwd)
+  link=$(readlink "$script")
+  case "$link" in /*) script=$link;; *) script=$base/$link;; esac
+done
+root=$(CDPATH= cd -P "$(dirname "$script")/../../.." && pwd)
+exec "$root/scripts/native-run.sh" omochi-ui "$@"

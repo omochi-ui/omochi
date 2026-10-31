@@ -1,0 +1,26 @@
+[package]
+name = "omochi-utils"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+[dependencies]
+rmcp = { version = "=3.7.0", default-features = false, features = ["server", "transport-async-rw"] }
+reqwest = { version = "0.13.5", default-features = false, features = ["rustls-no-provider", "gzip", "brotli", "deflate"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
+similar = "2.7.0"
+libc = "0.2"
+clap = { version = "4", features = ["derive", "env"] }
+uuid = { version = "1", features = ["v4"] }
+anyhow.workspace = true
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+omochi-ui = { path = "../../sdk/rust" }
+tokio-util = { version = "0.7", features = ["rt", "codec"] }
+futures-util = { version = "0.3", features = ["sink"] }
+fs2 = "0.4.3"
+omochi-protocol = { path = "../protocol" }
+omochi-local-discovery = { path = "../discovery" }
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
+[dev-dependencies]
+tempfile = "3"

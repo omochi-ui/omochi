@@ -32,6 +32,7 @@ diagrams of dependencies, protocols, state, and recovery.
 
 Run these commands from a source checkout. JavaScript packages are managed with
 **Bun 1.4.3+** (the baseline is pinned in `package.json` and `.bun-version`).
+Building the native CLI and utilities also needs **current stable Rust and Cargo**.
 Node.js is not required. The Python example needs **Python 3.11+**
 and **uv**. Discovery and Unix socket examples need a Unix-like environment.
 
@@ -53,6 +54,7 @@ To develop one SDK example against the standalone preview instead, build first:
 
 ```sh
 bun run build
+bun run build:native
 ```
 
 In terminal 1, start the browser preview:
@@ -97,8 +99,8 @@ All commands below are invoked with `bun run omochi-ui` from this checkout.
 | Preview one app | `dev -- <command> [args...]` | App process + WebSocket bridge; start the preview separately |
 | Arrange running apps into dashboards | `hub` | Dashboard server + local gateway if needed |
 | Make this machine's apps available to a hub | `gateway` | Discovery and routing; apps must already be running |
-| View apps on another machine over SSH | `hub --ssh user@host` | Local dashboard + SSH forward to an existing remote gateway |
-| Connect machines over paired TLS | `pair HOST:PORT` | Saves trust after entering a gateway's pairing code |
+| Connect machines with an invitation | `pair --name workstation` | Imports the gateway invitation on this PC; registered gateways reconnect automatically |
+| Inspect remote gateway connections | `status` | Reads registered names and connection diagnostics from the running hub |
 | Show this machine's identity | `id` | Creates an identity on first use, then prints it |
 | Inspect or remove trusted peers | `trust list` / `trust forget <nodeId>` | Reads or changes local trust |
 | Generate custom catalog bindings | `generate catalog` | Writes bindings for selected SDK languages |
@@ -165,9 +167,10 @@ and have no authentication or TLS.
 The repository contains SDKs under `packages/sdk/<lang>/` and tools under
 `packages/`, runnable applications under `examples/`, and shared protocol
 contracts and fixtures under `spec/`.
-The CLI and browser applications can run from this workspace. The CLI is also
-available on npm as `@omochi-ui/cli` and requires Bun 1.4.3+ even when installed
-through npm.
+The CLI and utilities ship as native archives with the dashboard embedded.
+See the [native distribution guide](packages/server-rust/DISTRIBUTION.md) for
+installation and pairing. Bun is a source-build tool, not a service runtime.
+`bun run build:native:release` builds an archive for the current host.
 
 ## License
 

@@ -1,0 +1,31 @@
+{
+  "catalogId": "urn:test:catalog",
+  "title": "Test Catalog",
+  "$defs": {
+    "Weight": {"type":"object","properties":{"weight":{"type":"number"}}}
+  },
+  "components": {
+    "Badge": {
+      "allOf": [
+        {"$ref":"https://a2ui.org/specification/v0_9/common_types.json#/$defs/ComponentCommon"},
+        {"$ref":"https://a2ui.org/specification/v0_9/common_types.json#/$defs/Checkable"},
+        {"$ref":"#/$defs/Weight"},
+        {
+          "properties": {
+            "component":{"const":"Badge"},
+            "id":{"type":"string"},
+            "label":{"type":"string"},
+            "tone":{"type":"string","enum":["info","warning"]},
+            "meta":{"$ref":"./defs.json#/$defs/Meta"},
+            "children":{"$ref":"https://a2ui.org/specification/v0_9/common_types.json#/$defs/ChildList"},
+            "value":{"anyOf":[{"type":"number"},{"type":"boolean"}]},
+            "dynamic":{"allOf":[{"$ref":"https://a2ui.org/specification/v0_9/common_types.json#/$defs/DynamicString"},{"if":{},"then":{}}]},
+            "labels":{"type":"array","items":{"type":"string"}}
+          },
+          "required":["component","id","label"]
+        }
+      ]
+    },
+    "Empty":{"type":"object","properties":{}}
+  }
+}

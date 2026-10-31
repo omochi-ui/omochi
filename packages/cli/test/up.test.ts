@@ -54,8 +54,8 @@ surface = "logs"
     { id: 'health', cwd: '/project/demo', env: { OMOCHI_SERVICE: 'health' } },
     { id: 'app', cwd: '/project/demo/backend', env: { MODE: 'demo', OMOCHI_SERVICE: 'app' } },
   ])
-  assert.match(composition.services[0]!.command[1]!, /omochi-utils\.js$/)
-  assert.deepEqual(composition.services[0]!.command.slice(2), ['http', '--service-id', 'health', 'http://127.0.0.1:5173/'])
+  assert.match(composition.services[0]!.command[0]!, /omochi-utils$/)
+  assert.deepEqual(composition.services[0]!.command.slice(1), ['http', '--service-id', 'health', 'http://127.0.0.1:5173/'])
   assert.deepEqual(composition.preset.panels.map(panel => ({ id: panel.id, x: panel.x, y: panel.y, w: panel.w, h: panel.h, surface: panel.reference.surfaceId })), [
     { id: 'health', x: 0, y: 0, w: 6, h: 4, surface: 'main' },
     { id: 'app', x: 6, y: 0, w: 6, h: 4, surface: 'status' },

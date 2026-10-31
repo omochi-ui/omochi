@@ -1,0 +1,87 @@
+# Native gateway protocol v4
+
+This is the breaking Rust gateway/hub contract. SDK Unix JSONL, A2UI v0.9 and
+browser HTTP/WebSocket contracts remain separate. The executable definitions are
+in `packages/server-rust/protocol/src/{lib,session}.rs`; enrollment is in
+`packages/server-rust/transport/src/pairing.rs`.
+
+## Identity and connectivity
+
+NodeId is the iroh EndpointId encoded as 64 lowercase hexadecimal characters.
+Gateway and hub have separate durable private keys. The authenticated iroh peer
+identity, together with its registered role, controls authorization. An advertised
+name, address, mDNS record or application-supplied ID never grants access.
+
+Remote access is opt-in. Online mode uses public address lookup and relays; custom
+relay URLs replace the relay set. Offline mode uses direct paths and LAN mDNS,
+without public lookup or relays. An offline registered peer does not block the
+hub's local dashboard. All registered gateways reconnect independently with
+bounded backoff and jitter. IP addresses remain internal addressing information.
+
+## Enrollment
+
+The gateway emits `omochi://invite/<hex-encoded JSON>` containing `version: 4`,
+iroh `address`, a random bearer `secret`, and Unix-seconds `expires`. The link is
+imported on the hub PC and is bounded to 16 KiB. Invitations last 180 seconds;
+the first authenticated hub to redeem one wins. The same hub may retry, but a
+second identity cannot redeem the consumed secret. Expiry still applies.
+
+Enrollment uses ALPN `omochi/pair/1`, separate from ordinary gateway traffic.
+The first bidirectional stream carries `{version, secret, name}` and receives
+`{accepted}`. The gateway reads at most 4096 bytes for the request, with a
+10-second exchange timeout. It records the iroh-authenticated remote identity,
+not an ID from the request. The durable write happens before success is sent.
+The hub persists the invitation's authenticated gateway identity after success.
+
+## Framing and streams
+
+Ordinary traffic uses ALPN `omochi/gateway/4`. Each frame is a nonempty UTF-8 JSON
+body preceded by its unsigned 32-bit big-endian byte length, at most 4 MiB.
+Partial headers/bodies are errors. Readers must not cancel a partial read unless
+they discard that entire stream. The local Unix gateway uses the same framing.
+
+The first frame on each bidirectional stream is one of:
+
+- `{"kind":"control","protocol":4}`
+- `{"kind":"service","service":"app","generation":1}`
+- `{"kind":"resource","service":"app","generation":1}`
+
+Unknown fields in these envelopes and unsupported protocol versions are rejected.
+A generation identifies one live SDK service instance; stale-generation requests
+are rejected. Reconnection requires a fresh snapshot, and actions are not replayed.
+
+The control stream starts with `hello` (`protocol`, `nodeId`, `name`), followed by
+`services` containing the complete list of `{id,name,generation,icon?}`. Lists are
+limited to 256 unique valid service IDs. The hub sends `ping` with a numeric `id`
+every 10 seconds after the preceding exchange; the gateway returns matching
+`pong`. A blocked write or missing matching pong for 10 seconds ends the session.
+`bye` carries a `reason`. Control loss retracts the associated services.
+
+A service stream emits `snapshotStart`, zero or more `message` frames carrying an
+A2UI `message`, then `snapshotEnd`, followed by incremental `message` frames.
+The reverse direction carries A2UI client actions/errors. Hub browser surface IDs
+are `<nodeId>~<serviceId>/<surfaceId>`; SDK-facing IDs remain unchanged. Client
+model metadata is restricted to the target service before forwarding.
+
+A resource stream carries one existing `resources/1` request and response. It is
+separate from snapshot state. The browser boundary preserves resource GET/HEAD,
+ETag and byte-range semantics; remote resources require a live authorized peer.
+
+## Limits and lifecycle
+
+Snapshots have a 16 MiB encoded-data limit. Every materialized gateway replay
+message must also fit the 4 MiB frame including its envelope; individually valid
+patches that exceed this limit after merging cause the service to be retracted.
+Data-model paths reject prototype keys, excessive depth and combined numeric
+indices above 100,000 before applying sparse array patches.
+
+Fanout buffers bound both message count and encoded bytes (16 MiB). A lagging
+subscriber reconnects for a fresh snapshot. Action/publication queues retain an
+8 MiB budget through processing. These are wire-data bounds, not total RSS caps.
+
+Trust writes are serialized across processes, re-read under lock and committed
+atomically. `trust forget` waits for every registered live process to reload the
+authorization generation and destroy revoked sessions. Failure to acknowledge is
+an error; it does not roll back the durable removal. A revocation watermark forces
+fresh sessions even if the same peer is immediately re-enrolled. Native state is
+isolated under `omochi/rust-v1`; old trust and dashboards are not migrated.

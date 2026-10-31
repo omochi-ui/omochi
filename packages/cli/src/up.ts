@@ -49,7 +49,7 @@ function argv(value: unknown, label: string): string[] {
 }
 
 function utilityExecutable(): string {
-  return fileURLToPath(import.meta.resolve('@omochi-ui/utils/bin/omochi-utils.js'))
+  return fileURLToPath(import.meta.resolve('@omochi-ui/utils/bin/omochi-utils'))
 }
 
 function parseService(id: string, value: unknown, root: string): CompositionService {
@@ -66,7 +66,7 @@ function parseService(id: string, value: unknown, root: string): CompositionServ
     if (!UTILITY_MODES.has(utility[0]!)) {
       throw new Error(`services.${id}.utility must start with button, watch, process, tail, or http`)
     }
-    command = [process.execPath, utilityExecutable(), utility[0]!, '--service-id', id, ...utility.slice(1)]
+    command = [utilityExecutable(), utility[0]!, '--service-id', id, ...utility.slice(1)]
   } else command = argv(service.command, `services.${id}.command`)
 
   const cwd = service.cwd === undefined ? root : path.resolve(root, text(service.cwd, `services.${id}.cwd`, 4096))

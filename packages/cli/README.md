@@ -2,9 +2,11 @@
 
 [Overview](../../README.md) · [Architecture](../../docs/architecture.md) · [Discovery guide](../../docs/discovery.md)
 
-Build the workspace with `bun install` and `bun run build`. Run commands from its
-root using `bun run omochi-ui`; the binary is provided by `@omochi-ui/cli`; the TypeScript SDK is
-`@omochi-ui/sdk`.
+Build the workspace with `bun install`, `bun run build` and
+`bun run build:native` (current stable Rust). Run commands from its root using
+`bun run omochi-ui`. The private workspace package launches the native Rust
+binary. Installed native archives use `omochi-ui` directly and need no Bun.
+See the [installation guide](../server-rust/DISTRIBUTION.md).
 
 ```sh
 bun run omochi-ui --help
@@ -12,8 +14,8 @@ bun run omochi-ui hub --help
 bun run omochi-ui help generate catalog
 ```
 
-No arguments prints the overview. `-h`, `--help`, and `help <command>` print help
-to stdout and exit successfully without starting services or changing config.
+`-h`, `--help`, and `help <command>` print help to stdout and exit successfully
+without starting services or changing config.
 Invalid arguments print usage to stderr and exit with code 2.
 
 ## Command map
@@ -25,7 +27,8 @@ Invalid arguments print usage to stderr and exit with code 2.
 | Compose dashboards from running apps | `hub` | Yes |
 | Publish this machine's running apps | `gateway` | No; connect a hub |
 | Show or name this machine | `id` | No |
-| Pair with a TCP gateway | `pair HOST:PORT` | No |
+| Register a remote gateway | `pair --name workstation` | No |
+| Inspect live remote connection attempts | `status [--port PORT]` | No |
 | Inspect or remove paired peers | `trust list`, `trust forget <nodeId>` | No |
 | Generate SDK catalog types | `generate catalog` | No |
 
@@ -132,93 +135,88 @@ not stop a gateway it did not start.
 | --- | --- | --- |
 | `--host HOST` | HTTP/WebSocket bind address | `127.0.0.1` |
 | `--port PORT` | HTTP/WebSocket port; `0` chooses an available port | `5555` |
-| `--gateway TARGET` | Unix socket path or `<nodeId>@HOST:PORT`; repeatable | Local gateway |
-| `--ssh HOST` | SSH hostname, alias, or `user@host`; one target | Off |
-| `--ssh-socket PATH` | Remote gateway socket override; requires `--ssh` | Resolved through SSH |
 | `--no-auto-gateway` | Do not start a missing local gateway | Auto-start enabled |
-| `--discover-lan` | Also look for paired gateways via mDNS | Off |
 | `--allow-origin ORIGIN` | Add an exact allowed browser origin; repeatable | Loopback origins only |
+| `--offline` | Disable public address lookup and relays; retain LAN mDNS | Off |
+| `--relay URL` | Custom relay URL; repeatable | n0 public relays when online |
+| `--assets DIR` | Override the embedded dashboard assets | Embedded assets |
 
-Explicit `--gateway` or `--ssh` targets replace the default local gateway. Add
-`--gateway /path/to/local/gateway.sock` to include it too. Explicit targets can
-be combined with `--discover-lan`. A TCP target needs its paired node ID; a Unix
-socket or SSH target does not need pairing.
-
-```sh
-# Remote machine: gateway and apps must already be running
-bun run omochi-ui gateway
-# Local machine: SSH authenticates and forwards the remote gateway socket
-bun run omochi-ui hub --ssh user@remote
-```
-
-The hub has no authentication or TLS on its browser-facing listener. Keep its
-loopback binding. See [SSH setup](../../docs/discovery.md#connecting-through-ssh)
-for requirements and cleanup behavior.
+Every registered gateway connects in the background; an unavailable gateway does
+not delay local startup or other peers. Registration changes are picked up while
+the hub runs. With no registered peers the hub creates no remote endpoint.
+The browser-facing HTTP/WebSocket listener has no TLS or authentication; keep
+its loopback binding. Origin checks apply to both HTTP and WebSocket requests.
 
 ## gateway
 
-Discover the current user's apps and publish their surfaces. A gateway does not
-launch apps or serve the dashboard UI. It normally listens only on a Unix socket.
+Discover this user's running SDK apps and publish their surfaces. The gateway
+does not launch apps or serve the dashboard UI. Remote networking is opt-in:
 
 ```sh
 bun run omochi-ui gateway
+# Enable remote access and issue an invitation:
+bun run omochi-ui gateway --remote --pair --name workstation
 ```
 
 | Option | Meaning | Default |
 | --- | --- | --- |
-| `--root DIR` | Directory containing service manifests and sockets | `$XDG_RUNTIME_DIR/omochi` |
-| `--socket PATH` | Gateway Unix socket | `<root>/gateway.sock` |
-| `--node-name NAME` | Persist this machine's display name | Existing name or hostname |
-| `--listen HOST:PORT` | Enable the TLS TCP listener | Off |
-| `--advertise` | Advertise over mDNS; requires a TCP listener | Off |
-| `--pair` | Open a one-time pairing window; requires a TCP listener | Off |
-| `--lan` | `--listen 0.0.0.0:5556 --advertise` | Off |
+| `--remote` | Enable the authenticated iroh endpoint | Off |
+| `--pair` | Issue a temporary invitation; requires `--remote` | Off |
+| `--name NAME` | Gateway display name | `gateway` |
+| `--offline` | LAN mDNS/direct connections without public services | Off |
+| `--relay URL` | Custom relay URL; repeatable | n0 public relays when online |
 
-If `XDG_RUNTIME_DIR` is unset, the registry uses
-`<system temporary directory>/omochi-<uid>/omochi`. Apps and gateways must use the
-same runtime directory. See [Service discovery](../../docs/discovery.md) for the
-manifest format and SDK transport examples.
-
-Network reachability, advertisement, and trust are separate. `--listen` enables
-the paired TLS listener; mDNS only advertises its location. Neither allows an
-unpaired hub to read application data.
+mDNS locates endpoints; it never grants access. Only registered hubs can open
+application streams. On LANs that permit multicast and direct traffic, registered
+peers can reconnect without internet access. Across networks, iroh uses direct
+connections where possible and a relay otherwise.
 
 ## pair
 
-Pair once before connecting a hub to a gateway over TCP. SSH does not require this.
+Import the gateway's invitation on the PC running the hub:
 
 ```sh
-# Machine running the apps: open a TCP listener and pairing window
-bun run omochi-ui gateway --lan --pair
-# Machine running the hub: enter the code printed by the gateway
-bun run omochi-ui pair 192.168.1.42:42317  # use the random pairing port printed above
+bun run omochi-ui pair --name workstation
+# Paste the invitation on stdin, then Ctrl+D.
+bun run omochi-ui hub
 ```
 
-`pair HOST:PORT` reads the code from stdin. `--code CODE` supplies it explicitly;
-stdin keeps it out of shell history. The window lasts three minutes, permits
-five exchange attempts, and closes after one successful pairing. Its dedicated HTTPS
-listener uses a random port and exposes no application API. Normal connections use
-mutual TLS with pinned device certificates; legacy PSK peers must pair again.
+An invitation can also be the positional argument. Stdin keeps it out of shell
+history. Possession grants access: the invitation expires after 180 seconds and
+admits one hub. The same winning identity can retry an interrupted exchange.
+`--name` is the local gateway alias; `--hub-name` defaults to `hub`.
+Use `--offline` for LAN-only enrollment or `--relay URL` for a custom relay.
+Configure matching relay options on gateway, pair and hub.
 
-After success, run the printed `hub --gateway <nodeId>@HOST:PORT` command, prefixed
-with `bun run` in a source checkout. Alternatively, use `hub --discover-lan`
-when the gateway advertises on the same local network. mDNS generally does not
-cross VLANs or VPNs.
+Users do not enter IP addresses. Registered gateways reconnect by identity;
+the alias makes them recognizable. Endpoint identity is the full 64-character
+lowercase hexadecimal iroh EndpointId. This is a breaking protocol change:
+pair old devices again and recreate saved dashboards.
+
+## status
+
+`bun run omochi-ui status` reads connection diagnostics from the running hub
+on `127.0.0.1:5555`. It prints JSON with each registered gateway’s EndpointId,
+local alias and current transport status or last connection error. Offline peers
+remain visible while reconnecting. Use `--port` (and `--host` for a different
+bind address) when necessary. This command does not create identity or trust state.
+The same information is available at `/api/connections`, with the hub’s Origin
+checks. An empty array means no remote connection attempts are currently tracked.
 
 ## id and trust
 
 ```sh
 bun run omochi-ui id
-bun run omochi-ui id --node-name workstation
+bun run omochi-ui id --hub
 bun run omochi-ui trust list
-bun run omochi-ui trust forget NODE_ID
+bun run omochi-ui trust forget workstation
 ```
 
-`id` creates a persistent identity on first use and prints its node ID and name.
-Changing the name preserves the ID. `trust list` prints peer IDs, roles, names,
-and pairing times. `trust forget` removes the local peer entry and waits for running local processes
-to close affected connections before reporting success; it returns code
-1 when the peer does not exist. Pair again to establish trust after removal.
+`id` prints the persistent gateway identity; `--hub` selects the hub identity.
+`trust forget` accepts an EndpointId or a unique name. It durably removes trust
+and waits for every registered live local process to destroy revoked connections.
+Failure to acknowledge remains an error, even though the removal is already
+saved. Pair again to establish trust after removal.
 
 ## generate catalog
 
@@ -256,13 +254,15 @@ it does not fetch schemas over the network. Reuse the same invocation with
 | Development bridge | `ws://127.0.0.1:5555/ws` |
 | Hub UI / A2UI | `http://127.0.0.1:5555/` / `ws://127.0.0.1:5555/ws` |
 | Gateway Unix socket | `$XDG_RUNTIME_DIR/omochi/gateway.sock` (fallback above) |
-| Gateway TCP with `--lan` | `0.0.0.0:5556` (paired TLS) |
-| Node identity and peers | `$XDG_CONFIG_HOME/omochi/{node,peers}.json` |
-| Saved dashboards | `$XDG_CONFIG_HOME/omochi/dashboards.json` |
+| Native identity, trust and dashboards | `$XDG_CONFIG_HOME/omochi/rust-v1/` |
 
-`XDG_CONFIG_HOME` defaults to `~/.config`. Runtime directories and configuration
-are per-user; identity and trust persist across restarts. Dashboard files store
-names, surface references, and layouts, not app state.
+`XDG_CONFIG_HOME` defaults to `~/.config`. Global `--config-dir` or
+`OMOCHI_CONFIG_DIR` overrides native state. Legacy identity and dashboards are
+left untouched. Global `--runtime-dir` or `OMOCHI_RUNTIME_ROOT` selects the SDK
+registry; with `up`, this path must end in `/omochi` so child SDKs use the same
+registry through `XDG_RUNTIME_DIR`. When `XDG_RUNTIME_DIR` is unset, the default
+is `<system temporary directory>/omochi-<uid>/omochi`.
+Runtime directories must be private and owned by the current user.
 
 ## Troubleshooting
 
@@ -273,7 +273,6 @@ names, surface references, and layouts, not app state.
 | Address already in use | `dev` and `hub` share default port 5555; stop one or set `--port 5557` |
 | Vite uses a port other than 5173 | Use Vite's printed URL, adding the bridge's `?ws=` parameter if needed |
 | Hub has no apps | Run an app with `OMOCHI_SERVICE` set and the same user/runtime directory |
-| Hub loses the local apps when using SSH | Explicit targets replace the local default; add the local socket with `--gateway` |
-| Pairing/advertising requires a listener | Use `gateway --lan --pair` or provide `--listen HOST:PORT` |
-| Remote gateway is not found | Check that it is running; use SSH or an explicit paired TCP target when multicast is unavailable |
-| Command or build output is missing | Run `bun install` and `bun run build` from the repository root |
+| Remote gateway is unavailable | Check gateway `--remote`, trust records and matching online/offline/relay settings; LAN multicast may be blocked |
+| Existing local gateway is incompatible | Stop the old gateway before starting the native hub |
+| Native binary is missing | Run `bun run build:native`; for a release build set `OMOCHI_NATIVE_PROFILE=release` |

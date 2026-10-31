@@ -1,0 +1,189 @@
+//! Remote admission and dispatch. Endpoint authentication alone is never authorization.
+use crate::Gateway;
+use anyhow::{Result, bail};
+use omochi_protocol::{ALPN, PAIR_ALPN};
+use omochi_transport::{
+    Endpoint, EndpointConnection,
+    store::{Role, Store},
+};
+use std::{sync::Arc, time::Duration};
+use tokio::{
+    sync::Semaphore,
+    task::{JoinHandle, JoinSet},
+};
+
+async fn authorized(store: &Store, connection: &EndpointConnection) -> Result<bool> {
+    let store = store.clone();
+    let peer = connection.remote_id().to_string();
+    tokio::task::spawn_blocking(move || {
+        Ok(store
+            .peers()?
+            .1
+            .get(&peer)
+            .is_some_and(|p| p.role == Role::Hub))
+    })
+    .await?
+}
+impl Gateway {
+    pub fn listen_remote(
+        &self,
+        endpoint: Endpoint,
+        store: Store,
+        name: String,
+    ) -> Result<JoinHandle<()>> {
+        if endpoint.id() != store.identity(Role::Gateway)?.public() {
+            bail!("gateway endpoint identity mismatch")
+        }
+        let lease = omochi_transport::live::Lease::register(&store)?;
+        let (_, mut revoked, _) = store.authorization()?;
+        let gateway = self.clone();
+        Ok(tokio::spawn(async move {
+            let connections = Arc::new(Semaphore::new(64));
+            let pairing = Arc::new(Semaphore::new(8));
+            let mut tasks = JoinSet::new();
+            let mut sessions = gateway.stop.child_token();
+            let mut poll = tokio::time::interval(Duration::from_millis(100));
+            loop {
+                tokio::select! {
+                    _ = gateway.stop.cancelled() => break,
+                    _ = poll.tick() => {
+                        let copy = store.clone();
+                        let state = tokio::task::spawn_blocking(move || copy.authorization()).await;
+                        let (generation, next_revoked, _) = match state {
+                            Ok(Ok(state)) => state,
+                            _ => break, // Fail closed without acknowledging unreadable authorization.
+                        };
+                        if next_revoked != revoked {
+                            sessions.cancel();
+                            while tasks.join_next().await.is_some() {}
+                            sessions = gateway.stop.child_token();
+                        }
+                        revoked = next_revoked;
+                        if lease.acknowledge(generation).is_err() { break; }
+                    },
+                    Some(_) = tasks.join_next(), if !tasks.is_empty() => {},
+                    incoming = endpoint.accept() => {
+                        let Some(incoming) = incoming else { break };
+                        let Ok(permit) = connections.clone().try_acquire_owned() else { incoming.refuse(); continue };
+                        let gateway = gateway.clone(); let store = store.clone(); let pairing = pairing.clone(); let name = name.clone(); let node = endpoint.id().to_string();
+                        let stop = sessions.child_token();
+                        tasks.spawn(async move {
+                            let _permit = permit;
+                            let connection = tokio::select! { _ = stop.cancelled() => return Ok(()), result = tokio::time::timeout(Duration::from_secs(10), incoming) => result?? };
+                            if connection.alpn() == PAIR_ALPN {
+                                let Ok(_pairing) = pairing.try_acquire_owned() else { connection.close(1u32.into(), b"enrollment busy"); return Ok(()) };
+                                return tokio::select! { _ = stop.cancelled() => { connection.close(0u32.into(), b"authorization changed"); Ok(()) }, result = omochi_transport::pairing::accept(connection.clone(), store) => result }
+                            }
+                            if connection.alpn() != ALPN || !authorized(&store, &connection).await? {
+                                connection.close(1u32.into(), b"not authorized"); bail!("peer not authorized")
+                            }
+                            let result = gateway.remote_session(&connection, &store, &node, &name, &stop).await;
+                            connection.close(0u32.into(), b"session ended"); result
+                        });
+                    }
+                }
+            }
+            sessions.cancel();
+            while tasks.join_next().await.is_some() {}
+            endpoint.close().await;
+        }))
+    }
+    async fn remote_session(
+        &self,
+        connection: &EndpointConnection,
+        store: &Store,
+        node: &str,
+        name: &str,
+        stop: &tokio_util::sync::CancellationToken,
+    ) -> Result<()> {
+        let mut streams = JoinSet::new();
+        let slots = Arc::new(Semaphore::new(64));
+        let mut poll = tokio::time::interval(Duration::from_millis(100));
+        let result = async { loop {
+            tokio::select! {
+                _ = stop.cancelled() => return Ok(()),
+                Some(_) = streams.join_next(), if !streams.is_empty() => {},
+                _ = poll.tick() => {
+                    if !authorized(store, connection).await? { bail!("authorization revoked") }
+                }
+                stream = connection.accept_bi() => {
+                    let (mut writer, mut reader) = stream?;
+                    if !authorized(store, connection).await? { bail!("authorization revoked") }
+                    let Ok(permit) = slots.clone().try_acquire_owned() else { let _ = writer.reset(2u32.into()); let _ = reader.stop(2u32.into()); continue };
+                    let gateway = self.clone(); let node = node.to_owned(); let name = name.to_owned();
+                    streams.spawn(async move { let _permit = permit; gateway.serve_stream(reader, writer, &node, &name).await });
+                }
+            }
+        } }.await;
+        connection.close(0u32.into(), b"session ended");
+        streams.abort_all();
+        while streams.join_next().await.is_some() {}
+        result
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use omochi_protocol::{OpenStream, VERSION, read_frame, session::Control, write_frame};
+    #[tokio::test]
+    async fn registered_hub_can_connect_and_revocation_closes_existing_connection() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(dir.path().join("gateway")).unwrap();
+        let hub_store = Store::open(dir.path().join("hub")).unwrap();
+        let endpoint = omochi_transport::bind(store.identity(Role::Gateway).unwrap(), true, None)
+            .await
+            .unwrap();
+        let hub = omochi_transport::bind(hub_store.identity(Role::Hub).unwrap(), true, None)
+            .await
+            .unwrap();
+        let token = store.invite(0, u64::MAX).unwrap();
+        store.redeem(&token, hub.id(), "hub", 1).unwrap();
+        let address = endpoint.addr();
+        let node = endpoint.id();
+        let gateway = Gateway::new();
+        let server = gateway
+            .listen_remote(endpoint, store.clone(), "gateway".into())
+            .unwrap();
+        let connection = hub.connect(address, ALPN).await.unwrap();
+        let (mut tx, mut rx) = connection.open_bi().await.unwrap();
+        write_frame(&mut tx, &OpenStream::Control { protocol: VERSION })
+            .await
+            .unwrap();
+        let hello = read_frame::<_, Control>(&mut rx).await.unwrap().unwrap();
+        assert!(matches!(hello, Control::Hello { node_id, .. } if node_id == node.to_string()));
+        omochi_transport::live::forget(store.clone(), hub.id(), Duration::from_secs(3))
+            .await
+            .unwrap();
+        tokio::time::timeout(Duration::from_secs(3), connection.closed())
+            .await
+            .unwrap();
+        gateway.shutdown();
+        server.await.unwrap();
+        hub.close().await;
+    }
+    #[tokio::test]
+    async fn unregistered_hub_gets_no_control_data() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(dir.path().join("gateway")).unwrap();
+        let other = Store::open(dir.path().join("other")).unwrap();
+        let endpoint = omochi_transport::bind(store.identity(Role::Gateway).unwrap(), true, None)
+            .await
+            .unwrap();
+        let hub = omochi_transport::bind(other.identity(Role::Hub).unwrap(), true, None)
+            .await
+            .unwrap();
+        let address = endpoint.addr();
+        let gateway = Gateway::new();
+        let server = gateway
+            .listen_remote(endpoint, store, "gateway".into())
+            .unwrap();
+        let connection = hub.connect(address, ALPN).await.unwrap();
+        tokio::time::timeout(Duration::from_secs(3), connection.closed())
+            .await
+            .unwrap();
+        gateway.shutdown();
+        server.await.unwrap();
+        hub.close().await;
+    }
+}

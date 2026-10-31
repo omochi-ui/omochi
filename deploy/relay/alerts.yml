@@ -1,0 +1,24 @@
+groups:
+  - name: omochi-relay
+    rules:
+      - alert: OmochiRelayDown
+        expr: up{job="omochi-relay"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: Omochi relay metrics are unreachable
+      - alert: OmochiRelayTrafficBudget
+        expr: rate(relayserver_bytes_sent_total{job="omochi-relay"}[5m]) > 8388608
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: Omochi relay egress exceeds the example 8 MiB/s budget
+      - alert: OmochiRelayPacketDrops
+        expr: rate(relayserver_send_packets_dropped_total{job="omochi-relay"}[5m]) > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: Omochi relay is dropping packets
