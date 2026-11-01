@@ -28,6 +28,33 @@
       "note": 1
     }
   ],
+  "taggedNewtypeMerge": {
+    "model": {
+      "$local": {
+        "nested": {
+          "count": 3
+        }
+      }
+    },
+    "expression": {
+      "call": "omochiMergeObjects",
+      "args": {
+        "objects": [
+          {
+            "kind": "Item"
+          },
+          {
+            "path": "/$local/nested"
+          }
+        ]
+      },
+      "returnType": "object"
+    },
+    "resolved": {
+      "kind": "Item",
+      "count": 3
+    }
+  },
   "merge": {
     "model": {
       "$local": {

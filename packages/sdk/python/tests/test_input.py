@@ -93,6 +93,22 @@ class InputTests(unittest.IsolatedAsyncioTestCase):
             owner = schema.object_({"value": left})
             with self.assertRaises(DeclarationError): owner.field("value", right)
 
+    def test_optional_members_stay_optional_through_wrappers(self):
+        for member, extra in [
+            (schema.nullable(schema.optional(schema.string())), None),
+            (schema.union(schema.number(), schema.optional(schema.string())), 42),
+            (schema.union(schema.optional(schema.string()), schema.number()), 42),
+            (schema.nullable(schema.union(schema.number(), schema.optional(schema.string()))), None),
+        ]:
+            with self.subTest(kind=member.kind):
+                validator = schema.object_({"value": member})
+                self.assertEqual(validator.parse({}), {})
+                self.assertEqual(validator.parse({"value": "yes"}), {"value": "yes"})
+                self.assertEqual(validator.parse({"value": extra}), {"value": extra})
+                with self.assertRaises(ProtocolError): validator.parse({"value": False})
+        for member in [schema.nullable(schema.string()), schema.union(schema.number(), schema.string())]:
+            with self.assertRaises(ProtocolError): schema.object_({"value": member}).parse({})
+
     async def test_whole_value_expression(self):
         app = App({})
         @app.action(schema=schema.string())

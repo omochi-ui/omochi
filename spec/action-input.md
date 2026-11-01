@@ -48,6 +48,8 @@ so dynamic map keys do not need to be known by the SDK. Generated structured
 inputs containing nested merge calls follow the same rule. Known ordinary fields
 (including enum tags) form the first operand; unresolved flattened fields follow
 in declaration order. Duplicate keys are rejected regardless of order.
+Internally tagged newtype enum payloads use this same composition rule, keeping
+the tag separate from a referenced payload until the renderer resolves it.
 
 The derive implementation uses a private typed Serde map-key marker to carry
 unresolved flattened operands to the SDK serializer. This marker is not a JSON
@@ -58,8 +60,13 @@ Browser values are already JSON. Arbitrary Rust serializer code is never shipped
 to the browser. Custom serialization requires an explicit `ExpressionAdapter`.
 `skip_serializing_if` works on concrete values; an unresolved value at such a
 field is rejected at encoding rather than silently ignoring its predicate.
+For tuple structs and tuple enum variants, no field projection is generated for
+a conditionally skipped field or any later field: the field can be absent and
+later serialized indices depend on its value. Earlier fields and generated input
+encoding remain supported. Unconditionally skipped fields do not occupy an index.
 Concrete null/Option flattening retains Serde behavior; a reference resolving to
 null is not an object and is rejected. Use an empty object to represent no keys.
 
 `fixtures/action-input.json` contains the cross-SDK merge encoding and resolved
-value as well as the existing handler validation cases.
+value, an internally tagged newtype merge, and the existing handler validation
+cases.

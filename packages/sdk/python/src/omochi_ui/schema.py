@@ -121,7 +121,7 @@ def literal(value: T) -> Schema[T]:
     return result
 
 def nullable(inner: Schema[T]) -> Schema[T | None]:
-    result = Schema(lambda v, p: None if v is None else inner.decode(v, p))
+    result = Schema(lambda v, p: None if v is None else inner.decode(v, p), optional=inner.optional)
     result.kind = ("nullable", inner.kind)
     return result
 
@@ -173,7 +173,7 @@ def union(*items: Schema[Any]) -> Schema[Any]:
             try: return s.decode(v, p)
             except ProtocolError: pass
         return _fail(p, "matching union member")
-    result = Schema(decode)
+    result = Schema(decode, optional=any(s.optional for s in items))
     result.kind = ("union", tuple(s.kind for s in items))
     return result
 

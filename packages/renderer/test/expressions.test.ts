@@ -27,17 +27,19 @@ function setup(input: unknown) {
 
 test('shared merge fixture resolves through the actual action binder at click time', async t => {
   const fixture = await Bun.file(new URL('../../../spec/fixtures/action-input.json', import.meta.url)).json();
-  const s = setup(fixture.merge.expression);
-  t.after(() => { s.binder.dispose(); s.surface.dispose(); });
-  s.surface.dataModel.set('/', fixture.merge.model);
-  s.click();
-  await Promise.resolve();
-  assert.deepEqual(s.actions[0]?.context.input, fixture.merge.resolved);
-  s.surface.dataModel.set('/$local/nested', { count: 9, dynamic: 'new key' });
-  s.click();
-  await Promise.resolve();
-  assert.deepEqual(s.actions[1]?.context.input, { title: 'x', count: 9, dynamic: 'new key' });
-  assert.deepEqual(s.errors, []);
+  for (const example of [fixture.merge, fixture.taggedNewtypeMerge]) {
+    const s = setup(example.expression);
+    t.after(() => { s.binder.dispose(); s.surface.dispose(); });
+    s.surface.dataModel.set('/', example.model);
+    s.click();
+    await Promise.resolve();
+    assert.deepEqual(s.actions[0]?.context.input, example.resolved);
+    s.surface.dataModel.set('/$local/nested', { count: 9, dynamic: 'new key' });
+    s.click();
+    await Promise.resolve();
+    assert.deepEqual(s.actions[1]?.context.input, { ...example.resolved, count: 9, dynamic: 'new key' });
+    assert.deepEqual(s.errors, []);
+  }
 });
 
 test('merge errors prevent sending and allow a subsequent successful click', async t => {

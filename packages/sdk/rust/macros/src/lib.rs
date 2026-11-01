@@ -57,6 +57,16 @@ fn serde_name(attrs: &[syn::Attribute], key: &str) -> syn::Result<Option<String>
     }
     Ok(None)
 }
+fn serde_flag(attrs: &[syn::Attribute], key: &str) -> syn::Result<bool> {
+    for attr in attrs.iter().filter(|a| a.path().is_ident("serde")) {
+        for meta in attr.parse_args_with(Punctuated::<Meta, Token![,]>::parse_terminated)? {
+            if meta.path().is_ident(key) {
+                return Ok(true);
+            }
+        }
+    }
+    Ok(false)
+}
 fn rename_field(name: &str, rule: &str) -> String {
     match rule {
         "lowercase" | "snake_case" => name.into(),
@@ -119,10 +129,11 @@ fn expand(input: DeriveInput) -> syn::Result<proc_macro2::TokenStream> {
     let mut predicates = Vec::new();
     let mut all_types = Vec::new();
     let mut count = 0usize;
-    let helper_generics = &input.generics;
-    let mut transform = |fields: &mut Fields, project: bool, rename_all: &str| -> syn::Result<()> {
+    let (helper_generics, _, helper_where) = input.generics.split_for_impl();
+    let mut transform = |fields: &mut Fields, project: bool, rule: &str, tagged: bool| {
         let newtype = matches!(fields, Fields::Unnamed(f) if f.unnamed.len() == 1);
         let mut serialized_index = 0usize;
+        let mut stable_position = true;
         for (index, field) in fields.iter_mut().enumerate() {
             let ty = field.ty.clone();
             let adapter = adapter(&field.attrs)?;
@@ -137,11 +148,11 @@ fn expand(input: DeriveInput) -> syn::Result<proc_macro2::TokenStream> {
                 .as_ref()
                 .map(|x| x.unraw().to_string())
                 .unwrap_or(index.to_string());
-            wire = serde_name(&field.attrs, "rename")?
-                .unwrap_or_else(|| rename_field(&wire, &rename_all));
+            wire = serde_name(&field.attrs, "rename")?.unwrap_or_else(|| rename_field(&wire, rule));
             let mut flatten = newtype || transparent;
             let mut skipped = false;
-            let mut real_flatten = false;
+            // Internally tagged newtypes merge their payload into the tag object.
+            let mut real_flatten = tagged && newtype;
             let mut conditional = false;
             for attr in &mut field.attrs {
                 if !attr.path().is_ident("serde") {
@@ -185,7 +196,7 @@ fn expand(input: DeriveInput) -> syn::Result<proc_macro2::TokenStream> {
                             let predicate: syn::Path = s.parse()?;
                             let helper = format_ident!("__omochi_{}_skip_{}", name.unraw(), count);
                             count += 1;
-                            predicates.push(quote! { #[allow(non_snake_case)] fn #helper #helper_generics (value: &#helper_ty) -> bool { value.literal_matches(#predicate) } });
+                            predicates.push(quote! { #[allow(non_snake_case)] fn #helper #helper_generics (value: &#helper_ty) -> bool #helper_where { value.literal_matches(#predicate) } });
                             let (_, args, _) = input.generics.split_for_impl();
                             let helper_path = if input.generics.params.is_empty() {
                                 helper.to_string()
@@ -256,11 +267,15 @@ fn expand(input: DeriveInput) -> syn::Result<proc_macro2::TokenStream> {
             };
             if field.ident.is_none() {
                 wire = serialized_index.to_string();
+                // A conditional field can disappear or shift every later tuple slot.
+                if conditional && !skipped {
+                    stable_position = false;
+                }
             }
             if !skipped {
                 serialized_index += 1;
             }
-            if project && !skipped {
+            if project && !skipped && stable_position {
                 let method = format_ident!(
                     "field_{}",
                     field
@@ -290,13 +305,16 @@ fn expand(input: DeriveInput) -> syn::Result<proc_macro2::TokenStream> {
         Ok(())
     };
     match &mut mirror.data {
-        Data::Struct(s) => transform(&mut s.fields, true, &rename_all)?,
+        Data::Struct(s) => transform(&mut s.fields, true, &rename_all, false)?,
         Data::Enum(e) => {
+            let internally_tagged = serde_name(&input.attrs, "tag")?.is_some()
+                && serde_name(&input.attrs, "content")?.is_none();
             for v in &mut e.variants {
                 let rule = serde_name(&v.attrs, "rename_all")?
                     .or(serde_name(&input.attrs, "rename_all_fields")?)
                     .unwrap_or_default();
-                transform(&mut v.fields, false, &rule)?;
+                let tagged = internally_tagged && !serde_flag(&v.attrs, "untagged")?;
+                transform(&mut v.fields, false, &rule, tagged)?;
             }
         }
         Data::Union(_) => return Err(syn::Error::new_spanned(name, "unions are not JSON inputs")),
@@ -367,6 +385,7 @@ fn expand(input: DeriveInput) -> syn::Result<proc_macro2::TokenStream> {
                 .or(serde_name(&input.attrs, "rename_all_fields")?)
                 .unwrap_or_default();
             let mut serialized_index = 0usize;
+            let mut stable_position = true;
             for (index, field) in variant.fields.iter().enumerate() {
                 let ty = &field.ty;
                 let metas: Vec<Meta> = field
@@ -382,6 +401,16 @@ fn expand(input: DeriveInput) -> syn::Result<proc_macro2::TokenStream> {
                     .iter()
                     .any(|m| m.path().is_ident("skip") || m.path().is_ident("skip_serializing"))
                 {
+                    continue;
+                }
+                if field.ident.is_none()
+                    && metas
+                        .iter()
+                        .any(|m| m.path().is_ident("skip_serializing_if"))
+                {
+                    stable_position = false;
+                }
+                if !stable_position {
                     continue;
                 }
                 let flatten = metas.iter().any(|m| m.path().is_ident("flatten"));
@@ -416,7 +445,7 @@ fn expand(input: DeriveInput) -> syn::Result<proc_macro2::TokenStream> {
                 methods.push(quote!(pub fn #field_method() -> ::omochi_ui::Field<Self, #projected> { ::omochi_ui::Field::new(#path) }));
             }
             variants.push(quote! {
-                #vis struct #marker #generics { marker: ::std::marker::PhantomData<fn() -> #name #ty_g> }
+                #vis struct #marker #generics #where_g { marker: ::std::marker::PhantomData<fn() -> #name #ty_g> }
                 impl #impl_g #marker #ty_g #where_g { #(#methods)* }
             });
             projections.push(quote! {

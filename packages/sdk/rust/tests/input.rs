@@ -24,6 +24,8 @@ enum External {
 enum Internal {
     Unit,
     Record { count: i64 },
+    Item(Nested),
+    Form(Form),
 }
 #[derive(Serialize, Deserialize, ActionInput)]
 #[serde(tag = "kind", content = "data")]
@@ -323,6 +325,185 @@ fn flattened_whole_expression_is_deferred() {
         .encode()
         .unwrap(),
         json!({"call":"omochiMergeObjects","args":{"objects":[{"title":"x"},{"path":"/$local/nested"}]},"returnType":"object"})
+    );
+}
+
+#[test]
+fn internally_tagged_newtype_preserves_tag_with_referenced_payload() {
+    let fixture: serde_json::Value =
+        serde_json::from_str(include_str!("../../../../spec/fixtures/action-input.json")).unwrap();
+    let mut ui = omochi_ui::Ui::new("main", omochi_ui::STANDARD_CATALOG);
+    let nested = ui.local("nested", Nested { count: 3 }).unwrap();
+    let encoded = InternalInput::Item(nested.value().into()).encode().unwrap();
+    assert_eq!(encoded, fixture["taggedNewtypeMerge"]["expression"]);
+    assert!(matches!(
+        serde_json::from_value::<Internal>(fixture["taggedNewtypeMerge"]["resolved"].clone())
+            .unwrap(),
+        Internal::Item(Nested { count: 3 })
+    ));
+    assert_eq!(
+        InternalInput::Item(Nested { count: 3 }.into())
+            .encode()
+            .unwrap(),
+        json!({"kind":"Item", "count":3})
+    );
+    assert_eq!(
+        InternalInput::Item(
+            Input::fields(NestedInput {
+                count: nested.field(Nested::field_count()).value().into(),
+            })
+            .unwrap()
+        )
+        .encode()
+        .unwrap(),
+        json!({"kind":"Item", "count":{"path":"/$local/nested/count"}})
+    );
+    let form = Input::fields(FormInput {
+        title: "x".into(),
+        nested: nested.value().into(),
+    })
+    .unwrap();
+    assert_eq!(
+        InternalInput::Form(form).encode().unwrap(),
+        json!({"call":"omochiMergeObjects","args":{"objects":[{"kind":"Form"},fixture["merge"]["expression"]]},"returnType":"object"})
+    );
+}
+
+#[derive(Serialize, Deserialize, ActionInput)]
+enum BoundedEnum<T = String>
+where
+    T: Clone,
+{
+    Value(T),
+}
+
+fn is_default<T: Default + PartialEq>(value: &T) -> bool {
+    value == &T::default()
+}
+
+#[derive(Serialize, ActionInput)]
+struct BoundedOptional<T = String>
+where
+    T: Default + PartialEq,
+{
+    #[serde(skip_serializing_if = "is_default")]
+    value: T,
+}
+
+#[test]
+fn generated_helpers_preserve_where_clauses() {
+    assert_eq!(
+        BoundedEnumInput::Value(3i64.into()).encode().unwrap(),
+        json!({"Value":3})
+    );
+    let mut ui = omochi_ui::Ui::new("main", omochi_ui::STANDARD_CATALOG);
+    let local = ui.local("bounded", BoundedEnum::Value(3i64)).unwrap();
+    let variant = local.variant(BoundedEnum::<i64>::variant_value()).unwrap();
+    assert_eq!(
+        omochi_ui::checked_json(
+            variant
+                .field(BoundedEnumValueFields::<i64>::field_0())
+                .value()
+        )
+        .unwrap(),
+        json!({"path":"/$local/bounded/Value"})
+    );
+    assert_eq!(
+        BoundedOptionalInput::<String> { value: "".into() }
+            .encode()
+            .unwrap(),
+        json!({})
+    );
+    assert_eq!(
+        BoundedOptionalInput::<String> { value: "x".into() }
+            .encode()
+            .unwrap(),
+        json!({"value":"x"})
+    );
+}
+
+#[derive(Serialize, ActionInput)]
+struct ConditionalTuple(
+    #[serde(skip)] (),
+    String,
+    #[serde(skip_serializing_if = "Option::is_none")] Option<String>,
+    String,
+);
+
+#[derive(Serialize, Deserialize, ActionInput)]
+enum ConditionalVariant {
+    Item(
+        #[serde(skip)] (),
+        String,
+        #[serde(skip_serializing_if = "Option::is_none")] Option<String>,
+        String,
+    ),
+}
+
+#[test]
+fn conditional_tuple_inputs_keep_encoding_and_stable_projections() {
+    for value in [None, Some("optional".to_owned())] {
+        let expected = omochi_ui::checked_json(ConditionalTuple(
+            (),
+            "prefix".into(),
+            value.clone(),
+            "actual".into(),
+        ))
+        .unwrap();
+        assert_eq!(
+            ConditionalTupleInput(
+                ().into(),
+                "prefix".into(),
+                value.clone().into(),
+                "actual".into()
+            )
+            .encode()
+            .unwrap(),
+            expected
+        );
+        assert_eq!(
+            ConditionalVariantInput::Item(
+                ().into(),
+                "prefix".into(),
+                value.clone().into(),
+                "actual".into()
+            )
+            .encode()
+            .unwrap(),
+            json!({"Item":expected})
+        );
+    }
+    let mut ui = omochi_ui::Ui::new("main", omochi_ui::STANDARD_CATALOG);
+    let tuple = ui
+        .local(
+            "tuple",
+            ConditionalTuple((), "prefix".into(), None, "actual".into()),
+        )
+        .unwrap();
+    assert_eq!(
+        omochi_ui::checked_json(tuple.field(ConditionalTuple::field_1()).value()).unwrap(),
+        json!({"path":"/$local/tuple/0"})
+    );
+    let local = ui
+        .local(
+            "variant",
+            ConditionalVariant::Item(
+                (),
+                "prefix".into(),
+                Some("optional".into()),
+                "actual".into(),
+            ),
+        )
+        .unwrap();
+    let variant = local.variant(ConditionalVariant::variant_item()).unwrap();
+    assert_eq!(
+        omochi_ui::checked_json(
+            variant
+                .field(ConditionalVariantItemFields::field_1())
+                .value()
+        )
+        .unwrap(),
+        json!({"path":"/$local/variant/Item/0"})
     );
 }
 

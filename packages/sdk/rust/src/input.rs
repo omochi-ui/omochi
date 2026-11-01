@@ -80,6 +80,42 @@ pub trait ActionInput: Serialize {
 }
 
 /// A typed projection generated from the serialized field name.
+///
+/// Tuple projections stop before the first `skip_serializing_if` field: that
+/// field can be absent, and all following positions depend on its value.
+/// Encoding the generated input and projecting earlier fields remain supported.
+///
+/// ```compile_fail
+/// use omochi_ui::ActionInput;
+/// use serde::Serialize;
+/// #[derive(Serialize, ActionInput)]
+/// struct Request(#[serde(skip_serializing_if = "Option::is_none")] Option<String>, String);
+/// let field = Request::field_0();
+/// ```
+///
+/// ```compile_fail
+/// use omochi_ui::ActionInput;
+/// use serde::Serialize;
+/// #[derive(Serialize, ActionInput)]
+/// struct Request(#[serde(skip_serializing_if = "Option::is_none")] Option<String>, String);
+/// let field = Request::field_1();
+/// ```
+///
+/// ```compile_fail
+/// use omochi_ui::ActionInput;
+/// use serde::{Serialize, Deserialize};
+/// #[derive(Serialize, Deserialize, ActionInput)]
+/// enum Request { Item(#[serde(skip_serializing_if = "Option::is_none")] Option<String>, String) }
+/// let field = RequestItemFields::field_0();
+/// ```
+///
+/// ```compile_fail
+/// use omochi_ui::ActionInput;
+/// use serde::{Serialize, Deserialize};
+/// #[derive(Serialize, Deserialize, ActionInput)]
+/// enum Request { Item(#[serde(skip_serializing_if = "Option::is_none")] Option<String>, String) }
+/// let field = RequestItemFields::field_1();
+/// ```
 pub struct Field<T, F> {
     pub(crate) path: String,
     marker: PhantomData<fn(T, F) -> (T, F)>,
