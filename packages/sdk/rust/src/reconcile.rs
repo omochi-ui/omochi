@@ -21,6 +21,10 @@ pub struct Reconciler {
 }
 
 impl Reconciler {
+    pub(crate) fn fresh(&self) -> Self {
+        Self::new(self.capabilities.iter().cloned())
+    }
+
     pub fn new(capabilities: impl IntoIterator<Item = String>) -> Self {
         Self {
             capabilities: capabilities.into_iter().collect(),

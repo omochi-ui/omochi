@@ -130,6 +130,23 @@ fn expand(input: DeriveInput) -> syn::Result<proc_macro2::TokenStream> {
     let mut all_types = Vec::new();
     let mut count = 0usize;
     let (helper_generics, _, helper_where) = input.generics.split_for_impl();
+    // Function lifetimes are inferred; explicitly passing late-bound lifetimes is invalid.
+    let helper_args: Vec<_> = input
+        .generics
+        .params
+        .iter()
+        .filter_map(|p| match p {
+            syn::GenericParam::Type(t) => {
+                let id = &t.ident;
+                Some(quote!(#id))
+            }
+            syn::GenericParam::Const(c) => {
+                let id = &c.ident;
+                Some(quote!(#id))
+            }
+            syn::GenericParam::Lifetime(_) => None,
+        })
+        .collect();
     let mut transform = |fields: &mut Fields, project: bool, rule: &str, tagged: bool| {
         let newtype = matches!(fields, Fields::Unnamed(f) if f.unnamed.len() == 1);
         let mut serialized_index = 0usize;
@@ -196,12 +213,11 @@ fn expand(input: DeriveInput) -> syn::Result<proc_macro2::TokenStream> {
                             let predicate: syn::Path = s.parse()?;
                             let helper = format_ident!("__omochi_{}_skip_{}", name.unraw(), count);
                             count += 1;
-                            predicates.push(quote! { #[allow(non_snake_case)] fn #helper #helper_generics (value: &#helper_ty) -> bool #helper_where { value.literal_matches(#predicate) } });
-                            let (_, args, _) = input.generics.split_for_impl();
-                            let helper_path = if input.generics.params.is_empty() {
+                            predicates.push(quote! { #[allow(non_snake_case)] fn #helper #helper_generics (value: &#helper_ty) -> bool #helper_where { value.literal_matches(|v| #predicate(v)) } });
+                            let helper_path = if helper_args.is_empty() {
                                 helper.to_string()
                             } else {
-                                quote!(#helper :: #args).to_string()
+                                quote!(#helper::<#(#helper_args),*>).to_string()
                             };
                             let path = syn::LitStr::new(&helper_path, s.span());
                             nv.value = parse_quote!(#path);
@@ -230,26 +246,10 @@ fn expand(input: DeriveInput) -> syn::Result<proc_macro2::TokenStream> {
                         ::omochi_ui::serialize_input_field(value, serializer, #real_flatten, #conditional)
                     }
                 });
-                let args: Vec<_> = input
-                    .generics
-                    .params
-                    .iter()
-                    .filter_map(|p| match p {
-                        syn::GenericParam::Type(t) => {
-                            let id = &t.ident;
-                            Some(quote!(#id))
-                        }
-                        syn::GenericParam::Const(c) => {
-                            let id = &c.ident;
-                            Some(quote!(#id))
-                        }
-                        _ => None,
-                    })
-                    .collect();
-                let helper_path = if args.is_empty() {
+                let helper_path = if helper_args.is_empty() {
                     helper.to_string()
                 } else {
-                    quote!(#helper::<#(#args,)* _>).to_string()
+                    quote!(#helper::<#(#helper_args,)* _>).to_string()
                 };
                 let path = syn::LitStr::new(&helper_path, name.span());
                 field
@@ -299,7 +299,8 @@ fn expand(input: DeriveInput) -> syn::Result<proc_macro2::TokenStream> {
                 } else {
                     quote!(#ty)
                 };
-                projections.push(quote! { pub fn #method() -> ::omochi_ui::Field<Self, #projected> { ::omochi_ui::Field::new(#path) } });
+                let access = projection_access(real_flatten, flatten);
+                projections.push(quote! { pub fn #method() -> ::omochi_ui::Field<Self, #projected, #access> { ::omochi_ui::Field::new(#path) } });
             }
         }
         Ok(())
@@ -349,20 +350,16 @@ fn expand(input: DeriveInput) -> syn::Result<proc_macro2::TokenStream> {
         let vis = &input.vis;
         let tag = serde_name(&input.attrs, "tag")?;
         let content = serde_name(&input.attrs, "content")?;
-        let untagged = input.attrs.iter().any(|a| {
-            a.path().is_ident("serde")
-                && a.meta
-                    .require_list()
-                    .map(|m| m.tokens.to_string().contains("untagged"))
-                    .unwrap_or(false)
-        });
+        let untagged = serde_flag(&input.attrs, "untagged")?;
         for variant in &data.variants {
             let id = &variant.ident;
             let marker = format_ident!("{}{}Fields", name.unraw(), id.unraw());
             let method = format_ident!("variant_{}", snake(&id.unraw().to_string()));
             let wire = serde_name(&variant.attrs, "rename")?
                 .unwrap_or_else(|| rename_variant(&id.unraw().to_string(), &rename_all));
-            let path = if untagged || (tag.is_some() && content.is_none()) {
+            let variant_untagged = untagged || serde_flag(&variant.attrs, "untagged")?;
+            let internally_tagged = !variant_untagged && tag.is_some() && content.is_none();
+            let path = if variant_untagged || internally_tagged {
                 String::new()
             } else {
                 format!(
@@ -442,14 +439,16 @@ fn expand(input: DeriveInput) -> syn::Result<proc_macro2::TokenStream> {
                 } else {
                     quote!(#ty)
                 };
-                methods.push(quote!(pub fn #field_method() -> ::omochi_ui::Field<Self, #projected> { ::omochi_ui::Field::new(#path) }));
+                let access = projection_access(flatten, newtype);
+                methods.push(quote!(pub fn #field_method() -> ::omochi_ui::Field<Self, #projected, #access> { ::omochi_ui::Field::new(#path) }));
             }
             variants.push(quote! {
                 #vis struct #marker #generics #where_g { marker: ::std::marker::PhantomData<fn() -> #name #ty_g> }
                 impl #impl_g #marker #ty_g #where_g { #(#methods)* }
             });
+            let access = projection_access(internally_tagged, variant_untagged);
             projections.push(quote! {
-                pub fn #method() -> ::omochi_ui::Variant<Self, #marker #ty_g> where Self: ::serde::de::DeserializeOwned {
+                pub fn #method() -> ::omochi_ui::Variant<Self, #marker #ty_g, #access> where Self: ::serde::de::DeserializeOwned {
                     ::omochi_ui::Variant::new(#path.into(), |value| {
                         match ::serde_json::from_value::<Self>(value.clone()) { Ok(v) => matches!(v, #pattern), Err(_) => false }
                     })
@@ -474,6 +473,16 @@ fn expand(input: DeriveInput) -> syn::Result<proc_macro2::TokenStream> {
         impl #impl_g ::omochi_ui::ActionInput for #name #ty_g #where_g { type Expression = #generated #ty_g; }
         impl #impl_g #name #ty_g #where_g { #(#projections)* }
     })
+}
+
+fn projection_access(flatten: bool, alias: bool) -> proc_macro2::TokenStream {
+    if flatten {
+        quote!(::omochi_ui::FieldsOnly)
+    } else if alias {
+        quote!(::omochi_ui::SameValue)
+    } else {
+        quote!(::omochi_ui::WholeValue)
+    }
 }
 
 fn snake(name: &str) -> String {

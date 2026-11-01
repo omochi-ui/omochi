@@ -38,6 +38,8 @@ configuration, not negotiated by this extension. Only enable this capability
 when the connected renderer supports it. A renderer without the function must
 not be advertised as supporting it. Default transports remain conservative and
 reject declarations requiring unsupported capabilities before emitting a surface.
+Full `getSurface` snapshots preserve the runtime's configured capabilities and
+use fresh reconciliation state without changing subsequent incremental updates.
 The wire protocol version and existing non-merge fixtures are unchanged.
 
 ## Rust Serde boundary
@@ -50,6 +52,14 @@ inputs containing nested merge calls follow the same rule. Known ordinary fields
 in declaration order. Duplicate keys are rejected regardless of order.
 Internally tagged newtype enum payloads use this same composition rule, keeping
 the tag separate from a referenced payload until the renderer resolves it.
+
+A whole-value operand must reference a complete value, for example a separate
+`Local<Nested>`. Projecting a `#[serde(flatten)]` field from its parent produces
+`Local<Nested, FieldsOnly>`: chained field projections are allowed, but `.value()`
+and `.bind()` on the flattened object do not compile because sibling keys share
+the same JSON object. This restriction also applies to internally tagged newtype
+payloads and survives newtype/transparent wrappers. Reconstruct a structured
+input from individual field expressions when a separate local is not available.
 
 The derive implementation uses a private typed Serde map-key marker to carry
 unresolved flattened operands to the SDK serializer. This marker is not a JSON

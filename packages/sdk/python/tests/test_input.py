@@ -1,8 +1,8 @@
 import asyncio
 import json
 import unittest
-from dataclasses import dataclass
-from typing import TypedDict
+from dataclasses import dataclass, field
+from typing import TypedDict, NotRequired
 from omochi_ui import App, Expr, InputSchema, schema, ProtocolError, DeclarationError
 
 @dataclass
@@ -15,6 +15,67 @@ class ValuesExpr(TypedDict):
 INPUT = InputSchema(Values, ValuesExpr)
 
 class InputTests(unittest.IsolatedAsyncioTestCase):
+    async def test_dataclass_computed_fields_are_not_action_inputs(self):
+        @dataclass
+        class Computed:
+            raw: str
+            category: str = "general"
+            normalized: str = field(init=False)
+            cache: set[str] = field(init=False, default_factory=set)
+
+            def __post_init__(self):
+                self.normalized = self.raw.lower()
+
+        class ComputedExpr(TypedDict):
+            raw: str | Expr[str]
+            category: NotRequired[str | Expr[str]]
+
+        inputs = InputSchema(Computed, ComputedExpr)
+        self.assertEqual(set(inputs.members), {"raw", "category"})
+        inputs.field("raw", schema.string())
+        with self.assertRaises(DeclarationError): inputs.field("normalized", schema.string())
+        self.assertEqual(inputs.parse({"raw":"ABC"}), Computed("ABC"))
+        with self.assertRaises(ProtocolError): inputs.parse({"raw":"ABC", "normalized":"forged"})
+        calls = []
+        app = App({})
+        @app.action(schema=inputs)
+        def run(value, ctx): calls.append(value)
+        encoded = run.call(Computed("ABC")).input
+        self.assertEqual(encoded, {"raw":"ABC", "category":"general"})
+        runtime = app.build()
+        await runtime.invoke("run", encoded)
+        self.assertEqual(calls, [Computed("ABC")])
+        self.assertEqual(calls[0].normalized, "abc")
+
+        @dataclass
+        class Envelope:
+            item: Computed
+        class EnvelopeExpr(TypedDict):
+            item: ComputedExpr
+        nested = InputSchema(Envelope, EnvelopeExpr)
+        self.assertEqual(nested.parse({"item":{"raw":"ABC"}}), Envelope(Computed("ABC")))
+        from omochi_ui.expression import encode_input
+        self.assertEqual(nested.parse(encode_input(Envelope(Computed("ABC")))), Envelope(Computed("ABC")))
+
+    def test_expression_results_can_be_members_or_subsets_of_unions(self):
+        @dataclass
+        class Nullable:
+            value: str | None
+        for annotation in [str | None | Expr[str], Expr[str], Expr[None], Expr[str | None], str | None | Expr[str | None]]:
+            with self.subTest(annotation=annotation):
+                expression = TypedDict("NullableExpr", {"value": annotation})
+                inputs = InputSchema(Nullable, expression)
+                self.assertEqual(inputs.parse({"value":"x"}), Nullable("x"))
+                self.assertEqual(inputs.parse({"value":None}), Nullable(None))
+        for annotation in [Expr[int], Expr[str | int], str | None | Expr[int], Expr[Expr[str]]]:
+            with self.subTest(annotation=annotation), self.assertRaises(DeclarationError):
+                InputSchema(Nullable, TypedDict("InvalidExpr", {"value":annotation}))
+        @dataclass
+        class NonNullable:
+            value: str
+        with self.assertRaises(DeclarationError):
+            InputSchema(NonNullable, TypedDict("TooBroadExpr", {"value":Expr[str | None]}))
+
     async def test_validation_before_handler_and_concrete_serialization(self):
         calls = []
         app = App({})

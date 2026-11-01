@@ -30,7 +30,7 @@ def encode_input(value: Any, ancestors: set[int] | None = None) -> Any:
     ancestors.add(id(value))
     try:
         if is_dataclass(value) and not isinstance(value, type):
-            return {f.name: encode_input(getattr(value, f.name), ancestors) for f in fields(value)}
+            return {f.name: encode_input(getattr(value, f.name), ancestors) for f in fields(value) if f.init}
         if isinstance(value, dict) and all(isinstance(k, str) for k in value):
             return {k: encode_input(v, ancestors) for k, v in value.items()}
         if isinstance(value, (list, tuple)): return [encode_input(v, ancestors) for v in value]

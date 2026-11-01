@@ -116,11 +116,11 @@ pub trait ActionInput: Serialize {
 /// enum Request { Item(#[serde(skip_serializing_if = "Option::is_none")] Option<String>, String) }
 /// let field = RequestItemFields::field_1();
 /// ```
-pub struct Field<T, F> {
+pub struct Field<T, F, P = WholeValue> {
     pub(crate) path: String,
-    marker: PhantomData<fn(T, F) -> (T, F)>,
+    marker: PhantomData<fn(T, F, P) -> (T, F, P)>,
 }
-impl<T, F> Field<T, F> {
+impl<T, F, P> Field<T, F, P> {
     #[doc(hidden)]
     pub fn new(path: String) -> Self {
         Self {
@@ -128,6 +128,30 @@ impl<T, F> Field<T, F> {
             marker: PhantomData,
         }
     }
+}
+
+/// The projection addresses a complete serialized value.
+pub struct WholeValue;
+
+/// The projection shares an object with sibling properties; only fields can be read.
+pub struct FieldsOnly;
+
+/// A newtype or transparent projection preserves its parent's access restrictions.
+#[doc(hidden)]
+pub struct SameValue;
+
+#[doc(hidden)]
+pub trait Projection<A> {
+    type Access;
+}
+impl<A> Projection<A> for WholeValue {
+    type Access = WholeValue;
+}
+impl<A> Projection<A> for FieldsOnly {
+    type Access = FieldsOnly;
+}
+impl<A> Projection<A> for SameValue {
+    type Access = A;
 }
 
 impl From<&str> for Input<String> {
@@ -226,12 +250,12 @@ impl<T, A: ExpressionAdapter<T>> IntoActionInput<T> for AdaptedInput<T, A> {
 pub struct TypeSafetyExamples;
 
 /// A variant guard and the corresponding serialized payload path.
-pub struct Variant<T, V> {
+pub struct Variant<T, V, P = WholeValue> {
     pub(crate) path: String,
     pub(crate) matches: fn(&Value) -> bool,
-    marker: PhantomData<fn(T) -> V>,
+    marker: PhantomData<fn(T, P) -> V>,
 }
-impl<T, V> Variant<T, V> {
+impl<T, V, P> Variant<T, V, P> {
     #[doc(hidden)]
     pub fn new(path: String, matches: fn(&Value) -> bool) -> Self {
         Self {

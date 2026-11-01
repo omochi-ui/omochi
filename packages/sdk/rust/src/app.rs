@@ -218,7 +218,7 @@ impl<S: Send + Sync + 'static> Runtime<S> {
         self.reconciler.render(declaration)
     }
     pub async fn surface(&self, surface_id: &str) -> Result<Vec<Value>> {
-        let mut reconciler = Reconciler::default();
+        let mut reconciler = self.reconciler.fresh();
         reconciler.render(self.declaration(surface_id).await?)
     }
     async fn render_all_and_send(&mut self) -> Result<Vec<Value>> {

@@ -347,6 +347,13 @@ synchronous and asynchronous action handlers are supported. Surface decorators
 preserve function signatures; annotate their arguments explicitly. Wheels include
 `py.typed` for mypy and Pyright consumers.
 
+Dataclass inputs include only fields with `init=True`. Computed fields declared
+with `field(init=False)` are omitted when encoding and from the expression
+TypedDict; the constructor or `__post_init__` supplies them when decoding.
+Sending a computed field is rejected as an unknown input field. An expression
+may return a member or subset of a union: a `str | None` input field accepts
+`Expr[str]`, `Expr[None]`, and `Expr[str | None]`.
+
 `schema` provides string, boolean, number, integer, literal, nullable, optional,
 array, tuple, map, object and union validators. Python names tuple/map/object
 constructors `tuple_`, `map_`, `object_`. Python also provides `from_type` for
@@ -372,12 +379,25 @@ array, tuple, option or string-keyed map. `Request::field_name()` produces a typ
 projection. Enum payloads require `local.variant(Request::variant_name())`;
 projection returns `None` when the current initial value is another variant.
 Generated variant field descriptors are named `RequestVariantFields`.
+Variant-level `#[serde(untagged)]` overrides the container's tag/content path.
+
+A flattened field projection returns `Local<T, FieldsOnly>`. Continue through
+its fields, such as `form.field(Form::field_nested()).field(Nested::field_count())`,
+before calling `.value()` or `.bind()`. Reading or binding the flattened object
+as a whole is a compile error because its JSON object also holds sibling fields.
+To build an action input, use `Input::fields(NestedInput { ... })` with those
+individual field expressions, or reference a separate `Local<Nested>`.
+The same restriction applies to internally tagged newtype payloads, whose object
+includes the tag. Newtype and transparent projections preserve the restriction
+when chained from a flattened field; ordinary standalone wrappers remain readable.
 
 Serde handles the concrete input at invocation. All four enum representations,
 struct forms, generics, rename/default/skip attributes and flatten are supported
 by the generated expression serializer. Flattened duplicate keys and non-finite
 numbers are rejected. A skip predicate is evaluated only for a concrete value;
-unresolved expressions remain present. Custom Serde serialization requires
+unresolved values at a `skip_serializing_if` field are rejected during encoding.
+Predicates support ordinary Rust argument coercions, and generated helpers infer
+lifetime arguments. Custom Serde serialization requires
 `#[action_input(adapter = Adapter)]` and an `ExpressionAdapter<T>` implementation
 that declares the serialized `Wire` type, encodes literals/expressions and defines field projection paths. Bindings use `Wire` so a number serialized as a string cannot accidentally be attached to a numeric control.
 Apply the adapter to a field or the entire input type. An adapter may reject

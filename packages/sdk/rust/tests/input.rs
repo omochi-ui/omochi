@@ -129,6 +129,272 @@ fn flattened_fields_and_nested_expressions() {
 }
 
 #[tokio::test]
+async fn merge_snapshots_preserve_capabilities_and_keep_processing_actions() {
+    use std::sync::{Arc, Mutex};
+    let mut app = App::new(0);
+    let run = app
+        .action::<Form, _, _>("run", |_, ctx| async move {
+            ctx.update(|state| *state += 1).await
+        })
+        .unwrap();
+    app.surface("main", move |ui, state| {
+        let nested = ui.local("nested", Nested { count: 3 })?;
+        ui.text(state.to_string())?;
+        ui.button(
+            "Run",
+            run.call(FormInput {
+                title: "x".into(),
+                nested: nested.value().into(),
+            })?,
+            Default::default(),
+        )
+    })
+    .unwrap();
+    let mut runtime = app.build();
+    assert!(matches!(
+        runtime.surface("main").await,
+        Err(omochi_ui::Error::Capability(_))
+    ));
+    let sent = Arc::new(Mutex::new(Vec::new()));
+    let output = sent.clone();
+    let mut incoming = std::collections::VecDeque::from([
+        json!({"type":"getSurface", "surface":"main"}),
+        json!({"type":"invoke", "action":"run", "input":{"title":"x", "count":3}}),
+    ]);
+    let transport = omochi_ui::CallbackTransport::new(
+        move |message| {
+            output.lock().unwrap().push(message);
+            async { Ok(()) }
+        },
+        move || {
+            let message = incoming.pop_front();
+            async move { Ok(message) }
+        },
+    )
+    .with_capabilities([omochi_ui::MERGE_OBJECTS_CAPABILITY]);
+    runtime.start_with(transport).await.unwrap();
+    assert_eq!(runtime.read(|state| *state).await, 1);
+    assert_eq!(runtime.app_revision(), 1);
+    let messages = sent.lock().unwrap();
+    assert_eq!(messages.len(), 8); // hello, initial snapshot, getSurface snapshot, action update
+    assert_eq!(&messages[1..4], &messages[4..7]);
+    assert!(messages[1].get("createSurface").is_some());
+    assert_eq!(
+        messages[7]["updateComponents"]["components"][0]["text"],
+        "1"
+    );
+}
+
+#[derive(Serialize, Deserialize, ActionInput)]
+enum MixedExternal {
+    Tagged {
+        label: String,
+    },
+    #[serde(untagged)]
+    Raw {
+        count: i64,
+    },
+}
+#[derive(Serialize, Deserialize, ActionInput)]
+#[serde(tag = "kind", content = "data")]
+enum MixedAdjacent {
+    Tagged {
+        label: String,
+    },
+    #[serde(untagged)]
+    Raw {
+        count: i64,
+    },
+}
+#[derive(Serialize, Deserialize, ActionInput)]
+#[serde(tag = "kind")]
+enum MixedInternal {
+    Tagged {
+        label: String,
+    },
+    #[serde(untagged)]
+    Raw(Nested),
+}
+
+#[test]
+fn per_variant_untagged_projects_serialized_fields_and_bindings() {
+    let mut ui = omochi_ui::Ui::new("main", omochi_ui::STANDARD_CATALOG);
+    let raw = MixedExternal::Raw { count: 3 };
+    assert_eq!(serde_json::to_value(&raw).unwrap(), json!({"count":3}));
+    let local = ui.local("external", raw).unwrap();
+    assert!(local.variant(MixedExternal::variant_tagged()).is_none());
+    let count = local
+        .variant(MixedExternal::variant_raw())
+        .unwrap()
+        .field(MixedExternalRawFields::field_count());
+    assert_eq!(
+        omochi_ui::checked_json(count.value()).unwrap(),
+        json!({"path":"/$local/external/count"})
+    );
+    assert_eq!(
+        serde_json::Value::from(count.bind().unwrap()),
+        json!({"path":"/$local/external/count"})
+    );
+    let local = ui
+        .local("adjacent", MixedAdjacent::Raw { count: 3 })
+        .unwrap();
+    let count = local
+        .variant(MixedAdjacent::variant_raw())
+        .unwrap()
+        .field(MixedAdjacentRawFields::field_count());
+    assert_eq!(
+        omochi_ui::checked_json(count.value()).unwrap(),
+        json!({"path":"/$local/adjacent/count"})
+    );
+    let local = ui
+        .local("internal", MixedInternal::Raw(Nested { count: 3 }))
+        .unwrap();
+    let payload = local
+        .variant(MixedInternal::variant_raw())
+        .unwrap()
+        .field(MixedInternalRawFields::field_0());
+    assert_eq!(
+        omochi_ui::checked_json(payload.value()).unwrap(),
+        json!({"path":"/$local/internal"})
+    );
+}
+
+#[derive(Serialize, Deserialize, ActionInput)]
+#[serde(transparent)]
+struct WrappedNested(Nested);
+#[derive(Serialize, Deserialize, ActionInput)]
+struct WrappedForm {
+    title: String,
+    #[serde(flatten)]
+    nested: WrappedNested,
+}
+
+#[test]
+fn flatten_chains_preserve_fields_and_complete_payload_projections() {
+    let mut ui = omochi_ui::Ui::new("main", omochi_ui::STANDARD_CATALOG);
+    let local = ui
+        .local(
+            "wrapped",
+            WrappedForm {
+                title: "x".into(),
+                nested: WrappedNested(Nested { count: 3 }),
+            },
+        )
+        .unwrap();
+    let count = local
+        .field(WrappedForm::field_nested())
+        .field(WrappedNested::field_0())
+        .field(Nested::field_count());
+    assert_eq!(
+        omochi_ui::checked_json(count.value()).unwrap(),
+        json!({"path":"/$local/wrapped/count"})
+    );
+    assert_eq!(
+        serde_json::Value::from(count.bind().unwrap()),
+        json!({"path":"/$local/wrapped/count"})
+    );
+    let local = ui
+        .local("whole", WrappedNested(Nested { count: 3 }))
+        .unwrap();
+    assert_eq!(
+        omochi_ui::checked_json(local.field(WrappedNested::field_0()).value()).unwrap(),
+        json!({"path":"/$local/whole"})
+    );
+    let local = ui
+        .local("tagged", Internal::Item(Nested { count: 3 }))
+        .unwrap();
+    let count = local
+        .variant(Internal::variant_item())
+        .unwrap()
+        .field(InternalItemFields::field_0())
+        .field(Nested::field_count());
+    assert_eq!(
+        omochi_ui::checked_json(count.value()).unwrap(),
+        json!({"path":"/$local/tagged/count"})
+    );
+    let local = ui.local("newtype", Newtype("x".into())).unwrap();
+    assert_eq!(
+        omochi_ui::checked_json(local.field(Newtype::field_0()).value()).unwrap(),
+        json!({"path":"/$local/newtype"})
+    );
+}
+
+fn empty_slice(values: &[u32]) -> bool {
+    values.is_empty()
+}
+fn empty_str(value: &str) -> bool {
+    value.is_empty()
+}
+#[derive(Serialize, ActionInput)]
+struct CoercingSkips {
+    #[serde(skip_serializing_if = "empty_slice")]
+    values: Vec<u32>,
+    #[serde(skip_serializing_if = "empty_str")]
+    label: String,
+}
+#[derive(Serialize, ActionInput)]
+struct BorrowedSkip<'a> {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    value: Option<&'a str>,
+}
+#[derive(Serialize, Deserialize, ActionInput)]
+struct GenericBorrowedSkip<'a, T: Serialize, const N: usize> {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    value: Option<std::borrow::Cow<'a, str>>,
+    other: T,
+    #[serde(skip)]
+    marker: std::marker::PhantomData<[(); N]>,
+}
+
+#[test]
+fn skip_helpers_preserve_coercions_and_infer_lifetimes() {
+    assert_eq!(
+        CoercingSkipsInput {
+            values: Vec::new().into(),
+            label: "".into()
+        }
+        .encode()
+        .unwrap(),
+        json!({})
+    );
+    assert_eq!(
+        CoercingSkipsInput {
+            values: vec![1, 2].into(),
+            label: "x".into()
+        }
+        .encode()
+        .unwrap(),
+        serde_json::to_value(CoercingSkips {
+            values: vec![1, 2],
+            label: "x".into()
+        })
+        .unwrap()
+    );
+    assert_eq!(
+        BorrowedSkipInput { value: None.into() }.encode().unwrap(),
+        json!({})
+    );
+    let text = String::from("x");
+    assert_eq!(
+        BorrowedSkipInput {
+            value: Some(text.as_str()).into()
+        }
+        .encode()
+        .unwrap(),
+        json!({"value":"x"})
+    );
+    let input = GenericBorrowedSkipInput::<i64, 3> {
+        value: Some(std::borrow::Cow::Borrowed(text.as_str())).into(),
+        other: 4.into(),
+        marker: Default::default(),
+    };
+    assert_eq!(input.encode().unwrap(), json!({"value":"x", "other":4}));
+    let mut app = App::new(());
+    app.action::<GenericBorrowedSkip<'static, i64, 3>, _, _>("run", |_, _| async { Ok(()) })
+        .unwrap();
+}
+
+#[tokio::test]
 async fn handler_does_not_run_on_invalid_wire_input() {
     let mut app = App::new(0);
     app.action::<Nested, _, _>("run", |_, ctx| async move { ctx.update(|s| *s += 1).await })

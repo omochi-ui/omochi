@@ -123,9 +123,82 @@ impl<T> From<ModelBinding<T>> for Value {
     }
 }
 
-pub struct Local<T = Value> {
+/// A typed browser value. Flattened projections support chained fields, but not
+/// whole-value reads or bindings: the shared object also contains sibling keys.
+///
+/// ```compile_fail
+/// use omochi_ui::{ActionInput, Ui, STANDARD_CATALOG};
+/// use serde::Serialize;
+/// #[derive(Serialize, ActionInput)]
+/// struct Nested { count: i64 }
+/// #[derive(Serialize, ActionInput)]
+/// struct Form { title: String, #[serde(flatten)] nested: Nested }
+/// let mut ui = Ui::new("main", STANDARD_CATALOG);
+/// let form = ui.local("form", Form { title: "x".into(), nested: Nested { count: 3 } }).unwrap();
+/// let value = form.field(Form::field_nested()).value();
+/// ```
+///
+/// ```compile_fail
+/// use omochi_ui::{ActionInput, Ui, STANDARD_CATALOG};
+/// use serde::Serialize;
+/// #[derive(Serialize, ActionInput)]
+/// struct Nested { count: i64 }
+/// #[derive(Serialize, ActionInput)]
+/// struct Form { title: String, #[serde(flatten)] nested: Nested }
+/// let mut ui = Ui::new("main", STANDARD_CATALOG);
+/// let form = ui.local("form", Form { title: "x".into(), nested: Nested { count: 3 } }).unwrap();
+/// let binding = form.field(Form::field_nested()).bind();
+/// ```
+///
+/// Flattened enum fields have the same restriction.
+///
+/// ```compile_fail
+/// use omochi_ui::{ActionInput, Ui, STANDARD_CATALOG};
+/// use serde::{Serialize, Deserialize};
+/// #[derive(Serialize, Deserialize, ActionInput)]
+/// struct Nested { count: i64 }
+/// #[derive(Serialize, Deserialize, ActionInput)]
+/// enum Form { Item { title: String, #[serde(flatten)] nested: Nested } }
+/// let mut ui = Ui::new("main", STANDARD_CATALOG);
+/// let form = ui.local("form", Form::Item { title: "x".into(), nested: Nested { count: 3 } }).unwrap();
+/// let value = form.variant(Form::variant_item()).unwrap().field(FormItemFields::field_nested()).value();
+/// ```
+///
+/// Newtype and transparent wrappers cannot restore whole-value access to a
+/// flattened projection.
+///
+/// ```compile_fail
+/// use omochi_ui::{ActionInput, Ui, STANDARD_CATALOG};
+/// use serde::Serialize;
+/// #[derive(Serialize, ActionInput)]
+/// struct Nested { count: i64 }
+/// #[derive(Serialize, ActionInput)]
+/// #[serde(transparent)]
+/// struct Wrapper(Nested);
+/// #[derive(Serialize, ActionInput)]
+/// struct Form { title: String, #[serde(flatten)] nested: Wrapper }
+/// let mut ui = Ui::new("main", STANDARD_CATALOG);
+/// let form = ui.local("form", Form { title: "x".into(), nested: Wrapper(Nested { count: 3 }) }).unwrap();
+/// let value = form.field(Form::field_nested()).field(Wrapper::field_0()).value();
+/// ```
+///
+/// An internally tagged newtype payload shares its object with the enum tag.
+///
+/// ```compile_fail
+/// use omochi_ui::{ActionInput, Ui, STANDARD_CATALOG};
+/// use serde::{Serialize, Deserialize};
+/// #[derive(Serialize, Deserialize, ActionInput)]
+/// struct Nested { count: i64 }
+/// #[derive(Serialize, Deserialize, ActionInput)]
+/// #[serde(tag = "kind")]
+/// enum Form { Item(Nested) }
+/// let mut ui = Ui::new("main", STANDARD_CATALOG);
+/// let form = ui.local("form", Form::Item(Nested { count: 3 })).unwrap();
+/// let value = form.variant(Form::variant_item()).unwrap().field(FormItemFields::field_0()).value();
+/// ```
+pub struct Local<T = Value, A = crate::WholeValue> {
     source: std::sync::Arc<Value>,
-    marker: PhantomData<fn() -> T>,
+    marker: PhantomData<fn() -> (T, A)>,
     path: String,
     key: String,
     token: u64,
@@ -140,7 +213,19 @@ impl<T> Local<T> {
             token: self.token,
         })
     }
-    pub fn variant<V>(&self, variant: crate::Variant<T, V>) -> Option<Local<V>> {
+    pub fn value(&self) -> crate::Expr<T> {
+        crate::Expr {
+            path: local_path(&self.key, &self.path),
+            marker: PhantomData,
+        }
+    }
+}
+
+impl<T, A> Local<T, A> {
+    pub fn variant<V, P: crate::Projection<A>>(
+        &self,
+        variant: crate::Variant<T, V, P>,
+    ) -> Option<Local<V, P::Access>> {
         if !(variant.matches)(self.source.pointer(&self.path)?) {
             return None;
         }
@@ -152,18 +237,15 @@ impl<T> Local<T> {
             marker: PhantomData,
         })
     }
-    pub fn field<F>(&self, field: crate::Field<T, F>) -> Local<F> {
+    pub fn field<F, P: crate::Projection<A>>(
+        &self,
+        field: crate::Field<T, F, P>,
+    ) -> Local<F, P::Access> {
         Local {
             source: self.source.clone(),
             key: self.key.clone(),
             token: self.token,
             path: format!("{}{}", self.path, field.path),
-            marker: PhantomData,
-        }
-    }
-    pub fn value(&self) -> crate::Expr<T> {
-        crate::Expr {
-            path: local_path(&self.key, &self.path),
             marker: PhantomData,
         }
     }

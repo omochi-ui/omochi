@@ -6,8 +6,8 @@ pub use components::*;
 extern crate self as omochi_ui;
 mod input;
 pub use input::{
-    ActionInput, AdaptedInput, Expr, ExpressionAdapter, Field, Input, IntoActionInput,
-    MERGE_OBJECTS_CAPABILITY, Variant, serialize_input_field,
+    ActionInput, AdaptedInput, Expr, ExpressionAdapter, Field, FieldsOnly, Input, IntoActionInput,
+    MERGE_OBJECTS_CAPABILITY, Projection, SameValue, Variant, WholeValue, serialize_input_field,
 };
 pub use omochi_ui_macros::ActionInput;
 mod app;

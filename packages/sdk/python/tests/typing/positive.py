@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TypedDict, assert_type
 from omochi_ui import App, UI, ActionContext, Action, Expr, InputSchema, schema
 
@@ -40,3 +40,21 @@ def name_action(value: str, ctx: ActionContext[State]) -> None:
 
 name_action.call(Expr[str]("/$local/name"))
 run.call(merge_objects(schema.from_type(RunInput), schema.from_type(RunInput).input(Expr[RunInput]("/$local/form"))))
+
+@dataclass
+class Note:
+    text: str | None
+    normalized: str = field(init=False)
+
+    def __post_init__(self) -> None:
+        self.normalized = (self.text or "").lower()
+
+class NoteExpr(TypedDict):
+    text: str | None | Expr[str]
+
+@app.action(schema=InputSchema(Note, NoteExpr))
+def save_note(value: Note, ctx: ActionContext[State]) -> None:
+    pass
+
+save_note.call({"text": Expr[str]("/$local/name")})
+save_note.call(Note("Hello"))

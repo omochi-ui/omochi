@@ -39,7 +39,7 @@ class Field(Generic[T, E]):
 
 class InputSchema(Schema[T], Generic[T, E]):
     def __init__(self, concrete: type[T], expression: type[E]):
-        concrete_hints = get_type_hints(concrete, include_extras=True)
+        concrete_hints = _input_hints(concrete)
         expression_hints = get_type_hints(expression, include_extras=True)
         if not is_typeddict(expression) or concrete_hints.keys() != expression_hints.keys():
             raise DeclarationError("expression TypedDict must have the same fields as the concrete input")
@@ -56,25 +56,41 @@ class InputSchema(Schema[T], Generic[T, E]):
         self.kind = inner.kind
 
 
+def _input_hints(kind: Any) -> dict[str, Any]:
+    hints = get_type_hints(kind, include_extras=True)
+    if is_dataclass(kind):
+        return {f.name: hints[f.name] for f in fields(kind) if f.init}
+    return hints
+
+
 def _required_fields(kind: Any) -> set[str]:
     from dataclasses import MISSING
     if is_dataclass(kind):
-        return {f.name for f in fields(kind) if f.default is MISSING and f.default_factory is MISSING}
+        return {f.name for f in fields(kind) if f.init and f.default is MISSING and f.default_factory is MISSING}
     hints = get_type_hints(kind, include_extras=True)
     return {k for k, t in hints.items() if get_origin(t) is Required or (get_origin(t) is not NotRequired and k in kind.__required_keys__)}
+
+def _expression_result_matches(expected: Any, actual: Any) -> bool:
+    if actual == expected: return True
+    if get_origin(actual) in (Union, types.UnionType):
+        return all(_expression_result_matches(expected, t) for t in get_args(actual))
+    if get_origin(expected) in (Union, types.UnionType):
+        return any(_expression_result_matches(t, actual) for t in get_args(expected))
+    return False
+
 
 def _expression_matches(expected: Any, actual: Any) -> bool:
     from .expression import Expr
     if get_origin(expected) in (Required, NotRequired): expected = get_args(expected)[0]
     if get_origin(actual) in (Required, NotRequired): actual = get_args(actual)[0]
     if actual == expected: return True
-    if get_origin(actual) is Expr: return get_args(actual)[0] == expected
+    if get_origin(actual) is Expr: return _expression_result_matches(expected, get_args(actual)[0])
     if get_origin(actual) in (Union, types.UnionType):
         return all(_expression_matches(expected, t) for t in get_args(actual))
     if get_origin(expected) in (Union, types.UnionType):
         return any(_expression_matches(t, actual) for t in get_args(expected))
     if (is_dataclass(expected) or is_typeddict(expected)) and is_typeddict(actual):
-        left, right = get_type_hints(expected, include_extras=True), get_type_hints(actual, include_extras=True)
+        left, right = _input_hints(expected), _input_hints(actual)
         return left.keys() == right.keys() and _required_fields(expected) == _required_fields(actual) and all(_expression_matches(t, right[k]) for k, t in left.items())
     origin = get_origin(expected)
     if origin in (list, tuple, dict) and origin == get_origin(actual):
@@ -204,11 +220,11 @@ def from_type(kind: Any) -> Schema[Any]:
     if origin is dict and args[0] is str: return map_(from_type(args[1]))
     if is_dataclass(kind) or is_typeddict(kind):
         from dataclasses import MISSING
-        hints = get_type_hints(kind, include_extras=True)
+        hints = _input_hints(kind)
         members = {k: from_type(t) for k, t in hints.items()}
         if is_dataclass(kind):
             for f in fields(kind):
-                if f.default is not MISSING or f.default_factory is not MISSING:
+                if f.init and (f.default is not MISSING or f.default_factory is not MISSING):
                     members[f.name] = optional(members[f.name])
         else:
             for k in members.keys() - _required_fields(kind): members[k] = optional(members[k])
