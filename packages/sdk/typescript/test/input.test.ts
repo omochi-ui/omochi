@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "@omochi-ui/core/testing";
-import { App, schema, ProtocolError, DeclarationError, type Expr, type JsonValue } from "../src/index.js";
+import { App, schema, ProtocolError, DeclarationError, type Expr, type JsonValue, type ModelBinding } from "../src/index.js";
 
 const input = schema.object({ temperature: schema.number(), note: schema.optional(schema.string()) });
 test("validates wire input before running a handler", async () => {
@@ -99,9 +99,38 @@ function scalarTyping() {
     ui.textField("text", { label: "Text", bind: ui.local("text", "").bind() });
     // @ts-expect-error binding is still invariant
     ui.textField("invalid", { label: "Invalid", bind: ui.local("flag", true).bind() });
+    const form = ui.local("form", { nested: { enabled: false }, flags: [false], pair: [false, ""] as [false, ""] });
+    const flags: ModelBinding<boolean[]> = form.field("flags").bind();
+    const pair: ModelBinding<[boolean, string]> = form.field("pair").bind();
+    // @ts-expect-error nested bindings remain invariant
+    ui.textField("invalidNested", { label: "Invalid", bind: form.field("nested").field("enabled").bind() });
+    void flags;
+    void pair;
   });
 }
 void scalarTyping;
+
+test("nested local defaults widen to bindable control types", () => {
+  const app = new App({});
+  app.surface("main", ui => {
+    const form = ui.local("form", { enabled: false, nested: { enabled: true, label: "", count: 0 }, choices: ["one"] });
+    ui.checkBox("enabled", { label: "Enabled", bind: form.field("enabled").bind() });
+    const nested = form.field("nested");
+    ui.checkBox("nestedEnabled", { label: "Nested enabled", bind: nested.field("enabled").bind() });
+    ui.textField("label", { label: "Label", bind: nested.field("label").bind() });
+    ui.slider("count", 0, 10, { bind: nested.field("count").bind() });
+    ui.choicePicker("choices", { options: [{ label: "One", value: "one" }], bind: form.field("choices").bind() });
+  });
+  const declaration = app.build().declaration("main");
+  assert.deepEqual(declaration.locals.form?.initial, { enabled: false, nested: { enabled: true, label: "", count: 0 }, choices: ["one"] });
+  assert.deepEqual(declaration.root.slots?.[0]?.nodes.map(node => node.props.value), [
+    { path: "/$local/form/enabled" },
+    { path: "/$local/form/nested/enabled" },
+    { path: "/$local/form/nested/label" },
+    { path: "/$local/form/nested/count" },
+    { path: "/$local/form/choices" },
+  ]);
+});
 
 test("object merges are typed and require an explicit renderer capability", async () => {
   const { mergeObjects, Expr, MERGE_OBJECTS_CAPABILITY, CapabilityError, Reconciler } = await import("../src/index.js");

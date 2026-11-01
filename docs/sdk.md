@@ -378,6 +378,9 @@ values or expressions, and `Input::fields(...)` for a nested generated input,
 array, tuple, option or string-keyed map. `Request::field_name()` produces a typed
 projection. Enum payloads require `local.variant(Request::variant_name())`;
 projection returns `None` when the current initial value is another variant.
+Tagged enums are matched by their serialized discriminator without deserializing
+the payload, so projection also supports serialization-only types. Untagged
+variants still require `DeserializeOwned` for Serde's shape-based matching.
 Generated variant field descriptors are named `RequestVariantFields`.
 Variant-level `#[serde(untagged)]` overrides the container's tag/content path.
 

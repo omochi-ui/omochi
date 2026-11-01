@@ -12,7 +12,7 @@ export const STANDARD_CATALOG = BASIC_CATALOG.id;
 const escapePointer = (value: string): string => value.replaceAll("~", "~0").replaceAll("/", "~1");
 type Keyed<T> = Omit<T, "child" | "children" | "tabs" | "trigger" | "content" | "value" | "action"> & { key?: string };
 export interface ModelBinding<T = unknown> { readonly path: string; readonly __value: (value: T) => T }
-type Widen<T> = T extends string ? string : T extends number ? number : T extends boolean ? boolean : T;
+type Widen<T> = T extends string ? string : T extends number ? number : T extends boolean ? boolean : T extends object ? { [K in keyof T]: Widen<T[K]> } : T;
 type InputControl<T> = { default?: T; bind?: never } | { bind: ModelBinding<T>; default?: never };
 
 const clone = <T>(value: T): T => structuredClone(value);

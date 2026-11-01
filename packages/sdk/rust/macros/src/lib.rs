@@ -445,10 +445,31 @@ fn expand(mut input: DeriveInput) -> syn::Result<proc_macro2::TokenStream> {
                         .replace('/', "~1")
                 )
             };
-            let pattern = match &variant.fields {
-                Fields::Named(_) => quote!(Self::#id { .. }),
-                Fields::Unnamed(_) => quote!(Self::#id(..)),
-                Fields::Unit => quote!(Self::#id),
+            let (guard_bound, guard) = if variant_untagged {
+                // Untagged values have no discriminator; preserve Serde's shape matching.
+                let pattern = match &variant.fields {
+                    Fields::Named(_) => quote!(Self::#id { .. }),
+                    Fields::Unnamed(_) => quote!(Self::#id(..)),
+                    Fields::Unit => quote!(Self::#id),
+                };
+                (
+                    quote!(where Self: ::serde::de::DeserializeOwned),
+                    quote!(match ::serde_json::from_value::<Self>(value.clone()) {
+                        Ok(v) => matches!(v, #pattern),
+                        Err(_) => false,
+                    }),
+                )
+            } else {
+                // The serialized discriminator identifies a tagged variant even when its
+                // payload cannot deserialize (e.g. skip_serializing or asymmetric rename).
+                let guard = if let Some(tag) = &tag {
+                    quote!(value.get(#tag).and_then(::serde_json::Value::as_str) == Some(#wire))
+                } else if matches!(variant.fields, Fields::Unit) {
+                    quote!(value.as_str() == Some(#wire))
+                } else {
+                    quote!(value.as_object().is_some_and(|object| object.contains_key(#wire)))
+                };
+                (quote!(), guard)
             };
             let mut methods = Vec::new();
             let newtype = matches!(&variant.fields, Fields::Unnamed(f) if f.unnamed.len() == 1);
@@ -522,10 +543,8 @@ fn expand(mut input: DeriveInput) -> syn::Result<proc_macro2::TokenStream> {
             });
             let access = projection_access(internally_tagged, variant_untagged);
             projections.push(quote! {
-                pub fn #method() -> ::omochi_ui::Variant<Self, #marker #ty_g, #access> where Self: ::serde::de::DeserializeOwned {
-                    ::omochi_ui::Variant::new(#path.into(), |value| {
-                        match ::serde_json::from_value::<Self>(value.clone()) { Ok(v) => matches!(v, #pattern), Err(_) => false }
-                    })
+                pub fn #method() -> ::omochi_ui::Variant<Self, #marker #ty_g, #access> #guard_bound {
+                    ::omochi_ui::Variant::new(#path.into(), |value| { #guard })
                 }
             });
         }
