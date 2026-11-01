@@ -10,6 +10,7 @@ const paths = {
 } as const;
 
 export function Icon({ name }: { name: keyof typeof paths }) {
+  if (name === 'view') return <svg className="hub-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="2.5" y="4" width="19" height="16" rx="3.5" /><path d="M2.5 9h19" /><circle cx="6.3" cy="6.5" r=".6" fill="currentColor" stroke="none" /></svg>;
   return <svg className="hub-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2"
     strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false">
     <path d={paths[name]} vectorEffect="non-scaling-stroke" />

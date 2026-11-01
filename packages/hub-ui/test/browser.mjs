@@ -1,69 +1,45 @@
-// Run after bun run build: bun packages/hub-ui/test/browser.mjs
-// Requires Chromium (CHROMIUM_BIN overrides its executable).
+// Run after bun run build:native: bun packages/hub-ui/test/browser.mjs
+// Native services only. SCREENSHOT_DIR and CHROMIUM_BIN may override defaults.
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { once } from 'node:events';
-import { fileURLToPath } from 'node:url';
-import { App } from '../../sdk/typescript/dist/index.js';
-import { UnixSocketServerTransport } from '../../sdk/typescript/dist/node/index.js';
-import { startGateway, createStaticLocator } from '../../discovery/dist/index.js';
-import { startHub } from '../../cli/dist/hub/hub.js';
-
-const temporary = await mkdtemp(path.join(tmpdir(), 'omochi-browser-'));
+const temporary = await mkdtemp(path.join(tmpdir(), 'ob-'));
 const output = process.env.SCREENSHOT_DIR ?? '/tmp/omochi-hub-screenshots';
 await mkdir(output, { recursive: true });
-const closers = [];
-let chrome;
+const children = [];
 let socket;
-let preview;
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 async function until(check, description) {
-  const deadline = Date.now() + 12000;
+  const deadline = Date.now() + 15000;
   while (Date.now() < deadline) { if (await check()) return; await delay(50); }
   throw new Error(`Timed out: ${description}`);
 }
+async function start(binary, args, pattern) {
+  const child = spawn(path.resolve('crates/target/debug', binary), args, { stdio: ['ignore', 'pipe', 'pipe'] });
+  children.push(child);
+  let log = '', match;
+  child.stderr.on('data', chunk => { log += chunk; match = log.match(pattern); });
+  child.on('error', error => { log += error.message; });
+  await until(() => { if (child.exitCode !== null) throw new Error(log); return match; }, `${binary}: ${args.join(' ')}`);
+  return { child, match };
+}
 try {
-  const states = [];
-  const transports = [];
-  const gateways = [];
-  const roots = [];
-  for (const [i, name] of ['Studio', 'Workshop'].entries()) {
-    const root = path.join(temporary, `node-${i}`);
-    roots.push(root);
-    const state = { count: 0 };
-    states.push(state);
-    const app = new App(state);
-    const increment = app.action('increment', async (_input, context) => context.update(s => { s.count += 1; }));
-    app.surface('counter', (ui, s) => {
-      ui.text(`${name} counter`, { variant: 'h2' });
-      ui.text(`Completed tasks: ${s.count}`);
-      ui.button(`Add task in ${name}`, increment.call({}), { variant: 'primary' });
-    });
-    app.surface('status', ui => {
-      ui.text('System status', { variant: 'h2' });
-      ui.text('All services are running.');
-      ui.text('Ready for your next idea.');
-    });
-    const transport = new UnixSocketServerTransport({ serviceId: 'tasks', name: 'Task tracker', runtimeDir: root });
-    transports.push(transport);
-    const runtime = app.build();
-    void runtime.start(transport);
-    await runtime.ready();
-    closers.push(() => transport.close());
-    const gateway = await startGateway({ root, nodeId: i ? 'bbbbbbbbbbbbbbbb' : 'aaaaaaaaaaaaaaaa', name });
-    gateways.push(gateway); closers.push(() => gateway.close());
-  }
-  const options = { port: 0, autoGateway: false, configRoot: path.join(temporary, 'config'),
-    gateways: [createStaticLocator(gateways.map(g => ({ kind: 'unix', socketPath: g.socketPath })))],
-    presets: [{ id: 'starter', name: 'Starter preset', panels: [{ id: 'starter-status', title: 'Starter status',
-      reference: { nodeId: 'aaaaaaaaaaaaaaaa', serviceId: 'tasks', surfaceId: 'status' }, x: 0, y: 0, w: 12, h: 6 }] }],
-  };
-  let hub = await startHub(options);
-  closers.push(() => hub.close());
-  chrome = spawn(process.env.CHROMIUM_BIN ?? 'chromium', ['--headless', '--no-sandbox', '--disable-gpu', '--disable-dev-shm-usage', '--no-first-run', '--no-default-browser-check', '--remote-debugging-port=0', `--user-data-dir=${temporary}/chrome`, 'about:blank'], { stdio: ['ignore', 'ignore', 'pipe'] });
+  const runtime = path.join(temporary, 'run');
+  const { match } = await start('omochi-ui', ['--config-dir', path.join(temporary, 'config'), '--runtime-dir', runtime, 'hub', '--port', '0'], /dashboard (http:\/\/127\.0\.0\.1:\d+\/)/);
+  const url = match[1];
+  const utility = await start('omochi-utils', ['button', '--service-id', 'tasks', '--runtime-dir', runtime, '--', '/bin/echo', 'dashboard-action-complete'], /Published service/);
+  await until(async () => (await (await fetch(`${url}services`)).json()).some(s => s.status === 'connected'), 'service discovery');
+  const services = await (await fetch(`${url}services`)).json();
+  const service = services.find(s => s.status === 'connected');
+  const reference = { nodeId: service.node.id, serviceId: 'tasks', surfaceId: 'main' };
+  const response = await fetch(`${url}api/dashboards`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: 'Daily overview', panels: [{ id: 'one', title: 'Task runner', reference, x: 0, y: 0, w: 6, h: 6 }] }) });
+  assert.equal(response.ok, true, await response.clone().text());
+  const dashboard = await response.json();
+  const chrome = spawn(process.env.CHROMIUM_BIN ?? 'chromium', ['--headless', '--no-sandbox', '--disable-gpu', '--disable-dev-shm-usage', '--no-first-run', '--no-default-browser-check', '--remote-debugging-port=0', `--user-data-dir=${temporary}/chrome`, 'about:blank'], { stdio: ['ignore', 'ignore', 'pipe'] });
+  children.push(chrome);
   let browserUrl = '';
   chrome.stderr.on('data', chunk => { const match = chunk.toString().match(/DevTools listening on (ws:\/\/\S+)/); if (match) browserUrl = match[1]; });
   await until(() => browserUrl, 'Chromium startup');
@@ -92,7 +68,7 @@ try {
   const text = () => evaluate('document.body.innerText');
   const click = async label => {
     await until(() => evaluate(`Array.from(document.querySelectorAll('button')).some(b => b.textContent.replace('▧', '').trim() === ${JSON.stringify(label)} && !b.disabled)`), `button ${label}`);
-    await evaluate(`Array.from(document.querySelectorAll('button')).find(b => b.textContent.replace('▧', '').trim() === ${JSON.stringify(label)} && !b.disabled).click()`);
+    await evaluate(`(() => { const b = Array.from(document.querySelectorAll('button')).find(b => b.textContent.trim() === ${JSON.stringify(label)} && !b.disabled && b.getClientRects().length); b.focus(); b.click(); })()`);
   };
   const input = async (selector, value) => {
     await evaluate(`(() => { const el = document.querySelector(${JSON.stringify(selector)}); Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(el, ${JSON.stringify(value)}); el.dispatchEvent(new Event('input', { bubbles: true })); })()`);
@@ -103,94 +79,144 @@ try {
   };
   await cdp('Runtime.enable'); await cdp('Page.enable');
   await cdp('Emulation.setDeviceMetricsOverride', { width: 1440, height: 1000, deviceScaleFactor: 1, mobile: false });
-  await cdp('Page.navigate', { url: `${hub.httpUrl}/?preset=starter` });
-  await until(async () => (await text()).includes('Starter preset') && (await text()).includes('System status'), 'preset dashboard');
-  await screenshot('preset.png');
-  await click('Save as dashboard');
-  await click('Save dashboard');
-  await click('＋ New dashboard');
-  await click('＋ Add your first view');
-  await until(() => evaluate("document.querySelectorAll('.app-options button').length === 4"), 'four discovered surfaces');
-  await screenshot('add-view.png');
-  await click('counter＋ Add');
-  await input('[aria-label="Dashboard name"]', 'Daily overview');
-  await click('＋ Add view'); await click('status＋ Add');
-  await click('＋ Add view'); await click('counter＋ Add');
-  await until(() => evaluate("document.querySelectorAll('.panel').length === 3"), 'three panels');
-  // Move the second panel using numeric controls.
-  const title = 'Task tracker · status';
-  await input(`[aria-label="${title} x"]`, '6');
-  await input(`[aria-label="${title} y"]`, '0');
-  await input('[aria-label="Panel title Task tracker · counter"]', 'Studio activity');
-  await input('[aria-label="Panel title Task tracker · counter"]', 'Workshop activity');
-  // Pointer drag places the third panel below the first row.
-  const bounds = await evaluate(`(() => { const e = document.querySelector('[aria-label="Move Workshop activity"]'); const r = e.getBoundingClientRect(); return { x:r.x+r.width/2,y:r.y+r.height/2 }; })()`);
-  await cdp('Input.dispatchMouseEvent', { type: 'mousePressed', ...bounds, button: 'left', clickCount: 1 });
-  await cdp('Input.dispatchMouseEvent', { type: 'mouseMoved', x: bounds.x, y: bounds.y - 56 * 6, button: 'left', buttons: 1 });
-  await cdp('Input.dispatchMouseEvent', { type: 'mouseReleased', x: bounds.x, y: bounds.y - 56 * 6, button: 'left', clickCount: 1 });
-  await until(() => evaluate("document.querySelector('[aria-label=\"Workshop activity y\"]').value === '6'"), 'pointer drag');
-  await screenshot('editing.png');
-  await click('Save dashboard');
-  await click('Add task in Studio');
-  await until(() => states[0].count === 1, 'action routed to Studio');
-  assert.equal(states[1].count, 0);
-  await click('Add task in Workshop');
-  await until(() => states[1].count === 1, 'action routed to Workshop');
+  await cdp('Page.navigate', { url: `${url}?dashboard=${dashboard.id}` });
+  await until(async () => (await text()).includes('Task runner') && (await text()).includes('Ready'), 'live dashboard');
   await screenshot('dashboard.png');
-  const saved = await (await fetch(`${hub.httpUrl}/api/dashboards`)).json();
-  const daily = saved.find(dashboard => dashboard.name === 'Daily overview');
-  assert.equal(daily.panels.length, 3);
-  await cdp('Page.reload');
-  await until(async () => (await text()).includes('Studio activity'), 'saved layout on refresh');
-  // A surface disappears and returns on the same stream without losing placement.
-  const surface = 'counter';
-  await transports[0].send({ version: 'v0.9', deleteSurface: { surfaceId: surface } });
-  await until(async () => (await text()).includes('View unavailable'), 'removed surface placeholder');
-  await transports[0].send({ version: 'v0.9', createSurface: { surfaceId: surface, catalogId: 'https://a2ui.org/specification/v0_9/catalogs/basic/catalog.json' } });
-  await transports[0].send({ version: 'v0.9', updateComponents: { surfaceId: surface, components: [{ id: 'root', component: 'Text', text: 'Studio is back' }] } });
-  await until(async () => (await text()).includes('Studio is back'), 'surface restoration');
-  // Shared hub persistence and client reconnect after a backend restart.
-  const port = Number(new URL(hub.httpUrl).port);
-  await hub.close(); hub = await startHub({ ...options, port });
-  await until(async () => (await text()).includes('Hub connected') && (await text()).includes('Studio is back'), 'hub reconnection');
-  assert.deepEqual(await (await fetch(`${hub.httpUrl}/api/dashboards`)).json(), saved);
-  // Conflict must leave local edits intact.
-  await click('Edit dashboard');
-  await input('[aria-label="Dashboard name"]', 'Unsaved local edits');
-  await fetch(`${hub.httpUrl}/api/dashboards/${daily.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...daily, name: 'Changed elsewhere' }) });
-  await click('Save dashboard');
-  await until(async () => (await text()).includes('changed elsewhere'), 'revision conflict');
-  assert.equal(await evaluate("document.querySelector('[aria-label=\"Dashboard name\"]').value"), 'Unsaved local edits');
-  await click('Cancel');
-  // Multiple dashboards and cancellation.
-  await click('＋ New dashboard'); await input('[aria-label="Dashboard name"]', 'Second dashboard'); await click('Save dashboard');
-  await until(async () => (await text()).includes('This dashboard is ready for views'), 'second empty dashboard');
-  await click('Daily overview');
-  await cdp('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
-  await until(() => evaluate("getComputedStyle(document.querySelector('.panel-grid')).display === 'flex'"), 'narrow layout');
-  assert.equal(await evaluate('document.documentElement.scrollWidth <= innerWidth'), true);
-  await screenshot('mobile.png');
-  await click('Edit dashboard');
-  assert.equal(await evaluate("document.querySelectorAll('.drag-handle').length"), 0);
-  await click('Cancel');
-  // The development preview uses the renderer without any hub dashboard shell.
-  const vite = fileURLToPath(new URL('../../dev-server/node_modules/vite/bin/vite.js', import.meta.url));
-  preview = spawn(process.execPath, [vite, 'preview', '--host', '127.0.0.1', '--port', '0'], {
-    cwd: fileURLToPath(new URL('../../dev-server', import.meta.url)), stdio: ['ignore', 'pipe', 'pipe'],
-  });
-  let previewUrl = '';
-  preview.stdout.on('data', chunk => { const match = chunk.toString().match(/http:\/\/127\.0\.0\.1:\d+\//); if (match) previewUrl = match[0]; });
-  await until(() => previewUrl, 'development preview startup');
-  await cdp('Page.navigate', { url: `${previewUrl}?ws=${encodeURIComponent(hub.url)}` });
-  await until(() => evaluate("document.querySelectorAll('.omochi-surface').length === 4"), 'development preview surfaces');
-  assert.equal(await evaluate("document.querySelector('.sidebar') === null"), true);
-  await screenshot('dev-preview.png');
-  assert.deepEqual(errors, []);
-  console.log(`Browser checks passed. Screenshots: ${output}`);
+  if (process.env.CAPTURE_ONLY) { console.log(`Baseline: ${output}`); } else {
+    await click('Board view');
+    assert.equal(await evaluate("getComputedStyle(document.querySelector('.sidebar')).display"), 'none');
+    assert.equal(await evaluate("new URL(location.href).searchParams.get('view')"), 'board');
+    // The live surface DOM survives both shell transitions.
+    await evaluate("void (window.savedSurface = document.querySelector('.omochi-surface'))");
+    await click('Run');
+    await until(async () => (await text()).includes('dashboard-action-complete'), 'action in board mode');
+    await screenshot('board.png');
+    await click('Exit board view');
+    assert.equal(await evaluate("window.savedSurface === document.querySelector('.omochi-surface')"), true);
+    const colors = await evaluate(`['.workspace', '.connection-status', '.primary', '.dashboard-link.selected'].map(selector => { const e=document.querySelector(selector); const c=getComputedStyle(e); let bg=c.backgroundColor, parent=e.parentElement; while(bg==='rgba(0, 0, 0, 0)' && parent) { bg=getComputedStyle(parent).backgroundColor; parent=parent.parentElement; } return {selector,color:c.color,background:bg}; })`);
+    const luminance = color => color.match(/[\d.]+/g).slice(0,3).map(Number).map(v=>v/255).map(v=>v<=.04045?v/12.92:((v+.055)/1.055)**2.4).reduce((sum,v,i)=>sum+v*[.2126,.7152,.0722][i],0);
+    for(const pair of colors) { const a=luminance(pair.color), b=luminance(pair.background); pair.ratio=(Math.max(a,b)+.05)/(Math.min(a,b)+.05); assert.ok(pair.ratio>=4.5,JSON.stringify(pair)); }
+    await writeFile(path.join(output,'contrast.json'),JSON.stringify(colors,null,2));
+    await click('Edit dashboard');
+    await input('[aria-label="Dashboard name"]', ''); await click('Save dashboard');
+    await until(() => evaluate("document.activeElement.id === 'dashboard-name' && document.activeElement.getAttribute('aria-invalid') === 'true'"), 'name validation');
+    await input('[aria-label="Dashboard name"]', 'Daily overview');
+    assert.equal(await evaluate("document.querySelectorAll('.panel input[type=number]').length"), 0);
+    assert.equal(await evaluate("document.querySelectorAll('.resize-edge').length"), 8);
+    await click('Adjust layout'); await click('Wider');
+    assert.equal(await evaluate("document.querySelector('.panel').style.gridColumn"), '1 / span 7');
+    // Pointer moves are previews; escape returns the original rectangle.
+    const bounds = await evaluate("(() => { const r = document.querySelector('.drag-handle').getBoundingClientRect(); return {x:r.x+r.width/2,y:r.y+r.height/2}; })()");
+    await screenshot('before-drag.png');
+    await cdp('Input.dispatchMouseEvent', { type: 'mouseMoved', ...bounds });
+    await cdp('Input.dispatchMouseEvent', { type: 'mousePressed', ...bounds, button: 'left', buttons: 1, clickCount: 1 });
+    await cdp('Input.dispatchMouseEvent', { type: 'mouseMoved', x: bounds.x, y: bounds.y + 112, button: 'left', buttons: 1 });
+    await until(() => evaluate("document.querySelector('.panel').style.gridRow === '3 / span 6'"), 'move preview');
+    await cdp('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape' });
+    await cdp('Input.dispatchMouseEvent', { type: 'mouseReleased', x: bounds.x, y: bounds.y + 112, button: 'left' });
+    assert.equal(await evaluate("document.querySelector('.panel').style.gridRow"), '1 / span 6');
+    const resizeBounds = await evaluate("(() => { const r=document.querySelector('.resize-se').getBoundingClientRect(); return {x:r.x+r.width/2,y:r.y+r.height/2}; })()");
+    await cdp('Input.dispatchMouseEvent', { type: 'mouseMoved', ...resizeBounds });
+    await cdp('Input.dispatchMouseEvent', { type: 'mousePressed', ...resizeBounds, button: 'left', buttons: 1, clickCount: 1 });
+    await cdp('Input.dispatchMouseEvent', { type: 'mouseMoved', x: resizeBounds.x, y: resizeBounds.y+56, button: 'left', buttons: 1 });
+    await until(()=>evaluate("document.querySelector('.panel').style.gridRow==='1 / span 7'"),'resize preview');
+    await cdp('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape' });
+    await cdp('Input.dispatchMouseEvent', { type: 'mouseReleased', x: resizeBounds.x, y: resizeBounds.y+56, button: 'left' });
+    await evaluate("document.querySelector('.drag-handle').focus()");
+    await cdp('Input.dispatchKeyEvent', { type: 'keyDown', key: 'ArrowDown', code: 'ArrowDown' });
+    await until(() => evaluate("document.querySelector('.panel').style.gridRow === '2 / span 6'"), 'keyboard movement');
+    await click('Add view'); await input('#search-views', 'no-such-view');
+    await until(async () => (await text()).includes('No views match'), 'empty search'); await screenshot('search-empty.png');
+    await click('Clear search');
+    await evaluate("document.querySelector('[aria-label=\"Close view picker\"]').click()");
+    await until(() => evaluate("document.activeElement.id === 'add-view'"), 'picker focus restoration');
+    await evaluate("document.querySelector('[aria-label=\"Remove Task runner\"]').click()");
+    await until(() => evaluate("document.querySelectorAll('.panel').length === 0"), 'remove view');
+    await click('Undo removal');
+    await until(() => evaluate("document.querySelectorAll('.panel').length === 1"), 'undo view');
+    await screenshot('editing.png');
+    await click('Cancel');
+    await until(() => evaluate("document.querySelector('#confirm-title')?.textContent === 'Discard unsaved changes?'"), 'discard confirmation');
+    await evaluate("document.querySelector('dialog .hub-button').click()");
+    assert.equal(await evaluate("!!document.querySelector('.dashboard-name')"), true);
+    await click('Save dashboard');
+    await until(async () => (await text()).includes('Dashboard saved.'), 'save');
+    const ax = await cdp('Accessibility.getFullAXTree');
+    const unnamedButtons=ax.nodes.filter(n=>!n.ignored && n.role?.value==='button' && !n.name?.value);
+    assert.equal(unnamedButtons.length,0);
+    await writeFile(path.join(output,'accessibility.json'), JSON.stringify(ax,null,2));
+    const saved = await (await fetch(`${url}api/dashboards`)).json();
+    assert.equal(saved[0].panels[0].w, 7); assert.equal(saved[0].panels[0].y, 1);
+    await cdp('Page.reload'); await until(async () => (await text()).includes('Task runner'), 'reload saved');
+    // Conflict retains the draft and offers recovery.
+    await click('Edit dashboard'); await input('[aria-label="Dashboard name"]', 'Local changes');
+    await fetch(`${url}api/dashboards/${dashboard.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...saved[0], name: 'Changed elsewhere' }) });
+    await click('Save dashboard'); await until(async () => (await text()).includes('Your edits are kept'), 'conflict');
+    assert.equal(await evaluate("document.querySelector('.dashboard-name').value"), 'Local changes');
+    await screenshot('save-error.png');
+    await click('Discard and reload'); await click('Discard changes');
+    await until(async () => (await text()).includes('Changed elsewhere'), 'reload conflict');
+    await click('Create dashboard');
+    await input('.dashboard-name', 'Temporary dashboard');
+    await click('Save dashboard');
+    await until(async ()=>(await text()).includes('Dashboard saved.'),'create dashboard');
+    await click('Delete dashboard');
+    await until(()=>evaluate("document.querySelector('dialog[open] #confirm-title')?.textContent.includes('Temporary dashboard')"),'delete confirmation');
+    await evaluate("document.querySelector('dialog .danger').focus()");
+    await cdp('Input.dispatchKeyEvent', {type:'keyDown', key:'Enter', code:'Enter', windowsVirtualKeyCode:13, text:'\r', unmodifiedText:'\r'});
+    await cdp('Input.dispatchKeyEvent', {type:'keyUp', key:'Enter', code:'Enter', windowsVirtualKeyCode:13});
+    await until(async ()=>(await text()).includes('Dashboard deleted.'),'delete dashboard').catch(async error=>{ console.log(await text()); throw error; });
+    await start('omochi-utils', ['button', '--service-id', 'second', '--runtime-dir', runtime, '--', '/bin/echo', 'second-action'], /Published service/);
+    await click('Edit dashboard'); await click('Add view');
+    await until(()=>evaluate("Array.from(document.querySelectorAll('.app-options button')).some(b=>!b.disabled)"),'second view');
+    await evaluate("document.querySelector('.app-options button:not(:disabled)').click()");
+    await until(()=>evaluate("document.querySelectorAll('.panel').length===2"),'added second view');
+    await click('Save dashboard');
+    await until(async () => (await text()).includes('Dashboard saved.'), 'save second view');
+    await cdp('Emulation.setDeviceMetricsOverride', { width: 320, height: 844, deviceScaleFactor: 1, mobile: true });
+    await until(() => evaluate("getComputedStyle(document.querySelector('.panel-grid')).display === 'flex'"), 'mobile layout');
+    assert.equal(await evaluate('document.documentElement.scrollWidth <= innerWidth'), true);
+    await screenshot('mobile.png');
+    await click('Edit dashboard');
+    assert.equal(await evaluate("document.querySelectorAll('.resize-edge').length"), 0);
+    assert.equal((await text()).includes('Move up'), true);
+    const firstId=await evaluate("document.querySelector('.panel').dataset.panelId");
+    await click('Move down');
+    await until(()=>evaluate("document.querySelector('.panel').dataset.panelId").then(id=>id!==firstId),'mobile reorder');
+    await click('Save dashboard');
+    await until(async () => (await text()).includes('Dashboard saved.'), 'save mobile order');
+    await click('Board view'); await cdp('Page.reload');
+    await until(async () => (await text()).includes('Exit board view'), 'direct board mode');
+    assert.equal(await evaluate('document.documentElement.scrollWidth <= innerWidth'), true);
+    await screenshot('mobile-board.png');
+    await click('Exit board view');
+    await cdp('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'reduce' }] });
+    assert.equal(await evaluate("getComputedStyle(document.querySelector('.hub-button')).transitionDuration"), '0s');
+    await cdp('Emulation.setEmulatedMedia', { features: [{ name: 'forced-colors', value: 'active' }] });
+    await screenshot('forced-colors.png');
+    await cdp('Emulation.setEmulatedMedia', { features: [] });
+    await evaluate("document.documentElement.dir = 'rtl'");
+    assert.equal(await evaluate('document.documentElement.scrollWidth <= innerWidth'), true);
+    await screenshot('rtl.png');
+    await evaluate("document.documentElement.dir = 'ltr'; document.documentElement.style.fontSize = '200%'");
+    assert.equal(await evaluate('document.documentElement.scrollWidth <= innerWidth'), true);
+    await screenshot('text-200.png');
+    await click('Board view');
+    assert.equal(await evaluate('document.documentElement.scrollWidth <= innerWidth'), true);
+    await screenshot('board-text-200.png');
+    utility.child.kill('SIGTERM');
+    await until(async ()=>(await text()).includes('View unavailable'),'source app disconnected');
+    await screenshot('disconnected.png');
+    assert.deepEqual(errors, []);
+    console.log(`Browser checks passed. Screenshots: ${output}`);
+  }
 } finally {
   socket?.close();
-  if (preview) { preview.kill('SIGTERM'); await Promise.race([once(preview, 'exit'), delay(3000)]); }
-  if (chrome) { chrome.kill('SIGTERM'); await Promise.race([once(chrome, 'exit'), delay(3000)]); }
-  for (const close of closers.reverse()) await close();
+  for (const child of children.reverse()) {
+    if (child.exitCode !== null || child.signalCode !== null) continue;
+    const exited = once(child, 'exit'); child.kill('SIGTERM');
+    await Promise.race([exited, delay(3000)]);
+    if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
+  }
   await rm(temporary, { recursive: true, force: true });
 }

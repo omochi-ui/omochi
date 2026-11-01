@@ -3,7 +3,7 @@ import { SurfaceView, useA2uiSession } from '@omochi-ui/renderer';
 import { Button } from './Button.js';
 import { Icon } from './Icon.js';
 import { referenceId, type Dashboard, type DashboardPreset, type Panel } from './contracts.js';
-import { placePanel } from './layout.js';
+import { placePanel, resizePanel, reorderPanels, type ResizeEdge } from './layout.js';
 import { groupByNode, splitSurfaceId, subscribeServices, type ServiceView } from './services.js';
 
 async function api<T>(path = '', method = 'GET', value?: unknown): Promise<T> {
@@ -32,11 +32,27 @@ export default function App() {
   const [narrow, setNarrow] = useState(() => matchMedia('(max-width: 760px)').matches);
   const grid = useRef<HTMLDivElement>(null);
   const pickerDialog = useRef<HTMLDialogElement>(null);
-  const gesture = useRef<{ id: string; mode: 'move' | 'resize'; x: number; y: number; column: number; panel: Panel; panels: Panel[] } | null>(null);
+  const baseline = useRef('');
+  const [board, setBoard] = useState(() => new URLSearchParams(location.search).get('view') === 'board');
+  const [navOpen, setNavOpen] = useState(false);
+  const [message, setMessage] = useState('');
+  const [validated, setValidated] = useState(false);
+  const [undo, setUndo] = useState<Panel[] | null>(null);
+  const [adjust, setAdjust] = useState<string | null>(null);
+  const [details, setDetails] = useState<Panel | null>(null);
+  const [confirmation, setConfirmation] = useState<{ title: string; action: string; body: string; run: () => void } | null>(null);
+  const confirmDialog = useRef<HTMLDialogElement>(null);
+  const detailsDialog = useRef<HTMLDialogElement>(null);
+  const returnFocus = useRef<HTMLElement | null>(null);
+  const boardTrigger = useRef<HTMLButtonElement>(null);
+  const [preview, setPreview] = useState<Panel[] | null>(null);
+  const previewRef = useRef<Panel[] | null>(null);
+  const gesture = useRef<{ id: string; mode: 'move' | ResizeEdge; x: number; y: number; scrollY: number; column: number; row: number; panel: Panel; panels: Panel[] } | null>(null);
   const current = selected.startsWith('dashboard:') ? dashboards.find(d => `dashboard:${d.id}` === selected) : undefined;
   const preset = selected.startsWith('preset:') ? presets.find(p => `preset:${p.id}` === selected) : undefined;
   const active = draft ?? current ?? preset;
   const editing = draft !== null;
+  const dirty = !!draft && JSON.stringify(draft) !== baseline.current;
   const connected = session.status === 'Connected';
 
   const reload = async () => {
@@ -67,17 +83,20 @@ export default function App() {
   };
   useEffect(() => { void reload(); }, []);
   useEffect(() => {
-    if (!selected) return;
     const url = new URL(location.href);
     if (selected.startsWith('preset:')) {
       url.searchParams.set('preset', selected.slice('preset:'.length));
       url.searchParams.delete('dashboard');
-    } else {
+    } else if (selected) {
       url.searchParams.set('dashboard', selected.slice('dashboard:'.length));
       url.searchParams.delete('preset');
     }
+    if (board) url.searchParams.set('view', 'board'); else url.searchParams.delete('view');
     history.replaceState(null, '', url);
-  }, [selected]);
+  }, [selected, board]);
+  useEffect(() => { document.title = `${active?.name ?? 'Dashboards'} · omochi`; }, [active?.name]);
+  useEffect(() => { if (confirmation) confirmDialog.current?.showModal(); }, [confirmation]);
+  useEffect(() => { if (details) detailsDialog.current?.showModal(); }, [details]);
   useEffect(() => {
     if (picker) pickerDialog.current?.showModal();
     else pickerDialog.current?.close();
@@ -85,17 +104,33 @@ export default function App() {
   useEffect(() => { const sub = subscribeServices('', setServices); return () => sub.close(); }, []);
   useEffect(() => {
     const media = matchMedia('(max-width: 760px)');
-    const change = () => { setNarrow(media.matches); gesture.current = null; };
+    const change = () => { setNarrow(media.matches); gesture.current = null; setPreview(null); previewRef.current = null; };
     media.addEventListener('change', change);
     return () => media.removeEventListener('change', change);
   }, []);
   useEffect(() => {
-    if (!editing) return;
+    if (!dirty) return;
     const prevent = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = ''; };
     window.addEventListener('beforeunload', prevent);
     return () => window.removeEventListener('beforeunload', prevent);
-  }, [editing]);
+  }, [dirty]);
 
+  const focusMain = () => requestAnimationFrame(() => document.querySelector<HTMLElement>('#workspace')?.focus());
+  const restoreFocus = () => requestAnimationFrame(() => { if (returnFocus.current?.isConnected) returnFocus.current.focus(); focusMain(); });
+  const rememberFocus = () => { returnFocus.current = document.activeElement as HTMLElement; };
+  const startEdit = (value: Dashboard) => {
+    baseline.current = JSON.stringify(value); setDraft(value); setValidated(false); setUndo(null); setMessage('');
+    requestAnimationFrame(() => { if (!document.querySelector('dialog[open]')) document.querySelector<HTMLInputElement>('.dashboard-name')?.focus(); });
+  };
+  const clearDraft = () => { setDraft(null); setPicker(false); setUndo(null); setAdjust(null); setValidated(false); setError(null); };
+  const discardThen = (operation: () => void) => {
+    if (!dirty) { clearDraft(); operation(); return; }
+    rememberFocus();
+    setConfirmation({ title: 'Discard unsaved changes?', body: 'Your changes to this dashboard will be lost.', action: 'Discard changes', run: () => { clearDraft(); operation(); } });
+  };
+  const switchDashboard = (id: string) => discardThen(() => { setSelected(id); setNavOpen(false); focusMain(); });
+  const closePicker = () => { pickerDialog.current?.close(); setPicker(false); restoreFocus(); };
+  const openPicker = () => { returnFocus.current = document.getElementById('add-view') ?? document.activeElement as HTMLElement; setSearch(''); setPicker(true); };
   const run = async (operation: () => Promise<void>) => {
     setBusy(true); setError(null);
     try { await operation(); }
@@ -104,38 +139,71 @@ export default function App() {
   };
   const save = () => {
     if (!draft) return;
+    setValidated(true);
+    if (!draft.name.trim() || draft.panels.some(p => !p.title.trim())) {
+      requestAnimationFrame(() => document.querySelector<HTMLInputElement>('[aria-invalid="true"]')?.focus()); return;
+    }
+    setUndo(null);
     void run(async () => {
       const saved = await api<Dashboard>(draft.id ? `/${draft.id}` : '', draft.id ? 'PUT' : 'POST', draft);
       setDashboards(all => [...all.filter(d => d.id !== saved.id), saved]);
-      setSelected(`dashboard:${saved.id}`); setDraft(null); setPicker(false);
+      setSelected(`dashboard:${saved.id}`); clearDraft(); setMessage('Dashboard saved.'); focusMain();
     });
   };
   const remove = () => {
-    if (!current || !confirm(`Delete “${current.name}”?`)) return;
-    void run(async () => {
-      await api(`/${current.id}`, 'DELETE', { revision: current.revision });
-      const next = dashboards.filter(d => d.id !== current.id);
-      setDashboards(next); setSelected(presets[0] ? `preset:${presets[0].id}` : next[0] ? `dashboard:${next[0].id}` : '');
-    });
+    if (!current) return;
+    rememberFocus();
+    setConfirmation({ title: `Delete “${current.name}”?`, body: 'This dashboard cannot be restored. The apps and their views will not be deleted.', action: 'Delete dashboard', run: () => {
+      void run(async () => {
+        await api(`/${current.id}`, 'DELETE', { revision: current.revision });
+        const next = dashboards.filter(d => d.id !== current.id);
+        setDashboards(next); setSelected(next[0] ? `dashboard:${next[0].id}` : presets[0] ? `preset:${presets[0].id}` : '');
+        setMessage('Dashboard deleted.'); focusMain();
+      });
+    } });
   };
-  const changePanel = (panel: Panel) => setDraft(d => d ? { ...d, panels: placePanel(d.panels, panel) } : d);
-  const beginGesture = (event: PointerEvent<HTMLButtonElement>, panel: Panel, mode: 'move' | 'resize') => {
-    if (narrow || !draft || busy || !grid.current) return;
-    event.preventDefault();
+  const changePanel = (panel: Panel) => {
+    setUndo(null);
+    setDraft(d => d ? { ...d, panels: placePanel(d.panels, panel) } : d);
+    setMessage(`Updated ${panel.title}.`);
+  };
+  const cancelGesture = () => { gesture.current = null; previewRef.current = null; setPreview(null); };
+  const beginGesture = (event: PointerEvent<HTMLButtonElement>, panel: Panel, mode: 'move' | ResizeEdge) => {
+    if (narrow || !draft || busy || !grid.current || event.button !== 0) return;
+    event.preventDefault(); event.currentTarget.focus();
     event.currentTarget.setPointerCapture(event.pointerId);
-    gesture.current = { id: panel.id, mode, x: event.clientX, y: event.clientY,
-      column: (grid.current.clientWidth + 16) / 12, panel, panels: draft.panels };
+    const style = getComputedStyle(grid.current);
+    const gap = parseFloat(style.columnGap);
+    gesture.current = { id: panel.id, mode, x: event.clientX, y: event.clientY, scrollY: window.scrollY,
+      column: (grid.current.clientWidth + gap) / 12, row: parseFloat(style.gridAutoRows) + parseFloat(style.rowGap), panel, panels: draft.panels };
+    setUndo(null);
   };
   const moveGesture = (event: PointerEvent<HTMLButtonElement>) => {
     const g = gesture.current;
     if (!g || narrow) return;
     const dx = Math.round((event.clientX - g.x) / g.column);
-    const dy = Math.round((event.clientY - g.y) / 56);
+    const dy = Math.round((event.clientY - g.y + window.scrollY - g.scrollY) / g.row);
     const panel = g.mode === 'move' ? { ...g.panel, x: g.panel.x + dx, y: Math.min(100000, g.panel.y + dy) }
-      : { ...g.panel, w: Math.min(12 - g.panel.x, Math.max(1, g.panel.w + dx)), h: Math.min(1000, Math.max(1, g.panel.h + dy)) };
-    setDraft(d => d ? { ...d, panels: placePanel(g.panels, panel) } : d);
+      : resizePanel(g.panel, g.mode, dx, dy);
+    previewRef.current = placePanel(g.panels, panel); setPreview(previewRef.current);
   };
-  const endGesture = () => { gesture.current = null; };
+  const endGesture = () => {
+    if (gesture.current && previewRef.current) {
+      const panels = previewRef.current;
+      setDraft(d => d ? { ...d, panels } : d); setMessage('Layout updated.');
+    }
+    cancelGesture();
+  };
+  const reorder = (id: string, direction: -1 | 1) => {
+    setUndo(null); setDraft(d => d ? { ...d, panels: reorderPanels(d.panels, id, direction) } : d);
+    setMessage(direction < 0 ? 'View moved up.' : 'View moved down.');
+  };
+  const removePanel = (panel: Panel) => {
+    if (!draft) return;
+    setUndo(draft.panels); setDraft({ ...draft, panels: draft.panels.filter(p => p.id !== panel.id) }); setAdjust(null);
+    setMessage(`${panel.title} removed.`);
+    requestAnimationFrame(() => (document.querySelector<HTMLButtonElement>('.panel .details-button') ?? document.querySelector<HTMLButtonElement>('#add-view'))?.focus());
+  };
   const addSurface = (service: ServiceView, id: string) => {
     if (!service.node || !draft) return;
     const surface = splitSurfaceId(id);
@@ -143,99 +211,110 @@ export default function App() {
     if (draft.panels.some(p => referenceId(p.reference) === id)) return;
     const panel: Panel = { id: crypto.randomUUID(), title: `${service.name} · ${surface.surfaceId}`, reference,
       x: 0, y: Math.max(0, ...draft.panels.map(p => p.y + p.h)), w: 6, h: 6 };
-    setDraft({ ...draft, panels: [...draft.panels, panel] });
-    setPicker(false);
+    setUndo(null); setDraft({ ...draft, panels: [...draft.panels, panel] });
+    closePicker(); setMessage('View added.');
   };
   const panels = [...(active?.panels ?? [])].sort((a, b) => a.y - b.y || a.x - b.x);
   const groups = groupByNode(services);
+  const matches = services.flatMap(service => service.node && service.status === 'connected' ? session.surfaceIds.filter(id => splitSurfaceId(id).channelId === service.id && `${service.name} ${splitSurfaceId(id).surfaceId}`.toLowerCase().includes(search.toLowerCase())) : []);
   const available = services.filter(s => s.status === 'connected').length;
 
-  return <div className="hub-layout">
-    <aside className="sidebar">
-      <a className="brand" href="/" onClick={event => { if (editing) event.preventDefault(); }}><span className="brand-mark">o</span> omochi <span className="brand-tag">hub</span></a>
+  return <div className={`hub-layout ${board ? 'board-only' : ''} ${navOpen ? 'nav-open' : ''}`} onKeyDown={event => { if (event.key === 'Escape' && gesture.current) { event.preventDefault(); cancelGesture(); } }}>
+    <a className="skip-link" href="#workspace">Skip to board</a>
+    <Button className="mobile-nav" aria-expanded={navOpen} aria-controls="dashboard-navigation" onClick={() => setNavOpen(!navOpen)}>Dashboards</Button>
+    <aside id="dashboard-navigation" className="sidebar">
+      <a className="brand" href="/" onClick={event => { if (dirty) { event.preventDefault(); discardThen(() => { location.href = '/'; }); } }}><svg className="brand-mark" viewBox="0 0 96 96" aria-hidden="true"><path fill="currentColor" fillRule="evenodd" d="M32 12h20q24 0 24 24v-2h1a13 13 0 0 1 13 13v2a13 13 0 0 1-13 13h-1q-1 22-24 22H32Q8 84 8 60V36Q8 12 32 12Zm27 36a17 17 0 1 0-34 0 17 17 0 0 0 34 0Z" /></svg> omochi <span className="brand-tag">hub</span></a>
       <div className="nav-caption">WORKSPACE</div>
       {!!presets.length && <><div className="nav-section"><Icon name="preset" /> Presets <span className="count">{presets.length}</span></div>
       <nav aria-label="Presets">
-        {presets.map(p => <Button static key={p.id} className={`dashboard-link ${selected === `preset:${p.id}` ? 'selected' : ''}`} aria-current={selected === `preset:${p.id}` ? 'page' : undefined} disabled={editing || busy}
-          onClick={() => { setSelected(`preset:${p.id}`); setError(null); }}>{p.name}</Button>)}
+        {presets.map(p => <Button static key={p.id} className={`dashboard-link ${selected === `preset:${p.id}` ? 'selected' : ''}`} aria-current={selected === `preset:${p.id}` ? 'page' : undefined} disabled={busy}
+          onClick={() => switchDashboard(`preset:${p.id}`)}>{p.name}</Button>)}
       </nav></>}
       <div className="nav-section"><Icon name="dashboard" /> Dashboards <span className="count">{dashboards.length}</span></div>
       <nav aria-label="Dashboards">
-        {dashboards.map(d => <Button static key={d.id} className={`dashboard-link ${selected === `dashboard:${d.id}` ? 'selected' : ''}`} aria-current={selected === `dashboard:${d.id}` ? 'page' : undefined} disabled={editing || busy}
-          onClick={() => { setSelected(`dashboard:${d.id}`); setError(null); }}>{d.name}</Button>)}
+        {dashboards.map(d => <Button static key={d.id} className={`dashboard-link ${selected === `dashboard:${d.id}` ? 'selected' : ''}`} aria-current={selected === `dashboard:${d.id}` ? 'page' : undefined} disabled={busy}
+          onClick={() => switchDashboard(`dashboard:${d.id}`)}>{d.name}</Button>)}
         {!dashboards.length && <p className="sidebar-hint">Your dashboards will appear here.</p>}
       </nav>
-      <Button className="new-dashboard with-icon" disabled={editing || loading || busy} onClick={() => setDraft(emptyDashboard())}><Icon name="plus" /> New dashboard</Button>
+      <Button className="new-dashboard with-icon" disabled={loading || busy} onClick={() => discardThen(() => startEdit(emptyDashboard()))}><Icon name="plus" /> Create dashboard</Button>
       <div className="sidebar-footer"><span className={`signal ${connected ? 'online' : ''}`} />{connected ? 'Hub connected' : 'Reconnecting…'}<small>{available} apps available</small></div>
     </aside>
-    <main className="workspace">
-      <div className="breadcrumb">Workspace <span>/</span> Dashboards</div>
+    <main id="workspace" tabIndex={-1} className="workspace">
+      <div className="workspace-status"><div className="connection-status" role="status">{connected ? '✓ Hub connected' : `Hub: ${session.status}`}<span>{available} {available === 1 ? 'app connected' : 'apps connected'}</span></div>
+      {board && <Button className="exit-board" onClick={() => { setBoard(false); requestAnimationFrame(() => { if (boardTrigger.current) boardTrigger.current.focus(); else focusMain(); }); }}>Exit board view</Button>}</div>
+
       <header className="page-header">
-        <div className="header-copy"><div className="eyebrow">YOUR WORKSPACE, COMPOSED</div>
-          {editing ? <input className="dashboard-name" aria-label="Dashboard name" maxLength={200} value={draft.name} disabled={busy} onChange={e => setDraft({ ...draft, name: e.target.value })} />
+        <div className="header-copy">
+          {editing ? <><label htmlFor="dashboard-name">Dashboard name</label><input id="dashboard-name" aria-invalid={validated && !draft.name.trim()} aria-describedby={validated && !draft.name.trim() ? 'name-error' : undefined} className="dashboard-name" aria-label="Dashboard name" maxLength={200} value={draft.name} disabled={busy} onChange={e => setDraft({ ...draft, name: e.target.value })} />{validated && !draft.name.trim() && <p id="name-error" className="field-error">Enter a dashboard name.</p>}</>
             : <h1>{active?.name ?? 'Dashboards'}</h1>}
-          <p className="subtitle">{editing ? 'Arrange your views, then save your dashboard.' : 'Live views from your apps, together in one place.'}</p>
+          <p className="subtitle">{editing ? dirty ? 'Unsaved changes' : 'Editing dashboard' : preset ? 'Preset · Save a copy to edit' : ''}</p>
         </div>
         <div className="toolbar">{editing ? <>
-          <Button disabled={busy} onClick={() => { setDraft(null); setPicker(false); setError(null); }}>Cancel</Button>
-          <Button className="primary" disabled={busy || !draft.name.trim() || draft.panels.some(p => !p.title.trim())} onClick={save}>{busy ? 'Saving…' : 'Save dashboard'}</Button>
+          <Button disabled={busy} onClick={() => discardThen(focusMain)}>Cancel</Button>
+          <Button className="primary" disabled={busy} onClick={save}>{busy ? 'Saving…' : 'Save dashboard'}</Button>
         </> : current ? <>
-          <Button disabled={busy} onClick={remove}>Delete</Button>
-          <Button className="primary" disabled={busy} onClick={() => setDraft(structuredClone(current))}>Edit dashboard</Button>
-        </> : preset ? <Button className="primary" disabled={busy} onClick={() => setDraft({ ...structuredClone(preset), id: '', revision: 0 })}>Save as dashboard</Button> : null}</div>
+          <Button disabled={busy} className="danger" onClick={remove}>Delete dashboard</Button>
+          <Button className="primary" disabled={busy} onClick={() => startEdit(structuredClone(current))}>Edit dashboard</Button>
+        </> : preset ? <Button className="primary" disabled={busy} onClick={() => startEdit({ ...structuredClone(preset), id: '', revision: 0 })}>Save as dashboard</Button> : null}{!editing && active && <Button ref={boardTrigger} disabled={busy} onClick={() => { setBoard(true); requestAnimationFrame(() => document.querySelector<HTMLButtonElement>('.exit-board')?.focus()); }}>Board view</Button>}</div>
       </header>
-      {error && <div className="notice error" role="alert"><span>{error}</span><Button disabled={busy} onClick={() => {
-        if (draft && !confirm('Discard your unsaved edits and reload the saved dashboards?')) return;
-        setDraft(null); setPicker(false); void reload();
-      }}>Reload saved dashboards</Button></div>}
-      {session.error && <div className="notice" role="status">{session.error}</div>}
-      {narrow && editing && <div className="notice">Use a wider screen to move and resize panels. Your saved layout is preserved.</div>}
-      {active && <div className="board-bar"><span><strong>{panels.length}</strong> {panels.length === 1 ? 'view' : 'views'} <span className="separator">/</span> {editing ? 'Editing' : 'Live dashboard'}</span>
-        {editing && <Button className="with-icon" disabled={busy || panels.length >= 200} onClick={() => { setSearch(''); setPicker(true); }}><Icon name="plus" /> Add view</Button>}</div>}
+      <div className="announcement" role="status">{message}</div>
+      {error && <div className="notice error" role="alert"><span>{draft ? 'Could not save changes. Your edits are kept. Retry saving, or discard changes to load the saved version.' : 'Could not load or update dashboards. Try again.'} <small>{error}</small></span>{draft && <Button disabled={busy} onClick={save}>Retry save</Button>}<Button disabled={busy} onClick={() => discardThen(() => { void reload(); })}>{draft ? 'Discard and reload' : 'Retry'}</Button></div>}
+      {session.error && <div className="notice" role="status">Hub connection interrupted. Reconnecting automatically. Check that the hub is running. <small>{session.error}</small></div>}
+      {undo && editing && <div className="notice"><span>View removed.</span><Button onClick={() => { setDraft(d => d ? { ...d, panels: undo } : d); setUndo(null); setMessage('View restored.'); focusMain(); }}>Undo removal</Button></div>}
+      {narrow && editing && <div className="notice">Use Move up or Move down to reorder views. This also updates the desktop layout. Resize views on a wider screen.</div>}
+      {active && <div className="board-bar"><span>{panels.length} {panels.length === 1 ? 'view' : 'views'}</span>
+        {editing && <Button id="add-view" className="with-icon" disabled={busy || panels.length >= 200} onClick={openPicker}><Icon name="plus" /> Add view</Button>}</div>}
       {loading ? <div className="empty-state">Loading dashboards…</div> : !panels.length ? <div className="empty-state">
-        <div className="empty-symbol"><Icon name="dashboard" /></div><h2>{editing ? 'Start with a view' : active ? 'This dashboard is ready for views' : 'Make room for what matters'}</h2>
-        <p>Bring views from your apps into a dashboard.<br />Arrange them to fit the way you work.</p>
-        <Button className="primary with-icon" disabled={busy || !!error} onClick={() => {
-          if (!draft) setDraft(current ? structuredClone(current) : emptyDashboard());
-          setSearch(''); setPicker(true);
-        }}><Icon name="plus" /> {active ? 'Add your first view' : 'Create a dashboard'}</Button>
+        <div className="empty-symbol"><Icon name="dashboard" /></div><h2>{active ? 'No views yet' : 'No dashboards yet'}</h2>
+        <p>{board ? 'Exit board view to add views.' : 'Add views published by your apps.'}</p>
+        {!board && <Button className="primary with-icon" disabled={busy || !!error} onClick={() => {
+          if (!draft) startEdit(current ? structuredClone(current) : preset ? { ...structuredClone(preset), id: '', revision: 0 } : emptyDashboard());
+          openPicker();
+        }}><Icon name="plus" /> {active ? 'Add view' : 'Create dashboard'}</Button>}
       </div> : <div ref={grid} className={`panel-grid ${editing ? 'editing' : ''}`}>
         {panels.map(panel => {
           const id = referenceId(panel.reference);
           const service = services.find(s => s.id === `${panel.reference.nodeId}~${panel.reference.serviceId}`);
           const present = connected && service?.status === 'connected' && session.surfaceIds.includes(id);
-          return <article className="panel" key={panel.id} style={{ gridColumn: `${panel.x + 1} / span ${panel.w}`, gridRow: `${panel.y + 1} / span ${panel.h}` }}>
+          const rectangle = preview?.find(p => p.id === panel.id) ?? panel;
+          return <article className="panel" key={panel.id} data-panel-id={panel.id} style={{ gridColumn: `${rectangle.x + 1} / span ${rectangle.w}`, gridRow: `${rectangle.y + 1} / span ${rectangle.h}` }}>
             <header className="panel-header">
               {editing && !narrow && <Button static aria-label={`Move ${panel.title}`} className="drag-handle" disabled={busy}
-                onPointerDown={e => beginGesture(e, panel, 'move')} onPointerMove={moveGesture} onPointerUp={endGesture} onPointerCancel={endGesture}><Icon name="grip" /></Button>}
-              <div className="panel-heading">{editing ? <input aria-label={`Panel title ${panel.title}`} maxLength={200} disabled={busy} value={panel.title} onChange={e => changePanel({ ...panel, title: e.target.value })} /> : <h2 title={panel.title}>{panel.title}</h2>}
+                aria-describedby="layout-help" onKeyDown={event => { const delta = ({ ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] } as Record<string, number[]>)[event.key]; if (delta) { event.preventDefault(); changePanel({ ...panel, x: panel.x + delta[0]!, y: Math.min(100000, panel.y + delta[1]!) }); } }} onPointerDown={e => beginGesture(e, panel, 'move')} onPointerMove={moveGesture} onPointerUp={endGesture} onPointerCancel={cancelGesture} onLostPointerCapture={cancelGesture}><Icon name="grip" /></Button>}
+              <div className="panel-heading">{editing ? <input aria-invalid={validated && !panel.title.trim()} aria-describedby={validated && !panel.title.trim() ? `error-${panel.id}` : undefined} aria-label={`View name ${panel.title}`} maxLength={200} disabled={busy} value={panel.title} onChange={e => changePanel({ ...panel, title: e.target.value })} /> : <h2>{panel.title}</h2>}{editing && validated && !panel.title.trim() && <p className="field-error" id={`error-${panel.id}`}>Enter a view name.</p>}
                 <small title={`${service?.node?.name ?? panel.reference.nodeId} / ${service?.name ?? panel.reference.serviceId}`}>{service?.node?.name ?? panel.reference.nodeId} / {service?.name ?? panel.reference.serviceId}</small></div>
-              {editing ? <Button className="icon-button" aria-label={`Remove ${panel.title}`} disabled={busy} onClick={() => setDraft(d => d ? { ...d, panels: d.panels.filter(p => p.id !== panel.id) } : d)}><Icon name="close" /></Button>
-                : <span className={`signal ${present ? 'online' : ''}`} role="img" aria-label={present ? 'Live' : 'Unavailable'} title={present ? 'Live' : 'Unavailable'} />}
+              <Button className="details-button" aria-label={`View details for ${panel.title}`} onClick={() => { rememberFocus(); setDetails(panel); }}>Details</Button>
+              {editing ? <Button className="icon-button" aria-label={`Remove ${panel.title}`} disabled={busy} onClick={() => removePanel(panel)}><Icon name="close" /></Button>
+                : <span className="view-status">{present ? '✓ Live' : '○ Unavailable'}</span>}
             </header>
             <div className="panel-content">{present ? <SurfaceView session={session} surfaceId={id} />
-              : <div className="unavailable"><Icon name="unavailable" /><strong>View unavailable</strong><p>{service?.detail ?? 'Waiting for this app to publish its view.'}</p></div>}</div>
-            {editing && !narrow && <footer className="panel-editor">
-              {(['x', 'y', 'w', 'h'] as const).map(key => <label key={key}>{({ x: 'X', y: 'Y', w: 'W', h: 'H' })[key]}<input type="number" aria-label={`${panel.title} ${key}`} disabled={busy}
-                min={key === 'w' || key === 'h' ? 1 : 0} max={key === 'x' ? 12 - panel.w : key === 'w' ? 12 - panel.x : key === 'h' ? 1000 : 100000}
-                value={panel[key]} onChange={e => {
-                  const value = e.target.valueAsNumber;
-                  if (Number.isInteger(value) && e.target.validity.valid) changePanel({ ...panel, [key]: value });
-                }} /></label>)}
-              <Button static className="resize-handle" aria-label={`Resize ${panel.title}`} disabled={busy}
-                onPointerDown={e => beginGesture(e, panel, 'resize')} onPointerMove={moveGesture} onPointerUp={endGesture} onPointerCancel={endGesture}><Icon name="resize" /></Button>
+              : <div className="unavailable"><Icon name="unavailable" /><strong>View unavailable</strong><p>Start the source app and check its connection to restore this view.{service?.detail && <small>{service.detail}</small>}</p></div>}</div>
+            {editing && <footer className="panel-editor">
+              {narrow ? <><Button disabled={busy || panels[0]?.id === panel.id} onClick={() => reorder(panel.id, -1)}>Move up</Button><Button disabled={busy || panels[panels.length - 1]?.id === panel.id} onClick={() => reorder(panel.id, 1)}>Move down</Button></> : <>
+                <Button aria-expanded={adjust === panel.id} aria-controls={`adjust-${panel.id}`} disabled={busy} onClick={() => setAdjust(adjust === panel.id ? null : panel.id)}>Adjust layout</Button>
+                {adjust === panel.id && <div id={`adjust-${panel.id}`} className="adjust-controls" role="group" aria-label={`Adjust ${panel.title}`}>
+                  {([
+                    ['Move left', { ...panel, x: panel.x - 1 }, panel.x === 0], ['Move right', { ...panel, x: panel.x + 1 }, panel.x + panel.w === 12],
+                    ['Move up', { ...panel, y: panel.y - 1 }, panel.y === 0], ['Move down', { ...panel, y: panel.y + 1 }, panel.y >= 100000],
+                    ['Narrower', resizePanel(panel, 'e', -1, 0), panel.w === 1], ['Wider', resizePanel(panel, 'e', 1, 0), panel.x + panel.w === 12],
+                    ['Shorter', resizePanel(panel, 's', 0, -1), panel.h === 1], ['Taller', resizePanel(panel, 's', 0, 1), panel.h === 1000],
+                  ] as [string, Panel, boolean][]).map(([label, next, boundary]) => <Button key={label} disabled={busy || boundary} onClick={() => changePanel(next)}>{label}</Button>)}
+                </div>}
+              </>}
             </footer>}
+            {editing && !narrow && (['n', 's', 'e', 'w', 'ne', 'nw', 'se', 'sw'] as ResizeEdge[]).map(edge => <Button static key={edge} className={`resize-edge resize-${edge}`} aria-label={`Resize ${panel.title} ${edge}`} tabIndex={-1} disabled={busy}
+              onPointerDown={e => beginGesture(e, panel, edge)} onPointerMove={moveGesture} onPointerUp={endGesture} onPointerCancel={cancelGesture} onLostPointerCapture={cancelGesture} />)}
           </article>;
         })}
       </div>}
-      <footer className="workspace-footer">omochi hub <span>Views stay connected to their apps.</span></footer>
+      <p id="layout-help" className="sr-only">Use arrow keys on the move handle, or select Adjust layout for move and resize buttons.</p>
     </main>
-    {picker && <dialog ref={pickerDialog} aria-labelledby="picker-title" className="picker" onCancel={() => setPicker(false)}>
-      <header><div><div className="eyebrow">COMPOSE YOUR DASHBOARD</div><h2 id="picker-title">Add a view</h2></div><Button className="icon-button" aria-label="Close view picker" onClick={() => setPicker(false)}><Icon name="close" /></Button></header>
-      <p>Choose a surface published by one of your apps.</p>
-      <input autoFocus className="search" aria-label="Search views" placeholder="Search apps or views…" value={search} onChange={e => setSearch(e.target.value)} />
+    {picker && <dialog ref={pickerDialog} aria-labelledby="picker-title" className="picker" onCancel={closePicker}>
+      <header><div><h2 id="picker-title">Add a view</h2></div><Button className="icon-button" aria-label="Close view picker" onClick={closePicker}><Icon name="close" /></Button></header>
+      <p>Select a view from a connected app.</p><label htmlFor="search-views">Search views</label>
+      <input id="search-views" autoFocus className="search" aria-label="Search views" placeholder="App or view name" value={search} onChange={e => setSearch(e.target.value)} />
       <div className="view-options">
-        {groups.map(group => <section key={group.node?.id ?? 'unknown'}><h3>{group.node?.name ?? 'Unknown machine'}</h3>
+        {groups.filter(group => group.services.some(service => matches.some(id => splitSurfaceId(id).channelId === service.id))).map(group => <section key={group.node?.id ?? 'unknown'}><h3>{group.node?.name ?? 'Unknown machine'}</h3>
           {group.services.filter(s => s.node && s.status === 'connected').map(service => {
             const ids = session.surfaceIds.filter(id => splitSurfaceId(id).channelId === service.id && `${service.name} ${splitSurfaceId(id).surfaceId}`.toLowerCase().includes(search.toLowerCase()));
             return ids.length ? <div className="app-options" key={service.id}><h4>{service.name}</h4>{ids.map(id => {
@@ -243,9 +322,11 @@ export default function App() {
               return <Button static key={id} disabled={added} onClick={() => addSurface(service, id)}><span><Icon name="view" /><strong>{splitSurfaceId(id).surfaceId}</strong></span><span>{added ? 'Added' : <><Icon name="plus" /> Add</>}</span></Button>;
             })}</div> : null;
           })}</section>)}
-        {!session.surfaceIds.length && <p className="picker-empty">No views available yet. Start an app with a discoverable Unix socket to add its surfaces.</p>}
+        {!matches.length && <div className="picker-empty" role="status">{search ? <><p>No views match “{search}”.</p><Button onClick={() => setSearch('')}>Clear search</Button></> : <p>No views available. Start an app and check its connection to the hub.</p>}</div>}
       </div>
-      <footer>Each view is a live surface. Its state is shared with the app.</footer>
+
     </dialog>}
+    {details && <dialog ref={detailsDialog} className="picker" aria-labelledby="details-title" onCancel={() => { detailsDialog.current?.close(); setDetails(null); restoreFocus(); }}><h2 id="details-title">View details</h2><dl><dt>Name</dt><dd>{details.title}</dd><dt>Device</dt><dd>{services.find(s => s.node?.id === details.reference.nodeId)?.node?.name ?? details.reference.nodeId}</dd><dt>App</dt><dd>{services.find(s => s.id === `${details.reference.nodeId}~${details.reference.serviceId}`)?.name ?? details.reference.serviceId}</dd><dt>View ID</dt><dd>{details.reference.surfaceId}</dd></dl><Button onClick={() => { detailsDialog.current?.close(); setDetails(null); restoreFocus(); }}>Close details</Button></dialog>}
+    {confirmation && <dialog ref={confirmDialog} className="picker" aria-labelledby="confirm-title" onCancel={() => { confirmDialog.current?.close(); setConfirmation(null); restoreFocus(); }}><h2 id="confirm-title">{confirmation.title}</h2><p>{confirmation.body}</p><div className="toolbar"><Button autoFocus onClick={() => { confirmDialog.current?.close(); setConfirmation(null); restoreFocus(); }}>Cancel</Button><Button className="danger" onClick={() => { const operation = confirmation.run; confirmDialog.current?.close(); setConfirmation(null); operation(); }}>{confirmation.action}</Button></div></dialog>}
   </div>;
 }
