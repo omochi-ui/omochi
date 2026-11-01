@@ -1,6 +1,7 @@
 use proc_macro::TokenStream;
 use quote::{format_ident, quote};
 use syn::ext::IdentExt;
+use syn::visit_mut::{self, VisitMut};
 use syn::{
     Data, DeriveInput, Fields, Meta, Token, parse_macro_input, parse_quote, punctuated::Punctuated,
 };
@@ -67,6 +68,51 @@ fn serde_flag(attrs: &[syn::Attribute], key: &str) -> syn::Result<bool> {
     }
     Ok(false)
 }
+fn skip_serializing(attrs: &[syn::Attribute]) -> syn::Result<bool> {
+    Ok(serde_flag(attrs, "skip")? || serde_flag(attrs, "skip_serializing")?)
+}
+
+/// Field types and bounds keep referring to the original type in mirrors and helpers.
+struct ResolveSelf(syn::TypePath);
+impl VisitMut for ResolveSelf {
+    // Items inside const expressions introduce their own Self scope.
+    fn visit_item_mut(&mut self, _: &mut syn::Item) {}
+
+    fn visit_type_path_mut(&mut self, ty: &mut syn::TypePath) {
+        visit_mut::visit_type_path_mut(self, ty);
+        if ty.qself.is_none() && ty.path.segments.first().is_some_and(|s| s.ident == "Self") {
+            if ty.path.segments.len() == 1 {
+                *ty = self.0.clone();
+            } else {
+                let original = &self.0;
+                let tail = syn::Path {
+                    leading_colon: None,
+                    segments: ty.path.segments.iter().skip(1).cloned().collect(),
+                };
+                *ty = parse_quote!(<#original>::#tail);
+            }
+        }
+    }
+
+    fn visit_expr_path_mut(&mut self, expr: &mut syn::ExprPath) {
+        visit_mut::visit_expr_path_mut(self, expr);
+        if expr.qself.is_none()
+            && expr.path.segments.len() > 1
+            && expr
+                .path
+                .segments
+                .first()
+                .is_some_and(|s| s.ident == "Self")
+        {
+            let original = &self.0;
+            let tail = syn::Path {
+                leading_colon: None,
+                segments: expr.path.segments.iter().skip(1).cloned().collect(),
+            };
+            *expr = parse_quote!(<#original>::#tail);
+        }
+    }
+}
 fn rename_field(name: &str, rule: &str) -> String {
     match rule {
         "lowercase" | "snake_case" => name.into(),
@@ -92,7 +138,10 @@ fn rename_field(name: &str, rule: &str) -> String {
         _ => name.into(),
     }
 }
-fn expand(input: DeriveInput) -> syn::Result<proc_macro2::TokenStream> {
+fn expand(mut input: DeriveInput) -> syn::Result<proc_macro2::TokenStream> {
+    let name = &input.ident;
+    let (_, types, _) = input.generics.split_for_impl();
+    ResolveSelf(parse_quote!(#name #types)).visit_derive_input_mut(&mut input);
     let name = &input.ident;
     let generated = format_ident!("{}Input", name.unraw());
     if let Some(adapter) = adapter(&input.attrs)? {
@@ -122,6 +171,12 @@ fn expand(input: DeriveInput) -> syn::Result<proc_macro2::TokenStream> {
     let mut mirror = input.clone();
     mirror.ident = generated.clone();
     mirror.attrs.retain(|a| a.path().is_ident("serde"));
+    if serde_name(&input.attrs, "rename")?.is_none() {
+        let wire_name = name.unraw().to_string();
+        mirror
+            .attrs
+            .push(parse_quote!(#[serde(rename(serialize = #wire_name))]));
+    }
     mirror
         .attrs
         .insert(0, parse_quote!(#[derive(::serde::Serialize)]));
@@ -147,12 +202,22 @@ fn expand(input: DeriveInput) -> syn::Result<proc_macro2::TokenStream> {
             syn::GenericParam::Lifetime(_) => None,
         })
         .collect();
-    let mut transform = |fields: &mut Fields, project: bool, rule: &str, tagged: bool| {
+    let mut transform = |fields: &mut Fields,
+                         project: bool,
+                         rule: &str,
+                         tagged: bool,
+                         skip: bool| {
         let newtype = matches!(fields, Fields::Unnamed(f) if f.unnamed.len() == 1);
         let mut serialized_index = 0usize;
         let mut stable_position = true;
         for (index, field) in fields.iter_mut().enumerate() {
             let ty = field.ty.clone();
+            if skip {
+                // Keep the variant constructible, without bounds, adapters, or helpers for its payload.
+                field.attrs.retain(|a| a.path().is_ident("serde"));
+                field.ty = parse_quote!(::omochi_ui::Input<#ty>);
+                continue;
+            }
             let adapter = adapter(&field.attrs)?;
             let helper_ty = if let Some(a) = &adapter {
                 quote!(::omochi_ui::AdaptedInput<#ty, #a>)
@@ -306,7 +371,7 @@ fn expand(input: DeriveInput) -> syn::Result<proc_macro2::TokenStream> {
         Ok(())
     };
     match &mut mirror.data {
-        Data::Struct(s) => transform(&mut s.fields, true, &rename_all, false)?,
+        Data::Struct(s) => transform(&mut s.fields, true, &rename_all, false, false)?,
         Data::Enum(e) => {
             let internally_tagged = serde_name(&input.attrs, "tag")?.is_some()
                 && serde_name(&input.attrs, "content")?.is_none();
@@ -315,7 +380,13 @@ fn expand(input: DeriveInput) -> syn::Result<proc_macro2::TokenStream> {
                     .or(serde_name(&input.attrs, "rename_all_fields")?)
                     .unwrap_or_default();
                 let tagged = internally_tagged && !serde_flag(&v.attrs, "untagged")?;
-                transform(&mut v.fields, false, &rule, tagged)?;
+                transform(
+                    &mut v.fields,
+                    false,
+                    &rule,
+                    tagged,
+                    skip_serializing(&v.attrs)?,
+                )?;
             }
         }
         Data::Union(_) => return Err(syn::Error::new_spanned(name, "unions are not JSON inputs")),
@@ -352,6 +423,9 @@ fn expand(input: DeriveInput) -> syn::Result<proc_macro2::TokenStream> {
         let content = serde_name(&input.attrs, "content")?;
         let untagged = serde_flag(&input.attrs, "untagged")?;
         for variant in &data.variants {
+            if skip_serializing(&variant.attrs)? {
+                continue;
+            }
             let id = &variant.ident;
             let marker = format_ident!("{}{}Fields", name.unraw(), id.unraw());
             let method = format_ident!("variant_{}", snake(&id.unraw().to_string()));

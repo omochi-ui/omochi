@@ -21,6 +21,8 @@ The omochi renderer registers this synchronous function in its catalog:
 Each operand is resolved recursively as an input expression. The function then
 shallowly combines the operands' own JSON properties into a new object. Operands
 may themselves contain merge calls. An empty operand list produces `{}`.
+Ordinary function arguments, including nested arrays and objects, are resolved
+recursively before invocation.
 Resolved model values and function results are data: their `path` or `call`
 properties are not reinterpreted as expressions. The existing A2UI reserved
 `path`/`call` syntax still applies to inline input objects.
@@ -78,5 +80,5 @@ Concrete null/Option flattening retains Serde behavior; a reference resolving to
 null is not an object and is rejected. Use an empty object to represent no keys.
 
 `fixtures/action-input.json` contains the cross-SDK merge encoding and resolved
-value, an internally tagged newtype merge, and the existing handler validation
-cases.
+value, an internally tagged newtype merge, a merge with ordinary function
+arguments, and the existing handler validation cases.

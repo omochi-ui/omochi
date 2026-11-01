@@ -55,6 +55,31 @@
       "count": 3
     }
   },
+  "functionMerge": {
+    "model": {
+      "flag": false
+    },
+    "expression": {
+      "call": "omochiMergeObjects",
+      "args": {
+        "objects": [
+          {
+            "allowed": {
+              "call": "and",
+              "args": {
+                "values": [{ "path": "/flag" }, true]
+              },
+              "returnType": "boolean"
+            }
+          }
+        ]
+      },
+      "returnType": "object"
+    },
+    "resolved": {
+      "allowed": false
+    }
+  },
   "merge": {
     "model": {
       "$local": {

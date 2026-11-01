@@ -1,4 +1,4 @@
-import { createFunctionImplementation, type DataContext } from '@a2ui/web_core/v0_9';
+import { createFunctionImplementation, isSignal, peekValue, type DataContext } from '@a2ui/web_core/v0_9';
 import { z } from 'zod';
 
 /** Resolve expression syntax once; values obtained from the model are already data. */
@@ -19,7 +19,10 @@ export function resolveInput(value: unknown, context: DataContext, depth = 0): u
     }
     const call = value as { call: unknown; args?: unknown; returnType?: unknown };
     if (typeof call.call !== 'string' || !call.args || typeof call.args !== 'object' || Array.isArray(call.args)) throw new Error('invalid input function');
-    const resolved: unknown = context.resolveDynamicValue({ call: call.call, args: call.args, returnType: 'any' });
+    const args = Object.fromEntries(Object.entries(call.args).map(([key, item]) => [key, resolveInput(item, context, depth + 1)]));
+    // Invoking directly avoids interpreting path/call properties in resolved data a second time.
+    const result: unknown = context.functionInvoker(call.call, args, context, new AbortController().signal);
+    const resolved = isSignal(result) ? peekValue(result) : result;
     if (resolved === undefined) throw new Error('input function failed');
     return resolved;
   }
