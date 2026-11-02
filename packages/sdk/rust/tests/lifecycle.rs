@@ -6,6 +6,39 @@ use std::sync::{
 };
 use tokio::sync::Notify;
 
+#[tokio::test]
+async fn invalid_inputs_do_not_stop_the_shared_receive_loop() {
+    use std::collections::VecDeque;
+    use std::sync::Mutex;
+
+    let mut app = App::new(0_i64);
+    app.action::<i64, _, _>("add", |value, context| async move {
+        context.update(|state| *state += value).await
+    })
+    .unwrap();
+    let messages = Arc::new(Mutex::new(VecDeque::from([
+        json!({"type": "invoke", "action": "add", "input": "invalid"}),
+        json!({"type": "invoke", "action": "add", "input": 2}),
+        json!({"action": {"name": "add", "context": {"input": false}}}),
+        json!({"action": {"name": "add", "context": {"input": 3}}}),
+    ])));
+    let transport = CallbackTransport::new(
+        |_| async { Ok(()) },
+        move || {
+            let message = messages.lock().unwrap().pop_front();
+            async move { Ok(message) }
+        },
+    );
+    let mut runtime = app.build();
+    runtime.start_with(transport).await.unwrap();
+    assert_eq!(runtime.read(|state| *state).await, 5);
+    assert!(matches!(
+        runtime.invoke("add", json!("invalid")).await,
+        Err(Error::Protocol(_))
+    ));
+    assert_eq!(runtime.read(|state| *state).await, 5);
+}
+
 struct TaskStopped(Arc<AtomicBool>);
 impl Drop for TaskStopped {
     fn drop(&mut self) {

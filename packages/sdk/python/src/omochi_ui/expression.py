@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass, fields, is_dataclass
+from dataclasses import dataclass, field, fields, is_dataclass
 from typing import Any, Generic, TypeVar, TYPE_CHECKING
 if TYPE_CHECKING:
     from .schema import Schema
+    from ._context import RenderScope
 from .errors import DeclarationError
 
 T = TypeVar("T", covariant=True)
@@ -12,8 +13,59 @@ T = TypeVar("T", covariant=True)
 @dataclass(frozen=True)
 class Expr(Generic[T]):
     path: str
+    _schema: Schema[Any] | None = field(default=None, kw_only=True, repr=False, compare=False)
+    _scope: RenderScope | None = field(default=None, kw_only=True, repr=False, compare=False)
+
+    def __bool__(self) -> bool:
+        raise DeclarationError("a browser reference is not a Python value")
+
+
+Ref = Expr
+
+
+@dataclass(frozen=True)
+class Composed(Expr[T]):
+    encoded: Any = None
+    sources: tuple[Expr[Any], ...] = ()
+
+
+def references(value: Any, ancestors: set[int] | None = None) -> tuple[Expr[Any], ...]:
+    """Retain provenance until the declaration is attached to its Builder."""
+    from .references import DynamicLocal
+    if isinstance(value, DynamicLocal):
+        value = value._local
+    if isinstance(value, Composed):
+        return value.sources
+    if isinstance(value, Expr) and not isinstance(value, ObjectMerge):
+        return (value,)
+    ancestors = ancestors if ancestors is not None else set()
+    if id(value) in ancestors:
+        raise DeclarationError("cyclic action input")
+    ancestors.add(id(value))
+    try:
+        if isinstance(value, ObjectMerge):
+            children = [part.value for part in value.parts]
+        elif is_dataclass(value) and not isinstance(value, type):
+            children = [getattr(value, f.name) for f in fields(value) if f.init]
+        elif isinstance(value, dict):
+            children = list(value.values())
+        elif isinstance(value, (list, tuple)):
+            children = value
+        else:
+            children = ()
+        return tuple(ref for child in children for ref in references(child, ancestors))
+    finally:
+        ancestors.remove(id(value))
 
 def encode_input(value: Any, ancestors: set[int] | None = None) -> Any:
+    from .references import DynamicLocal
+    if isinstance(value, DynamicLocal):
+        value = value._local
+    if isinstance(value, Composed):
+        for ref in value.sources:
+            if ref._scope is not None: ref._scope.check()
+        from copy import deepcopy
+        return deepcopy(value.encoded)
     if isinstance(value, ObjectMerge):
         ancestors = ancestors if ancestors is not None else set()
         if id(value) in ancestors: raise DeclarationError("cyclic action input")
@@ -22,7 +74,9 @@ def encode_input(value: Any, ancestors: set[int] | None = None) -> Any:
             return {"call": "omochiMergeObjects", "args": {"objects": [encode_input(p.value, ancestors) for p in value.parts]}, "returnType": "object"}
         finally:
             ancestors.remove(id(value))
-    if isinstance(value, Expr): return {"path": value.path}
+    if isinstance(value, Expr):
+        if value._scope is not None: value._scope.check()
+        return {"path": value.path}
     if value is None or type(value) in (str, bool, int): return value
     if type(value) is float and math.isfinite(value): return value
     ancestors = ancestors if ancestors is not None else set()
@@ -71,7 +125,7 @@ def merge_objects(result: Schema[T], *parts: SchemaValue[Any]) -> ObjectMerge[T]
         for name, field in result.members.items():
             if not field.optional and (name not in members or members[name].optional):
                 raise DeclarationError(f"missing merged field: {name}")
-    return ObjectMerge("", tuple(parts))
+    return ObjectMerge("", tuple(parts), _schema=result)
 
 def uses_object_merge(value: Any) -> bool:
     if isinstance(value, dict):

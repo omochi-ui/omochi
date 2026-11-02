@@ -1,9 +1,8 @@
 import asyncio
 import os
 from dataclasses import dataclass
-from typing import TypedDict
 
-from omochi_ui import schema, Expr, InputSchema, ActionContext, UI, App, UnixSocketServerTransport
+from omochi_ui import ActionContext, App, UnixSocketServerTransport, ui
 
 
 @dataclass
@@ -15,32 +14,26 @@ class State:
 class RunInput:
     temperature: float
 
-class RunInputExpr(TypedDict):
-    temperature: float | Expr[float]
-
-RUN_INPUT = InputSchema(RunInput, RunInputExpr)
-TEMPERATURE = RUN_INPUT.field("temperature", schema.number())
-
-
-
 app = App(State())
 
 
-@app.action("run", schema=RUN_INPUT)
+@app.action
 async def run(input: RunInput, context: ActionContext[State]):
     async with context.update() as state:
         state.temperature = input.temperature
         state.result = f"Ran at temperature {input.temperature:g}"
 
 
-@app.surface("main")
-def main(ui: UI, state: State) -> None:
+def main(state: State) -> None:
     form = ui.local("form", RunInput(state.temperature))
     ui.text("Hello", key="title", variant="h2")
-    ui.slider("temperature", 0, 100, bind=form.field(TEMPERATURE).bind())
-    ui.button("Run", run.call({"temperature": form.field(TEMPERATURE).value()}), variant="primary")
+    ui.slider("temperature", 0, 100, bind=form.temperature)
+    ui.button("Run", on_click=run, input=form, variant="primary")
     if state.result:
         ui.text(state.result, key="result")
+
+
+app.mount(main)
 
 
 def transport():

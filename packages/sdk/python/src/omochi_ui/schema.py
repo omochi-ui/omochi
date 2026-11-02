@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import math
 import types
+from contextvars import ContextVar
 from dataclasses import fields, is_dataclass
 from typing import Any, Callable, Generic, TypeVar, get_args, get_origin, get_type_hints, is_typeddict, Literal, Union, Required, NotRequired, overload
 
@@ -10,6 +11,7 @@ from .expression import Expr, SchemaValue, encode_input
 
 T = TypeVar("T")
 E = TypeVar("E")
+_building: ContextVar[tuple[Any, ...]] = ContextVar("omochi_input_types", default=())
 
 class Schema(Generic[T]):
     def __init__(self, decode: Callable[[Any, str], T], *, optional: bool = False):
@@ -17,6 +19,22 @@ class Schema(Generic[T]):
         self.optional = optional
         self.members: dict[str, Schema[Any]] | None = None
         self.kind: Any = None
+        self.element: Schema[Any] | None = None
+        self.items: tuple[Schema[Any], ...] | None = None
+        self.variants: tuple[Schema[Any], ...] = ()
+        self.unknown_keys = "reject"
+
+    def refine(self, predicate: Callable[[T], bool], message: str = "input constraint failed") -> Schema[T]:
+        """Add a server-side constraint without losing the declared wire shape."""
+        def decode(value: Any, path: str) -> T:
+            parsed = self.decode(value, path)
+            if not predicate(parsed):
+                raise ProtocolError(f"{path}: {message}")
+            return parsed
+        result = Schema(decode, optional=self.optional)
+        result.__dict__.update(self.__dict__)
+        result.decode = decode
+        return result
 
     def input(self, value: T | Expr[T]) -> SchemaValue[T]:
         if not isinstance(value, Expr): self.parse(encode_input(value))
@@ -54,6 +72,7 @@ class InputSchema(Schema[T], Generic[T, E]):
         self.concrete, self.expression = concrete, expression
         self.members = inner.members
         self.kind = inner.kind
+        self.element, self.items, self.variants = inner.element, inner.items, inner.variants
 
 
 def _input_hints(kind: Any) -> dict[str, Any]:
@@ -139,22 +158,27 @@ def literal(value: T) -> Schema[T]:
 def nullable(inner: Schema[T]) -> Schema[T | None]:
     result = Schema(lambda v, p: None if v is None else inner.decode(v, p), optional=inner.optional)
     result.kind = ("nullable", inner.kind)
+    result.variants = (inner, literal(None))
     return result
 
 def optional(inner: Schema[T]) -> Schema[T]:
     result = Schema(inner.decode, optional=True)
     result.kind = inner.kind
     result.members = inner.members
+    result.element, result.items, result.variants = inner.element, inner.items, inner.variants
+    result.unknown_keys = inner.unknown_keys
     return result
 
 def array(inner: Schema[T]) -> Schema[list[T]]:
     result = Schema(lambda v, p: [inner.decode(x, f"{p}/{i}") for i, x in enumerate(v)] if isinstance(v, list) else _fail(p, "array"))
     result.kind = (list, inner.kind)
+    result.element = inner
     return result
 
 def tuple_(*items: Schema[Any]) -> Schema[tuple[Any, ...]]:
     result = Schema(lambda v, p: tuple(s.decode(x, f"{p}/{i}") for i, (s, x) in enumerate(zip(items, v))) if isinstance(v, (list, tuple)) and len(v) == len(items) else _fail(p, "tuple"))
     result.kind = (tuple, tuple(s.kind for s in items))
+    result.items = items
     return result
 
 def map_(inner: Schema[T]) -> Schema[dict[str, T]]:
@@ -164,6 +188,7 @@ def map_(inner: Schema[T]) -> Schema[dict[str, T]]:
         return {k: inner.decode(x, f"{p}/{k}") for k, x in v.items()}
     result = Schema(decode)
     result.kind = (dict, inner.kind)
+    result.element = inner
     return result
 
 def object_(members: dict[str, Schema[Any]], *, unknown_keys: Literal["reject", "strip", "allow"] = "reject") -> Schema[dict[str, Any]]:
@@ -180,6 +205,7 @@ def object_(members: dict[str, Schema[Any]], *, unknown_keys: Literal["reject", 
         return out
     result = Schema(decode)
     result.members = members
+    result.unknown_keys = unknown_keys
     result.kind = ("object", unknown_keys, tuple(sorted((k, s.kind, s.optional) for k, s in members.items())))
     return result
 
@@ -191,6 +217,7 @@ def union(*items: Schema[Any]) -> Schema[Any]:
         return _fail(p, "matching union member")
     result = Schema(decode, optional=any(s.optional for s in items))
     result.kind = ("union", tuple(s.kind for s in items))
+    result.variants = items
     return result
 
 def custom(decode: Callable[[Any], T]) -> Schema[T]:
@@ -204,6 +231,17 @@ def from_type(kind: type[T]) -> Schema[T]: ...
 @overload
 def from_type(kind: Any) -> Schema[Any]: ...
 def from_type(kind: Any) -> Schema[Any]:
+    stack = _building.get()
+    if kind in stack:
+        raise DeclarationError(f"recursive input type {kind!r} needs an explicit schema")
+    token = _building.set((*stack, kind))
+    try:
+        return _from_type(kind)
+    finally:
+        _building.reset(token)
+
+
+def _from_type(kind: Any) -> Schema[Any]:
     if kind is str: return string()
     if kind is bool: return boolean()
     if kind is int: return integer()
@@ -216,7 +254,14 @@ def from_type(kind: Any) -> Schema[Any]:
     if origin in (types.UnionType, Union): return union(*(from_type(t) for t in args))
     if origin is Literal: return union(*(literal(v) for v in args))
     if origin is list: return array(from_type(args[0]))
-    if origin is tuple: return tuple_(*(from_type(t) for t in args))
+    if origin is tuple:
+        if len(args) == 2 and args[1] is Ellipsis:
+            inner = from_type(args[0])
+            result = Schema(lambda v, p: tuple(array(inner).decode(v, p)))
+            result.kind = ("tuple_array", inner.kind)
+            result.element = inner
+            return result
+        return tuple_(*(from_type(t) for t in args))
     if origin is dict and args[0] is str: return map_(from_type(args[1]))
     if is_dataclass(kind) or is_typeddict(kind):
         from dataclasses import MISSING
@@ -229,7 +274,13 @@ def from_type(kind: Any) -> Schema[Any]:
         else:
             for k in members.keys() - _required_fields(kind): members[k] = optional(members[k])
         obj = object_(members)
-        result = Schema(lambda v, p: kind(**obj.decode(v, p)))
+        def decode(v: Any, p: str) -> Any:
+            values = obj.decode(v, p)
+            try:
+                return kind(**values)
+            except (ValueError, TypeError) as error:
+                raise ProtocolError(f"{p}: {error}") from error
+        result = Schema(decode)
         result.members = members
         result.kind = kind
         return result

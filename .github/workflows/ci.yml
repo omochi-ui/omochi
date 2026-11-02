@@ -50,9 +50,18 @@ jobs:
       - run: python -m pip install /tmp/sdk-wheel/*.whl
       - run: python -m mypy --follow-imports=silent packages/sdk/python/tests/typing/positive.py
       - run: python -m pyright packages/sdk/python/tests/typing/positive.py
+      - run: python -m mypy --follow-imports=silent packages/sdk/python/tests/typing/interface_positive.py
+      - run: python -m pyright packages/sdk/python/tests/typing/interface_positive.py
       - run: python -m unittest discover -s packages/sdk/python/tests -v
         env:
           PYTHONPATH: packages/sdk/python/src
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+      - run: bun install --frozen-lockfile
+      - run: bun run test:python-renderer
+        env:
+          OMOCHI_PYTHON_INSTALLED_TEST: '1'
 
   rust:
     runs-on: ubuntu-latest

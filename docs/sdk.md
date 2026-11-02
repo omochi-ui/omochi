@@ -11,9 +11,8 @@ before running TypeScript examples. The APIs produce A2UI v0.9 messages;
 ```python
 import asyncio
 from dataclasses import dataclass
-from typing import TypedDict
 
-from omochi_ui import schema, Expr, InputSchema, ActionContext, UI, App
+from omochi_ui import ActionContext, App, ui
 
 
 @dataclass
@@ -25,32 +24,26 @@ class State:
 class RunInput:
     temperature: float
 
-class RunInputExpr(TypedDict):
-    temperature: float | Expr[float]
-
-RUN_INPUT = InputSchema(RunInput, RunInputExpr)
-TEMPERATURE = RUN_INPUT.field("temperature", schema.number())
-
-
-
 app = App(State())
 
 
-@app.action("run", schema=RUN_INPUT)
+@app.action
 async def run(input: RunInput, context: ActionContext[State]):
     async with context.update() as state:
         state.temperature = input.temperature
         state.result = f"Ran at temperature {input.temperature:g}"
 
 
-@app.surface("main")
-def main(ui: UI, state: State) -> None:
+def main(state: State) -> None:
     form = ui.local("form", RunInput(state.temperature))
     ui.text("Hello", key="title", variant="h2")
-    ui.slider("temperature", 0, 100, bind=form.field(TEMPERATURE).bind())
-    ui.button("Run", run.call({"temperature": form.field(TEMPERATURE).value()}), variant="primary")
+    ui.slider("temperature", 0, 100, bind=form.temperature)
+    ui.button("Run", on_click=run, input=form, variant="primary")
     if state.result:
         ui.text(state.result, key="result")
+
+
+app.mount(main)
 
 
 asyncio.run(app.start())
@@ -338,14 +331,29 @@ that schema. Replace `form.bind("/temperature")` with
 `form.field("temperature").bind()` and use `.value()` for an action expression.
 The compiler checks required fields, nested structures and expression result types.
 
-Python actions require `schema=...`. `InputSchema(Concrete, Expression)` connects
-a dataclass or TypedDict to an explicit expression TypedDict. Field names and
-value types must agree. Declare typed references with
-`inputs.field("temperature", schema.number())`, then pass them to `local.field()`.
-Use `App[State, UI]` when an explicit application annotation is useful. Both
-synchronous and asynchronous action handlers are supported. Surface decorators
-preserve function signatures; annotate their arguments explicitly. Wheels include
-`py.typed` for mypy and Pyright consumers.
+Python actions infer their input schema from the handler's first parameter:
+`@app.action` above `async def run(value: RunInput, context): ...`.
+Use `app.mount(main)` with a plain `main(state)` function and
+`from omochi_ui import ui` for render-scoped UI declarations.
+`ui.button("Run", on_click=run, input=form)` connects a registered action to the
+form's current browser value. Partial inputs can be written directly as
+`input={"temperature": form.temperature}`. The SDK validates the declaration and
+the renderer resolves the references at click time.
+
+An explicit `schema=` remains available for custom validation. For example,
+`schema.from_type(RunInput).refine(lambda v: 0 <= v.temperature <= 100, "out of range")`
+adds a server-side constraint; a Slider's range alone does not validate received input.
+Unannotated handlers need an explicit schema. To retain a plain function for tests
+or registration with another App, use `run = app.action(handler, name="run")`.
+The decorator returns an Action handle; `.call()` builds a declaration and never
+executes the handler. Raw callbacks and lambdas are not accepted as `on_click=`.
+
+Existing `@app.surface("main")` functions receiving `(ui, state)`, `schema=`
+action registration, `InputSchema(Concrete, Expression)` and field descriptors
+remain supported. An expression TypedDict is optional; new applications do not
+need one. `App[State, UI]` and `ActionContext[State]` annotations are available for
+additional static checking. Python wheels include `py.typed`; both mypy and
+Pyright consumers are checked, including the built wheel.
 
 Dataclass inputs include only fields with `init=True`. Computed fields declared
 with `field(init=False)` are omitted when encoding and from the expression
@@ -417,6 +425,86 @@ Run `python scripts/test-sdk-types.py` with mypy and Pyright installed for Pytho
 positive/negative API checks. TypeScript checks run with the SDK test compiler;
 Rust compile-fail examples run with `cargo test --doc`.
 
+### Python State, forms, and reusable UI
+
+State is an ordinary dataclass, dictionary, or other server-side object. There is
+no required State base class and no automatic serialization or copying of State.
+One Runtime's State is shared by its connected clients. Each renderer independently
+owns its `ui.local()` drafts. Use `context.update()` inside actions or
+`runtime.update()` for background work; rendering reads State and does not mutate it.
+
+For a dataclass, `ui.local("form", RunInput())` records its declared schema.
+Dictionary and container locals through the module facade require an explicit
+`type=`, for example:
+
+```python
+from typing import TypedDict
+
+
+class FormInput(TypedDict):
+    temperature: float
+
+form = ui.local("form", {"temperature": 50.0}, type=FormInput)
+```
+
+TypedDict instances are plain dictionaries at runtime. Their declaration cannot
+be recovered from the initial value. The supplied type also preserves omitted
+optional fields, Union types, and the element types of empty containers.
+Binding to an absent optional field requires supplying that field in the initial
+value; a missing key is not converted to `None`.
+
+`form.temperature` and `form["temperature"]` return dynamic references whose
+result types are checked when connected to a control or action input. Use brackets
+for names that conflict with reference methods, such as `form["path"]`.
+For additional static checking, `form.field("temperature", float)` returns a
+`Local[float]` after checking the declared field type. Writable types must match
+exactly: nullable fields cannot be narrowed to non-nullable fields, nor Literal
+fields widened to strings. `.value()` returns a read-only `Ref[T]` and `.bind()`
+remains available for legacy code.
+
+Components are ordinary functions. Supply a stable namespace when reusing them:
+
+```python
+def temperature_control(temperature):
+    with ui.column():
+        ui.slider("Temperature", 0, 100, bind=temperature)
+
+
+def main(state):
+    for key, initial in [("low", 20.0), ("high", 80.0)]:
+        with ui.scope(key):
+            form = ui.local("form", RunInput(initial))
+            temperature_control(form.temperature)
+            ui.button("Run", on_click=run, input=form)
+```
+
+`scope()` adds no layout element. It namespaces component and Local keys, leaving
+Surface IDs and Action names unchanged. Reordering scopes preserves each draft.
+Scoped keys use `$scope:` followed by a JSON array of scope segments and the key;
+this prefix is reserved for SDK-generated IDs. Unscoped IDs retain their existing
+form. `with ui.column()` only changes layout; it does not create a key namespace.
+
+The `ui` facade is available only during synchronous rendering. It restores its
+context on failure and rejects use from another task or after rendering has ended.
+Refs and cached Action calls cannot be reused across Surface or render lifetimes.
+Custom Catalog methods remain available through `ui.catalog(CustomUI)`; existing
+Catalog-specific explicit Builders continue to work.
+
+For separate construction of action declarations, use `run.call(form)` or
+`run.call(run.compose({"temperature": form.temperature}))`. These use the same
+validation and wire representation as `on_click=` with `input=`. Do not combine
+these two forms on the same button. `input=` can be omitted only for an action
+whose input annotation/schema is `None`.
+
+Initial supported input types are finite numeric values, strings, booleans, null,
+Literal/Union types, non-recursive dataclasses and TypedDicts, arrays, fixed or
+homogeneous tuples, and string-keyed maps. Arbitrary custom classes and recursive
+types require explicit schemas; a receive-side schema alone does not provide a
+form encoder for custom values.
+
+Run `bun run test:python-renderer` for a Python stdio app round trip through the
+actual renderer model, including independent drafts in two renderer instances.
+
 ### Flatten and object composition
 
 Use object composition when an action combines fields with an entire browser
@@ -480,6 +568,6 @@ serialization still requires an adapter; unresolved fields with
 `skip_serializing_if` are rejected because arbitrary Rust predicates cannot run
 in the browser. No server trust or gateway protocol changes are required.
 
-TypeScript client schema failures are isolated to the received action: the
+TypeScript, Python, and Rust client input validation failures are isolated to the received action: the
 handler does not run, and the service continues accepting messages. Direct
 `invoke()` still rejects. Handler exceptions and transport failures propagate.

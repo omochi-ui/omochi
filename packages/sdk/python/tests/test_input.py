@@ -199,4 +199,6 @@ class InputTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(DeclarationError): merge_objects(nested, schema.object_({"count":schema.string()}).input({"count":"bad"}))
         mapping = schema.map_(schema.integer())
         dynamic = merge_objects(mapping, mapping.input(Expr("/$local/map")), mapping.input({"count":1}))
-        self.assertEqual(run.call(dynamic).input["call"], "omochiMergeObjects")
+        from omochi_ui.expression import encode_input
+        self.assertEqual(encode_input(dynamic)["call"], "omochiMergeObjects")
+        with self.assertRaises(DeclarationError): run.call(dynamic)
