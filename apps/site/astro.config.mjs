@@ -11,6 +11,8 @@ export default defineConfig({
   },
   integrations: [sitemap(), starlight({
     favicon: '/assets/mark.svg', disable404Route: true, title: 'omochi', description: 'Attach a UI to your program.',
+    // The landing page's Astro Code component also needs the github-dark Shiki theme.
+    expressiveCode: { removeUnusedThemes: false },
     logo: { src: './public/assets/mark.svg', replacesTitle: false },
     social: [{ icon: 'github', label: 'GitHub', href: 'https://github.com/omochi-ui/omochi' }],
     customCss: ['./src/styles/docs.css'],
