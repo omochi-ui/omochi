@@ -1,10 +1,11 @@
 //! One-shot enrollment over a separate, authenticated iroh ALPN.
-use crate::{
-    Endpoint, EndpointAddr,
-    store::{Role, Store},
-};
+#[cfg(feature = "desktop")]
+use crate::store::{Role, Store};
+use crate::{Endpoint, EndpointAddr, EndpointId};
 use anyhow::{Context, Result, bail};
-use omochi_protocol::{PAIR_ALPN, VERSION, read_frame, read_frame_limited, write_frame};
+#[cfg(feature = "desktop")]
+use omochi_protocol::read_frame_limited;
+use omochi_protocol::{PAIR_ALPN, VERSION, read_frame, write_frame};
 use serde::{Deserialize, Serialize};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -27,6 +28,7 @@ pub struct Invite {
     expires: u64,
 }
 impl Invite {
+    #[cfg(feature = "desktop")]
     pub fn issue(store: &Store, endpoint: &Endpoint) -> Result<Self> {
         if store.identity(Role::Gateway)?.public() != endpoint.id() {
             bail!("gateway identity mismatch")
@@ -45,6 +47,9 @@ impl Invite {
             hex::encode(serde_json::to_vec(self)?)
         ))
     }
+    pub fn gateway_id(&self) -> EndpointId {
+        self.address.id
+    }
     pub fn decode(text: &str) -> Result<Self> {
         let text = text.trim();
         if text.len() > MAX_INVITE_BYTES {
@@ -55,7 +60,8 @@ impl Invite {
                 .context("invalid invitation link")?,
         )
         .context("invalid invitation encoding")?;
-        let invite: Self = serde_json::from_slice(&bytes).context("invalid invitation")?;
+        let invite: Self =
+            serde_json::from_slice(&bytes).map_err(|_| anyhow::anyhow!("invalid invitation"))?;
         if invite.version != VERSION
             || invite.secret.len() != 64
             || !invite.secret.bytes().all(|b| b.is_ascii_hexdigit())
@@ -82,6 +88,7 @@ struct Response {
 }
 
 /// Caller bounds concurrent connections and dispatches only the pairing ALPN here.
+#[cfg(feature = "desktop")]
 pub async fn accept(connection: iroh::endpoint::Connection, store: Store) -> Result<()> {
     if connection.alpn() != PAIR_ALPN {
         bail!("incorrect enrollment protocol")
@@ -111,6 +118,85 @@ pub async fn accept(connection: iroh::endpoint::Connection, store: Store) -> Res
     Ok(())
 }
 
+/// A failed exchange may have enrolled this identity remotely. Never infer local trust.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EnrollmentError {
+    Invalid,
+    ConnectFailed,
+    Rejected,
+    OutcomeUnknown,
+}
+impl std::fmt::Display for EnrollmentError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::Invalid => "invalid enrollment request",
+            Self::ConnectFailed => "could not connect to gateway",
+            Self::Rejected => "gateway rejected invitation",
+            Self::OutcomeUnknown => {
+                "gateway enrollment outcome is unknown; retry with the same identity"
+            }
+        })
+    }
+}
+impl std::error::Error for EnrollmentError {}
+
+struct EnrollmentConnection(iroh::endpoint::Connection);
+impl Drop for EnrollmentConnection {
+    fn drop(&mut self) {
+        self.0.close(0u32.into(), b"enrollment finished");
+    }
+}
+
+/// Perform only authenticated enrollment. The caller must durably save the returned
+/// address before enabling ordinary traffic. Dropping the future closes the connection.
+pub async fn enroll(
+    endpoint: &Endpoint,
+    invite: Invite,
+    hub_name: &str,
+) -> std::result::Result<EndpointAddr, EnrollmentError> {
+    if invite.expires <= now()
+        || invite.address.id == endpoint.id()
+        || hub_name.trim().is_empty()
+        || hub_name.len() > 256
+    {
+        return Err(EnrollmentError::Invalid);
+    }
+    let connection = tokio::time::timeout(
+        Duration::from_secs(30),
+        endpoint.connect(invite.address.clone(), PAIR_ALPN),
+    )
+    .await
+    .map_err(|_| EnrollmentError::ConnectFailed)?
+    .map_err(|_| EnrollmentError::ConnectFailed)?;
+    let connection = EnrollmentConnection(connection);
+    if connection.0.remote_id() != invite.address.id {
+        return Err(EnrollmentError::Invalid);
+    }
+    let accepted = tokio::time::timeout(Duration::from_secs(10), async {
+        let (mut tx, mut rx) = connection.0.open_bi().await?;
+        write_frame(
+            &mut tx,
+            &Request {
+                version: VERSION,
+                secret: invite.secret,
+                name: hub_name.into(),
+            },
+        )
+        .await?;
+        tx.finish()?;
+        let response: Response = read_frame(&mut rx).await?.context("missing response")?;
+        Ok::<_, anyhow::Error>(response.accepted)
+    })
+    .await
+    .map_err(|_| EnrollmentError::OutcomeUnknown)?
+    .map_err(|_| EnrollmentError::OutcomeUnknown)?;
+    if !accepted {
+        return Err(EnrollmentError::Rejected);
+    }
+    Ok(invite.address)
+}
+
+#[cfg(feature = "desktop")]
 pub async fn redeem(
     endpoint: &Endpoint,
     store: Store,
@@ -125,41 +211,15 @@ pub async fn redeem(
     if gateway_name.trim().is_empty() || gateway_name.len() > 256 {
         bail!("invalid gateway name")
     }
-    let gateway = invite.address.id;
-    let connection = tokio::time::timeout(
-        Duration::from_secs(30),
-        endpoint.connect(invite.address, PAIR_ALPN),
-    )
-    .await??;
-    let result = tokio::time::timeout(Duration::from_secs(10), async {
-        let (mut tx, mut rx) = connection.open_bi().await?;
-        write_frame(
-            &mut tx,
-            &Request {
-                version: VERSION,
-                secret: invite.secret,
-                name: hub_name.into(),
-            },
-        )
-        .await?;
-        tx.finish()?;
-        let response: Response = read_frame(&mut rx)
-            .await?
-            .context("missing enrollment response; retry the invitation")?;
-        if !response.accepted {
-            bail!("invitation rejected")
-        }
-        let name = gateway_name.to_owned();
-        tokio::task::spawn_blocking(move || store.register_gateway(gateway, &name)).await??;
-        Ok::<_, anyhow::Error>(())
-    })
-    .await;
-    connection.close(0u32.into(), b"enrollment finished");
-    result??;
+    let address = enroll(endpoint, invite, hub_name).await?;
+    let name = gateway_name.to_owned();
+    tokio::task::spawn_blocking(move || store.register_gateway(address.id, &name))
+        .await?
+        .context("gateway accepted enrollment, but local registration could not be saved")?;
     Ok(())
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "desktop"))]
 mod tests {
     use super::*;
     #[tokio::test]

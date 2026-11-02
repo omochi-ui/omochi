@@ -1,7 +1,10 @@
 //! Iroh transport integration. Application authorization is separate from TLS identity.
+#[cfg(feature = "desktop")]
 pub mod live;
 pub mod pairing;
+#[cfg(feature = "desktop")]
 pub mod store;
+pub mod trust;
 use anyhow::Result;
 pub use iroh::endpoint::Connection as EndpointConnection;
 pub use iroh::{Endpoint, EndpointAddr, EndpointId, SecretKey};

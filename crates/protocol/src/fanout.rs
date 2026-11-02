@@ -7,28 +7,36 @@ use serde_json::Value;
 use std::{
     collections::VecDeque,
     io,
-    sync::{Arc, Mutex},
+    sync::{
+        Arc, Mutex, Weak,
+        atomic::{AtomicU64, Ordering},
+    },
 };
 use tokio::sync::{broadcast::error::RecvError, watch};
 
 pub const DEFAULT_BYTES: usize = 16 * 1024 * 1024;
-struct State {
-    queue: VecDeque<(Arc<Value>, usize)>,
+struct GapObserver {
+    cursor: Weak<AtomicU64>,
+    callback: Arc<dyn Fn() + Send + Sync>,
+}
+struct State<T> {
+    queue: VecDeque<(Arc<T>, usize)>,
     bytes: usize,
     next: u64,
     max_count: usize,
     max_bytes: usize,
+    gaps: Vec<GapObserver>,
 }
-pub struct Sender {
-    state: Arc<Mutex<State>>,
+pub struct Sender<T = Value> {
+    state: Arc<Mutex<State<T>>>,
     signal: watch::Sender<u64>,
 }
-pub struct Receiver {
-    state: Arc<Mutex<State>>,
+pub struct Receiver<T = Value> {
+    state: Arc<Mutex<State<T>>>,
     signal: watch::Receiver<u64>,
-    cursor: u64,
+    cursor: Arc<AtomicU64>,
 }
-pub fn channel(max_count: usize, max_bytes: usize) -> (Sender, Receiver) {
+pub fn channel<T>(max_count: usize, max_bytes: usize) -> (Sender<T>, Receiver<T>) {
     assert!(max_count > 0 && max_bytes > 0);
     let (signal, receiver) = watch::channel(0);
     let state = Arc::new(Mutex::new(State {
@@ -37,6 +45,7 @@ pub fn channel(max_count: usize, max_bytes: usize) -> (Sender, Receiver) {
         next: 0,
         max_count,
         max_bytes,
+        gaps: Vec::new(),
     }));
     (
         Sender {
@@ -46,20 +55,20 @@ pub fn channel(max_count: usize, max_bytes: usize) -> (Sender, Receiver) {
         Receiver {
             state,
             signal: receiver,
-            cursor: 0,
+            cursor: Arc::new(AtomicU64::new(0)),
         },
     )
 }
-impl Sender {
-    pub fn subscribe(&self) -> Receiver {
+impl<T: serde::Serialize> Sender<T> {
+    pub fn subscribe(&self) -> Receiver<T> {
         let state = self.state.lock().unwrap();
         Receiver {
             state: self.state.clone(),
             signal: self.signal.subscribe(),
-            cursor: state.next,
+            cursor: Arc::new(AtomicU64::new(state.next)),
         }
     }
-    pub fn send(&self, value: Arc<Value>) -> Result<(), serde_json::Error> {
+    pub fn send(&self, value: Arc<T>) -> Result<(), serde_json::Error> {
         // Count without allocating another serialized copy of a large frame.
         struct Counter(usize);
         impl io::Write for Counter {
@@ -90,23 +99,63 @@ impl Sender {
         // An oversized frame creates a sequence gap. Existing readers must
         // resnapshot rather than silently continuing after a missing update.
         self.signal.send_replace(state.next);
+        let oldest = state.next - state.queue.len() as u64;
+        let mut callbacks = Vec::new();
+        state.gaps.retain(|observer| {
+            let Some(cursor) = observer.cursor.upgrade() else {
+                return false;
+            };
+            if cursor.load(Ordering::Relaxed) < oldest {
+                callbacks.push(observer.callback.clone());
+                false
+            } else {
+                true
+            }
+        });
+        drop(state);
+        for callback in callbacks {
+            callback();
+        }
         Ok(())
     }
 }
-impl Receiver {
-    pub async fn recv(&mut self) -> Result<Arc<Value>, RecvError> {
+impl<T> Receiver<T> {
+    /// Run once when this receiver loses an update, without waiting for its next
+    /// recv. Hosts use this to invalidate operations from a stalled renderer.
+    /// The callback must be brief and nonblocking; it runs outside the ring lock.
+    pub fn on_gap(&self, callback: impl Fn() + Send + Sync + 'static) {
+        let mut state = self.state.lock().unwrap();
+        if self.cursor.load(Ordering::Relaxed) < state.next - state.queue.len() as u64 {
+            drop(state);
+            callback();
+        } else {
+            state
+                .gaps
+                .retain(|observer| observer.cursor.strong_count() != 0);
+            state.gaps.push(GapObserver {
+                cursor: Arc::downgrade(&self.cursor),
+                callback: Arc::new(callback),
+            });
+        }
+    }
+    pub fn has_gap(&self) -> bool {
+        let state = self.state.lock().unwrap();
+        self.cursor.load(Ordering::Relaxed) < state.next - state.queue.len() as u64
+    }
+    pub async fn recv(&mut self) -> Result<Arc<T>, RecvError> {
         loop {
             {
                 let state = self.state.lock().unwrap();
                 let oldest = state.next - state.queue.len() as u64;
-                if self.cursor < oldest {
-                    let lost = oldest - self.cursor;
-                    self.cursor = oldest;
+                let cursor = self.cursor.load(Ordering::Relaxed);
+                if cursor < oldest {
+                    let lost = oldest - cursor;
+                    self.cursor.store(oldest, Ordering::Relaxed);
                     return Err(RecvError::Lagged(lost));
                 }
-                if self.cursor < state.next {
-                    let value = state.queue[(self.cursor - oldest) as usize].0.clone();
-                    self.cursor += 1;
+                if cursor < state.next {
+                    let value = state.queue[(cursor - oldest) as usize].0.clone();
+                    self.cursor.store(cursor + 1, Ordering::Relaxed);
                     return Ok(value);
                 }
             }

@@ -1,3 +1,4 @@
+import { type BrowserImages } from './images.js';
 import { ResourceContext } from './resources.js';
 import { useEffect, useState, type ReactNode } from 'react';
 import { A2uiSurface, MarkdownContext } from '@a2ui/react/v0_9';
@@ -6,6 +7,7 @@ import { A2uiWebSocketClient, type Processor } from './client.js';
 
 /** One session per endpoint, shared by all of its rendered panels. */
 export function useA2uiSession(url: string, resourceBaseUrl?: string) {
+  const [images, setImages] = useState<BrowserImages | null>(null);
   const [processor, setProcessor] = useState<Processor | null>(null);
   const [status, setStatus] = useState('Connecting…');
   const [error, setError] = useState<string | null>(null);
@@ -14,7 +16,7 @@ export function useA2uiSession(url: string, resourceBaseUrl?: string) {
     setStatus('Connecting…');
     setError(null);
     const client = new A2uiWebSocketClient(url, {
-      onProcessor: setProcessor, onStatus: setStatus, onError: setError,
+      onProcessor: setProcessor, onStatus: setStatus, onError: setError, onImages: setImages,
     });
     try { client.connect(); } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason));
@@ -30,7 +32,7 @@ export function useA2uiSession(url: string, resourceBaseUrl?: string) {
     const deleted = processor.onSurfaceDeleted(sync);
     return () => { created.unsubscribe(); deleted.unsubscribe(); };
   }, [processor]);
-  return { processor, surfaceIds, status, error, endpoint: url, resourceBaseUrl };
+  return { processor, surfaceIds, status, error, images, endpoint: url, resourceBaseUrl };
 }
 
 export type A2uiSession = ReturnType<typeof useA2uiSession>;
@@ -40,7 +42,7 @@ export function SurfaceView({ session, surfaceId, fallback = null }: {
 }) {
   const surface = session.processor?.model.surfacesMap.get(surfaceId);
   return <div className="omochi-surface a2ui-light">
-    <ResourceContext.Provider value={{ endpoint: session.endpoint, surfaceId, baseUrl: session.resourceBaseUrl }}><MarkdownContext.Provider value={renderMarkdown}>
+    <ResourceContext.Provider value={{ endpoint: session.endpoint, surfaceId, baseUrl: session.resourceBaseUrl, scopedImages: session.images !== null, imageScope: session.images?.scope(surfaceId) }}><MarkdownContext.Provider value={renderMarkdown}>
       {surface ? <A2uiSurface key={surfaceId} surface={surface} /> : fallback}
     </MarkdownContext.Provider></ResourceContext.Provider>
   </div>;

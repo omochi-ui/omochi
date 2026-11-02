@@ -1,4 +1,8 @@
 fn main() {
+    println!("cargo:rerun-if-env-changed=CARGO_FEATURE_BROWSER");
+    if std::env::var_os("CARGO_FEATURE_BROWSER").is_none() {
+        return;
+    }
     let root = std::path::PathBuf::from(std::env::var_os("CARGO_MANIFEST_DIR").unwrap());
     let packaged = root.join("assets");
     let checkout = root.join("../../packages/hub-ui/dist");
