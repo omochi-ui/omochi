@@ -28,7 +28,7 @@ async function start(binary, args, pattern) {
 }
 try {
   const runtime = path.join(temporary, 'run');
-  const { match } = await start('omochi-ui', ['--config-dir', path.join(temporary, 'config'), '--runtime-dir', runtime, 'hub', '--port', '0'], /dashboard (http:\/\/127\.0\.0\.1:\d+\/)/);
+  const { match } = await start('omochi-ui', ['--config-dir', path.join(temporary, 'config'), '--runtime-dir', runtime, 'hub', '--port', '0', '--assets', path.resolve('packages/hub-ui/dist')], /dashboard (http:\/\/127\.0\.0\.1:\d+\/)/);
   const url = match[1];
   const utility = await start('omochi-utils', ['button', '--service-id', 'tasks', '--runtime-dir', runtime, '--', '/bin/echo', 'dashboard-action-complete'], /Published service/);
   await until(async () => (await (await fetch(`${url}services`)).json()).some(s => s.status === 'connected'), 'service discovery');
@@ -98,6 +98,12 @@ try {
     for(const pair of colors) { const a=luminance(pair.color), b=luminance(pair.background); pair.ratio=(Math.max(a,b)+.05)/(Math.min(a,b)+.05); assert.ok(pair.ratio>=4.5,JSON.stringify(pair)); }
     await writeFile(path.join(output,'contrast.json'),JSON.stringify(colors,null,2));
     await click('Edit dashboard');
+    assert.equal(await evaluate("window.savedSurface === document.querySelector('.omochi-surface')"), true);
+    await click('Details');
+    await until(() => evaluate("!!document.querySelector('dialog[open] #details-title')"), 'view details');
+    await cdp('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 });
+    await cdp('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 });
+    await until(() => evaluate("!document.querySelector('dialog[open]') && document.activeElement.classList.contains('details-button')"), 'details escape focus restoration').catch(async error => { console.log(await evaluate("({dialog:!!document.querySelector('dialog[open]'), focus:document.activeElement.outerHTML})")); throw error; });
     await input('[aria-label="Dashboard name"]', ''); await click('Save dashboard');
     await until(() => evaluate("document.activeElement.id === 'dashboard-name' && document.activeElement.getAttribute('aria-invalid') === 'true'"), 'name validation');
     await input('[aria-label="Dashboard name"]', 'Daily overview');
