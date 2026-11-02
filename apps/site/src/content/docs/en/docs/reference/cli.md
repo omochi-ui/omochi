@@ -1,0 +1,286 @@
+---
+title: "CLI reference"
+description: "CLI reference · omochi"
+sidebar:
+  order: 2
+---
+
+Native npm releases retain this package name; Cargo releases use `omochi-cli`.
+See [registry installation and migration](https://github.com/omochi-ui/omochi/blob/main/docs/native-releasing.md).
+
+[Overview](https://github.com/omochi-ui/omochi/blob/main/README.md) · [Architecture](/en/docs/understand/architecture/) · [Discovery guide](/en/docs/guides/remote/)
+
+Build the workspace with `bun install`, `bun run build` and
+`bun run build:native` (current stable Rust). Run commands from its root using
+`bun run omochi-ui`. The private workspace package launches the native Rust
+binary. Installed native archives use `omochi-ui` directly and need no Bun.
+See the [installation guide](https://github.com/omochi-ui/omochi/blob/main/crates/DISTRIBUTION.md).
+
+```sh
+bun run omochi-ui --help
+bun run omochi-ui hub --help
+bun run omochi-ui help generate catalog
+```
+
+`-h`, `--help`, and `help <command>` print help to stdout and exit successfully
+without starting services or changing config.
+Invalid arguments print usage to stderr and exit with code 2.
+
+## Command map
+
+| Task | Command | Browser UI included? |
+| --- | --- | --- |
+| Start a project composition | `up [FILE]` | Yes; `--open` opens it automatically |
+| Develop a single app | `dev -- <command> [args...]` | Start the Vite preview separately |
+| Compose dashboards from running apps | `hub` | Yes |
+| Publish this machine's running apps | `gateway` | No; connect a hub |
+| Show or name this machine | `id` | No |
+| Register a remote gateway | `pair --name workstation` | No |
+| Inspect live remote connection attempts | `status [--port PORT]` | No |
+| Inspect or remove paired peers | `trust list`, `trust forget <nodeId>` | No |
+| Generate SDK catalog types | `generate catalog` | No |
+
+## up
+
+Start local services, the hub, and a read-only dashboard preset from TOML.
+
+```sh
+bun run omochi-ui up --open
+bun run omochi-ui up --port 5557 ./examples/quickstart/omochi.toml
+```
+
+The file defaults to `./omochi.toml`. A service uses either a literal `command`
+or an `omochi-utils` shorthand. Commands do not use a shell; relative working
+directories are resolved from the composition file. Child services receive
+`OMOCHI_SERVICE` and remain independent: one exiting leaves its panel unavailable
+without stopping the others. Utility shorthand supports `button`, `watch`,
+`process`, `tail`, and `http`. Stdio-owned `stream` and `mcp` processes stay
+external; this lets an agent connect and disconnect independently of the preset.
+
+```toml
+version = 1
+id = "local-development"
+
+[services.health]
+utility = ["http", "http://127.0.0.1:5173/"]
+
+[services.app]
+command = ["uv", "run", "app.py"]
+cwd = "./backend"
+
+[dashboard]
+name = "Local development"
+
+[[dashboard.rows]]
+panels = ["health", "app"]
+height = "medium"
+
+[dashboard.panels.health]
+title = "Health"
+service = "health"
+
+[dashboard.panels.app]
+title = "Application"
+service = "app"
+```
+
+Rows divide the twelve-column dashboard evenly. Heights are `small`, `medium`,
+or `large`; a panel's surface defaults to `main`. Presets do not modify saved
+dashboard storage. Use **Save as dashboard** in the hub to make an editable copy.
+Ctrl+C stops only the services and gateway started by this command.
+
+| Option | Meaning | Default |
+| --- | --- | --- |
+| `--host HOST` | Hub bind address | `127.0.0.1` |
+| `--port PORT` | Hub port; `0` chooses an available port | `5555` |
+| `--allow-origin ORIGIN` | Add an exact browser origin; repeatable | Loopback origins only |
+| `--open` | Open the selected preset in the desktop browser | Off |
+
+## dev
+
+Launch a child application and bridge its JSONL stdin/stdout to WebSocket.
+
+```sh
+# Terminal 1: browser preview
+bun run --filter @omochi-ui/dev-server dev
+# Terminal 2: app + bridge
+bun run omochi-ui dev -- uv run --project examples/python examples/python/app.py
+```
+
+Open `http://127.0.0.1:5173/`. The preview's default `/ws` proxy reaches the bridge.
+All arguments after `--` belong to the child, including any `--help` flag.
+Application logging must go to stderr; stdout is reserved for A2UI JSONL.
+
+| Option | Meaning | Default |
+| --- | --- | --- |
+| `--host HOST` | Bridge bind address | `127.0.0.1` |
+| `--port PORT` | Bridge port; `0` chooses an available port | `5555` |
+
+The bridge serves WebSocket at `/ws`; it does not serve an HTML page. Startup
+prints a preview URL with `?ws=` for its actual address. The preview must already
+be running; use its printed port if Vite selected one other than 5173.
+All clients share application state, and late clients receive a current snapshot.
+The bridge has no authentication or TLS; keep the loopback default.
+
+## hub
+
+Serve the dashboard UI, discover available surfaces, and route browser actions.
+Apps must already be running with `UnixSocketServerTransport`. The bundled
+examples select that transport when `OMOCHI_SERVICE` is set.
+
+```sh
+# Terminal 1
+OMOCHI_SERVICE=python-example uv run --project examples/python examples/python/app.py
+# Terminal 2
+bun run omochi-ui hub
+```
+
+Open `http://127.0.0.1:5555/`. The hub serves its own UI and automatically starts
+a local gateway when none is listening. It reuses an existing gateway and does
+not stop a gateway it did not start.
+
+| Option | Meaning | Default |
+| --- | --- | --- |
+| `--host HOST` | HTTP/WebSocket bind address | `127.0.0.1` |
+| `--port PORT` | HTTP/WebSocket port; `0` chooses an available port | `5555` |
+| `--no-auto-gateway` | Do not start a missing local gateway | Auto-start enabled |
+| `--allow-origin ORIGIN` | Add an exact allowed browser origin; repeatable | Loopback origins only |
+| `--offline` | Disable public address lookup and relays; retain LAN mDNS | Off |
+| `--relay URL` | Custom relay URL; repeatable | n0 public relays when online |
+| `--assets DIR` | Override the embedded dashboard assets | Embedded assets |
+
+Every registered gateway connects in the background; an unavailable gateway does
+not delay local startup or other peers. Registration changes are picked up while
+the hub runs. With no registered peers the hub creates no remote endpoint.
+The browser-facing HTTP/WebSocket listener has no TLS or authentication; keep
+its loopback binding. Origin checks apply to both HTTP and WebSocket requests.
+
+## gateway
+
+Discover this user's running SDK apps and publish their surfaces. The gateway
+does not launch apps or serve the dashboard UI. Remote networking is opt-in:
+
+```sh
+bun run omochi-ui gateway
+# Enable remote access and issue an invitation:
+bun run omochi-ui gateway --remote --pair --name workstation
+```
+
+| Option | Meaning | Default |
+| --- | --- | --- |
+| `--remote` | Enable the authenticated iroh endpoint | Off |
+| `--pair` | Issue a temporary invitation; requires `--remote` | Off |
+| `--name NAME` | Gateway display name | `gateway` |
+| `--offline` | LAN mDNS/direct connections without public services | Off |
+| `--relay URL` | Custom relay URL; repeatable | n0 public relays when online |
+
+mDNS locates endpoints; it never grants access. Only registered hubs can open
+application streams. On LANs that permit multicast and direct traffic, registered
+peers can reconnect without internet access. Across networks, iroh uses direct
+connections where possible and a relay otherwise.
+
+## pair
+
+Import the gateway's invitation on the PC running the hub:
+
+```sh
+bun run omochi-ui pair --name workstation
+# Paste the invitation on stdin, then Ctrl+D.
+bun run omochi-ui hub
+```
+
+An invitation can also be the positional argument. Stdin keeps it out of shell
+history. Possession grants access: the invitation expires after 180 seconds and
+admits one hub. The same winning identity can retry an interrupted exchange.
+`--name` is the local gateway alias; `--hub-name` defaults to `hub`.
+Use `--offline` for LAN-only enrollment or `--relay URL` for a custom relay.
+Configure matching relay options on gateway, pair and hub.
+
+Users do not enter IP addresses. Registered gateways reconnect by identity;
+the alias makes them recognizable. Endpoint identity is the full 64-character
+lowercase hexadecimal iroh EndpointId. This is a breaking protocol change:
+pair old devices again and recreate saved dashboards.
+
+## status
+
+`bun run omochi-ui status` reads connection diagnostics from the running hub
+on `127.0.0.1:5555`. It prints JSON with each registered gateway’s EndpointId,
+local alias and current transport status or last connection error. Offline peers
+remain visible while reconnecting. Use `--port` (and `--host` for a different
+bind address) when necessary. This command does not create identity or trust state.
+The same information is available at `/api/connections`, with the hub’s Origin
+checks. An empty array means no remote connection attempts are currently tracked.
+
+## id and trust
+
+```sh
+bun run omochi-ui id
+bun run omochi-ui id --hub
+bun run omochi-ui trust list
+bun run omochi-ui trust forget workstation
+```
+
+`id` prints the persistent gateway identity; `--hub` selects the hub identity.
+`trust forget` accepts an EndpointId or a unique name. It durably removes trust
+and waits for every registered live local process to destroy revoked connections.
+Failure to acknowledge remains an error, even though the removal is already
+saved. Pair again to establish trust after removal.
+
+## generate catalog
+
+Generate typed bindings from a local A2UI v0.9 catalog for any subset of SDKs.
+Create output directories before running the command.
+
+```sh
+mkdir -p generated
+bun run omochi-ui generate catalog \
+  --catalog ./catalog.json \
+  --name ProductCatalog \
+  --typescript ./generated/product-catalog.ts \
+  --python ./generated/product_catalog.py \
+  --rust ./generated/product_catalog.rs
+```
+
+| Option | Meaning |
+| --- | --- |
+| `--catalog FILE` | Required catalog JSON input |
+| `--name NAME` | Type name; defaults to catalog title or `GeneratedCatalog` |
+| `--typescript FILE` | TypeScript output |
+| `--python FILE` | Python output |
+| `--rust FILE` | Rust output |
+| `--check` | Check outputs without writing; fail if missing or stale |
+
+At least one output flag is required. Generation resolves local schemas only;
+it does not fetch schemas over the network. Reuse the same invocation with
+`--check` in CI.
+
+## Ports and storage
+
+| Resource | Default |
+| --- | --- |
+| Vite browser preview | `http://127.0.0.1:5173/` |
+| Development bridge | `ws://127.0.0.1:5555/ws` |
+| Hub UI / A2UI | `http://127.0.0.1:5555/` / `ws://127.0.0.1:5555/ws` |
+| Gateway Unix socket | `$XDG_RUNTIME_DIR/omochi/gateway.sock` (fallback above) |
+| Native identity, trust and dashboards | `$XDG_CONFIG_HOME/omochi/rust-v1/` |
+
+`XDG_CONFIG_HOME` defaults to `~/.config`. Global `--config-dir` or
+`OMOCHI_CONFIG_DIR` overrides native state. Legacy identity and dashboards are
+left untouched. Global `--runtime-dir` or `OMOCHI_RUNTIME_ROOT` selects the SDK
+registry; with `up`, this path must end in `/omochi` so child SDKs use the same
+registry through `XDG_RUNTIME_DIR`. When `XDG_RUNTIME_DIR` is unset, the default
+is `<system temporary directory>/omochi-<uid>/omochi`.
+Runtime directories must be private and owned by the current user.
+
+## Troubleshooting
+
+| Symptom | What to check |
+| --- | --- |
+| `dev` starts but there is no page | Start `bun run --filter @omochi-ui/dev-server dev` and open its URL, not port 5555 |
+| Preview says disconnected | Start the bridge; with a custom port, use the printed `?ws=` URL |
+| Address already in use | `dev` and `hub` share default port 5555; stop one or set `--port 5557` |
+| Vite uses a port other than 5173 | Use Vite's printed URL, adding the bridge's `?ws=` parameter if needed |
+| Hub has no apps | Run an app with `OMOCHI_SERVICE` set and the same user/runtime directory |
+| Remote gateway is unavailable | Check gateway `--remote`, trust records and matching online/offline/relay settings; LAN multicast may be blocked |
+| Existing local gateway is incompatible | Stop the old gateway before starting the native hub |
+| Native binary is missing | Run `bun run build:native`; for a release build set `OMOCHI_NATIVE_PROFILE=release` |

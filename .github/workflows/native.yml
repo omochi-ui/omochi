@@ -1,8 +1,10 @@
 name: Native services
 on:
   pull_request:
+    paths-ignore: ['apps/site/**', '.github/workflows/site.yml']
   push:
     branches: [main]
+    paths-ignore: ['apps/site/**', '.github/workflows/site.yml']
   workflow_dispatch:
 permissions:
   contents: read

@@ -1,0 +1,56 @@
+---
+import { getRelativeLocaleUrl } from 'astro:i18n';
+import type { Locale } from '../i18n';
+import type { Messages } from '../i18n/ja';
+import '../styles/landing.css';
+
+interface Props {
+  locale: Locale;
+  copy: Messages;
+}
+const { locale, copy } = Astro.props;
+const home = getRelativeLocaleUrl(locale);
+const otherLocale = locale === 'ja' ? 'en' : 'ja';
+const canonical = new URL(home, Astro.site);
+const absoluteHome = (lang: Locale) => new URL(getRelativeLocaleUrl(lang), Astro.site);
+const image = new URL('/assets/og.png', Astro.site);
+---
+<!doctype html>
+<html lang={locale}>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width" />
+    <title>{copy.meta.title}</title>
+    <meta name="description" content={copy.meta.description} />
+    <link rel="icon" href="/assets/mark.svg" type="image/svg+xml" />
+    <link rel="canonical" href={canonical} />
+    <link rel="alternate" hreflang="ja" href={absoluteHome('ja')} />
+    <link rel="alternate" hreflang="en" href={absoluteHome('en')} />
+    <link rel="alternate" hreflang="x-default" href={absoluteHome('ja')} />
+    <meta property="og:title" content={copy.meta.title} />
+    <meta property="og:description" content={copy.meta.ogDescription} />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content={canonical} />
+    <meta property="og:image" content={image} />
+    <meta name="twitter:card" content="summary_large_image" />
+  </head>
+  <body>
+    <a class="skip" href="#main">{copy.nav.skip}</a>
+    <header class="nav wrap">
+      <a class="brand" href={home} aria-label={copy.nav.home}>
+        <img src="/assets/mark.svg" alt="" width="32" height="32" />omochi
+      </a>
+      <nav aria-label={copy.nav.label}>
+        <a href={getRelativeLocaleUrl(locale, 'docs')}>{copy.nav.docs}</a>
+        <a href="https://github.com/omochi-ui/omochi">{copy.nav.github} ↗</a>
+        <a href={getRelativeLocaleUrl(otherLocale)} lang={otherLocale}>{copy.nav.language}</a>
+      </nav>
+    </header>
+    <main id="main"><slot /></main>
+    <footer class="wrap">
+      <a class="brand" href={home}>omochi</a>
+      <p>{copy.footer.description}</p>
+      <a href="https://github.com/omochi-ui/omochi/blob/main/LICENSE">{copy.footer.license} ↗</a>
+    </footer>
+  </body>
+</html>

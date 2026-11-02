@@ -1,0 +1,31 @@
+---
+import { getRelativeLocaleUrl } from 'astro:i18n';
+import type { Locale } from '../../i18n';
+import type { Messages } from '../../i18n/ja';
+
+interface Props {
+  copy: Messages['landing']['paths'];
+  locale: Locale;
+}
+const { copy, locale } = Astro.props;
+---
+<section class="section wrap">
+  <span class="eyebrow">{copy.eyebrow}</span>
+  <div class="paths">
+    <a href={getRelativeLocaleUrl(locale, 'docs/guides/sdks')}>
+      <span>SDK</span>
+      <h3>{copy.sdkTitle} ↗</h3>
+      <p>{copy.sdkDescription}</p>
+    </a>
+    <a href={getRelativeLocaleUrl(locale, 'docs/guides/utils')}>
+      <span>UTILS</span>
+      <h3>{copy.utilsTitle} ↗</h3>
+      <p>{copy.utilsDescription}</p>
+    </a>
+    <a href={getRelativeLocaleUrl(locale, 'docs/guides/agents')}>
+      <span>MCP</span>
+      <h3>{copy.mcpTitle} ↗</h3>
+      <p>{copy.mcpDescription}</p>
+    </a>
+  </div>
+</section>

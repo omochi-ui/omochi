@@ -1,0 +1,23 @@
+---
+import type { Messages } from '../../i18n/ja';
+
+interface Props {
+  copy: Messages['landing']['dashboard'];
+}
+const { copy } = Astro.props;
+---
+<section class="dashboard-section">
+  <div class="wrap">
+    <div class="section-heading">
+      <div>
+        <span class="eyebrow">{copy.eyebrow}</span>
+        <h2>{copy.title}<br />{copy.continuation}</h2>
+      </div>
+      <p>{copy.description}</p>
+    </div>
+    <figure>
+      <img src="/assets/dashboard.png" alt={copy.alt} loading="lazy" width="1440" height="1000" />
+      <figcaption>{copy.caption}</figcaption>
+    </figure>
+  </div>
+</section>

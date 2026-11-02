@@ -1,0 +1,7 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "omochi-site",
+  "compatibility_date": "2026-11-02",
+  "assets": { "directory": "./dist", "not_found_handling": "404-page", "html_handling": "force-trailing-slash" },
+  "routes": [{ "pattern": "omochi.fyi", "custom_domain": true }]
+}

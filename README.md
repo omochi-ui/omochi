@@ -77,7 +77,7 @@ Open **http://127.0.0.1:5173/**. The preview connects to the bridge on port 5555
 you should see the example's controls. Stop both processes with Ctrl+C.
 
 `dev` launches your application and a bridge. The browser preview is a separate
-server. If either port is occupied, see [CLI troubleshooting](docs/cli.md#troubleshooting).
+server. If either port is occupied, see [CLI troubleshooting](https://omochi.fyi/en/docs/understand/troubleshooting/).
 
 Other examples use the same preview:
 
@@ -86,7 +86,7 @@ Other examples use the same preview:
 | TypeScript | `bun run omochi-ui dev -- bun run --cwd examples/typescript start` | Bun (used by the example) |
 | Rust | `bun run omochi-ui dev -- cargo run --manifest-path examples/rust/Cargo.toml` | Rust 1.85+ and Cargo |
 
-See the [SDK guide](docs/sdk.md) for code examples, state, actions, components,
+See the [SDK guide](https://omochi.fyi/en/docs/guides/sdks/) for code examples, state, actions, components,
 and transports in all three languages.
 
 The [agent approval example](examples/agent-approval/README.md) provides a shared
@@ -115,9 +115,9 @@ bun run omochi-ui dev --help
 bun run omochi-ui help hub
 ```
 
-The [CLI reference](docs/cli.md) lists all options, defaults, and examples.
+The [CLI reference](https://omochi.fyi/en/docs/reference/cli/) lists all options, defaults, and examples.
 
-For lightweight entry points, [@omochi-ui/utils](docs/utils.md) can publish
+For lightweight entry points, [@omochi-ui/utils](https://omochi.fyi/en/docs/reference/utils/) can publish
 command buttons, watches, processes, logs, streams, HTTP health views, or
 agent-created A2UI surfaces over MCP:
 
@@ -153,19 +153,21 @@ view published by an app.
 `hub` and `dev` both default to port 5555. Stop the bridge before running this
 example, or choose another port with `--port`.
 
-See [Discovery and dashboards](docs/discovery.md) for multiple machines, SSH,
-LAN pairing, storage, and the dashboard API. Network discovery and remote gateway
+See [Dashboard guide](https://omochi.fyi/en/docs/guides/dashboards/) for composing apps and
+[remote connections](https://omochi.fyi/en/docs/guides/remote/) for pairing machines. Network discovery and remote gateway
 listeners are off by default. The development bridge and hub bind to loopback
 and have no authentication or TLS.
 
 ## Documentation and development
 
+[Documentation](https://omochi.fyi/en/docs/) · [日本語](https://omochi.fyi/docs/) · [Website development](apps/site/README.md)
+
 | Read | For |
 | --- | --- |
 | [Architecture](docs/architecture.md) | Runtime flow, process diagrams, ownership, and package map |
-| [SDK guide](docs/sdk.md) | Python, TypeScript, Rust, components, and transports |
-| [CLI reference](docs/cli.md) | Commands, flags, defaults, and troubleshooting |
-| [Discovery and dashboards](docs/discovery.md) | Local services, remote access, and routing |
+| [SDK guide](https://omochi.fyi/en/docs/guides/sdks/) | Python, TypeScript, Rust, components, and transports |
+| [CLI reference](https://omochi.fyi/en/docs/reference/cli/) | Commands, flags, defaults, and troubleshooting |
+| [Discovery and dashboards](https://omochi.fyi/en/docs/guides/remote/) | Local services, remote access, and routing |
 | [Design system](docs/design-system.md) | Shared palette, tokens, components, and connection states |
 | [Contributing](CONTRIBUTING.md) | Setup, tests, and change guidelines |
 

@@ -1,0 +1,47 @@
+---
+import type { Messages } from '../../i18n/ja';
+import { Code } from 'astro:components';
+
+interface Props {
+  copy: Messages['landing']['workbench'];
+}
+const { copy } = Astro.props;
+const code = `import asyncio
+from omochi_ui import App
+
+app = App({"count": 0})
+
+@app.action("increment")
+async def increment(input, ctx):
+    await ctx.update(lambda s: s.update(count=s["count"] + 1))
+
+@app.surface("main")
+def main(ui, state):
+    ui.text(f'Count: {state["count"]}')
+    ui.button("Add one", increment.call({}))
+
+asyncio.run(app.start())`;
+---
+<section class="workbench wrap" aria-label={copy.label}>
+  <div class="workbench-bar">
+    <span>● ● ●</span>
+    <span>{copy.eyebrow}</span>
+    <span>01 — 03</span>
+  </div>
+  <div class="bench-grid">
+    <div class="code-pane">
+      <div class="pane-label">counter.py <span>PYTHON</span></div>
+      <Code code={code} lang="python" theme="github-dark" />
+    </div>
+    <div class="preview-pane">
+      <div class="pane-label">{copy.preview} <span>A2UI</span></div>
+      <div class="counter">
+        <span class="small-label">{copy.example}</span>
+        <h2>{copy.counter}</h2>
+        <span class="sample-button">{copy.button} <span>+</span></span>
+        <p>{copy.description}</p>
+      </div>
+      <div class="connection">{copy.connection}</div>
+    </div>
+  </div>
+</section>

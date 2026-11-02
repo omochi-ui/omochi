@@ -26,7 +26,17 @@
     "release:native:pack:npm": "python3 scripts/package-native-npm.py",
     "release:native:smoke:npm": "bun scripts/smoke-native-npm.ts",
     "release:native:stage:npm": "bun scripts/native-release.ts stage-npm",
-    "build:web": "bun run --bun --filter '*' build"
+    "build:web": "bun run --bun --filter './packages/**' build",
+    "site:dev": "bun run --cwd apps/site dev",
+    "site:check": "bun run --cwd apps/site check",
+    "site:build": "bun run --cwd apps/site build",
+    "site:preview": "bun run --cwd apps/site preview",
+    "site:deploy": "bun run --cwd apps/site deploy",
+    "dev:site": "bun run --filter @omochi-ui/site dev",
+    "check:site": "bun run --filter @omochi-ui/site check",
+    "build:site": "bun run --filter @omochi-ui/site build",
+    "preview:site": "bun run --filter @omochi-ui/site preview",
+    "deploy:site": "bun run --filter @omochi-ui/site deploy"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
@@ -51,7 +61,8 @@
     "packages/renderer",
     "packages/hub-ui",
     "packages/npm/cli",
-    "packages/npm/utils"
+    "packages/npm/utils",
+    "apps/site"
   ],
   "trustedDependencies": [
     "esbuild"
