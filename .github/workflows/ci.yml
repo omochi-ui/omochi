@@ -26,9 +26,22 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version-file: .bun-version
+      - name: Cache Bun packages
+        uses: actions/cache@v6
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('.bun-version') }}-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            bun-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('.bun-version') }}-
       - run: bun install --frozen-lockfile
       - run: bun run release:check
       - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            crates -> target
+            packages/sdk/rust -> target
+            examples/rust -> target
       - run: bun run test
       - run: bun run --bun --filter '*' lint
 
@@ -60,5 +73,8 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: packages/sdk/rust -> target
       - run: cargo fmt --manifest-path packages/sdk/rust/Cargo.toml --check
       - run: cargo test --manifest-path packages/sdk/rust/Cargo.toml --locked

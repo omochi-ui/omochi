@@ -36,6 +36,17 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.os }}
+          workspaces: crates -> target
+      - name: Cache Bun packages
+        uses: actions/cache@v6
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('.bun-version') }}-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            bun-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('.bun-version') }}-
       - run: bun install --frozen-lockfile
       - run: python3 -B scripts/test_native_packaging.py
       - run: python3 scripts/package-native.py
@@ -48,7 +59,14 @@ jobs:
       - run: OMOCHI_NATIVE_TEST=1 OMOCHI_NATIVE_PROFILE=release bun test tests/native/mcp.test.ts
       - run: OMOCHI_NATIVE_TEST=1 OMOCHI_NATIVE_PROFILE=release bun test packages/renderer/test/native.test.ts
       - run: cargo clippy --manifest-path crates/Cargo.toml --release --locked --all-targets -- -D warnings
-      - if: runner.os == 'Linux'
+      - name: Cache iroh-relay binary
+        if: runner.os == 'Linux'
+        id: relay-cache
+        uses: actions/cache@v6
+        with:
+          path: ${{ runner.temp }}/relay-tool
+          key: iroh-relay-${{ matrix.os }}-${{ runner.arch }}-1.4.1-server-v1
+      - if: runner.os == 'Linux' && steps.relay-cache.outputs.cache-hit != 'true'
         run: cargo install --locked iroh-relay --version '=1.4.1' --features server --root "$RUNNER_TEMP/relay-tool"
       - if: runner.os == 'Linux'
         run: python3 scripts/smoke-relay.py "$RUNNER_TEMP/relay-tool/bin/iroh-relay"

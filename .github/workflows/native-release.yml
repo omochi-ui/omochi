@@ -77,6 +77,17 @@ jobs:
         with:
           python-version: '3.12'
       - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.os }}-${{ matrix.target }}
+          workspaces: crates -> target
+      - name: Cache Bun packages
+        uses: actions/cache@v6
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('.bun-version') }}-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            bun-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('.bun-version') }}-
       - run: bun install --frozen-lockfile
       - run: python3 -B scripts/test_native_packaging.py
       - run: python3 scripts/package-native.py
@@ -133,6 +144,16 @@ jobs:
         with:
           python-version: '3.12'
       - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: crates -> target
+      - name: Cache Bun packages
+        uses: actions/cache@v6
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('.bun-version') }}-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            bun-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('.bun-version') }}-
       - run: bun install --frozen-lockfile
       - run: bun run --filter @omochi-ui/renderer build && bun run --filter @omochi-ui/hub-ui build
       - run: python3 scripts/package-crates.py
@@ -193,10 +214,20 @@ jobs:
         with:
           python-version: '3.12'
       - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: crates -> target
       - uses: actions/download-artifact@v8
         with:
           name: native-crate-distributions
           path: artifacts/crates-verified/
+      - name: Cache Bun packages
+        uses: actions/cache@v6
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('.bun-version') }}-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            bun-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('.bun-version') }}-
       - run: bun install --frozen-lockfile
       - run: bun run --filter @omochi-ui/renderer build && bun run --filter @omochi-ui/hub-ui build
       - name: Reproduce verified crates before obtaining credentials

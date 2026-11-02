@@ -72,10 +72,23 @@ jobs:
         with:
           node-version: '24'
           package-manager-cache: false
+      - name: Cache Bun packages
+        uses: actions/cache@v6
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('.bun-version') }}-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            bun-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('.bun-version') }}-
       - run: bun install --frozen-lockfile
       - run: bun run release:typecheck
       - run: bun test scripts/release.test.ts scripts/native-release.test.ts
       - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            crates -> target
+            packages/sdk/rust -> target
+            examples/rust -> target
       - run: bun run test
       - run: bun run --bun --filter '*' lint
       - run: bun run release:pack
@@ -138,6 +151,9 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: packages/sdk/rust -> target
       - run: cargo fmt --manifest-path packages/sdk/rust/Cargo.toml --check
       - run: cargo test --manifest-path packages/sdk/rust/Cargo.toml --locked
       - run: cargo package --manifest-path packages/sdk/rust/Cargo.toml --locked
@@ -237,6 +253,9 @@ jobs:
           ref: ${{ needs.prepare.outputs.commit }}
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: packages/sdk/rust -> target
       - uses: actions/download-artifact@v8
         with:
           name: rust-distribution
