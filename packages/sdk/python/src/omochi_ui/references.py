@@ -32,6 +32,27 @@ def same_type(left: Schema[Any], right: Schema[Any]) -> bool:
     return _known_kind(left.kind) and _known_kind(right.kind) and _kind(left.kind) == _kind(right.kind)
 
 
+def _compatible_kind(left: Any, right: Any) -> bool:
+    if left is None or right is None:
+        return True
+    left_union = isinstance(left, tuple) and bool(left) and left[0] == "union"
+    right_union = isinstance(right, tuple) and bool(right) and right[0] == "union"
+    if left_union or right_union:
+        left_variants = left[1] if left_union else (left,)
+        right_variants = right[1] if right_union else (right,)
+        # Union order is irrelevant, but every known branch must still match.
+        return (all(any(_compatible_kind(a, b) for b in right_variants) for a in left_variants)
+                and all(any(_compatible_kind(a, b) for a in left_variants) for b in right_variants))
+    if isinstance(left, tuple) and isinstance(right, tuple):
+        return len(left) == len(right) and all(_compatible_kind(a, b) for a, b in zip(left, right))
+    return left == right
+
+
+def compatible_type(left: Schema[Any], right: Schema[Any]) -> bool:
+    """Compare known structure, leaving only custom decoder subtrees unchecked."""
+    return _compatible_kind(_kind(left.kind), _kind(right.kind))
+
+
 class ModelBinding(dict[str, str], Generic[T]):
     def __init__(self, path: str, *, scope: RenderScope | None = None, schema: Schema[Any] | None = None):
         dict.__init__(self, path=path)

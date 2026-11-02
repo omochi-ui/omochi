@@ -9,7 +9,7 @@ from typing_extensions import TypeVar as DefaultTypeVar
 from .schema import Schema, InputSchema, from_type
 from .expression import Expr, encode_input, references
 from .inputs import compose
-from .references import same_type
+from .references import compatible_type
 from ._context import current_ui
 
 from .resources import ResourceRegistry, hello
@@ -164,7 +164,7 @@ class App(Generic[StateType, UIType]):
                     expected = from_type(annotation) if annotation is not None else None
                 except (NameError, TypeError, DeclarationError):
                     expected = None  # An explicit schema can support custom domain types.
-                if expected is not None and declared.kind is not None and not same_type(declared, expected):
+                if expected is not None and not compatible_type(declared, expected):
                     raise DeclarationError("Action schema and handler input annotation have different types")
             self._actions[action_name] = (handler, declared)
             return Action(action_name, declared, self._owner)

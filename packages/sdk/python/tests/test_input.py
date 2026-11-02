@@ -15,6 +15,63 @@ class ValuesExpr(TypedDict):
 INPUT = InputSchema(Values, ValuesExpr)
 
 class InputTests(unittest.IsolatedAsyncioTestCase):
+    async def test_explicit_schemas_with_nested_custom_decoders(self):
+        for annotation, validator, raw, decoded in [
+            (list[int], schema.array(schema.custom(int)), ["1", "2"], [1, 2]),
+            (dict[str, int], schema.map_(schema.custom(int)), {"count": "3"}, {"count": 3}),
+            (tuple[str, int], schema.tuple_(schema.string(), schema.custom(int)), ["count", "4"], ("count", 4)),
+            (list[dict[str, tuple[int]]], schema.array(schema.map_(schema.tuple_(schema.custom(int)))), [{"count": ["5"]}], [{"count": (5,)}]),
+            (int, schema.custom(int), "6", 6),
+            (int | None, schema.nullable(schema.custom(int)), "7", 7),
+            (int | None, schema.nullable(schema.custom(int)), None, None),
+            (tuple[int, int] | str, schema.union(schema.string(), schema.tuple_(schema.integer(), schema.custom(int))), [1, "8"], (1, 8)),
+            (tuple[int, int] | str, schema.union(schema.tuple_(schema.integer(), schema.custom(int)), schema.string()), "ready", "ready"),
+        ]:
+            with self.subTest(annotation=annotation):
+                calls = []
+                app = App({})
+                def run(value, ctx): calls.append(value)
+                run.__annotations__["value"] = annotation
+                app.action(run, schema=validator)
+                await app.build().invoke("run", raw)
+                self.assertEqual(calls, [decoded])
+
+    def test_explicit_schemas_reject_known_nested_type_mismatches(self):
+        for annotation, validator in [
+            (list[int], schema.array(schema.string())),
+            (dict[str, int], schema.map_(schema.string())),
+            (tuple[str, int], schema.tuple_(schema.string(), schema.string())),
+        ]:
+            with self.subTest(annotation=annotation):
+                app = App({})
+                def run(value, ctx): pass
+                run.__annotations__["value"] = annotation
+                with self.assertRaisesRegex(DeclarationError, "different types"):
+                    app.action(run, schema=validator)
+
+    def test_explicit_schemas_check_known_structure_beside_custom_decoders(self):
+        for annotation, validator in [
+            (tuple[int, int], schema.tuple_(schema.string(), schema.custom(int))),
+            (tuple[int, int], schema.tuple_(schema.custom(int), schema.string())),
+            (tuple[int, int], schema.tuple_(schema.custom(int))),
+            (tuple[int], schema.tuple_(schema.custom(int), schema.integer())),
+            (list[int], schema.map_(schema.custom(int))),
+            (dict[str, int], schema.array(schema.custom(int))),
+            (int, schema.array(schema.custom(int))),
+            (list[tuple[int, int]], schema.array(schema.tuple_(schema.string(), schema.custom(int)))),
+            (dict[str, tuple[int, int]], schema.map_(schema.tuple_(schema.custom(int), schema.string()))),
+            (tuple[list[int], int], schema.tuple_(schema.map_(schema.custom(int)), schema.custom(int))),
+            (tuple[int, int] | str, schema.union(schema.string(), schema.tuple_(schema.string(), schema.custom(int)))),
+            (int | None, schema.union(schema.string(), schema.custom(int))),
+            (int, schema.nullable(schema.custom(int))),
+        ]:
+            with self.subTest(annotation=annotation, kind=validator.kind):
+                app = App({})
+                def run(value, ctx): pass
+                run.__annotations__["value"] = annotation
+                with self.assertRaisesRegex(DeclarationError, "different types"):
+                    app.action(run, schema=validator)
+
     async def test_dataclass_computed_fields_are_not_action_inputs(self):
         @dataclass
         class Computed:
