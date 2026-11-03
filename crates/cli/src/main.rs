@@ -80,6 +80,12 @@ enum Command {
         no_auto_gateway: bool,
         #[arg(long)]
         assets: Option<PathBuf>,
+        /// Accept shared dashboard clients over iroh without exposing local HTTP.
+        #[arg(long, requires = "web_url", conflicts_with = "offline")]
+        remote: bool,
+        /// HTTPS base of the separately hosted dashboard client.
+        #[arg(long, requires = "remote", value_parser = validate_web_url)]
+        web_url: Option<String>,
         #[arg(long)]
         offline: bool,
         #[arg(long)]
@@ -420,6 +426,8 @@ async fn run(cli: Cli) -> Result<()> {
             allow_origin,
             no_auto_gateway,
             assets,
+            remote,
+            web_url,
             offline,
             relay,
         } => {
@@ -433,6 +441,8 @@ async fn run(cli: Cli) -> Result<()> {
                     allow_origin,
                     no_auto_gateway,
                     assets,
+                    remote,
+                    web_url,
                     offline,
                     relay,
                     presets: vec![],
@@ -463,6 +473,8 @@ async fn run(cli: Cli) -> Result<()> {
                     allow_origin,
                     no_auto_gateway: false,
                     assets: None,
+                    remote: false,
+                    web_url: None,
                     offline: false,
                     relay: vec![],
                     presets: vec![composition.preset],
@@ -483,6 +495,8 @@ struct HubOptions {
     allow_origin: Vec<String>,
     no_auto_gateway: bool,
     assets: Option<PathBuf>,
+    remote: bool,
+    web_url: Option<String>,
     offline: bool,
     relay: Vec<String>,
     presets: Vec<serde_json::Value>,
@@ -501,6 +515,8 @@ async fn serve_hub(
         allow_origin,
         no_auto_gateway,
         assets,
+        remote: remote_dashboard,
+        web_url,
         offline,
         relay,
         presets,
@@ -525,16 +541,20 @@ async fn serve_hub(
     };
     let hub = omochi_hub::Hub::new();
     let attached = hub.attach_unix(socket);
+    let dashboards =
+        omochi_hub::dashboards::DashboardStore::open(root).map_err(|e| anyhow::anyhow!(e.1))?;
+    let remote_boards = dashboards.clone();
     let remote_hub = hub.clone();
     let remote_store = store.clone();
     let remote = tokio::spawn(async move {
         let stop = remote_hub.cancellation_token();
         loop {
-            if remote_store
-                .peers()?
-                .1
-                .values()
-                .any(|p| p.role == Role::Gateway)
+            if remote_dashboard
+                || remote_store
+                    .peers()?
+                    .1
+                    .values()
+                    .any(|p| p.role == Role::Gateway)
             {
                 break;
             }
@@ -552,14 +572,29 @@ async fn serve_hub(
         };
         let endpoint =
             omochi_transport::bind(remote_store.identity(Role::Hub)?, offline, relays).await?;
+        let listener = if remote_dashboard {
+            let listener = omochi_hub::dashboard_remote::listen(
+                remote_hub.clone(),
+                remote_boards,
+                endpoint.clone(),
+            )?;
+            remote_hub.set_dashboard_host(
+                endpoint.clone(),
+                web_url.context("Missing dashboard HTTPS base")?,
+            )?;
+            Some(listener)
+        } else {
+            None
+        };
         remote_hub
             .attach_registered(endpoint, remote_store)
             .0
             .await?;
+        if let Some(listener) = listener {
+            listener.await??;
+        }
         Ok(())
     });
-    let dashboards =
-        omochi_hub::dashboards::DashboardStore::open(root).map_err(|e| anyhow::anyhow!(e.1))?;
     let selected_preset = presets
         .first()
         .and_then(|preset| preset["id"].as_str())
@@ -637,6 +672,36 @@ mod shutdown_tests {
                 "--pair",
                 "--web-url",
                 base
+            ])
+            .is_ok()
+        );
+    }
+
+    #[test]
+    fn downstream_dashboard_listener_is_explicit_and_keeps_offline_ws_separate() {
+        assert!(Cli::try_parse_from(["omochi-ui", "hub", "--remote"]).is_err());
+        assert!(
+            Cli::try_parse_from(["omochi-ui", "hub", "--web-url", "https://ui.example/"]).is_err()
+        );
+        assert!(
+            Cli::try_parse_from([
+                "omochi-ui",
+                "hub",
+                "--remote",
+                "--web-url",
+                "https://ui.example/",
+                "--offline"
+            ])
+            .is_err()
+        );
+        assert!(Cli::try_parse_from(["omochi-ui", "hub", "--offline"]).is_ok());
+        assert!(
+            Cli::try_parse_from([
+                "omochi-ui",
+                "hub",
+                "--remote",
+                "--web-url",
+                "https://ui.example/dashboard/"
             ])
             .is_ok()
         );

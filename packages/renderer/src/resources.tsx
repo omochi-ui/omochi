@@ -67,8 +67,11 @@ const DirectVideo = createComponentImplementation(VideoApi, () => <span role="st
 const DirectAudio = createComponentImplementation(AudioPlayerApi, () => <span role="status">Audio unavailable in direct mode</span>);
 const directReplacements = new Map([['Text', DirectText], ['Image', DirectImage], ['Video', DirectVideo], ['AudioPlayer', DirectAudio]]);
 
+const HubVideo = createComponentImplementation(VideoApi, () => <span role="status">Video unavailable for shared dashboards</span>);
+const HubAudio = createComponentImplementation(AudioPlayerApi, () => <span role="status">Audio unavailable for shared dashboards</span>);
+const hubReplacements = new Map([...directReplacements, ['Video', HubVideo], ['AudioPlayer', HubAudio]]);
 export function createResourceCatalog(policy: ImagePolicy) {
-  const selected = policy === 'sdk-png' ? directReplacements : replacements;
+  const selected = policy === 'native' ? replacements : policy === 'hub' ? hubReplacements : directReplacements;
   return new Catalog(basicCatalog.id,
     [...basicCatalog.components].map(([name, component]) => selected.get(name) ?? component),
     [...basicCatalog.functions.values()], basicCatalog.themeSchema);

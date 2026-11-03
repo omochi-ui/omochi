@@ -116,6 +116,9 @@ pub fn validate(value: Value) -> Result<Input> {
     Ok(input)
 }
 impl DashboardStore {
+    pub fn shares(&self) -> crate::sharing::ShareStore {
+        crate::sharing::ShareStore::new(self.root.clone())
+    }
     pub fn open(root: impl AsRef<Path>) -> Result<Self> {
         let root = root.as_ref().to_owned();
         if !root.exists() {
@@ -178,6 +181,27 @@ impl DashboardStore {
         value: Value,
         remove: bool,
     ) -> Result<Option<Dashboard>> {
+        self.mutate_checked(id, value, remove, |_, _| Ok(()))
+    }
+    pub(crate) fn mutate_shared_layout(
+        &self,
+        grant: &crate::sharing::Grant,
+        value: Value,
+    ) -> Result<Option<Dashboard>> {
+        self.mutate_checked(Some(&grant.board_id), value, false, |current, input| {
+            grant.validate_layout(
+                current.ok_or_else(|| ApiError::new(404, "Dashboard not found"))?,
+                input,
+            )
+        })
+    }
+    fn mutate_checked(
+        &self,
+        id: Option<&str>,
+        value: Value,
+        remove: bool,
+        policy: impl FnOnce(Option<&Dashboard>, &Input) -> Result<()>,
+    ) -> Result<Option<Dashboard>> {
         let lock = OpenOptions::new()
             .create(true)
             .truncate(false)
@@ -206,12 +230,14 @@ impl DashboardStore {
             if revision > 9_007_199_254_740_991 {
                 return Err(ApiError::new(409, "Dashboard revision exhausted"));
             }
+            let input = validate(value)?;
+            policy(current, &input)?;
             Some(Dashboard {
                 id: id
                     .map(str::to_owned)
                     .unwrap_or_else(|| uuid::Uuid::new_v4().to_string()),
                 revision,
-                input: validate(value)?,
+                input,
             })
         };
         storage.dashboards.retain(|d| Some(d.id.as_str()) != id);

@@ -1,5 +1,9 @@
 # Project relay deployment
 
+See the [deployment overview](../README.md) for the `app.omochi.fyi` static client
+and native hub setup. This relay is a separate, optional deployment; the hosted
+dashboard can use the existing n0 relay defaults.
+
 These templates target **iroh-relay 1.4.1**, matching the native application's
 pinned iroh version. They prepare a public relay; no host has been provisioned.
 The operator must supply a DNS hostname, machine and certificate contact.
@@ -42,7 +46,8 @@ public relay and address lookup entirely while preserving LAN discovery.
 ## Admission and capacity
 
 `access = "everyone"` intentionally admits any iroh endpoint. Relay admission is
-separate from Omochi trust: application streams still require registered peers.
+separate from Omochi authorization: gateway streams require registered peers,
+and dashboard streams require a valid identity grant or public-link credential.
 The upstream server rate-limits new connections to 10/s with a burst of 20 and
 client ingress to 1 MiB/s with a 4 MiB burst. Adjust after measuring real workloads.
 The systemd unit caps memory at 1 GiB, tasks at 256 and open files at 8192.
@@ -50,8 +55,10 @@ These are process protections, not a total bandwidth or billing cap. Configure
 host/provider egress quotas and budget alerts before public distribution.
 
 For a restricted rollout, replace `access = "everyone"` with an upstream
-`access.allowlist = ["<64-hex-endpoint-id>", ...]` list containing both hub and
-gateway identities. Restart the relay after policy edits; config is not hot-reloaded.
+`access.allowlist = ["<64-hex-endpoint-id>", ...]` list containing participating hub,
+gateway and browser identities. Public dashboard links use ephemeral browser
+identities, so a fixed allowlist does not support arbitrary public recipients.
+Restart the relay after policy edits; config is not hot-reloaded.
 Do not store invitation bearer secrets in relay config or logs.
 
 ## Monitoring and acceptance

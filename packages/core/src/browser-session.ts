@@ -3,7 +3,7 @@ import type { A2uiClientMessage, A2uiMessage } from '@a2ui/web_core/v0_9';
 export type Unsubscribe = () => void;
 export type ServiceKey = string;
 export type LeaseId = string;
-export type ImagePolicy = 'native' | 'sdk-png';
+export type ImagePolicy = 'native' | 'sdk-png' | 'hub';
 export type ClientMessage = A2uiClientMessage & {
   metadata?: { a2uiClientDataModel?: unknown };
 };
@@ -37,8 +37,8 @@ const errorMessages: Record<SessionErrorCode, string> = {
   EnrollmentRejected: 'The gateway rejected enrollment.',
   EnrollmentUnknown: 'Enrollment could not be confirmed. Retry with the same identity.',
   EnrollmentUnsaved: 'Enrollment succeeded but could not be saved. Retry saving.',
-  NotAuthorized: 'This browser is not authorized by the gateway.',
-  NetworkUnavailable: 'The gateway connection is unavailable.',
+  NotAuthorized: 'This connection is not authorized.',
+  NetworkUnavailable: 'The source connection is unavailable.',
   ProtocolError: 'The source sent invalid protocol data.',
   CapacityExceeded: 'Browser capacity exceeded. Release a source or retry.',
   SourceUnavailable: 'This source is unavailable.',

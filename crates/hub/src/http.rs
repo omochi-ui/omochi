@@ -120,6 +120,9 @@ pub async fn serve(
             .route("/events", get(events))
             .route("/api/dashboards", any(dashboards))
             .route("/api/dashboards/{id}", any(dashboards))
+            .route("/api/sharing", get(sharing))
+            .route("/api/shares", any(shares))
+            .route("/api/shares/{id}", any(shares))
             .route("/api/presets", get(presets))
             .route("/api/connections", get(connections))
             .fallback(static_ui)
@@ -140,6 +143,79 @@ pub async fn serve(
         Ok(())
     });
     Ok((address, task))
+}
+async fn sharing(State(state): State<Arc<HttpState>>) -> Json<Value> {
+    Json(
+        state
+            .hub
+            .dashboard_host()
+            .unwrap_or(json!({"enabled":false})),
+    )
+}
+/// Local owner administration; the common Origin middleware protects every route.
+async fn shares(
+    State(state): State<Arc<HttpState>>,
+    request: Request,
+) -> Result<Response, ApiError> {
+    #[derive(serde::Deserialize)]
+    #[serde(rename_all = "camelCase", deny_unknown_fields)]
+    struct Create {
+        board_id: String,
+        public: bool,
+        permissions: crate::sharing::Permissions,
+    }
+    let method = request.method().clone();
+    let id = request
+        .uri()
+        .path()
+        .strip_prefix("/api/shares/")
+        .map(str::to_owned);
+    let boards = state.dashboards.clone();
+    if method == Method::GET && id.is_none() {
+        return tokio::task::spawn_blocking(move || {
+            boards
+                .shares()
+                .list()
+                .map(|list| Json(list).into_response())
+        })
+        .await
+        .map_err(|_| ApiError::new(503, "Sharing unavailable"))?;
+    }
+    if method == Method::DELETE {
+        let id = id.ok_or_else(|| ApiError::new(405, "Method not allowed"))?;
+        boards.shares().revoke_live(&id).await?;
+        return Ok(Json(json!({"deleted":true})).into_response());
+    }
+    if method != Method::POST || id.is_some() {
+        return Err(ApiError::new(405, "Method not allowed"));
+    }
+    if request
+        .headers()
+        .get(header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.split(';').next())
+        .map(str::trim)
+        != Some("application/json")
+    {
+        return Err(ApiError::new(415, "Use application/json"));
+    }
+    let bytes = to_bytes(request.into_body(), 4096)
+        .await
+        .map_err(|_| ApiError::new(413, "Sharing request too large"))?;
+    let input: Create =
+        serde_json::from_slice(&bytes).map_err(|_| ApiError::new(400, "Invalid share"))?;
+    let (grant, secret) = tokio::task::spawn_blocking(move || {
+        boards
+            .shares()
+            .create(&boards, &input.board_id, input.public, input.permissions)
+    })
+    .await
+    .map_err(|_| ApiError::new(503, "Sharing unavailable"))??;
+    Ok((
+        StatusCode::CREATED,
+        Json(json!({"url":state.hub.share_link(&grant,&secret),"grant":grant,"secret":secret})),
+    )
+        .into_response())
 }
 async fn connections(State(state): State<Arc<HttpState>>) -> Json<Vec<Value>> {
     Json(state.hub.connection_status().await)
@@ -448,6 +524,74 @@ mod tests {
             .unwrap();
         assert_eq!(created.status(), 201);
         let created: Value = created.json().await.unwrap();
+        let shares_url = format!("{base}/api/shares");
+        assert_eq!(
+            client
+                .get(&shares_url)
+                .header("Origin", "https://attacker.example")
+                .send()
+                .await
+                .unwrap()
+                .status(),
+            403
+        );
+        let public = json!({"boardId":created["id"], "public":true, "permissions":{"interact":false,"editLayout":false}});
+        assert_eq!(
+            client
+                .post(&shares_url)
+                .header("Origin", "https://attacker.example")
+                .json(&public)
+                .send()
+                .await
+                .unwrap()
+                .status(),
+            403
+        );
+        let share = client.post(&shares_url).json(&public).send().await.unwrap();
+        assert_eq!(share.status(), 201);
+        let share: Value = share.json().await.unwrap();
+        assert_eq!(share["secret"].as_str().unwrap().len(), 64);
+        let listed: Value = client
+            .get(&shares_url)
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        assert_eq!(listed.as_array().unwrap().len(), 1);
+        assert!(listed[0].get("secret").is_none());
+        assert!(listed[0].get("digest").is_none());
+        let forbidden = json!({"boardId":created["id"], "public":true, "permissions":{"interact":true,"editLayout":false}});
+        assert_eq!(
+            client
+                .post(&shares_url)
+                .json(&forbidden)
+                .send()
+                .await
+                .unwrap()
+                .status(),
+            400
+        );
+        let share_url = format!("{shares_url}/{}", share["grant"]["id"].as_str().unwrap());
+        assert_eq!(
+            client
+                .delete(&share_url)
+                .header("Origin", "https://attacker.example")
+                .send()
+                .await
+                .unwrap()
+                .status(),
+            403
+        );
+        assert_eq!(
+            client.delete(&share_url).send().await.unwrap().status(),
+            200
+        );
+        assert_eq!(
+            client.delete(&share_url).send().await.unwrap().status(),
+            404
+        );
         let url = format!("{base}/api/dashboards/{}", created["id"].as_str().unwrap());
         assert_eq!(
             client

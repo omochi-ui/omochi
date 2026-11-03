@@ -4,6 +4,8 @@ import { distributionManifest, existingPyPiFiles, npmStageId, publicationOrder, 
 test('SDK version selection excludes independent private browser and native build inputs', () => {
   const manifests: Manifest[] = [
     { name: '@omochi-ui/core', version: '0.1.2' },
+    { name: '@omochi-ui/hub-transport', version: '0.0.0', private: true },
+    { name: '@omochi-ui/dashboard-app', version: '0.0.0', private: true },
     { name: '@omochi-ui/browser-hub', version: '0.0.0', private: true },
     { name: '@omochi-ui/browser-transport', version: '0.0.0', private: true },
     { name: '@omochi-ui/browser-dashboard-experiment', version: '0.0.0', private: true },

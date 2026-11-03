@@ -166,6 +166,8 @@ and have no authentication or TLS.
 | [SDK guide](docs/sdk.md) | Python, TypeScript, Rust, components, and transports |
 | [CLI reference](docs/cli.md) | Commands, flags, defaults, and troubleshooting |
 | [Discovery and dashboards](docs/discovery.md) | Local services, remote access, and routing |
+| [Hosted dashboard sharing](docs/dashboard-sharing.md) | Hub-client iroh access, identity invitations and readonly public links |
+| [Deployment](deploy/README.md) | app.omochi.fyi static hosting, hub setup and optional relay operation |
 | [Browser dashboard experiment](experiments/browser-dashboard/README.md) | Opt-in browser-resident hub, WASM transport, and direct gateway tests |
 | [Design system](docs/design-system.md) | Shared palette, tokens, components, and connection states |
 | [Contributing](CONTRIBUTING.md) | Setup, tests, and change guidelines |

@@ -10,10 +10,13 @@ import { BoardFault } from './board-repository.js';
 import type { DashboardEnvironment } from './environment.js';
 const emptyDashboard = (): Dashboard => ({ id: '', name: 'Untitled dashboard', revision: 0, panels: [] });
 
-export default function App({ environment, connectionUi }: { environment: DashboardEnvironment; connectionUi?: ReactNode }) {
+export default function App({ environment, connectionUi, renderSharing }: { environment: DashboardEnvironment; connectionUi?: ReactNode; renderSharing?: (board: Dashboard) => ReactNode }) {
   const session = useA2uiSource(environment.session);
   const services: readonly ServiceView[] = session.services;
   const direct = environment.session.imagePolicy === 'sdk-png';
+  const shared = environment.shared;
+  const canEdit = !shared || shared.editLayout;
+  const canInteract = !shared || shared.interact;
   const [gateways, setGateways] = useState<ReadonlySet<string>>(new Set());
   const [dashboards, setDashboards] = useState<readonly Dashboard[]>([]);
   const [presets, setPresets] = useState<readonly DashboardPreset[]>([]);
@@ -137,6 +140,7 @@ export default function App({ environment, connectionUi }: { environment: Dashbo
   const restoreFocus = () => requestAnimationFrame(() => { if (returnFocus.current?.isConnected) returnFocus.current.focus(); focusMain(); });
   const rememberFocus = () => { returnFocus.current = document.activeElement as HTMLElement; };
   const startEdit = (value: Dashboard) => {
+    if (!canEdit) return;
     baseline.current = JSON.stringify(value); setDraft(value); setValidated(false); setUndo(null); setMessage(''); setError(null);
     requestAnimationFrame(() => { if (!document.querySelector('dialog[open]')) document.querySelector<HTMLInputElement>('.dashboard-name')?.focus(); });
   };
@@ -156,7 +160,7 @@ export default function App({ environment, connectionUi }: { environment: Dashbo
     finally { setBusy(false); }
   };
   const save = () => {
-    if (!draft) return;
+    if (!draft || !canEdit) return;
     setValidated(true);
     if (!draft.name.trim() || draft.panels.some(p => !p.title.trim())) {
       requestAnimationFrame(() => document.querySelector<HTMLInputElement>('[aria-invalid="true"]')?.focus()); return;
@@ -286,8 +290,8 @@ export default function App({ environment, connectionUi }: { environment: Dashbo
           onClick={() => switchDashboard(`dashboard:${d.id}`)}>{d.name}</Button>)}
         {!dashboards.length && <p className="sidebar-hint">Your dashboards will appear here.</p>}
       </nav>
-      <Button className="new-dashboard with-icon" disabled={loading || busy} onClick={() => discardThen(() => startEdit(emptyDashboard()))}><Icon name="plus" /> Create dashboard</Button>
-      <Button className="new-dashboard" disabled={loading || busy || editing} onClick={() => { rememberFocus(); importFile.current?.click(); }}>Import board file</Button>
+      <Button hidden={!!shared} className="new-dashboard with-icon" disabled={loading || busy} onClick={() => discardThen(() => startEdit(emptyDashboard()))}><Icon name="plus" /> Create dashboard</Button>
+      <Button hidden={!!shared} className="new-dashboard" disabled={loading || busy || editing} onClick={() => { rememberFocus(); importFile.current?.click(); }}>Import board file</Button>
       <input ref={importFile} id="import-board-file" type="file" accept="application/json,.json" hidden onChange={event => { void readImport(event.target.files?.[0]); }} />
       <div className="sidebar-footer"><span className={`signal ${connected ? 'online' : ''}`} />{connected ? 'Hub connected' : 'Reconnecting…'}<small>{available} apps available</small></div>
     </aside>
@@ -306,22 +310,23 @@ export default function App({ environment, connectionUi }: { environment: Dashbo
           <Button disabled={busy} onClick={() => discardThen(focusMain)}>Cancel</Button>
           <Button className="primary" disabled={busy} onClick={save}>{busy ? 'Saving…' : 'Save dashboard'}</Button>
         </> : current ? <>
-          <Button disabled={busy} className="danger" onClick={remove}>Delete dashboard</Button>
-          <Button className="primary" disabled={busy} onClick={() => startEdit(structuredClone(current))}>Edit dashboard</Button>
+          <Button hidden={!!shared} disabled={busy} className="danger" onClick={remove}>Delete dashboard</Button>
+          <Button hidden={!canEdit} className="primary" disabled={busy} onClick={() => startEdit(structuredClone(current))}>Edit dashboard</Button>{!shared && renderSharing?.(current)}
         </> : preset ? <Button className="primary" disabled={busy} onClick={() => startEdit({ ...structuredClone(preset), id: '', revision: 0 })}>Save as dashboard</Button> : null}{!editing && active && <><Button disabled={busy} onClick={download}>Export board file</Button><Button ref={boardTrigger} disabled={busy} onClick={() => { setBoard(true); requestAnimationFrame(() => document.querySelector<HTMLButtonElement>('.exit-board')?.focus()); }}>Board view</Button></>}</div>
       </header>
+      {shared && <p className="notice" role="status">{canInteract ? 'App interaction permitted.' : 'Readonly dashboard. App controls are disabled.'} {shared.editLayout ? 'You can edit names, positions and sizes. The owner manages the shared views.' : ''}</p>}
       <div className="announcement" role="status">{message}</div>
       {error && <div className="notice error" role="alert"><span>{draft ? 'Could not save changes. Your edits are kept. Retry saving, or discard changes to load the saved version.' : 'Could not load or update dashboards. Try again.'} <small>{error}</small></span>{draft && <Button disabled={busy} onClick={save}>Retry save</Button>}<Button disabled={busy} onClick={() => discardThen(() => { void reload(); })}>{draft ? 'Discard and reload' : 'Retry'}</Button></div>}
-      {session.error && <div className="notice" role="status">{direct ? 'A gateway is unavailable. Check Connections or retry the affected view.' : 'Hub connection interrupted. Reconnecting automatically. Check that the hub is running.'} <small>{session.error}</small></div>}
+      {session.error && <div className="notice" role="status" data-error-code={session.errorCode ?? undefined}>{shared ? session.errorCode === 'NotAuthorized' ? 'Shared access is unavailable. Ask the owner for a new invitation or link.' : 'Shared dashboard connection interrupted. Retry the hub connection if needed.' : direct ? 'A gateway is unavailable. Check Connections or retry the affected view.' : 'Hub connection interrupted. Reconnecting automatically. Check that the hub is running.'} <small>{session.error}</small></div>}
       {sourceError && <div className="notice" role="alert">{sourceError}</div>}
       {undo && editing && <div className="notice"><span>View removed.</span><Button onClick={() => { setDraft(d => d ? { ...d, panels: undo } : d); setUndo(null); setMessage('View restored.'); focusMain(); }}>Undo removal</Button></div>}
       {narrow && editing && <div className="notice">Use Move up or Move down to reorder views. This also updates the desktop layout. Resize views on a wider screen.</div>}
       {active && <div className="board-bar"><span>{panels.length} {panels.length === 1 ? 'view' : 'views'}</span>
-        {editing && <Button id="add-view" className="with-icon" disabled={busy || panels.length >= 200} onClick={openPicker}><Icon name="plus" /> Add view</Button>}</div>}
+        {editing && !shared && <Button id="add-view" className="with-icon" disabled={busy || panels.length >= 200} onClick={openPicker}><Icon name="plus" /> Add view</Button>}</div>}
       {loading ? <div className="empty-state">Loading dashboards…</div> : !panels.length ? <div className="empty-state">
         <div className="empty-symbol"><Icon name="dashboard" /></div><h2>{active ? 'No views yet' : 'No dashboards yet'}</h2>
-        <p>{board ? 'Exit board view to add views.' : 'Add views published by your apps.'}</p>
-        {!board && <Button className="primary with-icon" disabled={busy || !!error} onClick={() => {
+        <p>{shared ? 'The owner has not added any views to this shared dashboard.' : board ? 'Exit board view to add views.' : 'Add views published by your apps.'}</p>
+        {!board && !shared && <Button className="primary with-icon" disabled={busy || !!error} onClick={() => {
           if (!draft) startEdit(current ? structuredClone(current) : preset ? { ...structuredClone(preset), id: '', revision: 0 } : emptyDashboard());
           openPicker();
         }}><Icon name="plus" /> {active ? 'Add view' : 'Create dashboard'}</Button>}
@@ -339,10 +344,10 @@ export default function App({ environment, connectionUi }: { environment: Dashbo
               <div className="panel-heading">{editing ? <input aria-invalid={validated && !panel.title.trim()} aria-describedby={validated && !panel.title.trim() ? errorId : undefined} aria-label={`View name ${panel.title}`} maxLength={200} disabled={busy} value={panel.title} onChange={e => changePanel({ ...panel, title: e.target.value })} /> : <h2>{panel.title}</h2>}{editing && validated && !panel.title.trim() && <p className="field-error" id={errorId}>Enter a view name.</p>}
                 <small title={`${service?.node?.name ?? panel.reference.nodeId} / ${service?.name ?? panel.reference.serviceId}`}>{service?.node?.name ?? panel.reference.nodeId} / {service?.name ?? panel.reference.serviceId}</small></div>
               <Button className="details-button" aria-label={`View details for ${panel.title}`} onClick={() => { rememberFocus(); setDetails(panel); }}>Details</Button>
-              {editing ? <Button className="icon-button" aria-label={`Remove ${panel.title}`} disabled={busy} onClick={() => removePanel(panel)}><Icon name="close" /></Button>
+              {editing && !shared ? <Button className="icon-button" aria-label={`Remove ${panel.title}`} disabled={busy} onClick={() => removePanel(panel)}><Icon name="close" /></Button>
                 : <span className="view-status">{present ? '✓ Live' : '○ Unavailable'}</span>}
             </header>
-            <div className="panel-content">{present ? <SurfaceView session={session} surfaceId={id} />
+            <div className="panel-content">{present ? <fieldset className="shared-surface" disabled={!canInteract} onClickCapture={event => { if (!canInteract) { event.preventDefault(); event.stopPropagation(); } }}><SurfaceView session={session} surfaceId={id} /></fieldset>
               : <div className="unavailable"><Icon name="unavailable" /><strong>View unavailable</strong><p>{direct ? <>Connect gateway <code>{panel.reference.nodeId}</code> in Connections and check that the source app is running.</> : 'Start the source app and check its connection to restore this view.'}{service?.detail && <small>{service.detail}</small>}</p>
                 {direct && service && <Button disabled={busy || !gateways.has(panel.reference.nodeId)} onClick={() => {
                   setSourceError(null); void environment.session.retry({ service: `${panel.reference.nodeId}~${panel.reference.serviceId}` }).catch(reason => setSourceError(reason instanceof Error ? reason.message : 'This source is unavailable.'));

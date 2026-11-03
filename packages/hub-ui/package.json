@@ -22,7 +22,8 @@
     "typecheck": "tsc -p tsconfig.app.json",
     "dev": "vite",
     "lint": "oxlint",
-    "test": "tsc -p tsconfig.test.json && bun test ./test"
+    "test": "tsc -p tsconfig.test.json && bun test ./test",
+    "build:hosted": "tsc -p tsconfig.hosted.json && vite build --config vite.hosted.config.ts"
   },
   "dependencies": {
     "@omochi-ui/renderer": "workspace:*",
@@ -38,7 +39,9 @@
     "ajv": "8.20.0",
     "oxlint": "^1.75.0",
     "typescript": "~6.0.2",
-    "vite": "^8.2.0"
+    "vite": "^8.2.0",
+    "@omochi-ui/hub-transport": "workspace:*",
+    "fake-indexeddb": "6.2.5"
   },
   "repository": {
     "type": "git",

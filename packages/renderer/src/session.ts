@@ -1,6 +1,6 @@
 import { MessageProcessor, type A2uiMessage } from '@a2ui/web_core/v0_9';
 import type { ReactComponentImplementation } from '@a2ui/react/v0_9';
-import { SessionFault, type ApplyResult, type LiveEvent, type LiveSession, type RenderEvent, type ServiceView, type SurfaceLease, type Unsubscribe } from '@omochi-ui/core/browser';
+import { SessionFault, type ApplyResult, type SessionErrorCode, type LiveEvent, type LiveSession, type RenderEvent, type ServiceView, type SurfaceLease, type Unsubscribe } from '@omochi-ui/core/browser';
 import { BrowserImages } from './images.js';
 import { createResourceCatalog } from './resources.js';
 import { createActionMessage, messageSurfaceId } from './messages.js';
@@ -13,6 +13,7 @@ export interface A2uiSession {
   services: readonly ServiceView[];
   status: string;
   error: string | null;
+  errorCode?: SessionErrorCode | null;
   images: BrowserImages | null;
   endpoint: string;
   resourceBaseUrl?: string;
@@ -38,6 +39,7 @@ export function createA2uiSession(source: LiveSession): RendererSession {
   let endpoint = source.imagePolicy === 'sdk-png' ? 'browser:gateway' : '';
   let status = source.imagePolicy === 'sdk-png' ? 'Disconnected' : 'Connecting…';
   let error: string | null = null;
+  let errorCode: SessionErrorCode | null = null;
   const catalog = createResourceCatalog(source.imagePolicy);
   const processor: Processor = new MessageProcessor([catalog], action => {
     if (applying || stopping || closed) return;
@@ -48,12 +50,12 @@ export function createA2uiSession(source: LiveSession): RendererSession {
     });
   });
   let snapshot: Readonly<A2uiSession> = {
-    processor, surfaceIds: [], services: roster, status, error, images, endpoint,
+    processor, surfaceIds: [], services: roster, status, error, errorCode, images, endpoint,
   };
   function publish(): void {
     if (applying) return;
     snapshot = { processor: closed ? null : processor, surfaceIds: [...processor.model.surfacesMap.keys()],
-      services: roster, status, error, images, endpoint };
+      services: roster, status, error, errorCode, images, endpoint };
     for (const listener of listeners) { try { listener(); } catch { /* Independent React/legacy observer. */ } }
   }
   function forgetSurface(id: string): void {
@@ -132,13 +134,14 @@ export function createA2uiSession(source: LiveSession): RendererSession {
       } else if (event.kind === 'services') roster = event.services;
       else {
         states.set(event.sourceId, event);
-        if (source.imagePolicy === 'native') { endpoint = event.sourceId; status = event.state; }
+        if (source.imagePolicy !== 'sdk-png') { endpoint = event.sourceId; status = event.state; }
         else {
           const values = [...states.values()];
           status = values.some(value => value.state === 'online') ? 'Connected' :
             values.some(value => ['connecting', 'control', 'backoff'].includes(value.state)) ? 'Connecting…' : 'Disconnected';
         }
-        error = [...states.values()].find(value => value.error)?.error?.message ?? null;
+        const failure = [...states.values()].find(value => value.error)?.error;
+        error = failure?.message ?? null; errorCode = failure?.code ?? null;
       }
       publish();
     });
@@ -149,6 +152,7 @@ export function createA2uiSession(source: LiveSession): RendererSession {
   void source.start().catch(failure => {
     if (!closed) {
       error = failure instanceof SessionFault ? failure.message : new SessionFault('InvalidState').message;
+      errorCode = failure instanceof SessionFault ? failure.code : 'InvalidState';
       status = 'Disconnected'; publish();
     }
   });

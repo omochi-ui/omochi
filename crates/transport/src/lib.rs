@@ -6,7 +6,7 @@ pub mod pairing;
 pub mod store;
 pub mod trust;
 use anyhow::Result;
-pub use iroh::endpoint::Connection as EndpointConnection;
+pub use iroh::endpoint::{Connection as EndpointConnection, RecvStream, SendStream};
 pub use iroh::{Endpoint, EndpointAddr, EndpointId, SecretKey};
 use iroh::{RelayMode, RelayUrl, endpoint::presets};
 use iroh_mdns_address_lookup::MdnsAddressLookup;

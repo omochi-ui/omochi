@@ -28,6 +28,7 @@ jobs:
       - run: bun run release:check
       - uses: dtolnay/rust-toolchain@stable
       - run: bun run test
+      - run: bun run check:dashboard-app
       - run: bun run --bun --filter '*' lint
 
   python:
