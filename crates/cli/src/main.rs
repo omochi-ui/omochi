@@ -173,24 +173,12 @@ fn validate_web_url(text: &str) -> std::result::Result<String, String> {
     Ok(text.to_owned())
 }
 fn web_invitation(base: &str, invitation: &str) -> Result<String> {
-    // Unpadded URL-safe base64 without another native runtime dependency.
-    const ALPHABET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
-    let bytes = serde_json::to_vec(&serde_json::json!({"version": 1, "invitation": invitation}))?;
-    let mut encoded = String::new();
-    for chunk in bytes.chunks(3) {
-        let bits = (u32::from(chunk[0]) << 16)
-            | (u32::from(*chunk.get(1).unwrap_or(&0)) << 8)
-            | u32::from(*chunk.get(2).unwrap_or(&0));
-        for offset in (0..chunk.len() + 1).map(|i| 18 - i * 6) {
-            encoded.push(ALPHABET[((bits >> offset) & 63) as usize] as char);
-        }
-    }
-    let fragment = format!("#connect:{encoded}");
-    if fragment.len() > 32768 {
-        bail!("hosted invitation exceeds the fragment limit")
-    }
-    Ok(format!("{base}{fragment}"))
+    let payload = invitation
+        .strip_prefix("omochi://invite/")
+        .context("invalid invitation link")?;
+    Ok(format!("{base}#g:{payload}"))
 }
+
 fn private_directory(path: &Path) -> Result<()> {
     if !path.exists() {
         std::fs::create_dir_all(path)?;
@@ -396,12 +384,23 @@ async fn run(cli: Cli) -> Result<()> {
                     tokio::io::stdout()
                         .write_all(format!("{invitation}\n").as_bytes())
                         .await?;
-                    if let Some(base) = &web_url {
+                    {
+                        let base = web_url.as_deref().unwrap_or("https://app.omochi.fyi/");
                         tokio::io::stdout()
                             .write_all(
                                 format!("{}\n", web_invitation(base, &invitation)?).as_bytes(),
                             )
                             .await?;
+                        let url = web_invitation(base, &invitation)?;
+                        match qrcode::QrCode::new(url.as_bytes()) {
+                            Ok(code) => eprintln!(
+                                "{}\nInvitation expires in 180 seconds.",
+                                code.render::<qrcode::render::unicode::Dense1x2>().build()
+                            ),
+                            Err(_) => eprintln!(
+                                "[omochi-ui] invitation is too large for a QR code; use the URL"
+                            ),
+                        }
                     }
                 }
                 Some(gateway.listen_remote(endpoint, store, name)?)
@@ -572,6 +571,7 @@ async fn serve_hub(
         };
         let endpoint =
             omochi_transport::bind(remote_store.identity(Role::Hub)?, offline, relays).await?;
+        remote_hub.configure_pairing(endpoint.clone(), remote_store.clone());
         let listener = if remote_dashboard {
             let listener = omochi_hub::dashboard_remote::listen(
                 remote_hub.clone(),
@@ -661,8 +661,8 @@ mod shutdown_tests {
         let base = "https://example.com/ui/";
         assert_eq!(validate_web_url(base).unwrap(), base);
         assert_eq!(
-            web_invitation(base, "a").unwrap(),
-            "https://example.com/ui/#connect:eyJ2ZXJzaW9uIjoxLCJpbnZpdGF0aW9uIjoiYSJ9"
+            web_invitation(base, "omochi://invite/YQ").unwrap(),
+            "https://example.com/ui/#g:YQ"
         );
         assert!(
             Cli::try_parse_from([

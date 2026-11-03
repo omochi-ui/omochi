@@ -1,11 +1,13 @@
 // Capture bearer data before loading any UI/transport module.
 let fragment: string | null = location.hash;
-if ((fragment.startsWith('#share:') || fragment.startsWith('#owner:'))) history.replaceState(null, '', location.pathname + location.search);
+if ((fragment.startsWith('#share:') || fragment.startsWith('#owner:') || fragment.startsWith('#g:'))) history.replaceState(null, '', location.pathname + location.search);
 window.addEventListener('pageshow', event => { if (event.persisted) location.reload(); });
 async function main() {
   const [{ createRoot }, { createElement }, { ConnectionScreen }, { parseShareLink }, { loadBrowserTransport }, { SessionFault }] = await Promise.all([
     import('react-dom/client'), import('react'), import('./remote/ConnectionScreen.js'), import('./remote/link.js'), import('@omochi-ui/hub-transport'), import('@omochi-ui/core/browser'), import('./styles.css'), import('@omochi-ui/renderer/styles.css'),
   ]);
+  let gatewayFragment = fragment?.startsWith('#g:') ? fragment : null;
+  if (gatewayFragment) fragment = null;
   let link: import('./remote/link.js').ShareLink | null = null;
   let bootstrapError: import('@omochi-ui/core/browser').SessionFault | null = null;
   try {
@@ -16,6 +18,7 @@ async function main() {
   fragment = null;
   const transport = await loadBrowserTransport(new URL('./iroh/', document.baseURI));
   const takeLink = () => { const current = link; link = null; return current; };
-  createRoot(document.getElementById('root')!).render(createElement(ConnectionScreen, { transport, takeLink, bootstrapError }));
+  const takeGateway = () => { const current = gatewayFragment; gatewayFragment = null; return current; };
+  createRoot(document.getElementById('root')!).render(createElement(ConnectionScreen, { transport, takeLink, bootstrapError, takeGateway }));
 }
 void main().catch(() => { fragment = null; document.getElementById('root')!.textContent = 'Shared connections are unavailable. Use a supported Chromium browser over HTTPS and reload.'; });

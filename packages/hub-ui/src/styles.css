@@ -162,3 +162,12 @@ body { margin: 0; }
 
 .shared-connections code { overflow-wrap: anywhere; word-break: break-all; }
 .shared-connections small { display: block; }
+
+.gateway-invitation { margin: 24px 32px; padding: 24px; max-width: 720px; border: 1px solid var(--omochi-color-border-subtle); border-radius: var(--omochi-radius-card); background: var(--omochi-color-bg-surface); line-height: 1.6; }
+.gateway-invitation h2 { margin-block-start: 0; }
+.gateway-invitation p { overflow-wrap: anywhere; }
+.gateway-invitation label { display: grid; gap: 8px; }
+.gateway-invitation input { width: 100%; min-height: 40px; padding: 8px 12px; font: inherit; border: 1px solid var(--omochi-color-border-control); border-radius: var(--omochi-radius-control); }
+.gateway-invitation button { margin: 4px 8px 4px 0; }
+.gateway-invitation :focus-visible { outline: 3px solid var(--omochi-color-focus); outline-offset: 3px; }
+@media (max-width: 600px) { .gateway-invitation { margin: 16px; padding: 16px; } }

@@ -24,7 +24,7 @@ bounded backoff and jitter. IP addresses remain internal addressing information.
 
 ## Enrollment
 
-The gateway emits `omochi://invite/<hex-encoded JSON>` containing `version: 4`,
+The gateway emits `omochi://invite/<unpadded-base64url-JSON>` containing `version: 4`,
 iroh `address`, a random bearer `secret`, and Unix-seconds `expires`. The link is
 imported on the hub PC and is bounded to 16 KiB. Invitations last 180 seconds;
 the first authenticated hub to redeem one wins. The same hub may retry, but a
@@ -89,3 +89,26 @@ authorization generation and destroy revoked sessions. Failure to acknowledge is
 an error; it does not roll back the durable removal. A revocation watermark forces
 fresh sessions even if the same peer is immediately re-enrolled. Native state is
 isolated under `omochi/rust-v1`; old trust and dashboards are not migrated.
+
+## Web invitation handoff
+
+`gateway --remote --pair` also prints `https://app.omochi.fyi/#g:<payload>`
+and a terminal QR containing that URL. `--web-url` overrides the HTTPS base.
+Both invitation forms contain the same unpadded base64url UTF-8 JSON; there is
+no nested encoding. CLI and native invitation import accept either form.
+Old hex and `#connect:` invitations are not accepted. Existing trust is unchanged.
+
+The hosted page clears the fragment before loading transport modules. It shows
+the gateway ID, expiry and target owner hub, and requires **Add to this hub**.
+A shared viewer cannot register gateways. A new tab hands the invitation to the
+profile-owning tab using an ephemeral same-origin BroadcastChannel with an
+acknowledgement. Bearer data is never persisted or included in status responses.
+
+Owner control methods `gatewayPairStart` (`invitation`, `name`),
+`gatewayPairStatus` (`id`) and `gatewayPairRetrySave` (`id`) return
+`{id,status,gatewayId}`. One enrollment/save-pending job is allowed per hub.
+Status is `pairing`, `registered`, `failed`, `outcomeUnknown` or `savePending`.
+Jobs belong to their initiating owner grant and authenticated browser identity.
+Completed results expire after five minutes. Accepted enrollment proofs stay in
+hub memory for local save retry without redeeming the invitation again, until
+saved, revoked or shutdown. Trust revocation invalidates stale writes.

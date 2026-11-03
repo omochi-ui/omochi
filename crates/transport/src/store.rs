@@ -194,10 +194,21 @@ impl Store {
         })
     }
     pub fn register_gateway(&self, endpoint: EndpointId, name: &str) -> Result<()> {
+        self.register_gateway_guarded(endpoint, name, None)
+    }
+    pub fn register_gateway_guarded(
+        &self,
+        endpoint: EndpointId,
+        name: &str,
+        revocation: Option<u64>,
+    ) -> Result<()> {
         if name.trim().is_empty() || name.len() > 256 {
             bail!("invalid gateway name")
         }
         self.mutate(|s| {
+            if revocation.is_some_and(|generation| generation != s.revocation_generation) {
+                bail!("authorization changed")
+            }
             let id = endpoint.to_string();
             if s.peers
                 .iter()

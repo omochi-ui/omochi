@@ -3,6 +3,7 @@
 use crate::store::{Role, Store};
 use crate::{Endpoint, EndpointAddr, EndpointId};
 use anyhow::{Context, Result, bail};
+use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 #[cfg(feature = "desktop")]
 use omochi_protocol::read_frame_limited;
 use omochi_protocol::{PAIR_ALPN, VERSION, read_frame, write_frame};
@@ -44,7 +45,7 @@ impl Invite {
     pub fn encode(&self) -> Result<String> {
         Ok(format!(
             "{PREFIX}{}",
-            hex::encode(serde_json::to_vec(self)?)
+            URL_SAFE_NO_PAD.encode(serde_json::to_vec(self)?)
         ))
     }
     pub fn gateway_id(&self) -> EndpointId {
@@ -55,11 +56,22 @@ impl Invite {
         if text.len() > MAX_INVITE_BYTES {
             bail!("invitation too large")
         }
-        let bytes = hex::decode(
-            text.strip_prefix(PREFIX)
-                .context("invalid invitation link")?,
-        )
-        .context("invalid invitation encoding")?;
+        let payload = text
+            .strip_prefix(PREFIX)
+            .or_else(|| {
+                let (base, payload) = text.split_once("#g:")?;
+                let url = base.parse::<iroh::RelayUrl>().ok()?;
+                (url.scheme() == "https"
+                    && url.username().is_empty()
+                    && url.password().is_none()
+                    && url.query().is_none()
+                    && url.fragment().is_none())
+                .then_some(payload)
+            })
+            .context("invalid invitation link")?;
+        let bytes = URL_SAFE_NO_PAD
+            .decode(payload)
+            .context("invalid invitation encoding")?;
         let invite: Self =
             serde_json::from_slice(&bytes).map_err(|_| anyhow::anyhow!("invalid invitation"))?;
         if invite.version != VERSION
@@ -222,6 +234,21 @@ pub async fn redeem(
 #[cfg(all(test, feature = "desktop"))]
 mod tests {
     use super::*;
+    #[test]
+    fn shared_invitation_fixtures() {
+        let fixtures: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../spec/fixtures/gateway-invitations.json"
+        ))
+        .unwrap();
+        for case in fixtures["cases"].as_array().unwrap() {
+            assert_eq!(
+                Invite::decode(case["input"].as_str().unwrap()).is_ok(),
+                case["valid"].as_bool().unwrap(),
+                "{}",
+                case["name"]
+            );
+        }
+    }
     #[tokio::test]
     async fn enrollment_binds_both_authenticated_identities() {
         let directory = tempfile::tempdir().unwrap();
@@ -233,8 +260,28 @@ mod tests {
         let hub = crate::bind(hs.identity(Role::Hub).unwrap(), true, None)
             .await
             .unwrap();
-        let invite =
-            Invite::decode(&Invite::issue(&gs, &gateway).unwrap().encode().unwrap()).unwrap();
+        let issued = Invite::issue(&gs, &gateway).unwrap();
+        let text = issued.encode().unwrap();
+        let payload = text.strip_prefix(PREFIX).unwrap();
+        assert_eq!(
+            URL_SAFE_NO_PAD.decode(payload).unwrap(),
+            serde_json::to_vec(&issued).unwrap()
+        );
+        assert_eq!(
+            Invite::decode(&format!("https://app.omochi.fyi/#g:{payload}"))
+                .unwrap()
+                .gateway_id(),
+            gateway.id()
+        );
+        assert!(
+            Invite::decode(&format!(
+                "{PREFIX}{}",
+                hex::encode(serde_json::to_vec(&issued).unwrap())
+            ))
+            .is_err()
+        );
+        assert!(Invite::decode(&format!("{PREFIX}{payload}=")).is_err());
+        let invite = Invite::decode(&text).unwrap();
         let gid = gateway.id();
         let hid = hub.id();
         let copy = gs.clone();

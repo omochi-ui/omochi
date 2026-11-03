@@ -10,6 +10,8 @@ pub mod control;
 pub mod dashboard_remote;
 #[cfg(feature = "browser")]
 pub mod dashboards;
+#[cfg(all(feature = "desktop", feature = "browser"))]
+mod gateway_pairing;
 mod heartbeat;
 pub mod host;
 #[cfg(feature = "browser")]
@@ -119,6 +121,8 @@ pub struct Hub {
     owner_presets: Arc<std::sync::RwLock<Vec<Value>>>,
     #[cfg(feature = "browser")]
     dashboard_host: Arc<std::sync::RwLock<Option<(omochi_transport::Endpoint, String)>>>,
+    #[cfg(all(feature = "desktop", feature = "browser"))]
+    pairing: Arc<std::sync::RwLock<Option<gateway_pairing::Service>>>,
     diagnostics: remote::Diagnostics,
     peer_names: Arc<Mutex<BTreeMap<String, String>>>,
     images: images::ImageResolver,
@@ -157,6 +161,8 @@ impl Hub {
             owner_presets: Arc::default(),
             #[cfg(feature = "browser")]
             dashboard_host: Arc::default(),
+            #[cfg(all(feature = "desktop", feature = "browser"))]
+            pairing: Arc::default(),
             diagnostics: Arc::default(),
             peer_names: Arc::default(),
             images: images::ImageResolver::default(),

@@ -187,3 +187,9 @@ installation and pairing. Bun is a source-build tool, not a service runtime.
 ## License
 
 Licensed under the [Apache License 2.0](LICENSE).
+
+To add a gateway from your browser, run `omochi-ui gateway --remote --pair`.
+Open the printed app.omochi.fyi URL or scan its QR, connect your owner hub,
+and choose **Add to this hub**. Invitations expire in 180 seconds.
+Use `--web-url https://your-dashboard.example/` for a custom hosted client.
+CLI `omochi-ui pair` also accepts the HTTPS invitation URL.

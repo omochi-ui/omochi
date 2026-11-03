@@ -1,3 +1,4 @@
+import { GatewayInvitation } from './GatewayInvitation.js';
 import { OwnerBoardRepository, OwnerSharingRepository } from './owner-boards.js';
 import { ShareSettings } from '../ShareSettings.js';
 import type { BoardRepository } from '../board-repository.js';
@@ -11,13 +12,14 @@ import { SharedBoardRepository } from './boards.js';
 import { openHubProfile, resetHubProfile, type HubProfile, type ShareRecord } from './profile.js';
 import { acceptInvitation, recoverShare } from './enrollment.js';
 import type { ShareLink, SavedShare } from './link.js';
+const noGateway = () => null;
 const PUBLIC_CONTEXT = 'omochi.shared.public', SELECTED = 'omochi.shared.selected';
 function cache(key: string, value?: string) { try { if (value === undefined) return sessionStorage.getItem(key); if (value) sessionStorage.setItem(key, value); else sessionStorage.removeItem(key); } catch { /* Storage denial does not grant network authority. */ } return null; }
 function fixed(error: unknown): SessionFault { return error instanceof SessionFault ? error : new SessionFault('StorageUnavailable'); }
-export function ConnectionScreen({ transport, takeLink, bootstrapError }: { transport: BrowserTransport; takeLink(): ShareLink | null; bootstrapError: SessionFault | null }) {
+export function ConnectionScreen({ transport, takeLink, bootstrapError, takeGateway = noGateway }: { transport: BrowserTransport; takeLink(): ShareLink | null; bootstrapError: SessionFault | null; takeGateway?: () => string | null }) {
   const [link, setLink] = useState(takeLink), [profile, setProfile] = useState<HubProfile | null>(null), [records, setRecords] = useState<ShareRecord[]>([]);
   const [error, setError] = useState<SessionFault | null>(bootstrapError), [busy, setBusy] = useState(false), [attempt, setAttempt] = useState(0), [confirmReset, setConfirmReset] = useState(false);
-  const [live, setLive] = useState<{ source: RemoteHubSession; boards: BoardRepository; owner: boolean; id: string } | null>(null), [view, setView] = useState<SharedView | null>(null);
+  const [live, setLive] = useState<{ source: RemoteHubSession; boards: BoardRepository; owner: boolean; name: string; id: string } | null>(null), [view, setView] = useState<SharedView | null>(null);
   const [proof, setProof] = useState<{ source: SavedShare; view: SharedView } | null>(null);
   const state = useRef<{ source: RemoteHubSession | null; profile: HubProfile | null }>({ source: null, profile: null });
   const operation = useRef(new AbortController());
@@ -28,7 +30,7 @@ export function ConnectionScreen({ transport, takeLink, bootstrapError }: { tran
     await disconnect(); if (operation.current.signal.aborted) return;
     const boards = new SharedBoardRepository();
     const session = new RemoteHubSession({ source, secretHex, publicSecret, owner: source.owner, onView(next) { boards.publish(next); setView(next); } }, transport);
-    boards.bind(session); state.current.source = session; setLive({ source: session, boards: source.owner ? new OwnerBoardRepository(session) : boards, owner: !!source.owner, id: `${source.hubId}/${source.grantId}` });
+    boards.bind(session); state.current.source = session; setLive({ source: session, boards: source.owner ? new OwnerBoardRepository(session) : boards, owner: !!source.owner, name: source.name, id: `${source.hubId}/${source.grantId}` });
     if (!publicSecret) cache(SELECTED, `${source.hubId}/${source.grantId}`);
   };
   useEffect(() => {
@@ -74,5 +76,5 @@ export function ConnectionScreen({ transport, takeLink, bootstrapError }: { tran
     {!live && <Button disabled={busy} className="danger" onClick={() => setConfirmReset(true)}>Reset browser identity…</Button>}
     {confirmReset && <section role="group" aria-label="Confirm browser identity reset"><p>Reset this browser identity and saved connections? Boards stay on their hubs. Owners must revoke the previous browser’s owner and share grants separately; resetting does not revoke them.</p><Button className="danger" disabled={busy} onClick={() => { void run(async () => { await disconnect(); await profile?.close(); state.current.profile = null; setProfile(null); await resetHubProfile(); setProof(null); setRecords([]); setConfirmReset(false); setAttempt(v => v + 1); }); }}>Confirm identity reset</Button><Button disabled={busy} onClick={() => setConfirmReset(false)}>Cancel reset</Button></section>}
   </section>;
-  return live ? <App key={live.id} environment={{ session: live.source, boards: live.boards, authority: live.owner ? { kind: 'owner' } : { kind: 'share', permissions: view?.permissions ?? { interact: false, editLayout: false } } }} connectionUi={controls} renderSharing={live.owner ? board => <ShareSettings boardId={board.id} repository={new OwnerSharingRepository(live.source)} /> : undefined} /> : <main className="workspace"><h1>Shared dashboards</h1>{controls}</main>;
+  return <><GatewayInvitation takeInvitation={takeGateway} session={live?.owner ? live.source : null} hubName={live ? `${live.name} (${live.id.split("/")[0]})` : ""} ownsProfile={!!profile} />{live ? <App key={live.id} environment={{ session: live.source, boards: live.boards, authority: live.owner ? { kind: 'owner' } : { kind: 'share', permissions: view?.permissions ?? { interact: false, editLayout: false } } }} connectionUi={controls} renderSharing={live.owner ? board => <ShareSettings boardId={board.id} repository={new OwnerSharingRepository(live.source)} /> : undefined} /> : <main className="workspace"><h1>Shared dashboards</h1>{controls}</main>}</>;
 }
