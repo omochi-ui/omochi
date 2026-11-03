@@ -125,7 +125,10 @@ impl Hub {
             }
             revoked = next_revoked;
             if let Some(generation) = generation
-                && source.acknowledge(generation).await.is_err()
+                && {
+                    omochi_transport::blocking::drain().await;
+                    source.acknowledge(generation).await.is_err()
+                }
             {
                 failure = Some(anyhow::anyhow!("authorization acknowledgement failed"));
                 break;

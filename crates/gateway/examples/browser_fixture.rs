@@ -455,7 +455,9 @@ async fn source(
             faults.clone(),
         )
     } else {
-        gateway.listen_remote(endpoint, store.clone(), format!("Fixture {index}"))?
+        gateway
+            .listen_remote_async(endpoint, store.clone(), format!("Fixture {index}"))
+            .await?
     };
     Ok(Source {
         gateway,

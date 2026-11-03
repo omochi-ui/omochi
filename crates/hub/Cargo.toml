@@ -9,7 +9,7 @@ readme = "README.md"
 include = ["src/**", "tests/**", "Cargo.toml", "Cargo.lock", "README.md", "LICENSE", "build.rs", "assets/**"]
 [features]
 default = ["browser", "desktop"]
-browser = ["dep:axum", "dep:async-stream", "dep:fs2", "dep:include_dir"]
+browser = ["omochi-transport/file-store", "dep:axum", "dep:async-stream", "dep:fs2", "dep:include_dir"]
 desktop = ["omochi-transport/desktop"]
 
 [dependencies]

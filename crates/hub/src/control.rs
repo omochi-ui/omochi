@@ -52,6 +52,32 @@ pub struct HubControl {
     pub boards: DashboardStore,
 }
 impl HubControl {
+    pub async fn board_async(
+        &self,
+        id: Option<String>,
+        value: Option<Value>,
+        remove: bool,
+    ) -> Result<Value, ApiError> {
+        let control = self.clone();
+        storage(move || control.board(id.as_deref(), value, remove)).await
+    }
+    pub async fn owners_list(&self) -> Result<Value, ApiError> {
+        let store = self.boards.owners();
+        storage(move || Ok(json!(store.list()?))).await
+    }
+    pub async fn owner_create(&self) -> Result<(crate::owners::OwnerGrant, String), ApiError> {
+        let store = self.boards.owners();
+        storage(move || store.create()).await
+    }
+    pub async fn shared_layout(
+        &self,
+        id: String,
+        peer: String,
+        value: Value,
+    ) -> Result<crate::dashboards::Dashboard, ApiError> {
+        let boards = self.boards.clone();
+        storage(move || boards.shares().edit_layout(&boards, &id, &peer, value)).await
+    }
     pub fn board(
         &self,
         id: Option<&str>,
@@ -79,7 +105,7 @@ impl HubControl {
             Command::Connections => Ok(json!(self.hub.connection_status().await)),
             command => {
                 let control = self.clone();
-                tokio::task::spawn_blocking(move || control.execute_sync(command))
+                omochi_transport::blocking::run(move || control.execute_sync(command))
                     .await
                     .map_err(|_| ApiError::new(503, "Owner operation unavailable"))?
             }
@@ -99,7 +125,7 @@ impl HubControl {
         ) {
             let owners = self.boards.owners();
             let (auth, who, grants) = (id.clone(), peer.clone(), owners.clone());
-            tokio::task::spawn_blocking(move || grants.authorize(&auth, &who, || Ok(())))
+            omochi_transport::blocking::run(move || grants.authorize(&auth, &who, || Ok(())))
                 .await
                 .map_err(|_| ApiError::new(503, "Owner authorization unavailable"))??;
             #[cfg(feature = "desktop")]
@@ -142,14 +168,14 @@ impl HubControl {
         }
         if matches!(command, Command::ShareRevoke { .. } | Command::Connections) {
             let owners = self.boards.owners();
-            tokio::task::spawn_blocking(move || owners.authorize(&id, &peer, || Ok(())))
+            omochi_transport::blocking::run(move || owners.authorize(&id, &peer, || Ok(())))
                 .await
                 .map_err(|_| ApiError::new(503, "Owner authorization unavailable"))??;
             return self.execute(command).await;
         }
         let control = self.clone();
         let owners = self.boards.owners();
-        tokio::task::spawn_blocking(move || {
+        omochi_transport::blocking::run(move || {
             owners.authorize(&id, &peer, || control.execute_sync(command))
         })
         .await
@@ -189,4 +215,13 @@ impl HubControl {
             }
         }
     }
+}
+
+/// Keep blocking file transactions off the async executor, with one error contract.
+pub(crate) async fn storage<T: Send + 'static>(
+    operation: impl FnOnce() -> Result<T, ApiError> + Send + 'static,
+) -> Result<T, ApiError> {
+    omochi_transport::blocking::run(operation)
+        .await
+        .map_err(|_| ApiError::new(503, "Storage operation unavailable"))?
 }

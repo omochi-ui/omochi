@@ -114,11 +114,10 @@ pub async fn accept(connection: iroh::endpoint::Connection, store: Store) -> Res
         if request.version != VERSION {
             bail!("unsupported protocol")
         }
-        let accepted = tokio::task::spawn_blocking(move || {
-            store.redeem(&request.secret, peer, &request.name, now())
-        })
-        .await?
-        .is_ok();
+        let accepted =
+            crate::blocking::run(move || store.redeem(&request.secret, peer, &request.name, now()))
+                .await?
+                .is_ok();
         write_frame(&mut tx, &Response { accepted }).await?;
         tx.finish()?;
         let _ = tx.stopped().await;
@@ -225,7 +224,7 @@ pub async fn redeem(
     }
     let address = enroll(endpoint, invite, hub_name).await?;
     let name = gateway_name.to_owned();
-    tokio::task::spawn_blocking(move || store.register_gateway(address.id, &name))
+    crate::blocking::run(move || store.register_gateway(address.id, &name))
         .await?
         .context("gateway accepted enrollment, but local registration could not be saved")?;
     Ok(())

@@ -403,7 +403,7 @@ async fn run(cli: Cli) -> Result<()> {
                         }
                     }
                 }
-                Some(gateway.listen_remote(endpoint, store, name)?)
+                Some(gateway.listen_remote_async(endpoint, store, name).await?)
             } else {
                 None
             };

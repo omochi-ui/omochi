@@ -338,9 +338,7 @@ async fn dashboards(
         boards: store.clone(),
     };
     if method == Method::GET {
-        let value = tokio::task::spawn_blocking(move || control.board(id.as_deref(), None, false))
-            .await
-            .map_err(|_| ApiError::new(503, "Dashboard storage unavailable"))??;
+        let value = control.board_async(id, None, false).await?;
         return Ok(Json(value).into_response());
     }
     if !((method == Method::POST && id.is_none())
@@ -363,10 +361,7 @@ async fn dashboards(
         .map_err(|_| ApiError::new(413, "Dashboard request is too large"))?;
     let input = serde_json::from_slice(&bytes).map_err(|_| ApiError::new(400, "Invalid JSON"))?;
     let remove = method == Method::DELETE;
-    let result =
-        tokio::task::spawn_blocking(move || control.board(id.as_deref(), Some(input), remove))
-            .await
-            .map_err(|_| ApiError::new(503, "Dashboard storage unavailable"))??;
+    let result = control.board_async(id, Some(input), remove).await?;
     if remove {
         Ok(Json(json!({"deleted":true})).into_response())
     } else {
@@ -652,11 +647,15 @@ async fn owners(
     request: Request,
 ) -> Result<Response, ApiError> {
     let store = state.dashboards.owners();
+    let control = crate::control::HubControl {
+        hub: state.hub.clone(),
+        boards: state.dashboards.clone(),
+    };
     if request.uri().path().starts_with("/api/owners/") && request.method() != Method::DELETE {
         return Err(ApiError::new(405, "Method not allowed"));
     }
     match *request.method() {
-        Method::GET => Ok(Json(store.list()?).into_response()),
+        Method::GET => Ok(Json(control.owners_list().await?).into_response()),
         Method::POST => {
             let host = state
                 .hub
@@ -665,7 +664,7 @@ async fn owners(
             if host["relayUrls"].as_array().is_none_or(|r| r.is_empty()) {
                 return Err(ApiError::new(503, "Relay address unavailable"));
             }
-            let (grant, secret) = store.create()?;
+            let (grant, secret) = control.owner_create().await?;
             use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
             let payload = json!({"version":1,"hubId":host["hubId"],"relayUrls":host["relayUrls"],"grantId":grant.id,"mode":"owner","secret":secret});
             Ok(Json(json!({"grant":grant,"url":format!("{}#owner:{}",host["webUrl"].as_str().unwrap(),URL_SAFE_NO_PAD.encode(serde_json::to_vec(&payload).unwrap()))})).into_response())

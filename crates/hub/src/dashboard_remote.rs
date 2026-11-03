@@ -27,7 +27,7 @@ pub const ENROLL_ALPN: &[u8] = b"omochi/dashboard-enroll/1";
 pub const OWNER_ALPN: &[u8] = b"omochi/owner/1";
 pub const OWNER_ENROLL_ALPN: &[u8] = b"omochi/owner-enroll/1";
 const IO_TIMEOUT: Duration = Duration::from_secs(10);
-#[derive(Deserialize)]
+#[derive(Clone, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct Hello {
     version: u32,
@@ -70,7 +70,7 @@ impl Session {
             let owners = self.boards.owners();
             let id = self.hello.grant_id.clone();
             let peer = self.peer.clone();
-            tokio::task::spawn_blocking(move || owners.authorize(&id, &peer, || Ok(())))
+            omochi_transport::blocking::run(move || owners.authorize(&id, &peer, || Ok(())))
                 .await?
                 .map_err(api_error)?;
             return Ok(None);
@@ -80,7 +80,7 @@ impl Session {
         let id = self.hello.grant_id.clone();
         let secret = self.hello.secret.clone();
         let peer = self.peer.clone();
-        tokio::task::spawn_blocking(move || {
+        omochi_transport::blocking::run(move || {
             shares
                 .authorize(&boards, &id, &peer, secret.as_deref())
                 .map(Some)
@@ -153,7 +153,7 @@ pub fn listen(
     endpoint: Endpoint,
 ) -> Result<JoinHandle<Result<()>>> {
     let shares = boards.shares();
-    let lease = crate::sharing_live::Lease::register(&shares).map_err(api_error)?;
+
     endpoint.set_alpns(vec![
         ALPN.to_vec(),
         ENROLL_ALPN.to_vec(),
@@ -161,31 +161,61 @@ pub fn listen(
         OWNER_ENROLL_ALPN.to_vec(),
     ]);
     let owners = boards.owners();
-    let owner_lease = crate::owners_live::Lease::register(&owners).map_err(api_error)?;
+
     Ok(tokio::spawn(async move {
+        let copy = shares.clone();
+        let lease = Arc::new(
+            crate::control::storage(move || crate::sharing_live::Lease::register(&copy))
+                .await
+                .map_err(api_error)?,
+        );
+        let copy = owners.clone();
+        let owner_lease = Arc::new(
+            crate::control::storage(move || crate::owners_live::Lease::register(&copy))
+                .await
+                .map_err(api_error)?,
+        );
         let mut handshakes = JoinSet::new();
         let mut owner_sessions = JoinSet::new();
-        let mut owner_generation = owners.generation().map_err(api_error)?;
-        owner_lease
-            .acknowledge(owner_generation)
-            .map_err(api_error)?;
+        let mut owner_generation = {
+            let copy = owners.clone();
+            crate::control::storage(move || copy.generation())
+                .await
+                .map_err(api_error)?
+        };
+        {
+            let copy = owner_lease.clone();
+            crate::control::storage(move || copy.acknowledge(owner_generation))
+                .await
+                .map_err(api_error)?;
+        }
         let mut owner_epoch = hub.stop.child_token();
         let capacity = Arc::new(Semaphore::new(16));
         let mut sessions = JoinSet::new();
-        let mut generation = shares.generation().map_err(api_error)?;
-        lease.acknowledge(generation).map_err(api_error)?;
+        let mut generation = {
+            let copy = shares.clone();
+            crate::control::storage(move || copy.generation())
+                .await
+                .map_err(api_error)?
+        };
+        {
+            let copy = lease.clone();
+            crate::control::storage(move || copy.acknowledge(generation))
+                .await
+                .map_err(api_error)?;
+        }
         let mut epoch = hub.stop.child_token();
         let mut tick = tokio::time::interval(Duration::from_millis(100));
         let result=async {
             loop { tokio::select! {
                 _=hub.stop.cancelled()=>break,
                 _=tick.tick()=> {
-                    let next_owner=owners.generation().map_err(api_error)?;
-                    if next_owner!=owner_generation { owner_epoch.cancel(); while owner_sessions.join_next().await.is_some() {} owner_lease.acknowledge(next_owner).map_err(api_error)?; owner_generation=next_owner; owner_epoch=hub.stop.child_token(); }
-                    let next=shares.generation().map_err(api_error)?;
+                    let next_owner={ let copy = owners.clone(); crate::control::storage(move || copy.generation()).await.map_err(api_error)? };
+                    if next_owner!=owner_generation { owner_epoch.cancel(); while owner_sessions.join_next().await.is_some() {} omochi_transport::blocking::drain().await; { let copy = owner_lease.clone(); crate::control::storage(move || copy.acknowledge(next_owner)).await.map_err(api_error)?; } owner_generation=next_owner; owner_epoch=hub.stop.child_token(); }
+                    let next={ let copy = shares.clone(); crate::control::storage(move || copy.generation()).await.map_err(api_error)? };
                     if next!=generation {
-                        epoch.cancel(); while sessions.join_next().await.is_some() {}
-                        lease.acknowledge(next).map_err(api_error)?; generation=next;
+                        epoch.cancel(); while sessions.join_next().await.is_some() {} omochi_transport::blocking::drain().await;
+                        { let copy = lease.clone(); crate::control::storage(move || copy.acknowledge(next)).await.map_err(api_error)?; } generation=next;
                         epoch = hub.stop.child_token();
                     }
                 },
@@ -212,8 +242,10 @@ pub fn listen(
         while handshakes.join_next().await.is_some() {}
         owner_epoch.cancel();
         while owner_sessions.join_next().await.is_some() {}
+        omochi_transport::blocking::drain().await;
         epoch.cancel();
         while sessions.join_next().await.is_some() {}
+        omochi_transport::blocking::drain().await;
         endpoint.close().await;
         result
     }))
@@ -254,7 +286,7 @@ async fn serve(
         let owner = connection.alpn() == OWNER_ENROLL_ALPN;
         let owners = boards.owners();
         let other = shares.clone();
-        let accepted = tokio::task::spawn_blocking(move || {
+        let accepted = omochi_transport::blocking::run(move || {
             if owner {
                 owners.redeem(&id, &secret, &peer).map(|_| ())
             } else {
@@ -276,16 +308,27 @@ async fn serve(
         bail!("Wrong protocol");
     }
     let owner = connection.alpn() == OWNER_ALPN;
-    let access = if owner {
-        boards
-            .owners()
-            .authorize(&hello.grant_id, &peer, || Ok(()))
-            .map(|_| None)
-    } else {
-        shares
-            .authorize(&boards, &hello.grant_id, &peer, hello.secret.as_deref())
-            .map(Some)
-    };
+    let copy = boards.clone();
+    let access_shares = shares.clone();
+    let auth = hello.clone();
+    let who = peer.clone();
+    let access = crate::control::storage(move || {
+        let boards = copy;
+        let shares = access_shares;
+        let hello = auth;
+        let peer = who;
+        if owner {
+            boards
+                .owners()
+                .authorize(&hello.grant_id, &peer, || Ok(()))
+                .map(|_| None)
+        } else {
+            shares
+                .authorize(&boards, &hello.grant_id, &peer, hello.secret.as_deref())
+                .map(Some)
+        }
+    })
+    .await;
     let access = match access {
         Ok(value) => value,
         Err(e) => {
@@ -444,9 +487,9 @@ async fn request(
             Request::Action {lease,message}=> {session.view(&lease,true).await?.action(message).await?;Ok(json!({"kind":"ok"}))},
             Request::Layout {value}=> {
                 if session.owner {bail!("Use owner control");}
-                let shares=session.shares.clone();let boards=session.boards.clone();let id=session.hello.grant_id.clone();let peer=session.peer.clone();
-                let result=tokio::task::spawn_blocking(move ||shares.edit_layout(&boards,&id,&peer,value)).await?;
-                match result {Ok(board)=>Ok(json!({"kind":"board","board":board})),Err(e)=>Ok(error(if e.0==409 {"Conflict"} else {"NotAuthorized"}))}
+                let control=crate::control::HubControl{hub:session.hub.clone(),boards:session.boards.clone()};
+                let result=control.shared_layout(session.hello.grant_id.clone(),session.peer.clone(),value).await;
+                match result {Ok(board)=>Ok(json!({"kind":"board","board":board})),Err(e)=>Ok(error(match e.0 {409=>"Conflict",403=>"NotAuthorized",400|413=>"InvalidBoard",404=>"NotFound",_=>"StorageUnavailable"}))}
             },
             Request::Image {lease,uri}=> {
                 let handle=session.view(&lease,false).await?;

@@ -37,7 +37,7 @@ impl DesktopAuthorization {
     pub async fn open(store: omochi_transport::store::Store) -> Result<Self> {
         let copy = store.clone();
         let lease =
-            tokio::task::spawn_blocking(move || omochi_transport::live::Lease::register(&copy))
+            omochi_transport::blocking::run(move || omochi_transport::live::Lease::register(&copy))
                 .await??;
         Ok(Self {
             store,
@@ -52,7 +52,7 @@ impl AuthorizationSource for DesktopAuthorization {
         let store = self.store.clone();
         Box::pin(async move {
             let (generation, revocation, peers) =
-                tokio::task::spawn_blocking(move || store.authorization()).await??;
+                omochi_transport::blocking::run(move || store.authorization()).await??;
             Ok(AuthorizationSnapshot {
                 generation,
                 revocation,
@@ -75,7 +75,7 @@ impl AuthorizationSource for DesktopAuthorization {
     fn acknowledge(&self, generation: u64) -> HostFuture<'_, Result<()>> {
         let lease = self.lease.clone();
         Box::pin(async move {
-            tokio::task::spawn_blocking(move || lease.acknowledge(generation)).await?
+            omochi_transport::blocking::run(move || lease.acknowledge(generation)).await?
         })
     }
 }

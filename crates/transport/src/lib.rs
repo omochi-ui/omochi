@@ -1,7 +1,10 @@
 //! Iroh transport integration. Application authorization is separate from TLS identity.
+pub mod blocking;
 #[cfg(feature = "desktop")]
 pub mod live;
 pub mod pairing;
+#[cfg(feature = "file-store")]
+pub mod persistence;
 #[cfg(feature = "desktop")]
 pub mod store;
 pub mod trust;

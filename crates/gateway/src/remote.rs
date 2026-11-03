@@ -16,7 +16,7 @@ use tokio::{
 async fn authorized(store: &Store, connection: &EndpointConnection) -> Result<bool> {
     let store = store.clone();
     let peer = connection.remote_id().to_string();
-    tokio::task::spawn_blocking(move || {
+    omochi_transport::blocking::run(move || {
         Ok(store
             .peers()?
             .1
@@ -26,6 +26,17 @@ async fn authorized(store: &Store, connection: &EndpointConnection) -> Result<bo
     .await?
 }
 impl Gateway {
+    /// Async hosts also offload identity reads and lease registration during startup.
+    pub async fn listen_remote_async(
+        &self,
+        endpoint: Endpoint,
+        store: Store,
+        name: String,
+    ) -> Result<JoinHandle<()>> {
+        let gateway = self.clone();
+        omochi_transport::blocking::run(move || gateway.listen_remote(endpoint, store, name))
+            .await?
+    }
     pub fn listen_remote(
         &self,
         endpoint: Endpoint,
@@ -35,7 +46,7 @@ impl Gateway {
         if endpoint.id() != store.identity(Role::Gateway)?.public() {
             bail!("gateway endpoint identity mismatch")
         }
-        let lease = omochi_transport::live::Lease::register(&store)?;
+        let lease = Arc::new(omochi_transport::live::Lease::register(&store)?);
         let (_, mut revoked, _) = store.authorization()?;
         let gateway = self.clone();
         Ok(tokio::spawn(async move {
@@ -50,7 +61,7 @@ impl Gateway {
                     _ = gateway.stop.cancelled() => break,
                     _ = poll.tick() => {
                         let copy = store.clone();
-                        let state = tokio::task::spawn_blocking(move || copy.authorization()).await;
+                        let state = omochi_transport::blocking::run(move || copy.authorization()).await;
                         let (generation, next_revoked, _) = match state {
                             Ok(Ok(state)) => state,
                             _ => break, // Fail closed without acknowledging unreadable authorization.
@@ -60,10 +71,12 @@ impl Gateway {
                             sessions.cancel();
                             while tasks.join_next().await.is_some() {}
                             epoch.drain().await;
+                            omochi_transport::blocking::drain().await;
                         }
                         let changed = next_revoked != revoked;
                         revoked = next_revoked;
-                        if lease.acknowledge(generation).is_err() { break; }
+                        let copy = lease.clone();
+                        if !matches!(omochi_transport::blocking::run(move || copy.acknowledge(generation)).await, Ok(Ok(()))) { break; }
                         if changed {
                             sessions = gateway.stop.child_token();
                             epoch = AuthorizationEpoch::new();
@@ -97,6 +110,7 @@ impl Gateway {
             sessions.cancel();
             while tasks.join_next().await.is_some() {}
             epoch.drain().await;
+            omochi_transport::blocking::drain().await;
             endpoint.close().await;
         }))
     }

@@ -53,7 +53,7 @@ Other bidirectional streams accept one request, followed by a response and FIN:
   The hub overwrites the destination and narrows metadata using SurfaceHandle.
 - `{op:"layout",value}` requires `editLayout`. Value is native board input with
   revision; the response is `{kind:"board",board}`. Conflicts return
-  `{kind:"error",code:"Conflict"}`; denied operations return `NotAuthorized`.
+  `{kind:"error",code:"Conflict"}`; denied operations return `NotAuthorized`. Invalid layout input returns `InvalidBoard`, missing boards return `NotFound`, and storage failures return `StorageUnavailable`.
 - `{op:"image",lease,uri}` requires a current publication in that Surface's
   authoritative source state. Canonical complete URI strings publish images;
   constructed/embedded Markdown destinations do not imply publication. Native

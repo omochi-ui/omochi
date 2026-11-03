@@ -143,6 +143,7 @@ try {
     await click('Undo removal');
     await until(() => evaluate("document.querySelectorAll('.panel').length === 1"), 'undo view');
     await screenshot('editing.png');
+    await evaluate("document.querySelector('.subtitle').textContent = 'Translated editing status'");
     await click('Cancel');
     await until(() => evaluate("document.querySelector('#confirm-title')?.textContent === 'Discard unsaved changes?'"), 'discard confirmation');
     await evaluate("document.querySelector('dialog .hub-button').click()");
@@ -164,6 +165,18 @@ try {
     await screenshot('save-error.png');
     await click('Discard and reload'); await click('Discard changes');
     await until(async () => (await text()).includes('Changed elsewhere'), 'reload conflict');
+    // A dispatched save owns the draft until it settles; navigation must wait.
+    await click('Edit dashboard'); await input('[aria-label="Dashboard name"]', 'Changed elsewhere');
+    await evaluate(`(() => { const original = window.fetch; window.fetch = async (...args) => {
+      if (args[1]?.method === 'PUT') { await new Promise(resolve => { window.finishSave = resolve; }); window.fetch = original; }
+      return original(...args);
+    }; })()`);
+    await click('Save dashboard');
+    await until(() => evaluate("typeof window.finishSave === 'function'"), 'dispatched save');
+    await evaluate("document.querySelector('.brand').click()");
+    assert.equal(await evaluate("!!document.querySelector('.dashboard-name') && !document.querySelector('dialog[open]')"), true);
+    await evaluate("window.finishSave()");
+    await until(() => evaluate("!document.querySelector('.dashboard-name')"), 'save settles before leaving');
     await click('Create dashboard');
     await input('.dashboard-name', 'Temporary dashboard');
     await click('Save dashboard');

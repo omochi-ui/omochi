@@ -10,7 +10,8 @@ include = ["src/**", "tests/**", "Cargo.toml", "Cargo.lock", "README.md", "LICEN
 
 [features]
 default = ["desktop"]
-desktop = ["dep:fs2"]
+desktop = ["file-store"]
+file-store = ["dep:fs2"]
 
 [dependencies]
 base64 = "0.23.1"

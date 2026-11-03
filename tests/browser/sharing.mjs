@@ -105,6 +105,12 @@ try {
   await click(recipient, 'Edit dashboard');
   passed('shared editor cannot add or remove source panels', await recipient.evaluate('!document.querySelector("#add-view")&&!Array.from(document.querySelectorAll("button")).some(b=>b.getClientRects().length&&b.getAttribute("aria-label")?.startsWith("Remove "))'));
   await recipient.evaluate(`(()=>{const input=document.querySelector('#dashboard-name');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,'Edited by recipient');input.dispatchEvent(new Event('input',{bubbles:true}))})()`);
+  await recipient.evaluate(`document.querySelector('.subtitle').textContent='Translated editing status'`);
+  await click(recipient, 'Disconnect shared dashboard');
+  await until(async()=>await recipient.evaluate(`!!document.querySelector('dialog[open] #confirm-title')`),'state-based disconnect confirmation');
+  await click(recipient, 'Cancel');
+  assert.equal(await recipient.evaluate(`!!document.querySelector('.dashboard-name')`),true);
+  passed('disconnect cancellation retains edits even when the status copy changes');
   await click(recipient, 'Save dashboard');
   await until(async () => (await board()).name === 'Edited by recipient', 'shared editor persisted native board');
   passed('permitted shared layout save reaches native revisioned repository');

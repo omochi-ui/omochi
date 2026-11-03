@@ -1,12 +1,10 @@
 //! Hub-owned grants. Layout references are never credentials and gateway trust is separate.
 use crate::dashboards::ApiError;
-use fs2::FileExt;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
-    fs::{self, File, OpenOptions},
-    io::{Read, Write},
-    os::unix::fs::OpenOptionsExt,
+    fs::File,
+    io::Read,
     path::PathBuf,
     time::{SystemTime, UNIX_EPOCH},
 };
@@ -58,14 +56,7 @@ impl OwnerStore {
         Self { root }
     }
     fn transaction<T>(&self, operation: impl FnOnce(&mut Storage) -> Result<T>) -> Result<T> {
-        let lock = OpenOptions::new()
-            .create(true)
-            .truncate(false)
-            .read(true)
-            .write(true)
-            .mode(0o600)
-            .open(self.root.join("owners.lock"))?;
-        lock.lock_exclusive()?;
+        let _lock = omochi_transport::persistence::lock(&self.root.join("owners.lock"))?;
         let bytes = (|| -> std::io::Result<Vec<u8>> {
             let file = File::open(self.root.join("owners.json"))?;
             let mut bytes = Vec::new();
@@ -138,25 +129,7 @@ impl OwnerStore {
             if bytes.len() > 1024 * 1024 {
                 return Err(ApiError::new(503, "Sharing storage exceeds capacity"));
             }
-            let path = self
-                .root
-                .join(format!(".owners-{}.tmp", uuid::Uuid::new_v4()));
-            let saved = (|| -> Result<()> {
-                let mut file = OpenOptions::new()
-                    .create_new(true)
-                    .write(true)
-                    .mode(0o600)
-                    .open(&path)?;
-                file.write_all(&bytes)?;
-                file.sync_all()?;
-                fs::rename(&path, self.root.join("owners.json"))?;
-                File::open(&self.root)?.sync_all()?;
-                Ok(())
-            })();
-            if saved.is_err() {
-                let _ = fs::remove_file(path);
-            }
-            saved?;
+            omochi_transport::persistence::atomic_write(&self.root.join("owners.json"), &bytes)?;
         }
         Ok(result)
     }

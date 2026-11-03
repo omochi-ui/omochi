@@ -192,7 +192,7 @@ impl Gateway {
             let changed = Arc::new(tokio::sync::Notify::new());
             let signal = changed.clone();
             let watched_root = root.clone();
-            let watcher = tokio::task::spawn_blocking(move || {
+            let watcher = omochi_transport::blocking::run(move || {
                 omochi_local_discovery::watch(&watched_root, move || signal.notify_one())
             })
             .await?
@@ -213,7 +213,7 @@ impl Gateway {
                     _ = changed.notified() => {},
                 }
                 let path = root.clone();
-                let found = tokio::task::spawn_blocking(move || scan(&path)).await?;
+                let found = omochi_transport::blocking::run(move || scan(&path)).await?;
                 let Ok(found) = found else { continue };
                 let removed: Vec<_> = tasks
                     .iter()

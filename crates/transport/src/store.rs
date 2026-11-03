@@ -1,16 +1,14 @@
 //! Serialized, durable state for the new identity domain. Legacy trust is never read.
 pub use crate::trust::{Peer, Role};
 use anyhow::{Context, Result, bail};
-use fs2::FileExt;
 use iroh::{EndpointId, SecretKey};
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
     collections::BTreeMap,
-    fs::{self, File, OpenOptions},
-    io::Write,
-    os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt},
+    fs,
+    os::unix::fs::{MetadataExt, PermissionsExt},
     path::{Path, PathBuf},
 };
 
@@ -71,14 +69,7 @@ impl Store {
         self.mutate(|s| f(s.generation))
     }
     fn mutate<T>(&self, f: impl FnOnce(&mut State) -> Result<T>) -> Result<T> {
-        let lock = OpenOptions::new()
-            .create(true)
-            .truncate(false)
-            .read(true)
-            .write(true)
-            .mode(0o600)
-            .open(self.root.join("state.lock"))?;
-        lock.lock_exclusive()?;
+        let _lock = crate::persistence::lock(&self.root.join("state.lock"))?;
         let path = self.root.join("state.json");
         let existed = path.exists();
         let mut state: State = match fs::read(&path) {
@@ -103,23 +94,7 @@ impl Store {
         if existed && before == serde_json::to_vec(&state)? {
             return Ok(result);
         }
-        let temporary = self.root.join(format!("state-{}.tmp", key()));
-        let save = (|| -> Result<()> {
-            let mut file = OpenOptions::new()
-                .write(true)
-                .create_new(true)
-                .mode(0o600)
-                .open(&temporary)?;
-            file.write_all(&serde_json::to_vec(&state)?)?;
-            file.sync_all()?;
-            fs::rename(&temporary, &path)?;
-            File::open(&self.root)?.sync_all()?;
-            Ok(())
-        })();
-        if save.is_err() {
-            let _ = fs::remove_file(&temporary);
-        }
-        save?;
+        crate::persistence::atomic_write(&path, &serde_json::to_vec(&state)?)?;
         Ok(result)
     }
     pub fn identity(&self, role: Role) -> Result<SecretKey> {

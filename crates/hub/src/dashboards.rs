@@ -1,13 +1,11 @@
 //! Browser-compatible dashboard persistence in the new Rust state directory.
-use fs2::FileExt;
 use omochi_protocol::session::{valid_node_id, valid_service_id};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{
     collections::BTreeSet,
-    fs::{self, File, OpenOptions},
-    io::Write,
-    os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt},
+    fs,
+    os::unix::fs::{MetadataExt, PermissionsExt},
     path::{Path, PathBuf},
 };
 
@@ -205,14 +203,7 @@ impl DashboardStore {
         remove: bool,
         policy: impl FnOnce(Option<&Dashboard>, &Input) -> Result<()>,
     ) -> Result<Option<Dashboard>> {
-        let lock = OpenOptions::new()
-            .create(true)
-            .truncate(false)
-            .read(true)
-            .write(true)
-            .mode(0o600)
-            .open(self.root.join("dashboards.lock"))?;
-        lock.lock_exclusive()?;
+        let _lock = omochi_transport::persistence::lock(&self.root.join("dashboards.lock"))?;
         let mut storage = self.read()?;
         let current = id.and_then(|id| storage.dashboards.iter().find(|d| d.id == id));
         if id.is_some() && current.is_none() {
@@ -247,28 +238,9 @@ impl DashboardStore {
         if let Some(dashboard) = &result {
             storage.dashboards.push(dashboard.clone());
         }
-        let temporary = self
-            .root
-            .join(format!(".dashboards-{}.tmp", uuid::Uuid::new_v4()));
-        let save = (|| -> Result<()> {
-            let mut file = OpenOptions::new()
-                .write(true)
-                .create_new(true)
-                .mode(0o600)
-                .open(&temporary)?;
-            file.write_all(
-                &serde_json::to_vec(&storage)
-                    .map_err(|_| ApiError::new(503, "Could not encode dashboard"))?,
-            )?;
-            file.sync_all()?;
-            fs::rename(&temporary, self.root.join("dashboards.json"))?;
-            File::open(&self.root)?.sync_all()?;
-            Ok(())
-        })();
-        if save.is_err() {
-            let _ = fs::remove_file(temporary);
-        }
-        save?;
+        let bytes = serde_json::to_vec(&storage)
+            .map_err(|_| ApiError::new(503, "Could not encode dashboard"))?;
+        omochi_transport::persistence::atomic_write(&self.root.join("dashboards.json"), &bytes)?;
         Ok(result)
     }
 }

@@ -1,12 +1,10 @@
 //! Hub-owned grants. Layout references are never credentials and gateway trust is separate.
 use crate::dashboards::{ApiError, Dashboard, DashboardStore, Input};
-use fs2::FileExt;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
-    fs::{self, File, OpenOptions},
-    io::{Read, Write},
-    os::unix::fs::OpenOptionsExt,
+    fs::File,
+    io::Read,
     path::PathBuf,
     time::{SystemTime, UNIX_EPOCH},
 };
@@ -67,14 +65,7 @@ impl ShareStore {
         Self { root }
     }
     fn transaction<T>(&self, operation: impl FnOnce(&mut Storage) -> Result<T>) -> Result<T> {
-        let lock = OpenOptions::new()
-            .create(true)
-            .truncate(false)
-            .read(true)
-            .write(true)
-            .mode(0o600)
-            .open(self.root.join("shares.lock"))?;
-        lock.lock_exclusive()?;
+        let _lock = omochi_transport::persistence::lock(&self.root.join("shares.lock"))?;
         let bytes = (|| -> std::io::Result<Vec<u8>> {
             let file = File::open(self.root.join("shares.json"))?;
             let mut bytes = Vec::new();
@@ -160,25 +151,7 @@ impl ShareStore {
             if bytes.len() > 1024 * 1024 {
                 return Err(ApiError::new(503, "Sharing storage exceeds capacity"));
             }
-            let path = self
-                .root
-                .join(format!(".shares-{}.tmp", uuid::Uuid::new_v4()));
-            let saved = (|| -> Result<()> {
-                let mut file = OpenOptions::new()
-                    .create_new(true)
-                    .write(true)
-                    .mode(0o600)
-                    .open(&path)?;
-                file.write_all(&bytes)?;
-                file.sync_all()?;
-                fs::rename(&path, self.root.join("shares.json"))?;
-                File::open(&self.root)?.sync_all()?;
-                Ok(())
-            })();
-            if saved.is_err() {
-                let _ = fs::remove_file(path);
-            }
-            saved?;
+            omochi_transport::persistence::atomic_write(&self.root.join("shares.json"), &bytes)?;
         }
         Ok(result)
     }
@@ -351,6 +324,7 @@ impl Grant {
 mod tests {
     use super::*;
     use serde_json::json;
+    use std::fs;
     fn board(store: &DashboardStore) -> Dashboard {
         store.mutate(None,json!({"name":"Shared","panels":[{"id":"p","title":"View","reference":{"nodeId":"a".repeat(64),"serviceId":"app","surfaceId":"main"},"x":0,"y":0,"w":4,"h":3}]}),false).unwrap().unwrap()
     }

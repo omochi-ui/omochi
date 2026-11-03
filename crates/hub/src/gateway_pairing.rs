@@ -83,7 +83,7 @@ impl Service {
                     return Err(ApiError::new(400, "Invalid gateway name"));
                 }
                 let store = self.store.clone();
-                let revocation = tokio::task::spawn_blocking(move || store.authorization())
+                let revocation = omochi_transport::blocking::run(move || store.authorization())
                     .await
                     .map_err(|_| unavailable())?
                     .map_err(|_| unavailable())?
@@ -139,7 +139,7 @@ impl Service {
             job.name.clone(),
             job.revocation,
         );
-        let result = tokio::task::spawn_blocking(move || {
+        let result = omochi_transport::blocking::run(move || {
             owners.authorize(&owner, &peer, || {
                 store
                     .register_gateway_guarded(id, &name, Some(revocation))
@@ -180,7 +180,7 @@ impl Service {
                     let Some(job) = slot.as_ref() else {return};
                     let (owner,peer,owners)=(job.owner.clone(),job.peer.clone(),owners.clone());
                     drop(slot);
-                    if !matches!(tokio::task::spawn_blocking(move || owners.authorize(&owner,&peer,||Ok(()))).await,Ok(Ok(()))) { break "failed"; }
+                    if !matches!(omochi_transport::blocking::run(move || owners.authorize(&owner,&peer,||Ok(()))).await,Ok(Ok(()))) { break "failed"; }
                 }
             }
         };
@@ -207,12 +207,16 @@ impl Service {
                     job.revocation,
                 );
                 if !matches!(
-                    tokio::task::spawn_blocking(move || grants.authorize(&owner, &peer, || {
-                        if store.authorization().map_err(|_| unavailable())?.1 != revocation {
-                            return Err(unavailable());
+                    omochi_transport::blocking::run(move || grants.authorize(
+                        &owner,
+                        &peer,
+                        || {
+                            if store.authorization().map_err(|_| unavailable())?.1 != revocation {
+                                return Err(unavailable());
+                            }
+                            Ok(())
                         }
-                        Ok(())
-                    }))
+                    ))
                     .await,
                     Ok(Ok(()))
                 ) {
