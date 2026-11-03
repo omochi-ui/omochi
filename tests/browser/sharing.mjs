@@ -55,7 +55,8 @@ try {
   browser = await chromium(path.join(temporary, 'chromium'), [`--ignore-certificate-errors-spki-list=${tls.spki}`]);
   report.browser = (await browser.command('Browser.getVersion')).product;
   assert(Number(report.browser.match(/\/(\d+)/)?.[1]) >= 156);
-  browser.onEvent(event => { if (event.method === 'Runtime.exceptionThrown') exceptions++; });
+  browser.onEvent(event => { if (event.method === 'Runtime.exceptionThrown') { exceptions++; (report.browserExceptions ??= []).push(event.params.exceptionDetails?.exception?.description ?? event.params.exceptionDetails?.text); } });
+  browser.onEvent(event => { if (event.method === 'Runtime.consoleAPICalled' && event.params.type === 'error') (report.consoleErrors ??= []).push(event.params.args.map(arg => arg.description ?? arg.value)); });
   await navigate(browser, ready.ownerUrl); await live(browser);
   passed('local owner uses the native HTTP/WS dashboard with two real SDK sources');
   const publicLink = await createLink('public');
@@ -182,9 +183,10 @@ try {
   console.log(`Sharing browser acceptance passed (${report.checks.length} checks).`);
 } catch (error) {
   report.errors.push(error.message); console.error(error.message); process.exitCode = 1;
-  if (recipient) {
-    report.diagnostics = await recipient.evaluate(`({status:document.querySelector('.connection-status')?.textContent, codes:Array.from(document.querySelectorAll('[data-error-code]')).map(e=>e.dataset.errorCode), surfaces:document.querySelectorAll('[data-surface]').length, inputs:Array.from(document.querySelectorAll('input')).map(e=>({type:e.type,label:e.getAttribute('aria-label'),disabled:e.matches(':disabled')}))})`).catch(() => ({}));
-    const screenshot = await recipient.command('Page.captureScreenshot', {format:'png',captureBeyondViewport:true}).catch(() => null);
+  const diagnosticPage = recipient ?? browser;
+  if (diagnosticPage) {
+    report.diagnostics = await diagnosticPage.evaluate(`({text:document.body.innerText,status:document.querySelector('.connection-status')?.textContent, codes:Array.from(document.querySelectorAll('[data-error-code]')).map(e=>e.dataset.errorCode), surfaces:document.querySelectorAll('[data-surface]').length, inputs:Array.from(document.querySelectorAll('input')).map(e=>({type:e.type,label:e.getAttribute('aria-label'),disabled:e.matches(':disabled')}))})`).catch(() => ({}));
+    const screenshot = await diagnosticPage.command('Page.captureScreenshot', {format:'png',captureBeyondViewport:true}).catch(() => null);
     if(screenshot) await writeFile(path.join(output,'failure.png'),Buffer.from(screenshot.data,'base64'));
   }
 }
