@@ -89,6 +89,8 @@ class GatewayInvitation {
       final secret = value['secret'] as String;
       if (value['version'] != 4 ||
           !RegExp(r'^[a-fA-F0-9]{64}$').hasMatch(secret) ||
+          // Check seconds before multiplying for DateTime's millisecond range.
+          expires > 8640000000000 ||
           expires <= (now ?? DateTime.now()).millisecondsSinceEpoch ~/ 1000) {
         throw const FormatException();
       }

@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:genui/genui.dart';
 import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
 
+import '../action_input.dart';
 import '../messages.dart';
 import 'client_api.dart';
 import 'image_budget.dart';
@@ -12,6 +13,7 @@ Catalog nativeCatalog(
   GatewayImageRequest Function(String, String) read, {
   required bool Function() useHub,
 }) => BasicCatalogItems.asCatalog().copyWith(
+  newFunctions: [const ActionInputFunction()],
   newItems: [
     CatalogItem(
       name: BasicCatalogItems.text.name,

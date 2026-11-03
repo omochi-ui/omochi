@@ -421,7 +421,7 @@ packages:
     source: hosted
     version: "1.0.0"
   json_schema_builder:
-    dependency: transitive
+    dependency: "direct main"
     description:
       name: json_schema_builder
       sha256: "657db3229ba10305c48e8686e8b3aca16e12e639c3a7b96687a6eeb7836b6e1b"

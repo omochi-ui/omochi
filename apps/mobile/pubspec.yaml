@@ -19,6 +19,7 @@ dependencies:
   flutter_secure_storage: ^11.2.0
   genui: ^0.10.4
   intl: ^0.20.3
+  json_schema_builder: ^0.1.7
   shared_preferences: ^2.5.6
 
 dev_dependencies:

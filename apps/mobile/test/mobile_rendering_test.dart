@@ -46,6 +46,56 @@ Future<void> openService(
 }
 
 void main() {
+  testWidgets('action functions resolve array bindings at each click', (
+    tester,
+  ) async {
+    final client = TestClient();
+    final hub = session(client);
+    final scope = TestScope('functions:1');
+    await openService(tester, hub, client, scope);
+    client.onMessage(dataMessage(counterId, {'enabled': false}));
+    client.onMessage({
+      'version': 'v0.9',
+      'updateComponents': {
+        'surfaceId': counterId,
+        'components': [
+          buttonComponent(
+            'button',
+            'label',
+            'run',
+            context: {
+              'input': {
+                'allowed': {
+                  'call': 'and',
+                  'args': {
+                    'values': [
+                      {'path': '/enabled'},
+                      true,
+                    ],
+                  },
+                  'returnType': 'boolean',
+                },
+              },
+            },
+          ),
+        ],
+      },
+    });
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Run'));
+    await tester.pumpAndSettle();
+    expect(
+      scope.actions.single['action']['context']['input']['allowed'],
+      false,
+    );
+    client.onMessage(dataMessage(counterId, {'enabled': true}));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Run'));
+    await tester.pumpAndSettle();
+    expect(scope.actions.last['action']['context']['input']['allowed'], true);
+    await tester.pumpWidget(const SizedBox());
+  });
+
   testWidgets('service screen expires callbacks when a Surface is replaced', (
     tester,
   ) async {

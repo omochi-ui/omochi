@@ -1,10 +1,12 @@
 import 'dart:convert';
 
+import 'action_input.dart';
 import 'models.dart';
 
 /// GenUI 0.10 validates/resolves only top-level event context values.
 /// Flatten bindings before rendering so template-relative paths still resolve in
 /// GenUI's own DataContext, then restore Omochi's nested action input on submit.
+/// Calls use [ActionInputFunction] to resolve their nested arguments at click time.
 class ContextCodec {
   final Map<String, Map<String, Object?>> _shapes = {};
   void clear() => _shapes.clear();
@@ -37,7 +39,9 @@ class ContextCodec {
           }
           if (value is List) return value.map(flatten).toList();
           final key = 'v${values.length}';
-          values[key] = value;
+          values[key] = value is Map && value.containsKey('call')
+              ? ActionInputFunction.encode(value)
+              : value;
           return _Slot(key);
         }
 

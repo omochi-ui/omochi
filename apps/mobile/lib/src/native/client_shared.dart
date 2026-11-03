@@ -14,19 +14,42 @@ GatewayClient createSharedGatewayClient({
   required void Function(Json) onMessage,
   required void Function(String) onRetract,
   required void Function(String) onEvent,
-}) => _SharedClient(store, onMessage, onRetract, onEvent);
+  SharedHubBridge Function(NativeHubStore) openBridge = SharedHubBridge.new,
+}) => _SharedClient(store, onMessage, onRetract, onEvent, openBridge);
 
 class _SharedClient extends GatewayClient {
   static int _nextClient = 0;
   final int clientId = ++_nextClient;
   Future<void>? _starting;
-  _SharedClient(this.store, this.onMessage, this.onRetract, this.onEvent);
+  _SharedClient(
+    this.store,
+    this.onMessage,
+    this.onRetract,
+    this.onEvent,
+    this.openBridge,
+  );
   final NativeHubStore store;
+  final SharedHubBridge Function(NativeHubStore) openBridge;
   final void Function(Json) onMessage;
   final void Function(String) onRetract, onEvent;
   SharedHubBridge? _bridge;
   void Function()? _releaseLease;
   bool _closing = false, _suspended = false;
+  bool _foreground = true;
+  Future<void> _transitions = Future<void>.value();
+
+  Future<void> _transition(Future<void> Function() operation) {
+    final result = _transitions.then((_) async {
+      await _starting;
+      if (!_closing) await operation();
+    });
+    _transitions = result.then<void>(
+      (_) {},
+      onError: (Object _, StackTrace _) {},
+    );
+    return result;
+  }
+
   bool _multicast = false;
   Future<void> _setMulticast(bool enabled) async {
     if (!Platform.isAndroid || enabled == _multicast) return;
@@ -67,7 +90,7 @@ class _SharedClient extends GatewayClient {
         await _setMulticast(false);
         throw StateError('Hub stopped during startup');
       }
-      _bridge = SharedHubBridge(store);
+      _bridge = openBridge(store);
       online = await store.online();
       await bridge.request({'op': 'start', 'online': online});
       await _refresh();
@@ -248,15 +271,23 @@ class _SharedClient extends GatewayClient {
   @override
   Future<void> setOnline(bool value) async {
     await store.setOnline(value);
-    online = value;
-    await suspend();
-    await resume();
+    await _transition(() async {
+      online = value;
+      if (_foreground) {
+        await _resume();
+      } else {
+        notifyListeners();
+      }
+    });
   }
 
   @override
-  Future<void> suspend() async {
-    await _starting;
-    if (_closing) return;
+  Future<void> suspend() {
+    _foreground = false;
+    return _transition(_suspend);
+  }
+
+  Future<void> _suspend() async {
     _suspended = true;
     _stopRendering();
     await bridge.request({'op': 'suspend'});
@@ -265,9 +296,14 @@ class _SharedClient extends GatewayClient {
   }
 
   @override
-  Future<void> resume() async {
-    await _starting;
-    if (_closing) return;
+  Future<void> resume() {
+    _foreground = true;
+    return _transition(() async {
+      if (_foreground) await _resume();
+    });
+  }
+
+  Future<void> _resume() async {
     // A resumed notification can arrive without a preceding paused event.
     // Invalidate the old subscription before Rust replaces its endpoint.
     _suspended = true;
@@ -277,7 +313,16 @@ class _SharedClient extends GatewayClient {
       await _setMulticast(false);
       throw StateError('Hub stopped during resume');
     }
+    if (!_foreground) {
+      await _setMulticast(false);
+      return;
+    }
     await bridge.request({'op': 'resume', 'online': online});
+    if (_closing) return;
+    if (!_foreground) {
+      await _suspend();
+      return;
+    }
     _suspended = false;
     await _subscribe();
     await _refresh();

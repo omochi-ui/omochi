@@ -5,9 +5,24 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:omochi_mobile/src/native/bridge.dart';
+import 'package:omochi_mobile/src/native/client_shared.dart';
 import 'package:omochi_mobile/src/native/store.dart';
 
 import 'support/memory_secure_storage.dart';
+
+class _DelayedPreferencesStore extends NativeHubStore {
+  _DelayedPreferencesStore()
+    : super(namespace: 'omochi.test.lifecycle', secure: MemorySecureStorage());
+  final writeStarted = Completer<void>();
+  final finishWrite = Completer<void>();
+  @override
+  Future<bool> online() async => false;
+  @override
+  Future<void> setOnline(bool value) async {
+    writeStarted.complete();
+    await finishWrite.future;
+  }
+}
 
 void main() {
   final file = File(
@@ -24,6 +39,47 @@ void main() {
         NativeHubStore(namespace: 'omochi.test.bridge', secure: secure),
         library: DynamicLibrary.open(file.absolute.path),
       );
+      for (final pauseDuringSave in [true, false]) {
+        test(
+          'relay preference preserves suspension (pause during save: $pauseDuringSave)',
+          () async {
+            final store = _DelayedPreferencesStore();
+            late SharedHubBridge bridge;
+            final client = createSharedGatewayClient(
+              store: store,
+              onMessage: (_) {},
+              onRetract: (_) {},
+              onEvent: (_) {},
+              openBridge: (store) => bridge = SharedHubBridge(
+                store,
+                library: DynamicLibrary.open(file.absolute.path),
+              ),
+            );
+            addTearDown(client.close);
+            await client.start();
+            if (!pauseDuringSave) await client.suspend();
+            final setting = client.setOnline(false);
+            await store.writeStarted.future;
+            if (pauseDuringSave) await client.suspend();
+            store.finishWrite.complete();
+            await setting;
+            await expectLater(
+              bridge.request({'op': 'subscribe'}),
+              throwsA(
+                isA<StateError>().having(
+                  (e) => e.toString(),
+                  'message',
+                  contains('suspended'),
+                ),
+              ),
+            );
+            await client.resume();
+            // A deliberate foreground transition must restore rendering.
+            await bridge.request({'op': 'subscribe'});
+          },
+        );
+      }
+
       test('native snapshot ACK, cancellation, suspend and restart preserve the original key', () async {
         final secure = MemorySecureStorage();
         final bridge = open(secure);
