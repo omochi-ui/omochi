@@ -61,7 +61,7 @@ test('merge errors prevent sending and allow a subsequent successful click', asy
 });
 
 test('nested merges preserve data and do not reinterpret resolved objects', t => {
-  const s = setup({});
+  const s = setup(merge());
   t.after(() => { s.binder.dispose(); s.surface.dispose(); });
   s.surface.dataModel.set('/value', JSON.parse('{"path":"/do-not-resolve","__proto__":{"polluted":true}}'));
   const result = resolveInput(merge({ title: 'x' }, merge({}, { path: '/value' })), s.context);
@@ -84,7 +84,7 @@ test('ordinary function array arguments resolve at click time and missing refere
   s.click();
   await Promise.resolve();
   assert.equal(s.actions.length, 1);
-  assert.ok(s.errors.some(message => message.includes('missing input reference: /flag')));
+  assert.ok(s.errors.some(message => message.includes("Validation failed for function 'and'")));
   s.surface.dataModel.set('/flag', true);
   s.click();
   await Promise.resolve();

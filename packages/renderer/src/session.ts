@@ -1,13 +1,13 @@
 import { assertResolvedInput } from './expressions.js';
 import { MessageProcessor, type A2uiMessage } from '@a2ui/web_core/v0_9';
-import type { ReactComponentImplementation } from '@a2ui/react/v0_9';
+import type { ReactCatalogComponent } from '@a2ui/react/v0_9';
 import { SessionFault, type ApplyResult, type SessionErrorCode, type LiveEvent, type LiveSession, type RenderEvent, type ServiceView, type SurfaceLease, type Unsubscribe } from '@omochi-ui/core/browser';
 import { BrowserImages } from './images.js';
 import { createResourceCatalog } from './resources.js';
-import { createActionMessage, messageSurfaceId } from './messages.js';
+import { createActionMessage, messageSurfaceId, prepareRendererMessage } from './messages.js';
 import { applyDirectCreate, applyDirectDataPatch } from './data-patch.js';
 
-export type Processor = MessageProcessor<ReactComponentImplementation>;
+export type Processor = MessageProcessor<ReactCatalogComponent>;
 export interface A2uiSession {
   processor: Processor | null;
   surfaceIds: readonly string[];
@@ -98,7 +98,7 @@ export function createA2uiSession(source: LiveSession): RendererSession {
         for (const id of previous) forgetSurface(id);
         for (const lease of event.leases) bind(lease);
         for (const message of event.messages) checkCatalog(message);
-        processor.processMessages([...event.messages]);
+        processor.processMessages(event.messages.map(prepareRendererMessage));
         services.set(event.service, new Set(attempted));
       } else {
         const message = event.message;
@@ -112,7 +112,7 @@ export function createA2uiSession(source: LiveSession): RendererSession {
         else if (event.lease) bind(event.lease);
         if (source.imagePolicy === 'sdk-png' && event.budget && 'updateDataModel' in message) applyDirectDataPatch(processor, message, event.budget);
         else if (source.imagePolicy === 'sdk-png' && event.budget && 'createSurface' in message) applyDirectCreate(processor, message, event.budget);
-        else processor.processMessages([message]);
+        else processor.processMessages([prepareRendererMessage(message)]);
         if ('deleteSurface' in message) ids.delete(id);
       }
     } catch (failure) {

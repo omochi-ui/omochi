@@ -156,6 +156,12 @@ class LocalHubSession implements LiveSession {
     };
   }
   private update(message: Parameters<typeof messageSurfaceId>[0], handle: string | null): void {
+    // Service-owned fields cannot become transport envelope metadata. The latest
+    // processor also rejects these extra fields instead of stripping them.
+    if ('createSurface' in message) message = { version: message.version, createSurface: message.createSurface };
+    else if ('updateComponents' in message) message = { version: message.version, updateComponents: message.updateComponents };
+    else if ('updateDataModel' in message) message = { version: message.version, updateDataModel: message.updateDataModel };
+    else message = { version: message.version, deleteSurface: message.deleteSurface };
     const surfaceId = messageSurfaceId(message);
     if (typeof surfaceId !== 'string') throw new SessionFault('ProtocolError');
     const service = splitSurfaceId(surfaceId)?.channelId ?? '__standalone__';

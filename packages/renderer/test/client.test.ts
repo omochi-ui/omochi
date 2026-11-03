@@ -117,7 +117,7 @@ test('an unresolved action is reported and never sent to the socket', async t =>
   binder.snapshot.action();
   await Promise.resolve();
   assert.equal(sent.length, 0);
-  assert.ok(errors.some(error => error?.includes('missing input reference')));
+  assert.ok(errors.some(error => error?.includes('action input could not be resolved')));
   surface.dataModel.set('/value', { count: 3 });
   binder.snapshot.action();
   await Promise.resolve();

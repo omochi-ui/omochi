@@ -43,9 +43,27 @@ function mergeInputs(objects: unknown, context: DataContext, depth = 0): Record<
 }
 export const mergeObjectsFunction = createFunctionImplementation({
   name: 'omochiMergeObjects', returnType: 'object', schema: z.object({ objects: z.array(z.unknown()) }),
-}, ({ objects }, context) => mergeInputs(objects, context));
+}, ({ objects }) => {
+  // A2UI 0.15 resolves function arguments recursively before execution.
+  // Values containing path/call keys are now model data, never expressions.
+  const entries = new Map<string, unknown>();
+  for (const object of objects) {
+    if (!object || typeof object !== 'object' || Array.isArray(object)) throw new Error('mergeObjects expects JSON objects');
+    assertResolvedInput(object);
+    for (const [key, value] of Object.entries(object)) {
+      if (entries.has(key)) throw new Error(`duplicate input key: ${key}`);
+      entries.set(key, value);
+    }
+  }
+  return Object.fromEntries(entries);
+});
 
 export function assertResolvedInput(value: unknown): void {
   if (value === undefined) throw new Error('action input could not be resolved');
   if (value && typeof value === 'object') for (const item of Object.values(value)) assertResolvedInput(item);
 }
+
+/** A2UI 0.15 DynamicValue excludes null literals; Omochi void actions use null. */
+export const nullInputFunction = createFunctionImplementation({
+  name: 'omochiNull', returnType: 'any', schema: z.object({}),
+}, () => null);

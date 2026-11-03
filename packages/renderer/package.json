@@ -19,9 +19,9 @@
   },
   "dependencies": {
     "@omochi-ui/core": "workspace:*",
-    "@a2ui/markdown-it": "0.1.1",
-    "@a2ui/react": "0.10.2",
-    "@a2ui/web_core": "0.10.5",
+    "@a2ui/markdown-it": "0.2.2",
+    "@a2ui/react": "0.15.0",
+    "@a2ui/web_core": "0.15.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "zod": "^3.25.76",

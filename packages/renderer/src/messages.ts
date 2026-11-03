@@ -17,3 +17,20 @@ export function createActionMessage(action: A2uiClientAction, clientDataModel: u
     a2uiClientDataModel: clientDataModel ?? { version: 'v0.9', surfaces: {} },
   } };
 }
+
+/** Express Omochi's object-valued action context using the catalog extension. */
+export function prepareRendererMessage(message: A2uiMessage): A2uiMessage {
+  if (!('updateComponents' in message)) return message;
+  return { ...message, updateComponents: { ...message.updateComponents,
+    components: message.updateComponents.components.map(component => {
+      const action = component.action as { event?: { context?: Record<string, unknown> } } | undefined;
+      if (!action?.event?.context) return component;
+      const context = Object.fromEntries(Object.entries(action.event.context).map(([name, value]) => [name,
+        value === null ? { call: 'omochiNull', args: {}, returnType: 'any' } :
+        value && typeof value === 'object' && !Array.isArray(value) && !('path' in value) && !('call' in value)
+          ? { call: 'omochiMergeObjects', args: { objects: [value] }, returnType: 'object' } : value,
+      ]));
+      return { ...component, action: { ...action, event: { ...action.event, context } } };
+    }),
+  } };
+}
