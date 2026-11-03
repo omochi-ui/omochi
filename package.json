@@ -6,17 +6,17 @@
   "scripts": {
     "build": "bun run build:web && cargo build --manifest-path crates/Cargo.toml --locked -p omochi-cli -p omochi-utils",
     "quickstart": "bun run build && bun run omochi-ui up --open examples/quickstart/omochi.toml",
-    "test": "bun run build && bun run --bun --filter './packages/**' test && bun run test:server-rust && tsc -p tests/native && OMOCHI_NATIVE_TEST=1 bun test tests/native packages/renderer/test/native.test.ts && bun run test:approval && bun run test:packaging",
+    "test": "bun run build && bun run --bun --filter './packages/**' test && bun run test:server-rust && bun check -p tests/native && OMOCHI_NATIVE_TEST=1 bun test tests/native packages/renderer/test/native.test.ts && bun run test:approval && bun run test:packaging",
     "test:packaging": "bun run release:typecheck && bun test scripts/release.test.ts scripts/native-release.test.ts && python3 -B scripts/test_native_packaging.py",
     "test:renderer-package": "bun run build:web && bun scripts/test-renderer-package.ts",
-    "test:approval": "tsc -p examples/agent-approval/tsconfig.json && bun test ./examples/agent-approval/test",
+    "test:approval": "bun check -p examples/agent-approval/tsconfig.json && bun test ./examples/agent-approval/test",
     "test:python": "PYTHONPATH=packages/sdk/python/src python3 -m unittest discover -s packages/sdk/python/tests -v",
     "test:python-renderer": "bun run --filter @omochi-ui/core build && OMOCHI_PYTHON_TEST=1 bun test packages/renderer/test/python-interface.test.ts",
     "test:rust": "cargo test --manifest-path packages/sdk/rust/Cargo.toml",
-    "test:native-mcp": "bun run build:native && tsc -p tests/native && OMOCHI_NATIVE_TEST=1 bun test tests/native/mcp.test.ts",
+    "test:native-mcp": "bun run build:native && bun check -p tests/native && OMOCHI_NATIVE_TEST=1 bun test tests/native/mcp.test.ts",
     "test:server-rust": "cargo test --manifest-path crates/Cargo.toml --workspace --locked",
     "release:check": "bun scripts/release.ts check",
-    "release:typecheck": "tsc -p scripts/tsconfig.json",
+    "release:typecheck": "bun check -p scripts/tsconfig.json",
     "release:pack": "bun scripts/release.ts pack",
     "release:smoke": "bun scripts/smoke-npm.ts",
     "release:stage:npm": "bun scripts/release.ts stage-npm",
@@ -45,15 +45,15 @@
     "check:dashboard-app": "bun run --filter @omochi-ui/dashboard-app check"
   },
   "devDependencies": {
-    "@types/node": "^24.0.0",
-    "@omochi-ui/sdk": "workspace:*",
-    "@omochi-ui/core": "workspace:*",
+    "@happy-dom/global-registrator": "^21.0.4",
+    "@modelcontextprotocol/sdk": "^1.32.2",
     "@omochi-ui/cli": "workspace:*",
-    "@omochi-ui/utils": "workspace:*",
+    "@omochi-ui/core": "workspace:*",
     "@omochi-ui/dev-server": "workspace:*",
-    "typescript": "^5.9.0",
+    "@omochi-ui/sdk": "workspace:*",
+    "@omochi-ui/utils": "workspace:*",
     "@types/bun": "^1.3.0",
-    "@modelcontextprotocol/sdk": "^1.31.0"
+    "@types/node": "^24.0.0"
   },
   "engines": {
     "bun": ">=1.4.3"

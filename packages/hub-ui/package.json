@@ -18,12 +18,12 @@
     "./assets": "./dist/index.html"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.app.json && vite build && tsc -p tsconfig.contracts.json",
-    "typecheck": "tsc -p tsconfig.app.json",
+    "build": "bun check -p tsconfig.app.json && vite build && tsc -p tsconfig.contracts.json",
+    "typecheck": "bun check -p tsconfig.app.json",
     "dev": "vite",
     "lint": "oxlint",
-    "test": "tsc -p tsconfig.test.json && bun test ./test",
-    "build:hosted": "tsc -p tsconfig.hosted.json && vite build --config vite.hosted.config.ts"
+    "test": "bun check -p tsconfig.test.json && bun test ./test",
+    "build:hosted": "bun check -p tsconfig.hosted.json && vite build --config vite.hosted.config.ts"
   },
   "dependencies": {
     "@omochi-ui/renderer": "workspace:*",
@@ -37,8 +37,8 @@
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.4",
     "ajv": "8.20.0",
-    "oxlint": "^1.75.0",
-    "typescript": "~6.0.2",
+    "oxlint": "^1.90.0",
+    "typescript": "~6.0.3",
     "vite": "^8.2.0",
     "@omochi-ui/hub-transport": "workspace:*",
     "fake-indexeddb": "6.2.5"

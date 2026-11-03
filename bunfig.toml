@@ -2,4 +2,5 @@
 bun = true
 
 [test]
+preload = ["./tests/setup-dom.ts"]
 timeout = 15000

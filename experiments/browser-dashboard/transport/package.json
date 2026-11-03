@@ -10,5 +10,5 @@
     "test": "cargo test --manifest-path Cargo.toml --locked --lib && bun test ./test"
   },
   "dependencies": { "@omochi-ui/core": "workspace:*" },
-  "devDependencies": { "typescript": "~6.0.2", "@types/bun": "^1.3.0" }
+  "devDependencies": { "typescript": "~6.0.3", "@types/bun": "^1.3.0" }
 }

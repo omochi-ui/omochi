@@ -7,11 +7,11 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build",
-    "test": "tsc -p tsconfig.test.json && bun test ./test",
+    "build": "bun check -b && vite build",
+    "test": "bun check -p tsconfig.test.json && bun test ./test",
     "lint": "oxlint",
     "preview": "vite preview",
-    "typecheck": "tsc -b"
+    "typecheck": "bun check -b"
   },
   "dependencies": {
     "@omochi-ui/renderer": "workspace:*",
@@ -23,8 +23,7 @@
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.4",
-    "oxlint": "^1.75.0",
-    "typescript": "~6.0.2",
+    "oxlint": "^1.90.0",
     "vite": "^8.2.0",
     "@omochi-ui/core": "workspace:*"
   },

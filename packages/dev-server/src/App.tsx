@@ -15,6 +15,8 @@ function Preview({ url }: { url: string }) {
   </main>;
 }
 export default function App() {
-  try { return <Preview url={resolveWebSocketUrl(location)} />; }
+  let url: string;
+  try { url = resolveWebSocketUrl(location); }
   catch (error) { return <div className="error" role="alert">{String(error)}</div>; }
+  return <Preview url={url} />;
 }
