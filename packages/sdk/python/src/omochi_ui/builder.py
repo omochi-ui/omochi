@@ -1,9 +1,15 @@
 from __future__ import annotations
 
 from contextlib import AbstractContextManager, contextmanager
+import builtins
+import json
 from copy import deepcopy
-from dataclasses import dataclass
-from typing import Any, Callable, Iterator, Literal, Sequence, Unpack, overload
+from dataclasses import dataclass, is_dataclass
+from .expression import Expr, encode_input, uses_object_merge, MERGE_OBJECTS_CAPABILITY
+from .schema import from_type
+from .references import Local, DynamicLocal, ModelBinding, same_type
+from ._context import RenderScope
+from typing import TypeVar, Any, Callable, Iterator, Literal, Sequence, Unpack, overload, TYPE_CHECKING, Mapping
 
 from .catalog import (
     BASIC_CATALOG, ButtonOptions, ButtonProps, CardProps, Catalog, CheckableOptions, CommonProps,
@@ -13,49 +19,22 @@ from .catalog import (
     SliderOptions, SliderProps, TabsProps, TextFieldOptions, TextFieldProps, TextOptions,
     TextProps,
 )
-from .errors import DeclarationError
+from .errors import DeclarationError, ProtocolError
 from .ir import Declaration, Node, Slot
 
-Action = Callable[..., Any]
+if TYPE_CHECKING:
+    from .app import Action, ActionCall
+
+I = TypeVar("I")
+E = TypeVar("E")
+EventInput = Mapping[str, object] | list[object] | tuple[object, ...] | DynamicLocal
 STANDARD_CATALOG = BASIC_CATALOG.id
 _MISSING = object()
 
 def _escape_pointer(value: str) -> str:
     return value.replace("~", "~0").replace("/", "~1")
 
-def _unescape_pointer(value: str) -> str:
-    return value.replace("~1", "/").replace("~0", "~")
-
-class ModelBinding(dict[str, str]):
-    def __init__(self, path: str):
-        dict.__init__(self, path=path)
-
-    @property
-    def path(self) -> str:
-        return self["path"]
-
-    def __setitem__(self, _key: str, _value: str) -> None:
-        raise TypeError("model bindings are read-only")
-
-    def __delitem__(self, _key: str) -> None:
-        raise TypeError("model bindings are read-only")
-
-    def __deepcopy__(self, _memo: dict[int, Any]) -> dict[str, str]:
-        return {"path": self.path}
-
-class Local:
-    __slots__ = ("key", "_bindings")
-    def __init__(self, key: str, bindings: set[int]):
-        self.key = key
-        self._bindings = bindings
-    def bind(self, path: str) -> ModelBinding:
-        _validate_pointer(path)
-        binding = ModelBinding(_local_path(self.key, path))
-        self._bindings.add(id(binding))
-        return binding
-    def value(self, path: str) -> dict[str, str]:
-        _validate_pointer(path)
-        return {"$local": self.key, "path": path}
+T = TypeVar("T")
 
 @dataclass(frozen=True, slots=True)
 class Tab:
@@ -65,7 +44,7 @@ class Tab:
 class UI:
     """Builds a typed normalized declaration for one A2UI surface."""
 
-    def __init__(self, surface_id: str, catalog: Catalog, register_action: Callable[[Action], str], previous_data: dict[str, Any] | None = None):
+    def __init__(self, surface_id: str, catalog: Catalog, register_action: Callable[..., str], previous_data: dict[str, Any] | None = None):
         self.surface_id = surface_id
         self.catalog = catalog
         root_slot = Slot(path="/children", kind="list")
@@ -75,25 +54,72 @@ class UI:
         previous_inputs = (previous_data or {}).get("inputs", {})
         self._data: dict[str, Any] = {"inputs": deepcopy(previous_inputs) if isinstance(previous_inputs, dict) else {}}
         self._locals: dict[str, dict[str, Any]] = {}
-        self._bindings: set[int] = set()
         self._uncontrolled_inputs: set[str] = set()
         self._required_capabilities: set[str] = set()
-        self._auto_key = 0
+        self._render_scope = RenderScope()
+        self._scope_path: tuple[str, ...] = ()
+        self._scopes: set[tuple[str, ...]] = set()
+        self._auto_keys: dict[tuple[str, ...], int] = {}
         self._keys = {"root"}
 
-    def local(self, key: str, initial: Any, *, reset_key: Any = _MISSING) -> Local:
-        if not key or key in self._locals:
+    @overload
+    def local(self, key: str, initial: T, *, type: type[T], reset_key: Any = _MISSING) -> Local[T]: ...
+    @overload
+    def local(self, key: str, initial: T, *, reset_key: Any = _MISSING) -> Local[T]: ...
+    def local(self, key: str, initial: T, *, type: Any = _MISSING, reset_key: Any = _MISSING) -> Local[T]:
+        self._render_scope.check()
+        if not isinstance(key, str) or not key:
+            raise DeclarationError("local key must be non-empty")
+        key = self._scoped(key)
+        if key in self._locals:
             raise DeclarationError(f"local key must be unique and non-empty: {key!r}")
-        declaration = {"initial": deepcopy(initial)}
+        declared = None
+        if type is not _MISSING:
+            declared = from_type(type)
+        elif builtins.type(initial) in (str, bool, int, float, builtins.type(None)) or is_dataclass(initial):
+            declared = from_type(builtins.type(initial))
+        encoded = encode_input(initial)
+        if declared is not None:
+            try:
+                declared.parse(encoded)
+            except ProtocolError as error:
+                raise DeclarationError(str(error)) from error
+        declaration = {"initial": encoded}
         if reset_key is not _MISSING:
             declaration["resetKey"] = deepcopy(reset_key)
         self._locals[key] = declaration
-        return Local(key, self._bindings)
+        return Local(_local_path(key, ""), self._render_scope, declared, encoded)
+
+    def _scoped(self, key: str) -> str:
+        if not self._scope_path:
+            if key.startswith("$scope:"):
+                raise DeclarationError("$scope: is reserved for namespaced keys")
+            return key
+        return "$scope:" + json.dumps([*self._scope_path, key], separators=(",", ":"), ensure_ascii=True)
+
+    @contextmanager
+    def scope(self, key: str) -> Iterator[None]:
+        self._render_scope.check()
+        if not isinstance(key, str) or not key:
+            raise DeclarationError("scope key must be a non-empty string")
+        previous = self._scope_path
+        path = (*previous, key)
+        if path in self._scopes:
+            raise DeclarationError(f"duplicate scope: {path!r}")
+        self._scopes.add(path)
+        self._scope_path = path
+        try:
+            yield
+        finally:
+            self._scope_path = previous
 
     def _key(self, key: str | None) -> str:
-        resolved = key if key is not None else f"auto:{self._auto_key}"
+        self._render_scope.check()
         if key is None:
-            self._auto_key += 1
+            index = self._auto_keys.get(self._scope_path, 0)
+            self._auto_keys[self._scope_path] = index + 1
+            key = f"auto:{index}"
+        resolved = self._scoped(key)
         if resolved in self._keys:
             raise DeclarationError(f"duplicate component key on {self.surface_id!r}: {resolved!r}")
         self._keys.add(resolved)
@@ -197,56 +223,85 @@ class UI:
         if len(self._slot(node, "/trigger", "single", trigger).nodes) != 1 or len(self._slot(node, "/content", "single", content).nodes) != 1:
             raise DeclarationError("modal trigger and content must each build exactly one child")
 
-    def button(self, label: DynamicString, call: Any, *, key: str | None = None, **props: Unpack[ButtonOptions]) -> None:
+    @overload
+    def button(self, label: DynamicString, call: ActionCall, *, key: str | None = None, **props: Unpack[ButtonOptions]) -> None: ...
+    @overload
+    def button(self, label: DynamicString, *, on_click: Action[I, E], input: I | E | Expr[I], key: str | None = None, **props: Unpack[ButtonOptions]) -> None: ...
+    @overload
+    def button(self, label: DynamicString, *, on_click: Action[Any, Any], input: EventInput, key: str | None = None, **props: Unpack[ButtonOptions]) -> None: ...
+    @overload
+    def button(self, label: DynamicString, *, on_click: Action[None, None], key: str | None = None, **props: Unpack[ButtonOptions]) -> None: ...
+    def button(self, label: DynamicString, call: Any = _MISSING, *, on_click: Any = _MISSING, input: Any = _MISSING, key: str | None = None, **props: Unpack[ButtonOptions]) -> None:
+        from .app import Action, ActionCall
+        self._render_scope.check()
+        if call is not _MISSING:
+            if on_click is not _MISSING or input is not _MISSING:
+                raise DeclarationError("cannot combine an ActionCall with on_click/input")
+        else:
+            if not isinstance(on_click, Action) or on_click._schema is None:
+                raise DeclarationError("on_click must be a registered Action")
+            if input is _MISSING:
+                if not same_type(on_click._schema, from_type(builtins.type(None))):
+                    raise DeclarationError("this Action requires input=")
+                input = None
+            call = on_click.call(on_click.compose(input))
+        if not isinstance(call, ActionCall):
+            raise DeclarationError("button requires an Action declaration")
+        if call._owner is not None and call._owner is not self._render_scope.app:
+            raise DeclarationError("Action belongs to a different App")
+        for ref in call._references:
+            if ref._scope is not None:
+                ref._scope.check(self._render_scope)
         action_name = call.action
+        button_key = key if key is not None else f"action:{action_name}"
         node = self._append("Button", {
             **props,
-            "action": {"event": {"name": action_name, "context": {"input": _resolve_local_values(call.input)}}},
-        }, key or f"action:{action_name}")
-        self._slot(node, "/child", "single", lambda ui: ui.text(label, key=f"{node.key}:label"))
+            "action": {"event": {"name": action_name, "context": {"input": deepcopy(call.input)}}},
+        }, button_key)
+        self._slot(node, "/child", "single", lambda ui: ui.text(label, key=f"{button_key}:label"))
 
-    def _input(self, component: str, name: str, default: Any, bind: ModelBinding | None, props: dict[str, Any], key: str | None) -> None:
+    def _input(self, component: str, name: str, default: Any, bind: ModelBinding | Local | DynamicLocal | None, props: dict[str, Any], key: str | None) -> None:
         if "on_change" in props or "onChange" in props:
             raise DeclarationError(f"{component} does not define an input change action in the Basic Catalog")
+        self._render_scope.check()
+        input_key = key if key is not None else f"input:{name}"
         if bind is None:
+            name = self._scoped(name)
             self._uncontrolled_inputs.add(name)
             self._data["inputs"].setdefault(name, default)
             path = f"/inputs/{_escape_pointer(name)}"
         else:
-            if id(bind) not in self._bindings:
-                raise DeclarationError("bind must be a reference returned by local.bind()")
+            expected_type = {"TextField": str, "CheckBox": bool, "Slider": float,
+                             "ChoicePicker": list[str], "DateTimeInput": str}[component]
+            if isinstance(bind, DynamicLocal): bind = bind._local
+            if isinstance(bind, Local): bind = bind.bind()
+            if not isinstance(bind, ModelBinding) or bind._scope is None:
+                raise DeclarationError("bind must be a writable Local reference")
+            bind._scope.check(self._render_scope)
+            if bind._schema is not None and not same_type(bind._schema, from_type(expected_type)):
+                raise DeclarationError(f"{component} binding has a different writable type")
             path = bind.path
-        self._append(component, {**props, "value": {"path": path}}, key or f"input:{name}")
+        self._append(component, {**props, "value": {"path": path}}, input_key)
 
-    def _input_control(self, component: str, name: str, fallback: Any, default: Any, bind: ModelBinding | None, props: dict[str, Any], key: str | None) -> None:
+    def _input_control(self, component: str, name: str, fallback: Any, default: Any, bind: ModelBinding | Local | DynamicLocal | None, props: dict[str, Any], key: str | None) -> None:
         if bind is not None and default is not _MISSING:
             raise DeclarationError("default and bind cannot be used together")
         self._input(component, name, fallback if default is _MISSING else default, bind, props, key)
 
-    def text_field(self, name: str, *, label: DynamicString, default: Any = _MISSING, bind: ModelBinding | None = None, key: str | None = None, **props: Unpack[TextFieldOptions]) -> None: self._input_control("TextField", name, "", default, bind, {"label": label, **props}, key)
-    def check_box(self, name: str, *, label: DynamicString, default: Any = _MISSING, bind: ModelBinding | None = None, key: str | None = None, **props: Unpack[CheckableOptions]) -> None: self._input_control("CheckBox", name, False, default, bind, {"label": label, **props}, key)
-    def choice_picker(self, name: str, *, options: list[dict[str, Any]], default: Any = _MISSING, bind: ModelBinding | None = None, key: str | None = None, **props: Unpack[ChoicePickerOptions]) -> None: self._input_control("ChoicePicker", name, [], default, bind, {"options": options, **props}, key)
-    def slider(self, name: str, minimum: float, maximum: float, *, default: Any = _MISSING, bind: ModelBinding | None = None, key: str | None = None, **props: Unpack[SliderOptions]) -> None: self._input_control("Slider", name, minimum, default, bind, {"min": minimum, "max": maximum, **props}, key)
-    def date_time_input(self, name: str, *, default: Any = _MISSING, bind: ModelBinding | None = None, key: str | None = None, **props: Unpack[DateTimeInputOptions]) -> None: self._input_control("DateTimeInput", name, "", default, bind, props, key)
+    def text_field(self, name: str, *, label: DynamicString, default: Any = _MISSING, bind: ModelBinding[str] | Local[str] | DynamicLocal | None = None, key: str | None = None, **props: Unpack[TextFieldOptions]) -> None: self._input_control("TextField", name, "", default, bind, {"label": label, **props}, key)
+    def check_box(self, name: str, *, label: DynamicString, default: Any = _MISSING, bind: ModelBinding[bool] | Local[bool] | DynamicLocal | None = None, key: str | None = None, **props: Unpack[CheckableOptions]) -> None: self._input_control("CheckBox", name, False, default, bind, {"label": label, **props}, key)
+    def choice_picker(self, name: str, *, options: list[dict[str, Any]], default: Any = _MISSING, bind: ModelBinding[list[str]] | Local[list[str]] | DynamicLocal | None = None, key: str | None = None, **props: Unpack[ChoicePickerOptions]) -> None: self._input_control("ChoicePicker", name, [], default, bind, {"options": options, **props}, key)
+    def slider(self, name: str, minimum: float, maximum: float, *, default: Any = _MISSING, bind: ModelBinding[float] | Local[float] | DynamicLocal | None = None, key: str | None = None, **props: Unpack[SliderOptions]) -> None: self._input_control("Slider", name, minimum, default, bind, {"min": minimum, "max": maximum, **props}, key)
+    def date_time_input(self, name: str, *, default: Any = _MISSING, bind: ModelBinding[str] | Local[str] | DynamicLocal | None = None, key: str | None = None, **props: Unpack[DateTimeInputOptions]) -> None: self._input_control("DateTimeInput", name, "", default, bind, props, key)
 
     def build(self) -> Declaration:
+        self._render_scope.check()
         for name in list(self._data["inputs"]):
             if name not in self._uncontrolled_inputs:
                 del self._data["inputs"][name]
+        if uses_object_merge(self._root.to_dict()): self._required_capabilities.add(MERGE_OBJECTS_CAPABILITY)
+        self._render_scope.active = False
         return Declaration(surface_id=self.surface_id, catalog_id=self.catalog.id, root=self._root, data=self._data, locals=self._locals, required_capabilities=self._required_capabilities)
-
-def _validate_pointer(path: str) -> None:
-    if path and not path.startswith("/"):
-        raise DeclarationError(f"local path must be a JSON Pointer: {path!r}")
 
 def _local_path(key: str, path: str) -> str:
     return f"/$local/{_escape_pointer(key)}{path}"
-
-def _resolve_local_values(value: Any) -> Any:
-    if isinstance(value, dict) and isinstance(value.get("$local"), str) and isinstance(value.get("path"), str):
-        return {"path": _local_path(value["$local"], value["path"])}
-    if isinstance(value, dict):
-        return {key: _resolve_local_values(item) for key, item in value.items()}
-    if isinstance(value, list):
-        return [_resolve_local_values(item) for item in value]
-    return value

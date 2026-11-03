@@ -1,3 +1,4 @@
+import { assertResolvedInput } from './expressions.js'
 import { resourceCatalog } from './resources.js'
 import { type ReactComponentImplementation } from '@a2ui/react/v0_9'
 import {
@@ -61,6 +62,9 @@ export class A2uiWebSocketClient {
         [resourceCatalog],
         (action: A2uiClientAction) => this.sendAction(action),
       )
+      this.processor.onSurfaceCreated(surface => {
+        surface.onError.subscribe(error => this.callbacks.onError(String(error.message)))
+      })
       this.callbacks.onProcessor(this.processor)
       this.callbacks.onStatus('Connected')
       this.callbacks.onError(null)
@@ -106,6 +110,8 @@ export class A2uiWebSocketClient {
       this.callbacks.onError('cannot send an action while WebSocket is disconnected')
       return
     }
+    try { assertResolvedInput(action.context) }
+    catch (error) { this.callbacks.onError(error instanceof Error ? error.message : String(error)); return }
     const message = createActionMessage(action, this.processor.getClientDataModel())
     this.socket.send(JSON.stringify(message))
   }

@@ -76,3 +76,50 @@ test('sessions accept surface updates, recover after disconnect, and stop retryi
   jest.advanceTimersByTime(1000);
   assert.equal(sockets.length, 2);
 });
+
+test('an unresolved action is reported and never sent to the socket', async t => {
+  const { resourceCatalog } = await import('../src/resources.js');
+  const { ComponentContext, GenericBinder, ButtonApi } = await import('@a2ui/web_core/v0_9');
+  const errors: (string | null)[] = [];
+  const sent: string[] = [];
+  let processor: Processor | null = null;
+  const sockets: FakeSocket[] = [];
+  class FakeSocket {
+    static OPEN = 1;
+    readyState = 1;
+    onopen: (() => void) | null = null;
+    onmessage: ((event: { data: string }) => void) | null = null;
+    onerror: (() => void) | null = null;
+    onclose: ((event: { reason: string }) => void) | null = null;
+    constructor() { sockets.push(this); }
+    close() {}
+    send(value: string) { sent.push(value); }
+  }
+  const old = globalThis.WebSocket;
+  globalThis.WebSocket = FakeSocket as unknown as typeof WebSocket;
+  t.after(() => { globalThis.WebSocket = old; });
+  const client = new A2uiWebSocketClient('ws://localhost', {
+    onProcessor: value => { processor = value; }, onStatus() {}, onError: value => { errors.push(value); },
+  });
+  t.after(() => client.close());
+  client.connect();
+  sockets[0]!.onopen!();
+  processor!.processMessages([
+    { version: 'v0.9', createSurface: { surfaceId: 'main', catalogId: resourceCatalog.id } },
+    { version: 'v0.9', updateComponents: { surfaceId: 'main', components: [
+      { id: 'button', component: 'Button', child: 'label', action: { event: { name: 'run', context: { input: { call: 'omochiMergeObjects', args: { objects: [{ path: '/value' }] }, returnType: 'object' } } } } },
+      { id: 'label', component: 'Text', text: 'Run' },
+    ] } },
+  ]);
+  const surface = processor!.model.surfacesMap.get('main')!;
+  const binder = new GenericBinder<{ action: () => void }>(new ComponentContext(surface, 'button'), ButtonApi.schema);
+  t.after(() => { binder.dispose(); surface.dispose(); });
+  binder.snapshot.action();
+  await Promise.resolve();
+  assert.equal(sent.length, 0);
+  assert.ok(errors.some(error => error?.includes('missing input reference')));
+  surface.dataModel.set('/value', { count: 3 });
+  binder.snapshot.action();
+  await Promise.resolve();
+  assert.deepEqual(JSON.parse(sent[0]!).action.context.input, { count: 3 });
+});

@@ -3,7 +3,7 @@ import json
 import unittest
 from pathlib import Path
 
-from omochi_ui import App
+from omochi_ui import schema, Expr, InputSchema, ActionContext, UI, App
 from omochi_ui.builder import Tab
 
 
@@ -49,7 +49,7 @@ class ProgressTests(unittest.IsolatedAsyncioTestCase):
         for surface_id in ["one", "two"]:
             app.surface(surface_id)(lambda ui, state: ui.text(state["status"], key="status"))
 
-        @app.action("work")
+        @app.action("work", schema=schema.literal(None))
         async def work(_, ctx):
             await ctx.update(lambda s: s.update(status="working"))
             entered.set()
@@ -76,7 +76,7 @@ class ProgressTests(unittest.IsolatedAsyncioTestCase):
         app = App({"value": 0})
         app.surface("main")(lambda ui, s: ui.text(str(s["value"]), key="value"))
 
-        @app.action("work")
+        @app.action("work", schema=schema.literal(None))
         async def work(_, ctx):
             async def first(state):
                 await asyncio.sleep(0)
@@ -93,12 +93,12 @@ class ProgressTests(unittest.IsolatedAsyncioTestCase):
         app = App(state)
         app.surface("main")(lambda ui, s: ui.text(str(s["value"]), key="value"))
 
-        @app.action("fail")
+        @app.action("fail", schema=schema.literal(None))
         async def fail(_, ctx):
             await ctx.update(lambda s: s.update(value=1))
             raise RuntimeError("action failed")
 
-        @app.action("set")
+        @app.action("set", schema=schema.literal(None))
         async def set_value(_, ctx):
             await ctx.update(lambda s: s.update(value=s["value"] + 1))
 

@@ -1,6 +1,6 @@
-import { App } from "@omochi-ui/sdk";
+import { schema, App } from "@omochi-ui/sdk";
 import { ApprovalQueue } from "./queue.ts";
-import { record, type Agent } from "./protocol.ts";
+import { type Agent } from "./protocol.ts";
 
 const names: Record<Agent, string> = { codex: "Codex", "claude-code": "Claude Code", cursor: "Cursor", opencode: "OpenCode" };
 const escapeText = (value: string) => value.replace(/[\\`*_{}\[\]()<>#+.!|~-]/g, "\\$&");
@@ -14,14 +14,8 @@ export function codeBlock(value: unknown): string {
 
 export function createApprovalApp(queue: ApprovalQueue) {
   const app = new App({ now: Date.now() });
-  const decide = app.action("decide", (value) => {
-    // Stale tabs and malformed actions must not terminate the service's receive loop.
-    try {
-      const input = record(value);
-      if (typeof input.id !== "string" || (input.outcome !== "approve" && input.outcome !== "reject")) return;
-      if (input.note !== undefined && typeof input.note !== "string") return;
-      queue.decide(input.id, input.outcome, typeof input.note === "string" ? input.note : "");
-    } catch { /* Ignore malformed actions. */ }
+  const decide = app.action("decide", schema.object({ id: schema.string(), outcome: schema.union(schema.literal("approve"), schema.literal("reject")), note: schema.optional(schema.string()) }), (value) => {
+    queue.decide(value.id, value.outcome, value.note ?? "");
   });
   app.surface("main", (ui, state) => {
     ui.text("Agent approvals", { key: "title", variant: "h2" });
@@ -39,10 +33,10 @@ export function createApprovalApp(queue: ApprovalQueue) {
         const remaining = Math.max(0, Math.ceil((request.expiresAt - state.now) / 1000));
         ui.text(`Waiting ${seconds}s · returns to agent permissions in ${remaining}s`, { key: `${key}:time`, variant: "caption" });
         ui.text(codeBlock(request.input), { key: `${key}:input` });
-        ui.textField(`note:${key}`, { key: `${key}:note`, label: "Rejection note (optional)", variant: "longText", bind: form.bind("/note") });
+        ui.textField(`note:${key}`, { key: `${key}:note`, label: "Rejection note (optional)", variant: "longText", bind: form.field("note").bind() });
         ui.row({ key: `${key}:buttons`, justify: "start" }, (ui) => {
           ui.button("Approve", decide.call({ id: key, outcome: "approve" }), { key: `${key}:approve`, variant: "primary" });
-          ui.button("Reject", decide.call({ id: key, outcome: "reject", note: form.value("/note") }), { key: `${key}:reject` });
+          ui.button("Reject", decide.call({ id: key, outcome: "reject", note: form.field("note").value() }), { key: `${key}:reject` });
         });
       }));
     }

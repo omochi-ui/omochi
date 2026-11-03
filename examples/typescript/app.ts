@@ -1,4 +1,4 @@
-import { App } from "@omochi-ui/sdk";
+import { schema, App } from "@omochi-ui/sdk";
 import { UnixSocketServerTransport } from "@omochi-ui/sdk/node";
 
 const state: { temperature: number; result: string | null } = {
@@ -8,15 +8,15 @@ const state: { temperature: number; result: string | null } = {
 
 const app = new App(state);
 
-const run = app.action<{ temperature: number }>("run", async (input, context) => {
+const run = app.action("run", schema.object({ temperature: schema.number() }), async (input, context) => {
   await context.update((current) => { current.temperature = input.temperature; current.result = `Ran at temperature ${input.temperature}`; });
 });
 
 app.surface("main", (ui, current) => {
   const form = ui.local("form", { temperature: current.temperature });
   ui.text("Hello", { key: "title", variant: "h2" });
-  ui.slider("temperature", 0, 100, { bind: form.bind("/temperature") });
-  ui.button("Run", run.call({ temperature: form.value("/temperature") }), { variant: "primary" });
+  ui.slider("temperature", 0, 100, { bind: form.field("temperature").bind() });
+  ui.button("Run", run.call({ temperature: form.field("temperature").value() }), { variant: "primary" });
   if (current.result) ui.text(current.result, { key: "result" });
 });
 

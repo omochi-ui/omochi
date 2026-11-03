@@ -1,14 +1,15 @@
 use omochi_ui::{
-    App, ButtonOptions, Result, SliderOptions, TextOptions, UnixSocketServerOptions,
+    App, Result, UnixSocketServerOptions,
     UnixSocketServerTransport,
 };
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
+use omochi_ui::{ActionInput, Input, Text, TextVariant, Slider, Button, ButtonVariant};
 
 struct State {
     temperature: f64,
     result: Option<String>,
 }
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize, ActionInput)]
 struct RunInput {
     temperature: f64,
 }
@@ -39,40 +40,13 @@ async fn main() -> Result<()> {
     app.surface("main", move |ui, state| {
         let form = ui.local(
             "form",
-            serde_json::json!({ "temperature": state.temperature }),
+            RunInput { temperature: state.temperature },
         )?;
-        ui.text_with(
-            "Hello",
-            TextOptions {
-                key: Some("title".into()),
-                variant: Some("h2".into()),
-            },
-        )?;
-        ui.slider(
-            "temperature",
-            0.0,
-            100.0,
-            SliderOptions {
-                bind: Some(form.bind("/temperature")?),
-                ..Default::default()
-            },
-        )?;
-        ui.button(
-            "Run",
-            run.call(serde_json::json!({ "temperature": form.value("/temperature")? }))?,
-            ButtonOptions {
-                variant: Some("primary".into()),
-                ..Default::default()
-            },
-        )?;
+        ui.add(Text::new("Hello").key("title").variant(TextVariant::H2))?;
+        ui.add(Slider::new("temperature", 0.0, 100.0).bind(form.field(RunInput::field_temperature()).bind()?))?;
+        ui.add(Button::new("Run").on_press(run.call(RunInputInput { temperature: Input::expression(form.field(RunInput::field_temperature()).value()) })?).variant(ButtonVariant::Primary))?;
         if let Some(result) = &state.result {
-            ui.text_with(
-                result.clone(),
-                TextOptions {
-                    key: Some("result".into()),
-                    ..Default::default()
-                },
-            )?;
+            ui.add(Text::new(result.clone()).key("result"))?;
         }
         Ok(())
     })?;

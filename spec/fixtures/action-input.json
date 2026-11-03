@@ -1,0 +1,110 @@
+{
+  "valid": [
+    {
+      "temperature": 75
+    },
+    {
+      "temperature": 12.5,
+      "note": "warm"
+    }
+  ],
+  "invalid": [
+    {},
+    {
+      "temperature": "75"
+    },
+    {
+      "temperature": true
+    },
+    {
+      "temperature": null
+    },
+    {
+      "temperature": 75,
+      "unexpected": 1
+    },
+    {
+      "temperature": 75,
+      "note": 1
+    }
+  ],
+  "taggedNewtypeMerge": {
+    "model": {
+      "$local": {
+        "nested": {
+          "count": 3
+        }
+      }
+    },
+    "expression": {
+      "call": "omochiMergeObjects",
+      "args": {
+        "objects": [
+          {
+            "kind": "Item"
+          },
+          {
+            "path": "/$local/nested"
+          }
+        ]
+      },
+      "returnType": "object"
+    },
+    "resolved": {
+      "kind": "Item",
+      "count": 3
+    }
+  },
+  "functionMerge": {
+    "model": {
+      "flag": false
+    },
+    "expression": {
+      "call": "omochiMergeObjects",
+      "args": {
+        "objects": [
+          {
+            "allowed": {
+              "call": "and",
+              "args": {
+                "values": [{ "path": "/flag" }, true]
+              },
+              "returnType": "boolean"
+            }
+          }
+        ]
+      },
+      "returnType": "object"
+    },
+    "resolved": {
+      "allowed": false
+    }
+  },
+  "merge": {
+    "model": {
+      "$local": {
+        "nested": {
+          "count": 3
+        }
+      }
+    },
+    "expression": {
+      "call": "omochiMergeObjects",
+      "args": {
+        "objects": [
+          {
+            "title": "x"
+          },
+          {
+            "path": "/$local/nested"
+          }
+        ]
+      },
+      "returnType": "object"
+    },
+    "resolved": {
+      "title": "x",
+      "count": 3
+    }
+  }
+}

@@ -23,7 +23,10 @@ use crate::{
 
 type ActionFuture = Pin<Box<dyn Future<Output = Result<()>> + Send + 'static>>;
 type View<S> = Arc<dyn Fn(&mut Ui, &S) -> Result<()> + Send + Sync>;
-type RegisteredAction<S> = Arc<dyn Fn(Value, ActionContext<S>) -> ActionFuture + Send + Sync>;
+// Decode before constructing the handler future so the receive loop can isolate
+// invalid client input without swallowing a handler's own Protocol errors.
+type RegisteredAction<S> =
+    Arc<dyn Fn(Value, ActionContext<S>) -> Result<ActionFuture> + Send + Sync>;
 
 pub struct ActionContext<S> {
     state: Arc<Mutex<S>>,
@@ -123,11 +126,8 @@ impl<S: Send + Sync + 'static> App<S> {
             name.clone(),
             Arc::new(move |input, context| {
                 let parsed = serde_json::from_value(input)
-                    .map_err(|error| Error::Protocol(format!("invalid action input: {error}")));
-                match parsed {
-                    Ok(input) => Box::pin(action(input, context)),
-                    Err(error) => Box::pin(async move { Err(error) }),
-                }
+                    .map_err(|error| Error::Protocol(format!("invalid action input: {error}")))?;
+                Ok(Box::pin(action(parsed, context)))
             }),
         );
         Ok(ActionHandle(name, std::marker::PhantomData))
@@ -218,7 +218,7 @@ impl<S: Send + Sync + 'static> Runtime<S> {
         self.reconciler.render(declaration)
     }
     pub async fn surface(&self, surface_id: &str) -> Result<Vec<Value>> {
-        let mut reconciler = Reconciler::default();
+        let mut reconciler = self.reconciler.fresh();
         reconciler.render(self.declaration(surface_id).await?)
     }
     async fn render_all_and_send(&mut self) -> Result<Vec<Value>> {
@@ -246,13 +246,21 @@ impl<S: Send + Sync + 'static> Runtime<S> {
         self.render_all_and_send().await
     }
     pub async fn invoke(&mut self, name: &str, input: Value) -> Result<Vec<Value>> {
+        self.invoke_checked(name, input, false).await
+    }
+    async fn invoke_checked(
+        &mut self,
+        name: &str,
+        input: Value,
+        skip_invalid_input: bool,
+    ) -> Result<Vec<Value>> {
         let action = self
             .actions
             .get(name)
             .cloned()
             .ok_or_else(|| Error::Protocol(format!("unknown action: {name:?}")))?;
         let (updates, mut requests) = mpsc::unbounded_channel();
-        let mut running = action(
+        let prepared = action(
             input,
             ActionContext {
                 state: self.state.clone(),
@@ -261,6 +269,11 @@ impl<S: Send + Sync + 'static> Runtime<S> {
                 revision: self.revision.clone(),
             },
         );
+        let mut running = match prepared {
+            Ok(running) => running,
+            Err(_) if skip_invalid_input => return Ok(Vec::new()),
+            Err(error) => return Err(error),
+        };
         let mut messages = Vec::new();
         let mut receiving = true;
         loop {
@@ -282,6 +295,13 @@ impl<S: Send + Sync + 'static> Runtime<S> {
         }
     }
     pub async fn handle(&mut self, message: Value) -> Result<Vec<Value>> {
+        self.handle_checked(message, false).await
+    }
+    async fn handle_checked(
+        &mut self,
+        message: Value,
+        skip_invalid_input: bool,
+    ) -> Result<Vec<Value>> {
         let object = message
             .as_object()
             .ok_or_else(|| Error::Protocol("message must be an object".into()))?;
@@ -293,7 +313,11 @@ impl<S: Send + Sync + 'static> Runtime<S> {
         if object.get("type").and_then(Value::as_str) == Some("invoke") {
             let name = string_field(object, "action")?;
             return self
-                .invoke(&name, object.get("input").cloned().unwrap_or(Value::Null))
+                .invoke_checked(
+                    &name,
+                    object.get("input").cloned().unwrap_or(Value::Null),
+                    skip_invalid_input,
+                )
                 .await;
         }
         let payload = object
@@ -308,7 +332,7 @@ impl<S: Send + Sync + 'static> Runtime<S> {
             .or_else(|| payload.get("input"))
             .cloned()
             .unwrap_or(Value::Null);
-        self.invoke(&name, input).await
+        self.invoke_checked(&name, input, skip_invalid_input).await
     }
     pub async fn dispatch(&mut self, message: Value) -> Result<Vec<Value>> {
         self.handle(message).await
@@ -333,7 +357,7 @@ impl<S: Send + Sync + 'static> Runtime<S> {
                     None => break,
                 };
                 let observe = message.get("type").and_then(Value::as_str) == Some("getSurface");
-                let responses = self.handle(message).await?;
+                let responses = self.handle_checked(message, true).await?;
                 if observe {
                     if let Some(transport) = &mut self.transport {
                         for response in &responses {

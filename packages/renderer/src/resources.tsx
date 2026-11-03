@@ -1,3 +1,4 @@
+import { mergeObjectsFunction } from './expressions.js';
 import { createContext, useContext } from 'react';
 import { Catalog } from '@a2ui/web_core/v0_9';
 import { ImageApi, VideoApi, AudioPlayerApi } from '@a2ui/web_core/v0_9/basic_catalog';
@@ -37,4 +38,4 @@ const AudioPlayer = createComponentImplementation(AudioPlayerApi, ({ props, cont
 const replacements = new Map([['Image', Image], ['Video', Video], ['AudioPlayer', AudioPlayer]]);
 export const resourceCatalog = new Catalog(basicCatalog.id,
   [...basicCatalog.components].map(([name, component]) => replacements.get(name) ?? component),
-  [...basicCatalog.functions.values()], basicCatalog.themeSchema);
+  [...basicCatalog.functions.values(), mergeObjectsFunction], basicCatalog.themeSchema);

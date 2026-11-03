@@ -4,29 +4,37 @@ import asyncio
 import json
 import unittest
 from dataclasses import dataclass
+from typing import TypedDict
 from pathlib import Path
 
-from omochi_ui import App, DeclarationError
+from omochi_ui import schema, Expr, InputSchema, ActionContext, UI, App, DeclarationError
 
 ROOT = Path(__file__).parents[4]
 FIXTURE = json.loads((ROOT / "spec/fixtures/basic.json").read_text())
 
 @dataclass
 class RunInput:
-    temperature: int
+    temperature: float
+
+class RunInputExpr(TypedDict):
+    temperature: float | Expr[float]
+
+RUN_INPUT = InputSchema(RunInput, RunInputExpr)
+TEMPERATURE = RUN_INPUT.field("temperature", schema.number())
+
 
 def make_runtime():
     state = {"temperature": 50, "result": None}
     app = App(state)
-    @app.action("run")
+    @app.action("run", schema=RUN_INPUT)
     async def run(input: RunInput, context):
-        await context.update(lambda current: current.update(temperature=input.temperature, result=f"Result: {input.temperature}"))
+        await context.update(lambda current: current.update(temperature=input.temperature, result=f"Result: {input.temperature:g}"))
     @app.surface("main")
     def main(ui, current):
-        form = ui.local("form", {"temperature": current["temperature"]})
+        form = ui.local("form", RunInput(current["temperature"]))
         ui.text("Hello", key="hello")
-        ui.slider("temperature", 0, 100, bind=form.bind("/temperature"))
-        ui.button("Run", run.call({"temperature": form.value("/temperature")}))
+        ui.slider("temperature", 0, 100, bind=form.field(TEMPERATURE).bind())
+        ui.button("Run", run.call({"temperature": form.field(TEMPERATURE).value()}))
         if current["result"]: ui.text(current["result"], key="result")
     return app.build(), state
 
@@ -39,7 +47,7 @@ class RuntimeTests(unittest.TestCase):
 
     def test_action_is_independent_of_surface(self):
         state = {"value": 0}; app = App(state)
-        @app.action("set")
+        @app.action("set", schema=schema.object_({"value": schema.integer()}))
         async def set_value(input, context): await context.update(lambda current: current.update(value=input["value"]))
         runtime = app.build()
         self.assertEqual(asyncio.run(runtime.invoke("set", {"value": 7})), [])
@@ -72,7 +80,7 @@ class RuntimeTests(unittest.TestCase):
         @app.surface("main")
         def main(ui, current):
             form = ui.local("form", {"draft": current["value"]}, reset_key=current["revision"])
-            ui.text_field("draft", label="Draft", bind=form.bind("/draft"))
+            ui.text_field("draft", label="Draft", bind=form.field(schema.object_({"draft": schema.string()}).field("draft", schema.string())).bind())
         runtime = app.build(); runtime.render()
         self.assertEqual(asyncio.run(runtime.update(lambda current: current.update(value="two"))), [])
         self.assertEqual(asyncio.run(runtime.update(lambda current: current.update(revision=1))), [{"version": "v0.9", "updateDataModel": {"surfaceId": "main", "path": "/$local/form", "value": {"draft": "two"}}}])

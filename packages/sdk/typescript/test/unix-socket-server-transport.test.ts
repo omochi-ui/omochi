@@ -6,7 +6,7 @@ import path from "node:path";
 import { createInterface } from "node:readline";
 import { test } from "@omochi-ui/core/testing";
 
-import { App } from "../src/index.js";
+import { schema, App } from "../src/index.js";
 import { UnixSocketServerTransport } from "../src/node/index.js";
 import type { JsonObject } from "../src/index.js";
 
@@ -39,7 +39,7 @@ function connectClient(socketPath: string): { socket: Socket; next: () => Promis
 
 function counterApp(): { app: App<{ count: number }> } {
   const app = new App({ count: 0 });
-  const increment = app.action<null>("increment", async (_input, context) => {
+  const increment = app.action("increment", schema.literal(null), async (_input, context) => {
     await context.update((current) => { current.count += 1; });
   });
   app.surface("main", (ui, current) => {

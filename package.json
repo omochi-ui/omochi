@@ -10,6 +10,7 @@
     "test:packaging": "bun run release:typecheck && bun test scripts/release.test.ts scripts/native-release.test.ts && python3 -B scripts/test_native_packaging.py",
     "test:approval": "tsc -p examples/agent-approval/tsconfig.json && bun test ./examples/agent-approval/test",
     "test:python": "PYTHONPATH=packages/sdk/python/src python3 -m unittest discover -s packages/sdk/python/tests -v",
+    "test:python-renderer": "bun run --filter @omochi-ui/core build && OMOCHI_PYTHON_TEST=1 bun test packages/renderer/test/python-interface.test.ts",
     "test:rust": "cargo test --manifest-path packages/sdk/rust/Cargo.toml",
     "test:native-mcp": "bun run build:native && tsc -p tests/native && OMOCHI_NATIVE_TEST=1 bun test tests/native/mcp.test.ts",
     "test:server-rust": "cargo test --manifest-path crates/Cargo.toml --workspace --locked",

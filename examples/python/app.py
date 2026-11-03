@@ -2,35 +2,38 @@ import asyncio
 import os
 from dataclasses import dataclass
 
-from omochi_ui import App, UnixSocketServerTransport
+from omochi_ui import ActionContext, App, UnixSocketServerTransport, ui
 
 
 @dataclass
 class State:
-    temperature: int = 50
+    temperature: float = 50
     result: str | None = None
 
 @dataclass
 class RunInput:
-    temperature: int
-
+    temperature: float
 
 app = App(State())
 
 
-@app.action("run")
-async def run(input: RunInput, context):
-    await context.update(lambda state: (setattr(state, "temperature", input.temperature), setattr(state, "result", f"Ran at temperature {input.temperature}")))
+@app.action
+async def run(input: RunInput, context: ActionContext[State]):
+    async with context.update() as state:
+        state.temperature = input.temperature
+        state.result = f"Ran at temperature {input.temperature:g}"
 
 
-@app.surface("main")
-def main(ui, state):
-    form = ui.local("form", {"temperature": state.temperature})
+def main(state: State) -> None:
+    form = ui.local("form", RunInput(state.temperature))
     ui.text("Hello", key="title", variant="h2")
-    ui.slider("temperature", 0, 100, bind=form.bind("/temperature"))
-    ui.button("Run", run.call({"temperature": form.value("/temperature")}), variant="primary")
+    ui.slider("temperature", 0, 100, bind=form.temperature)
+    ui.button("Run", on_click=run, input=form, variant="primary")
     if state.result:
         ui.text(state.result, key="result")
+
+
+app.mount(main)
 
 
 def transport():

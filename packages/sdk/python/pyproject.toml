@@ -10,11 +10,11 @@ readme = "README.md"
 license = "Apache-2.0"
 license-files = ["LICENSE"]
 requires-python = ">=3.11"
-dependencies = []
+dependencies = ["typing-extensions>=4.12"]
 
 [project.optional-dependencies]
 websocket = ["websockets>=14"]
-test = ["pytest>=8"]
+test = ["pytest>=8", "mypy>=1.18", "pyright>=1.1.400"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/omochi_ui"]

@@ -26,3 +26,10 @@ export type {
 export type { Transport, WebSocketLike } from "./transport.js";
 
 export { ResourceRegistry } from "./resources.js";
+
+export { Schema, schema } from "./schema.js";
+export type { Infer } from "./schema.js";
+export { Expr, mergeObjects, MERGE_OBJECTS_CAPABILITY } from "./expression.js";
+export type { InputExpr } from "./expression.js";
+
+export type { ModelBinding as Binding } from "./builder.js";
