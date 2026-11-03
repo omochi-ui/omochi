@@ -1,6 +1,6 @@
 // Capture bearer data before loading any UI/transport module.
 let fragment: string | null = location.hash;
-if (fragment.startsWith('#share:')) history.replaceState(null, '', location.pathname + location.search);
+if ((fragment.startsWith('#share:') || fragment.startsWith('#owner:'))) history.replaceState(null, '', location.pathname + location.search);
 window.addEventListener('pageshow', event => { if (event.persisted) location.reload(); });
 async function main() {
   const [{ createRoot }, { createElement }, { ConnectionScreen }, { parseShareLink }, { loadBrowserTransport }, { SessionFault }] = await Promise.all([
@@ -10,7 +10,7 @@ async function main() {
   let bootstrapError: import('@omochi-ui/core/browser').SessionFault | null = null;
   try {
     if (!fragment) { try { const saved = sessionStorage.getItem('omochi.shared.public'); if (saved) { const value = JSON.parse(saved); fragment = '#share:' + btoa(String.fromCharCode(...new TextEncoder().encode(JSON.stringify(value)))).replaceAll('+', '-').replaceAll('/', '_').replaceAll('=', ''); } } catch { /* No stored authority. */ } }
-    if (fragment?.startsWith('#share:')) link = parseShareLink(fragment);
+    if ((fragment?.startsWith('#share:') || fragment?.startsWith('#owner:'))) link = parseShareLink(fragment);
     else if (fragment) throw new SessionFault('InvalidInvitation');
   } catch { bootstrapError = new SessionFault('InvalidInvitation'); }
   fragment = null;

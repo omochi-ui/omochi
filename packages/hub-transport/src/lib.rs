@@ -247,7 +247,14 @@ mod wasm {
             if self.dead.get() {
                 return rejected(Fault::Cancelled);
             }
-            if alpn != "omochi/dashboard-enroll/1" && alpn != "omochi/dashboard/1" {
+            if ![
+                "omochi/dashboard-enroll/1",
+                "omochi/dashboard/1",
+                "omochi/owner/1",
+                "omochi/owner-enroll/1",
+            ]
+            .contains(&alpn.as_str())
+            {
                 return rejected(Fault::ProtocolError);
             }
             let mut address: EndpointAddr = match serde_json::from_str(&address) {

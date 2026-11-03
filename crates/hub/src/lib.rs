@@ -5,6 +5,8 @@ pub mod capacity;
 #[cfg(test)]
 mod capacity_wire;
 #[cfg(feature = "browser")]
+pub mod control;
+#[cfg(feature = "browser")]
 pub mod dashboard_remote;
 #[cfg(feature = "browser")]
 pub mod dashboards;
@@ -15,6 +17,10 @@ pub mod http;
 pub mod identity;
 pub mod images;
 pub mod native;
+#[cfg(feature = "browser")]
+pub mod owners;
+#[cfg(feature = "browser")]
+mod owners_live;
 pub mod remote;
 #[cfg(feature = "browser")]
 mod resource_http;
@@ -110,6 +116,8 @@ pub struct Hub {
     #[cfg(feature = "browser")]
     browser_tasks: tokio_util::task::TaskTracker,
     #[cfg(feature = "browser")]
+    owner_presets: Arc<std::sync::RwLock<Vec<Value>>>,
+    #[cfg(feature = "browser")]
     dashboard_host: Arc<std::sync::RwLock<Option<(omochi_transport::Endpoint, String)>>>,
     diagnostics: remote::Diagnostics,
     peer_names: Arc<Mutex<BTreeMap<String, String>>>,
@@ -145,6 +153,8 @@ impl Hub {
             close_code: Arc::new(std::sync::atomic::AtomicU16::new(1001)),
             #[cfg(feature = "browser")]
             browser_tasks: tokio_util::task::TaskTracker::new(),
+            #[cfg(feature = "browser")]
+            owner_presets: Arc::default(),
             #[cfg(feature = "browser")]
             dashboard_host: Arc::default(),
             diagnostics: Arc::default(),

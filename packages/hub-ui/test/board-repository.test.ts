@@ -16,7 +16,7 @@ test('HTTP repository preserves server IDs/order and maps native status errors w
     if (status !== 200) return Response.json({ error: 'raw secret must not surface' }, { status });
     return Response.json(options?.method === 'DELETE' ? { deleted: true } : options?.method === 'POST' || options?.method === 'PUT' ? rows[0] : String(url).endsWith('/api/presets') ? [] : String(url).endsWith('/api/dashboards') ? rows : rows[0]);
   }) as typeof fetch;
-  const repo: BoardRepository = new HttpBoardRepository('https://local.example'); let changed = 0; repo.subscribe(() => { changed++; });
+  const repo: BoardRepository = new HttpBoardRepository('https://local.example'); let changed = 0; t.after(repo.subscribe(() => { changed++; }));
   assert.deepEqual(await repo.list(), rows); assert.deepEqual(await repo.presets(), []);
   assert.equal((await repo.get('server-generated')).id, 'server-generated');
   await assert.rejects(repo.get('wrong-response-id'), { code: 'StorageCorrupt' });

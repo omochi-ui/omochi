@@ -1,3 +1,4 @@
+import { parseServices } from '../services.js';
 import { SessionFault, applyToRenderer, type A2uiMessage, type ApplyResult, type ClientMessage, type LiveEvent, type LiveSession, type RenderEvent, type SurfaceLease } from '@omochi-ui/core/browser';
 import type { BrowserTransport, Endpoint, Connection, Stream } from '@omochi-ui/hub-transport';
 import { boardFields, validateBoardInput } from '../board-codec.js';
@@ -10,6 +11,7 @@ export interface SharedView { board: Dashboard; permissions: SharedPermissions }
 export interface RemoteSessionOptions {
   source: Pick<SavedShare, 'hubId' | 'grantId' | 'relayUrls'>;
   secretHex: string;
+  owner?: boolean;
   publicSecret?: string;
   /** Called only after the complete authoritative snapshot was applied. */
   onView(view: SharedView): void;
@@ -33,6 +35,11 @@ async function receive(stream: Stream, signal: AbortSignal): Promise<Record<stri
   const frame = await stream.receive(signal);
   if (!frame) throw new SessionFault('NetworkUnavailable');
   try { return record(JSON.parse(frame.json)); } catch { throw new SessionFault('ProtocolError'); }
+}
+function ownerServices(value: unknown) {
+  const services = parseServices(value);
+  if (!services) throw new SessionFault('ProtocolError');
+  return services.map(service => { if (!service.node) throw new SessionFault('ProtocolError'); return { ...service, node: service.node }; });
 }
 const operationSignal = (signal: AbortSignal) => AbortSignal.any([signal, AbortSignal.timeout(10000)]);
 export class RemoteHubSession implements LiveSession {
@@ -70,6 +77,7 @@ export class RemoteHubSession implements LiveSession {
     this.emit({ kind: 'services', services: [] }); this.view = null;
   }
   private publishServices(view: SharedView) {
+    if (this.options.owner) return;
     const present = new Set([...this.leases.values()].map(l => l.surfaceId.split('/')[0]!));
     this.emit({ kind: 'services', services: [...new Set(view.board.panels.map(p => `${p.reference.nodeId}~${p.reference.serviceId}`))].map(id => ({ id, name: id.split('~')[1]!, node: { id: id.split('~')[0]!, name: id.split('~')[0]!, local: false }, status: present.has(id) ? 'connected' : 'disconnected' })) });
   }
@@ -88,7 +96,7 @@ export class RemoteHubSession implements LiveSession {
       try {
         this.status('Connecting…');
         this.endpoint = await this.transport.openEndpoint(this.options.secretHex, this.options.source.relayUrls);
-        const connection = await this.endpoint.connect(address(this.options.source), 'omochi/dashboard/1', operationSignal(this.lifetime.signal));
+        const connection = await this.endpoint.connect(address(this.options.source), this.options.owner ? 'omochi/owner/1' : 'omochi/dashboard/1', operationSignal(this.lifetime.signal));
         this.connection = connection;
         if (connection.remoteId !== this.options.source.hubId) throw new SessionFault('NotAuthorized');
         let stream: Stream;
@@ -102,13 +110,15 @@ export class RemoteHubSession implements LiveSession {
           if ((await Promise.race([connection.closed(), new Promise<{code: string}>(resolve => setTimeout(() => resolve({code: '0'}), 50))])).code === '1') throw new SessionFault('NotAuthorized');
           throw error;
         }
-        const view = parseWelcome(first);
+        if (this.options.owner && first.kind !== 'ownerWelcome') throw new SessionFault('ProtocolError');
+        const view: SharedView = this.options.owner ? { board: { id: '', revision: 1, name: '', panels: [] }, permissions: { interact: true, editLayout: true } } : parseWelcome(first);
+        if (this.options.owner) { const services = ownerServices(first.services); if ( Object.keys(first).sort().join(',') !== 'kind,services') throw new SessionFault('ProtocolError'); this.emit({ kind: 'services', services }); }
         if (this.options.publicSecret && (view.permissions.interact || view.permissions.editLayout)) throw new SessionFault('ProtocolError');
         const admitted = new Set(view.board.panels.map(panel => `${panel.reference.nodeId}~${panel.reference.serviceId}/${panel.reference.surfaceId}`));
         const attempt = ++this.epoch;
         let ready = false, previousSequence = 0n, bytes = 0;
         let messages: A2uiMessage[] = [];
-        heartbeat = setInterval(() => { void this.rpc({ op: 'ping' }, this.lifetime.signal, false).catch(() => { void connection.close(); }); }, 10000);
+        heartbeat = setInterval(() => { void this.rpc({ op: 'ping' }, this.lifetime.signal, false).then(reply => { if (this.options.owner) { const services = ownerServices(reply.services); this.emit({ kind: 'services', services }); } }).catch(() => { void connection.close(); }); }, 10000);
         while (!this.lifetime.signal.aborted) {
           const frame = await receive(stream, ready ? this.lifetime.signal : operationSignal(this.lifetime.signal));
           if (typeof frame.sequence !== 'string' || !/^[1-9]\d{0,19}$/.test(frame.sequence)) throw new SessionFault('ProtocolError');
@@ -121,7 +131,7 @@ export class RemoteHubSession implements LiveSession {
             const keys = ['createSurface', 'updateComponents', 'updateDataModel', 'deleteSurface'].filter(key => key in message);
             if (keys.length !== 1 || message.version !== 'v0.9') throw new SessionFault('ProtocolError');
             const surface = record((message as unknown as Record<string, unknown>)[keys[0]!]).surfaceId;
-            if (typeof surface !== 'string' || !admitted.has(surface)) throw new SessionFault('ProtocolError');
+            if (typeof surface !== 'string' || (!this.options.owner && !admitted.has(surface))) throw new SessionFault('ProtocolError');
             let lease: SurfaceLease | undefined;
             if ('createSurface' in message || 'deleteSurface' in message) {
               for (const [id, l] of this.leases) if (l.surfaceId === surface) { this.leaseStops.get(id)?.abort(); this.leaseStops.delete(id); this.leases.delete(id); }
@@ -171,9 +181,14 @@ export class RemoteHubSession implements LiveSession {
     try {
       stream = await connection.open(combined); await stream.send(JSON.stringify(input), combined);
       const value = await receive(stream, combined);
-      if (value.kind === 'error') throw value.code === 'Conflict' ? new BoardFault('Conflict') : new SessionFault('NotAuthorized');
+      if (value.kind === 'error') { if (['Conflict', 'NotFound', 'InvalidBoard', 'StorageUnavailable'].includes(String(value.code))) throw new BoardFault(value.code as 'Conflict' | 'NotFound' | 'InvalidBoard' | 'StorageUnavailable'); throw new SessionFault('NotAuthorized'); }
       return value;
     } finally { this.pending--; await stream?.cancel(); }
+  }
+  async control(command: unknown): Promise<unknown> {
+    if (!this.options.owner) throw new SessionFault('NotAuthorized');
+    const reply = await this.rpc({ op: 'control', command }, this.lifetime.signal);
+    if (reply.kind !== 'result') throw new SessionFault('ProtocolError'); return reply.value;
   }
   async action(lease: string, message: ClientMessage): Promise<void> {
     if (!this.view?.permissions.interact || !this.leases.has(lease)) throw new SessionFault('NotAuthorized');

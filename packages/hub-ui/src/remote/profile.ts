@@ -54,7 +54,7 @@ function tx<T>(db: IDBDatabase, stores: string[], mode: IDBTransactionMode, issu
 function validRecord(value: unknown): value is ShareRecord {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
   const v = value as ShareRecord;
-  if (Object.keys(v).sort().join(',') !== 'grantId,hubId,id,name,relayUrls,state') return false;
+  if (Object.keys(v).sort().join(',') !== (v.owner === true ? 'grantId,hubId,id,name,owner,relayUrls,state' : 'grantId,hubId,id,name,relayUrls,state')) return false;
   const { id, state, ...source } = v;
   return validSavedShare(source) && id === `${v.hubId}/${v.grantId}` && ['pending', 'accepted'].includes(state);
 }

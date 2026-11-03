@@ -24,6 +24,8 @@ use tokio_util::sync::CancellationToken;
 
 pub const ALPN: &[u8] = b"omochi/dashboard/1";
 pub const ENROLL_ALPN: &[u8] = b"omochi/dashboard-enroll/1";
+pub const OWNER_ALPN: &[u8] = b"omochi/owner/1";
+pub const OWNER_ENROLL_ALPN: &[u8] = b"omochi/owner-enroll/1";
 const IO_TIMEOUT: Duration = Duration::from_secs(10);
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -36,6 +38,7 @@ struct Hello {
 #[serde(tag = "op", rename_all = "camelCase", deny_unknown_fields)]
 enum Request {
     Ping,
+    Control { command: crate::control::Command },
     Action { lease: String, message: Value },
     Layout { value: Value },
     Image { lease: String, uri: String },
@@ -50,8 +53,8 @@ struct Session {
     shares: ShareStore,
     peer: String,
     hello: Hello,
-    board: Dashboard,
-    grant: Grant,
+    board: Option<Dashboard>,
+    owner: bool,
     views: Mutex<BTreeMap<String, View>>,
     alive: Mutex<Instant>,
 }
@@ -62,26 +65,45 @@ fn api_error(e: crate::dashboards::ApiError) -> anyhow::Error {
     anyhow::anyhow!("shared access error ({})", e.0)
 }
 impl Session {
-    async fn authorize(&self) -> Result<(Grant, Dashboard)> {
+    async fn authorize(&self) -> Result<Option<(Grant, Dashboard)>> {
+        if self.owner {
+            let owners = self.boards.owners();
+            let id = self.hello.grant_id.clone();
+            let peer = self.peer.clone();
+            tokio::task::spawn_blocking(move || owners.authorize(&id, &peer, || Ok(())))
+                .await?
+                .map_err(api_error)?;
+            return Ok(None);
+        }
         let shares = self.shares.clone();
         let boards = self.boards.clone();
         let id = self.hello.grant_id.clone();
         let secret = self.hello.secret.clone();
         let peer = self.peer.clone();
         tokio::task::spawn_blocking(move || {
-            shares.authorize(&boards, &id, &peer, secret.as_deref())
+            shares
+                .authorize(&boards, &id, &peer, secret.as_deref())
+                .map(Some)
         })
         .await?
         .map_err(api_error)
     }
     async fn view(&self, lease: &str, interact: bool) -> Result<SurfaceHandle> {
-        let (grant, board) = self.authorize().await?;
-        if interact && !grant.permissions.interact {
+        let access = self.authorize().await?;
+        if interact
+            && access
+                .as_ref()
+                .is_some_and(|(grant, _)| !grant.permissions.interact)
+        {
             bail!("Not authorized");
         }
         let views = self.views.lock().await;
         let view = views.get(lease).context("Expired view")?;
-        if !grant.allows_surface(&board, &view.surface) || view.handle.is_cancelled() {
+        if access
+            .as_ref()
+            .is_some_and(|(grant, board)| !grant.allows_surface(board, &view.surface))
+            || view.handle.is_cancelled()
+        {
             bail!("Expired view");
         }
         Ok(view.handle.clone())
@@ -132,8 +154,22 @@ pub fn listen(
 ) -> Result<JoinHandle<Result<()>>> {
     let shares = boards.shares();
     let lease = crate::sharing_live::Lease::register(&shares).map_err(api_error)?;
-    endpoint.set_alpns(vec![ALPN.to_vec(), ENROLL_ALPN.to_vec()]);
+    endpoint.set_alpns(vec![
+        ALPN.to_vec(),
+        ENROLL_ALPN.to_vec(),
+        OWNER_ALPN.to_vec(),
+        OWNER_ENROLL_ALPN.to_vec(),
+    ]);
+    let owners = boards.owners();
+    let owner_lease = crate::owners_live::Lease::register(&owners).map_err(api_error)?;
     Ok(tokio::spawn(async move {
+        let mut handshakes = JoinSet::new();
+        let mut owner_sessions = JoinSet::new();
+        let mut owner_generation = owners.generation().map_err(api_error)?;
+        owner_lease
+            .acknowledge(owner_generation)
+            .map_err(api_error)?;
+        let mut owner_epoch = hub.stop.child_token();
         let capacity = Arc::new(Semaphore::new(16));
         let mut sessions = JoinSet::new();
         let mut generation = shares.generation().map_err(api_error)?;
@@ -144,6 +180,8 @@ pub fn listen(
             loop { tokio::select! {
                 _=hub.stop.cancelled()=>break,
                 _=tick.tick()=> {
+                    let next_owner=owners.generation().map_err(api_error)?;
+                    if next_owner!=owner_generation { owner_epoch.cancel(); while owner_sessions.join_next().await.is_some() {} owner_lease.acknowledge(next_owner).map_err(api_error)?; owner_generation=next_owner; owner_epoch=hub.stop.child_token(); }
                     let next=shares.generation().map_err(api_error)?;
                     if next!=generation {
                         epoch.cancel(); while sessions.join_next().await.is_some() {}
@@ -152,19 +190,28 @@ pub fn listen(
                     }
                 },
                 Some(_)=sessions.join_next(),if !sessions.is_empty()=>{},
+                Some(_)=owner_sessions.join_next(),if !owner_sessions.is_empty()=>{},
                 incoming=endpoint.accept()=> {
                     let Some(incoming)=incoming else {break;};
                     let Ok(permit)=capacity.clone().try_acquire_owned() else {incoming.refuse();continue;};
-                    let hub=hub.clone();let boards=boards.clone();let stop=epoch.child_token();
-                    sessions.spawn(async move {let _permit=permit;let established=tokio::select! { _=stop.cancelled()=>return, result=tokio::time::timeout(IO_TIMEOUT,incoming)=>result };
-                        let Ok(Ok(connection))=established else {return;};
-                        let connection_guard=ConnectionGuard(connection.clone());
-                        let _=serve(hub,boards,connection,stop).await;drop(connection_guard);
-                    });
+                    handshakes.spawn(async move { tokio::time::timeout(IO_TIMEOUT,incoming).await.map(|result| result.map(|connection| (connection,permit))) });
+                },
+                Some(result)=handshakes.join_next(),if !handshakes.is_empty()=> {
+                    let Ok(Ok(Ok((connection,permit))))=result else {continue;};
+                    let owner=connection.alpn()==OWNER_ALPN || connection.alpn()==OWNER_ENROLL_ALPN;
+                    let hub=hub.clone(); let boards=boards.clone();
+                    let stop=if owner {owner_epoch.child_token()} else {epoch.child_token()};
+                    let task=async move {let _permit=permit;let _guard=ConnectionGuard(connection.clone());let _=serve(hub,boards,connection,stop).await;};
+                    if owner {owner_sessions.spawn(task);} else {sessions.spawn(task);}
+
                 }
             }}
             Ok::<(),anyhow::Error>(())
         }.await;
+        handshakes.abort_all();
+        while handshakes.join_next().await.is_some() {}
+        owner_epoch.cancel();
+        while owner_sessions.join_next().await.is_some() {}
         epoch.cancel();
         while sessions.join_next().await.is_some() {}
         endpoint.close().await;
@@ -201,13 +248,21 @@ async fn serve(
         bail!("Invalid authentication");
     }
     let shares = boards.shares();
-    if connection.alpn() == ENROLL_ALPN {
+    if connection.alpn() == ENROLL_ALPN || connection.alpn() == OWNER_ENROLL_ALPN {
         let id = hello.grant_id;
         let secret = hello.secret.context("Missing invitation")?;
+        let owner = connection.alpn() == OWNER_ENROLL_ALPN;
+        let owners = boards.owners();
         let other = shares.clone();
-        let accepted = tokio::task::spawn_blocking(move || other.redeem(&id, &secret, &peer))
-            .await?
-            .is_ok();
+        let accepted = tokio::task::spawn_blocking(move || {
+            if owner {
+                owners.redeem(&id, &secret, &peer).map(|_| ())
+            } else {
+                other.redeem(&id, &secret, &peer).map(|_| ())
+            }
+        })
+        .await?
+        .is_ok();
         tokio::time::timeout(
             IO_TIMEOUT,
             write_frame(&mut tx, &json!({"accepted":accepted})),
@@ -217,29 +272,44 @@ async fn serve(
         let _ = tokio::time::timeout(IO_TIMEOUT, tx.stopped()).await;
         return Ok(());
     }
-    if connection.alpn() != ALPN {
+    if connection.alpn() != ALPN && connection.alpn() != OWNER_ALPN {
         bail!("Wrong protocol");
     }
-    let (grant, board) =
-        match shares.authorize(&boards, &hello.grant_id, &peer, hello.secret.as_deref()) {
-            Ok(access) => access,
-            Err(error) => {
-                connection.close(1u32.into(), b"Not authorized");
-                return Err(api_error(error));
-            }
-        };
+    let owner = connection.alpn() == OWNER_ALPN;
+    let access = if owner {
+        boards
+            .owners()
+            .authorize(&hello.grant_id, &peer, || Ok(()))
+            .map(|_| None)
+    } else {
+        shares
+            .authorize(&boards, &hello.grant_id, &peer, hello.secret.as_deref())
+            .map(Some)
+    };
+    let access = match access {
+        Ok(value) => value,
+        Err(e) => {
+            connection.close(1u32.into(), b"Not authorized");
+            return Err(api_error(e));
+        }
+    };
+    let welcome = if let Some((grant, board)) = &access {
+        json!({"kind":"welcome","board":board,"permissions":grant.permissions})
+    } else {
+        json!({"kind":"ownerWelcome","services":hub.services().await})
+    };
     let session = Arc::new(Session {
         hub,
         boards,
         shares,
         peer,
         hello,
-        board,
-        grant,
+        board: access.map(|(_, board)| board),
+        owner,
         views: Mutex::new(BTreeMap::new()),
         alive: Mutex::new(Instant::now()),
     });
-    tokio::time::timeout(IO_TIMEOUT,write_frame(&mut tx,&json!({"kind":"welcome","board":session.board,"permissions":session.grant.permissions}))).await??;
+    tokio::time::timeout(IO_TIMEOUT, write_frame(&mut tx, &welcome)).await??;
     let stop = CancellationToken::new();
     let _guard = stop.clone().drop_guard();
     let copy = session.clone();
@@ -256,8 +326,8 @@ async fn serve(
         _=connection.closed()=>break,
         _=cancelled.cancelled()=>break,
         _=tick.tick()=> {
-            let (_,board)=session.authorize().await?;
-            if board.revision!=session.board.revision || session.alive.lock().await.elapsed()>Duration::from_secs(45) {bail!("Session refresh required");}
+            let access=session.authorize().await?;
+            if access.as_ref().is_some_and(|(_,board)|Some(board.revision)!=session.board.as_ref().map(|b|b.revision)) || session.alive.lock().await.elapsed()>Duration::from_secs(45) {bail!("Session refresh required");}
         },
         Some(_)=tasks.join_next(),if !tasks.is_empty()=>{},
         stream=connection.accept_bi()=> {
@@ -281,11 +351,14 @@ async fn deliver(
     let mut subscription = session.hub.subscribe_browser().await?;
     loop {
         let batch = tokio::select! { _=stop.cancelled()=>return Ok(()), result=subscription.next_batch()=>result? };
-        let (grant, board) = session.authorize().await?;
+        let access = session.authorize().await?;
         let mut frame = None;
         if let Some(message) = &batch.message {
             let surface = crate::scoped::surface_id(message).context("Missing surface")?;
-            if grant.allows_surface(&board, surface) {
+            if access
+                .as_ref()
+                .is_none_or(|(grant, board)| grant.allows_surface(board, surface))
+            {
                 let mut views = session.views.lock().await;
                 if message.get("createSurface").is_some() || message.get("deleteSurface").is_some()
                 {
@@ -362,9 +435,15 @@ async fn request(
     let result=async {
         session.authorize().await?;*session.alive.lock().await=Instant::now();
         match req {
-            Request::Ping=>Ok(json!({"kind":"ok"})),
+            Request::Ping=>Ok(json!({"kind":"ok","services":if session.owner {session.hub.services().await}else{vec![]}})),
+            Request::Control{command}=>{
+                if !session.owner {bail!("Not authorized");}
+                let control=crate::control::HubControl{hub:session.hub.clone(),boards:session.boards.clone()};
+                match control.execute_owner(session.hello.grant_id.clone(),session.peer.clone(),command).await {Ok(value)=>Ok(json!({"kind":"result","value":value})),Err(e)=>Ok(json!({"kind":"error","code":if e.0==409 {"Conflict"}else if e.0==404 {"NotFound"}else if e.0==400 {"InvalidBoard"}else{"StorageUnavailable"}}))}
+            },
             Request::Action {lease,message}=> {session.view(&lease,true).await?.action(message).await?;Ok(json!({"kind":"ok"}))},
             Request::Layout {value}=> {
+                if session.owner {bail!("Use owner control");}
                 let shares=session.shares.clone();let boards=session.boards.clone();let id=session.hello.grant_id.clone();let peer=session.peer.clone();
                 let result=tokio::task::spawn_blocking(move ||shares.edit_layout(&boards,&id,&peer,value)).await?;
                 match result {Ok(board)=>Ok(json!({"kind":"board","board":board})),Err(e)=>Ok(error(if e.0==409 {"Conflict"} else {"NotAuthorized"}))}
@@ -499,6 +578,44 @@ mod tests {
             assert!(!scope.0.is_cancelled(),"revoking a share must preserve the source service");
             assert!(scope.1.is_cancelled(),"queued work must be cancelled before revocation succeeds");
             hub.shutdown();listener.await.unwrap().unwrap();client.close().await;
+        }).await.unwrap();
+    }
+    #[tokio::test]
+    async fn owner_control_and_revocation_are_separate_from_shares() {
+        tokio::time::timeout(Duration::from_secs(20), async {
+            let hub = Hub::new();
+            let dir = tempfile::tempdir().unwrap();
+            let boards = DashboardStore::open(dir.path().join("state")).unwrap();
+            let board = boards.mutate(None,json!({"name":"Board","panels":[]}),false).unwrap().unwrap();
+            let (public, secret) = boards.shares().create(&boards,&board.id,true,Permissions::default()).unwrap();
+            let owners = boards.owners();
+            let (owner, token) = owners.create().unwrap();
+            let client = omochi_transport::bind(key(),true,None).await.unwrap();
+            let server = omochi_transport::bind(key(),true,None).await.unwrap();
+            let address = server.addr();
+            let listener = listen(hub.clone(),boards.clone(),server).unwrap();
+            let (viewer,mut vtx,mut vrx,_) = connect(&client,address.clone(),&public,Some(&secret)).await;
+            snapshot(&mut vtx,&mut vrx).await;
+            assert_eq!(req(&viewer,json!({"op":"control","command":{"method":"boardsList"}})).await["code"],"NotAuthorized");
+            let enrollment = client.connect(address.clone(),OWNER_ENROLL_ALPN).await.unwrap();
+            let (mut tx,mut rx) = enrollment.open_bi().await.unwrap();
+            write_frame(&mut tx,&json!({"version":1,"grantId":owner.id,"secret":token})).await.unwrap();
+            assert_eq!(read_frame::<_,Value>(&mut rx).await.unwrap().unwrap()["accepted"],true);
+            let remote = client.connect(address,OWNER_ALPN).await.unwrap();
+            let (mut tx,mut rx) = remote.open_bi().await.unwrap();
+            write_frame(&mut tx,&json!({"version":1,"grantId":owner.id})).await.unwrap();
+            assert_eq!(read_frame::<_,Value>(&mut rx).await.unwrap().unwrap()["kind"],"ownerWelcome");
+            snapshot(&mut tx,&mut rx).await;
+            let created=req(&remote,json!({"op":"control","command":{"method":"boardCreate","value":{"name":"Remote","panels":[]}}})).await;
+            assert_eq!(created["value"]["name"],"Remote");
+            // An owner's share revocation must not close the connection awaiting its reply.
+            assert_eq!(req(&remote,json!({"op":"control","command":{"method":"shareRevoke","id":public.id}})).await["kind"],"result");
+            assert_eq!(req(&remote,json!({"op":"ping"})).await["kind"],"ok");
+            assert!(tokio::time::timeout(Duration::from_secs(1),viewer.closed()).await.is_ok());
+            owners.revoke_live(&owner.id).await.unwrap();
+            assert!(tokio::time::timeout(Duration::from_secs(1),remote.closed()).await.is_ok());
+            assert!(owners.authorize(&owner.id,&client.id().to_string(),||Ok(())).is_err());
+            hub.shutdown(); listener.await.unwrap().unwrap(); client.close().await;
         }).await.unwrap();
     }
 }

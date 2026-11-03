@@ -90,3 +90,23 @@ static host. It checks the deployed relay without stopping or restarting it;
 the controlled mode verifies relay interruption and recovery. Set
 `SHARING_RESULTS` to retain sanitized reports and screenshots. This does not
 deploy or verify the hosted Cloudflare application.
+
+## Connect as an owner
+
+Start the hub with `--remote --web-url https://app.omochi.fyi/`. In the local
+Connections section, use **Register owner browser** and open the resulting
+three-minute link in the target browser. Accept explicitly. Owner access permits
+all dashboards, panel additions/removals, app interaction and share management.
+Owner registration and revocation are available only on the local screen.
+
+After enrollment, reloading uses the saved browser identity rather than the
+invitation secret. Saved hub connections can be selected one at a time; unsaved
+edits require confirmation before disconnecting. Forgetting a local connection
+or resetting browser identity does not revoke its Hub grant. Revoke it from
+**Owner browser access** on the local Hub. The local HTTP/WS dashboard continues
+to work offline without owner enrollment.
+
+The [owner protocol](../spec/owner-connection-v1.md) describes authority,
+operations, persistence and revocation. `test:dashboard-sharing` includes owner
+enrollment, dashboard creation, sharing, reload and local revocation; its
+production relay mode exercises the same owner path.

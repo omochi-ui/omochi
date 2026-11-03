@@ -33,7 +33,7 @@ export function ConnectionScreen({ transport, boards, takeInvitation, bootstrapE
     return () => { window.removeEventListener('pagehide', close); close(); };
   }, [transport, attempt]);
   const reopen = () => { setProfile(null); setError(null); setAttempt(value => value + 1); };
-  return <App environment={{ session: source, boards }} connectionUi={<div className="connections-page">
+  return <App environment={{ authority: { kind: 'owner' }, session: source, boards }} connectionUi={<div className="connections-page">
     <header><p className="connection-eyebrow">Omochi · browser preview</p><h2>Your application connections</h2>
       <p>Connect directly to your gateways. This preview uses TLS relays without an uptime guarantee.</p></header>
     {error && <p role="alert" data-error-code={error.code}>{error.message}</p>}

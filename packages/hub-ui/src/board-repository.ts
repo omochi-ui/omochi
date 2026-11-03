@@ -26,3 +26,15 @@ export function notifyBoardListeners(listeners: ReadonlySet<() => void>): void {
     try { const value: unknown = listener(); if (value instanceof Promise) void value.catch(() => {}); } catch { /* A committed write cannot be undone by an observer. */ }
   }
 }
+
+/** Invalidation only: reread committed state across processes without replacing editor drafts. */
+export function watchBoardChanges(read: () => Promise<readonly Dashboard[]>, changed: () => void): () => void {
+  let stopped = false, reading = false, fingerprint = '';
+  const timer = setInterval(() => {
+    if (stopped || reading) return;
+    reading = true;
+    void read().then(boards => { const next = JSON.stringify(boards); if (!stopped && next !== fingerprint) { fingerprint = next; changed(); } })
+      .catch(() => {}).finally(() => { reading = false; });
+  }, 1000);
+  return () => { stopped = true; clearInterval(timer); };
+}

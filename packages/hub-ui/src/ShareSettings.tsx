@@ -2,13 +2,10 @@ import { useEffect, useRef, useState } from 'react';
 import { Button } from './Button.js';
 interface Grant { id: string; boardId: string; public: boolean; peer: string | null; invitationExpiresAt: number; permissions: { interact: boolean; editLayout: boolean } }
 interface Host { hubId?: string; relayUrls?: string[]; enabled?: boolean }
-async function request(path: string, method = 'GET', body?: unknown): Promise<unknown> {
-  const response = await fetch(path, { method, headers: { 'Content-Type': 'application/json' }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
-  if (!response.ok) { await response.body?.cancel(); throw new Error(method === 'DELETE' ? 'Could not confirm revocation. The share may already be removed. Refresh the list before retrying.' : 'Could not update sharing. Check the hub and try again.'); }
-  return response.json();
-}
+import type { SharingRepository } from './sharing-repository.js';
 /** Owner-only UI. Shared clients are not given an owner repository or this entry. */
-export function ShareSettings({ boardId }: { boardId: string }) {
+export function ShareSettings({ boardId, repository }: { boardId: string; repository: SharingRepository }) {
+  const request = (path: string, method?: string, body?: unknown) => repository.request(path, method, body);
   const dialog = useRef<HTMLDialogElement>(null), linkText = useRef<HTMLTextAreaElement>(null);
   const [open, setOpen] = useState(false), [busy, setBusy] = useState(false), [error, setError] = useState('');
   const [host, setHost] = useState<Host | null>(null), [grants, setGrants] = useState<Grant[]>([]);

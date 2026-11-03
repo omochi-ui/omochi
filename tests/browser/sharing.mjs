@@ -146,6 +146,31 @@ try {
   passed('corrupt identity requires explicit reset and never silently restores trust',await recipient.evaluate(`document.querySelector('[data-browser-id]').dataset.browserId!==${JSON.stringify(identity)}&&document.querySelectorAll('[data-surface]').length===0`));
   passed('local identity reset preserves the hub-owned board',(await board()).name==='Edited by recipient');
 
+  await recipient.close();
+  const registrationResponse=await fetch(`${ready.ownerUrl}api/owners`,{method:'POST'});
+  assert.equal(registrationResponse.status,200);
+  const registration=await registrationResponse.json();
+  const ownerPayload=JSON.parse(Buffer.from(new URL(registration.url).hash.slice(7),'base64url').toString());
+  recipient=await browser.tab();await navigate(recipient,registration.url);
+  await click(recipient,'Accept invitation');
+  await until(async()=>await recipient.evaluate("document.querySelector('.connection-status')?.textContent.includes('Hub connected')&&Array.from(document.querySelectorAll('button')).some(b=>b.textContent.trim()==='Edit dashboard')"),'owner connection');
+  passed('owner enrollment opens the existing dashboard with full owner controls');
+  await click(recipient,'Create dashboard');
+  await recipient.evaluate(`(()=>{const e=document.querySelector('.dashboard-name');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(e,'Remote owner board');e.dispatchEvent(new Event('input',{bubbles:true}));})()`);
+  await click(recipient,'Save dashboard');
+  await until(async()=>await recipient.evaluate("document.querySelector('h1')?.textContent==='Remote owner board'"),'owner creates dashboard');
+  passed('remote owner creates a native hub-owned dashboard');
+  await click(recipient,'Share dashboard');
+  await until(async()=>await recipient.evaluate("!!document.querySelector('select[aria-label=\"Access type\"]')"),'owner share management');
+  await click(recipient,'Close sharing');
+  passed('remote owner has the same share management screen');
+  await recipient.command('Page.reload');
+  await until(async()=>await recipient.evaluate("document.querySelector('.connection-status')?.textContent.includes('Hub connected')"),'owner reload');
+  passed('owner identity reconnects without retaining its invitation secret');
+  assert.equal((await fetch(`${ready.ownerUrl}api/owners/${ownerPayload.grantId}`,{method:'DELETE'})).status,200);
+  await until(async()=>await recipient.evaluate("!document.querySelector('.connection-status')?.textContent.includes('Hub connected')"),'owner revocation');
+  passed('local owner revocation tears down the remote owner connection');
+
   passed('no static host app-data/API fallback', !host.requests.some(r => !r.audit && /^\/dashboard\/(?:api|images|resources|events|services|ws)(?:\/|$)/.test(r.path)));
   passed('no unhandled browser exceptions', exceptions === 0);
   console.log(`Sharing browser acceptance passed (${report.checks.length} checks).`);

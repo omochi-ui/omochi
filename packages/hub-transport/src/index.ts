@@ -16,7 +16,7 @@ export interface Connection {
   close(): Promise<void>;
 }
 export interface Endpoint {
-  connect(addressJson: string, alpn: 'omochi/dashboard-enroll/1' | 'omochi/dashboard/1', signal: AbortSignal): Promise<Connection>;
+  connect(addressJson: string, alpn: 'omochi/dashboard-enroll/1' | 'omochi/dashboard/1' | 'omochi/owner/1' | 'omochi/owner-enroll/1', signal: AbortSignal): Promise<Connection>;
   close(): Promise<void>;
 }
 export interface BrowserTransport {
@@ -184,7 +184,7 @@ class OwnedEndpoint implements Endpoint {
   private readonly connecting = new Map<number, Promise<unknown>>();
   private closing: Promise<void> | null = null;
   constructor(private readonly raw: RawEndpoint) { frameReaders.set(this, () => raw.frame_bytes()); }
-  connect(addressJson: string, alpn: 'omochi/dashboard-enroll/1' | 'omochi/dashboard/1', signal: AbortSignal): Promise<Connection> {
+  connect(addressJson: string, alpn: 'omochi/dashboard-enroll/1' | 'omochi/dashboard/1' | 'omochi/owner/1' | 'omochi/owner-enroll/1', signal: AbortSignal): Promise<Connection> {
     if (this.dead || signal.aborted) return Promise.reject(new SessionFault('Cancelled'));
     if (this.sequence === 0xffffffff) return Promise.reject(new SessionFault('CapacityExceeded'));
     const operation = ++this.sequence;

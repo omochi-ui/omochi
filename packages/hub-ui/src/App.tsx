@@ -15,7 +15,7 @@ export default function App({ environment, connectionUi, renderSharing }: { envi
   const session = useA2uiSource(environment.session);
   const services: readonly ServiceView[] = session.services;
   const direct = environment.session.imagePolicy === 'sdk-png';
-  const shared = environment.shared;
+  const shared = environment.authority.kind === 'share' ? environment.authority.permissions : undefined;
   const canEdit = !shared || shared.editLayout;
   const canInteract = !shared || shared.interact;
   const [gateways, setGateways] = useState<ReadonlySet<string>>(new Set());

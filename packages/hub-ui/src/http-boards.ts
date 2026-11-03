@@ -1,8 +1,8 @@
 import { boardFields, validateBoardInput } from './board-codec.js';
-import { BoardFault, notifyBoardListeners, type BoardRepository } from './board-repository.js';
+import { watchBoardChanges, BoardFault, notifyBoardListeners, type BoardRepository } from './board-repository.js';
 import type { Dashboard, DashboardInput, DashboardPreset } from './contracts.js';
 
-function dashboard(value: unknown): Dashboard {
+export function dashboard(value: unknown): Dashboard {
   try {
     const row = boardFields(value, ['id', 'revision', 'name', 'panels']);
     if (typeof row.id !== 'string' || !row.id.trim() || row.id.length > 100 || !Number.isSafeInteger(row.revision) || Number(row.revision) < 1) throw new BoardFault('StorageCorrupt');
@@ -11,9 +11,10 @@ function dashboard(value: unknown): Dashboard {
 }
 export class HttpBoardRepository implements BoardRepository {
   private readonly listeners = new Set<() => void>();
+  private stopWatching: (() => void) | null = null;
   private readonly origin: string;
   constructor(origin = '') { this.origin = origin; }
-  subscribe(changed: () => void): () => void { this.listeners.add(changed); return () => this.listeners.delete(changed); }
+  subscribe(changed: () => void): () => void { this.listeners.add(changed); this.stopWatching ??= watchBoardChanges(() => this.list(), () => notifyBoardListeners(this.listeners)); return () => { this.listeners.delete(changed); if (!this.listeners.size) { this.stopWatching?.(); this.stopWatching = null; } }; }
   async list(): Promise<readonly Dashboard[]> {
     const value = await this.request('/api/dashboards');
     if (!Array.isArray(value)) throw new BoardFault('StorageCorrupt');

@@ -116,6 +116,9 @@ pub fn validate(value: Value) -> Result<Input> {
     Ok(input)
 }
 impl DashboardStore {
+    pub fn owners(&self) -> crate::owners::OwnerStore {
+        crate::owners::OwnerStore::new(self.root.clone())
+    }
     pub fn shares(&self) -> crate::sharing::ShareStore {
         crate::sharing::ShareStore::new(self.root.clone())
     }

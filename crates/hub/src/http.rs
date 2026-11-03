@@ -103,6 +103,7 @@ pub async fn serve(
         }
         validate(preset.clone()).map_err(|e| anyhow::anyhow!(e.1))?;
     }
+    *state.hub.owner_presets.write().unwrap() = state.presets.clone();
     let stop = state.hub.stop.clone();
     let browser_tasks = state.hub.browser_tasks.clone();
     let state = Arc::new(state);
@@ -121,6 +122,8 @@ pub async fn serve(
             .route("/api/dashboards", any(dashboards))
             .route("/api/dashboards/{id}", any(dashboards))
             .route("/api/sharing", get(sharing))
+            .route("/api/owners", any(owners))
+            .route("/api/owners/{id}", any(owners))
             .route("/api/shares", any(shares))
             .route("/api/shares/{id}", any(shares))
             .route("/api/presets", get(presets))
@@ -171,19 +174,20 @@ async fn shares(
         .strip_prefix("/api/shares/")
         .map(str::to_owned);
     let boards = state.dashboards.clone();
+    let control = crate::control::HubControl {
+        hub: state.hub.clone(),
+        boards: boards.clone(),
+    };
     if method == Method::GET && id.is_none() {
-        return tokio::task::spawn_blocking(move || {
-            boards
-                .shares()
-                .list()
-                .map(|list| Json(list).into_response())
-        })
-        .await
-        .map_err(|_| ApiError::new(503, "Sharing unavailable"))?;
+        return Ok(
+            Json(control.execute(crate::control::Command::SharesList).await?).into_response(),
+        );
     }
     if method == Method::DELETE {
         let id = id.ok_or_else(|| ApiError::new(405, "Method not allowed"))?;
-        boards.shares().revoke_live(&id).await?;
+        control
+            .execute(crate::control::Command::ShareRevoke { id })
+            .await?;
         return Ok(Json(json!({"deleted":true})).into_response());
     }
     if method != Method::POST || id.is_some() {
@@ -204,18 +208,14 @@ async fn shares(
         .map_err(|_| ApiError::new(413, "Sharing request too large"))?;
     let input: Create =
         serde_json::from_slice(&bytes).map_err(|_| ApiError::new(400, "Invalid share"))?;
-    let (grant, secret) = tokio::task::spawn_blocking(move || {
-        boards
-            .shares()
-            .create(&boards, &input.board_id, input.public, input.permissions)
-    })
-    .await
-    .map_err(|_| ApiError::new(503, "Sharing unavailable"))??;
-    Ok((
-        StatusCode::CREATED,
-        Json(json!({"url":state.hub.share_link(&grant,&secret),"grant":grant,"secret":secret})),
-    )
-        .into_response())
+    let value = control
+        .execute(crate::control::Command::ShareCreate {
+            board_id: input.board_id,
+            public: input.public,
+            permissions: input.permissions,
+        })
+        .await?;
+    Ok((StatusCode::CREATED, Json(value)).into_response())
 }
 async fn connections(State(state): State<Arc<HttpState>>) -> Json<Vec<Value>> {
     Json(state.hub.connection_status().await)
@@ -333,20 +333,15 @@ async fn dashboards(
     }
     let method = request.method().clone();
     let store = state.dashboards.clone();
+    let control = crate::control::HubControl {
+        hub: state.hub.clone(),
+        boards: store.clone(),
+    };
     if method == Method::GET {
-        let list = tokio::task::spawn_blocking(move || store.list())
+        let value = tokio::task::spawn_blocking(move || control.board(id.as_deref(), None, false))
             .await
             .map_err(|_| ApiError::new(503, "Dashboard storage unavailable"))??;
-        return if let Some(id) = id {
-            Ok(Json(
-                list.into_iter()
-                    .find(|d| d.id == id)
-                    .ok_or_else(|| ApiError::new(404, "Dashboard not found"))?,
-            )
-            .into_response())
-        } else {
-            Ok(Json(list).into_response())
-        };
+        return Ok(Json(value).into_response());
     }
     if !((method == Method::POST && id.is_none())
         || ((method == Method::PUT || method == Method::DELETE) && id.is_some()))
@@ -368,9 +363,10 @@ async fn dashboards(
         .map_err(|_| ApiError::new(413, "Dashboard request is too large"))?;
     let input = serde_json::from_slice(&bytes).map_err(|_| ApiError::new(400, "Invalid JSON"))?;
     let remove = method == Method::DELETE;
-    let result = tokio::task::spawn_blocking(move || store.mutate(id.as_deref(), input, remove))
-        .await
-        .map_err(|_| ApiError::new(503, "Dashboard storage unavailable"))??;
+    let result =
+        tokio::task::spawn_blocking(move || control.board(id.as_deref(), Some(input), remove))
+            .await
+            .map_err(|_| ApiError::new(503, "Dashboard storage unavailable"))??;
     if remove {
         Ok(Json(json!({"deleted":true})).into_response())
     } else {
@@ -648,5 +644,41 @@ mod tests {
             .unwrap()
             .unwrap()
             .unwrap();
+    }
+}
+
+async fn owners(
+    State(state): State<Arc<HttpState>>,
+    request: Request,
+) -> Result<Response, ApiError> {
+    let store = state.dashboards.owners();
+    if request.uri().path().starts_with("/api/owners/") && request.method() != Method::DELETE {
+        return Err(ApiError::new(405, "Method not allowed"));
+    }
+    match *request.method() {
+        Method::GET => Ok(Json(store.list()?).into_response()),
+        Method::POST => {
+            let host = state
+                .hub
+                .dashboard_host()
+                .ok_or_else(|| ApiError::new(400, "Enable remote access first"))?;
+            if host["relayUrls"].as_array().is_none_or(|r| r.is_empty()) {
+                return Err(ApiError::new(503, "Relay address unavailable"));
+            }
+            let (grant, secret) = store.create()?;
+            use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
+            let payload = json!({"version":1,"hubId":host["hubId"],"relayUrls":host["relayUrls"],"grantId":grant.id,"mode":"owner","secret":secret});
+            Ok(Json(json!({"grant":grant,"url":format!("{}#owner:{}",host["webUrl"].as_str().unwrap(),URL_SAFE_NO_PAD.encode(serde_json::to_vec(&payload).unwrap()))})).into_response())
+        }
+        Method::DELETE => {
+            let id = request
+                .uri()
+                .path()
+                .strip_prefix("/api/owners/")
+                .ok_or_else(|| ApiError::new(405, "Missing owner ID"))?;
+            store.revoke_live(id).await?;
+            Ok(Json(json!({"deleted":true})).into_response())
+        }
+        _ => Err(ApiError::new(405, "Method not allowed")),
     }
 }
