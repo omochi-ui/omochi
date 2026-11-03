@@ -1,0 +1,361 @@
+{
+  "format": "omochi.board.fixture",
+  "version": 1,
+  "mutationRules": "Clone the named valid document. Apply set/delete in order using decoded JSON pointers; set replaces or adds an own property. Then run schema and semantic validation. These mutations are test infrastructure, not an import protocol.",
+  "valid": [
+    {
+      "name": "empty",
+      "document": {
+        "format": "omochi.board",
+        "version": 1,
+        "board": {
+          "name": "Empty",
+          "panels": []
+        },
+        "sources": []
+      }
+    },
+    {
+      "name": "one-panel",
+      "document": {
+        "format": "omochi.board",
+        "version": 1,
+        "board": {
+          "name": "My board",
+          "panels": [
+            {
+              "id": "panel-1",
+              "title": "Counter",
+              "reference": {
+                "nodeId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "serviceId": "service-id-length-over-16",
+                "surfaceId": "main/child"
+              },
+              "x": 0,
+              "y": 0,
+              "w": 6,
+              "h": 6
+            }
+          ]
+        },
+        "sources": [
+          {
+            "nodeId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "name": "Workstation"
+          }
+        ]
+      }
+    }
+  ],
+  "invalid": [
+    {
+      "name": "unknown-version",
+      "base": "one-panel",
+      "changes": [
+        {
+          "op": "set",
+          "path": "/version",
+          "value": 2
+        }
+      ],
+      "expected": "InvalidBoard"
+    },
+    {
+      "name": "secret-at-root",
+      "base": "one-panel",
+      "changes": [
+        {
+          "op": "set",
+          "path": "/secret",
+          "value": "must-not-be-imported"
+        }
+      ],
+      "expected": "InvalidBoard"
+    },
+    {
+      "name": "revision-in-exchange",
+      "base": "one-panel",
+      "changes": [
+        {
+          "op": "set",
+          "path": "/board/revision",
+          "value": 1
+        }
+      ],
+      "expected": "InvalidBoard"
+    },
+    {
+      "name": "nested-address",
+      "base": "one-panel",
+      "changes": [
+        {
+          "op": "set",
+          "path": "/sources/0/relayUrl",
+          "value": "https://untrusted.example/"
+        }
+      ],
+      "expected": "InvalidBoard"
+    },
+    {
+      "name": "legacy-node",
+      "base": "one-panel",
+      "changes": [
+        {
+          "op": "set",
+          "path": "/board/panels/0/reference/nodeId",
+          "value": "aaaaaaaaaaaaaaaa"
+        }
+      ],
+      "expected": "InvalidBoard"
+    },
+    {
+      "name": "unknown-reference-field",
+      "base": "one-panel",
+      "changes": [
+        {
+          "op": "set",
+          "path": "/board/panels/0/reference/path",
+          "value": "/tmp/private"
+        }
+      ],
+      "expected": "InvalidBoard"
+    },
+    {
+      "name": "blank-title",
+      "base": "one-panel",
+      "changes": [
+        {
+          "op": "set",
+          "path": "/board/panels/0/title",
+          "value": "   "
+        }
+      ],
+      "expected": "InvalidBoard"
+    },
+    {
+      "name": "invalid-service-dot",
+      "base": "one-panel",
+      "changes": [
+        {
+          "op": "set",
+          "path": "/board/panels/0/reference/serviceId",
+          "value": ".."
+        }
+      ],
+      "expected": "InvalidBoard"
+    },
+    {
+      "name": "x-overflow",
+      "base": "one-panel",
+      "changes": [
+        {
+          "op": "set",
+          "path": "/board/panels/0/x",
+          "value": 11
+        }
+      ],
+      "expected": "InvalidBoard"
+    },
+    {
+      "name": "fractional-grid",
+      "base": "one-panel",
+      "changes": [
+        {
+          "op": "set",
+          "path": "/board/panels/0/w",
+          "value": 1.5
+        }
+      ],
+      "expected": "InvalidBoard"
+    },
+    {
+      "name": "missing-source",
+      "base": "one-panel",
+      "changes": [
+        {
+          "op": "set",
+          "path": "/sources",
+          "value": []
+        }
+      ],
+      "expected": "InvalidBoard"
+    },
+    {
+      "name": "extra-source",
+      "base": "empty",
+      "changes": [
+        {
+          "op": "set",
+          "path": "/sources",
+          "value": [
+            {
+              "nodeId": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            }
+          ]
+        }
+      ],
+      "expected": "InvalidBoard"
+    },
+    {
+      "name": "missing-panels",
+      "base": "one-panel",
+      "changes": [
+        {
+          "op": "delete",
+          "path": "/board/panels"
+        }
+      ],
+      "expected": "InvalidBoard"
+    },
+    {
+      "name": "duplicate-panel-id",
+      "base": "one-panel",
+      "changes": [
+        {
+          "op": "set",
+          "path": "/board/panels",
+          "value": [
+            {
+              "id": "panel-1",
+              "title": "Counter",
+              "reference": {
+                "nodeId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "serviceId": "service-id-length-over-16",
+                "surfaceId": "main/child"
+              },
+              "x": 0,
+              "y": 0,
+              "w": 6,
+              "h": 6
+            },
+            {
+              "id": "panel-1",
+              "title": "Counter",
+              "reference": {
+                "nodeId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "serviceId": "service-id-length-over-16",
+                "surfaceId": "main/child"
+              },
+              "x": 0,
+              "y": 6,
+              "w": 6,
+              "h": 6
+            }
+          ]
+        }
+      ],
+      "expected": "InvalidBoard"
+    },
+    {
+      "name": "duplicate-reference",
+      "base": "one-panel",
+      "changes": [
+        {
+          "op": "set",
+          "path": "/board/panels",
+          "value": [
+            {
+              "id": "panel-1",
+              "title": "Counter",
+              "reference": {
+                "nodeId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "serviceId": "service-id-length-over-16",
+                "surfaceId": "main/child"
+              },
+              "x": 0,
+              "y": 0,
+              "w": 6,
+              "h": 6
+            },
+            {
+              "id": "panel-2",
+              "title": "Counter",
+              "reference": {
+                "nodeId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "serviceId": "service-id-length-over-16",
+                "surfaceId": "main/child"
+              },
+              "x": 0,
+              "y": 6,
+              "w": 6,
+              "h": 6
+            }
+          ]
+        }
+      ],
+      "expected": "InvalidBoard"
+    },
+    {
+      "name": "rectangle-overlap",
+      "base": "one-panel",
+      "changes": [
+        {
+          "op": "set",
+          "path": "/board/panels",
+          "value": [
+            {
+              "id": "panel-1",
+              "title": "Counter",
+              "reference": {
+                "nodeId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "serviceId": "service-id-length-over-16",
+                "surfaceId": "main/child"
+              },
+              "x": 0,
+              "y": 0,
+              "w": 6,
+              "h": 6
+            },
+            {
+              "id": "panel-2",
+              "title": "Counter",
+              "reference": {
+                "nodeId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "serviceId": "service-id-length-over-16",
+                "surfaceId": "other"
+              },
+              "x": 0,
+              "y": 5,
+              "w": 6,
+              "h": 6
+            }
+          ]
+        }
+      ],
+      "expected": "InvalidBoard"
+    },
+    {
+      "name": "duplicate-source",
+      "base": "one-panel",
+      "changes": [
+        {
+          "op": "set",
+          "path": "/sources",
+          "value": [
+            {
+              "nodeId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "name": "Workstation"
+            },
+            {
+              "nodeId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "name": "Workstation"
+            }
+          ]
+        }
+      ],
+      "expected": "InvalidBoard"
+    },
+    {
+      "name": "utf16-title-overflow",
+      "base": "one-panel",
+      "changes": [
+        {
+          "op": "set",
+          "path": "/board/panels/0/title",
+          "value": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀"
+        }
+      ],
+      "expected": "InvalidBoard"
+    }
+  ]
+}

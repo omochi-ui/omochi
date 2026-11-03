@@ -6,8 +6,9 @@
   "scripts": {
     "build": "bun run build:web && cargo build --manifest-path crates/Cargo.toml --locked -p omochi-cli -p omochi-utils",
     "quickstart": "bun run build && bun run omochi-ui up --open examples/quickstart/omochi.toml",
-    "test": "bun run build && bun run --bun --filter '*' test && bun run test:server-rust && tsc -p tests/native && OMOCHI_NATIVE_TEST=1 bun test tests/native packages/renderer/test/native.test.ts && bun run test:approval && bun run test:packaging",
+    "test": "bun run build && bun run --bun --filter './packages/**' test && bun run test:server-rust && tsc -p tests/native && OMOCHI_NATIVE_TEST=1 bun test tests/native packages/renderer/test/native.test.ts && bun run test:approval && bun run test:packaging",
     "test:packaging": "bun run release:typecheck && bun test scripts/release.test.ts scripts/native-release.test.ts && python3 -B scripts/test_native_packaging.py",
+    "test:renderer-package": "bun run build:web && bun scripts/test-renderer-package.ts",
     "test:approval": "tsc -p examples/agent-approval/tsconfig.json && bun test ./examples/agent-approval/test",
     "test:python": "PYTHONPATH=packages/sdk/python/src python3 -m unittest discover -s packages/sdk/python/tests -v",
     "test:python-renderer": "bun run --filter @omochi-ui/core build && OMOCHI_PYTHON_TEST=1 bun test packages/renderer/test/python-interface.test.ts",
@@ -19,7 +20,7 @@
     "release:pack": "bun scripts/release.ts pack",
     "release:smoke": "bun scripts/smoke-npm.ts",
     "release:stage:npm": "bun scripts/release.ts stage-npm",
-    "build:native": "bun run --filter @omochi-ui/renderer build && bun run --filter @omochi-ui/hub-ui build && cargo build --manifest-path crates/Cargo.toml --locked -p omochi-cli -p omochi-utils",
+    "build:native": "bun run --filter @omochi-ui/core build && bun run --filter @omochi-ui/renderer build && bun run --filter @omochi-ui/hub-ui build && cargo build --manifest-path crates/Cargo.toml --locked -p omochi-cli -p omochi-utils",
     "build:native:release": "python3 scripts/package-native.py",
     "test:native-renderer": "bun run build:native && OMOCHI_NATIVE_TEST=1 bun test packages/renderer/test/native.test.ts",
     "release:native:check": "bun scripts/native-release.ts check",
@@ -37,7 +38,8 @@
     "check:site": "bun run --filter @omochi-ui/site check",
     "build:site": "bun run --filter @omochi-ui/site build",
     "preview:site": "bun run --filter @omochi-ui/site preview",
-    "deploy:site": "bun run --filter @omochi-ui/site deploy"
+    "deploy:site": "bun run --filter @omochi-ui/site deploy",
+    "experiment:browser-dashboard": "bun experiments/browser-dashboard/run.ts"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
@@ -63,7 +65,10 @@
     "packages/hub-ui",
     "packages/npm/cli",
     "packages/npm/utils",
-    "apps/site"
+    "apps/site",
+    "experiments/browser-dashboard/transport",
+    "experiments/browser-dashboard/hub",
+    "experiments/browser-dashboard/app"
   ],
   "trustedDependencies": [
     "esbuild"

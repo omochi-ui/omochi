@@ -16,7 +16,7 @@ def main():
     target = next(line.split(": ", 1)[1] for line in run("rustc", "-vV").splitlines() if line.startswith("host: "))
     version = tomllib.loads((WORKSPACE / "Cargo.toml").read_text())["workspace"]["package"]["version"]
     if not args.skip_build:
-        for package in ("renderer", "hub-ui"):
+        for package in ("core", "renderer", "hub-ui"):
             subprocess.run(["bun", "run", "--filter", f"@omochi-ui/{package}", "build"], cwd=ROOT, check=True)
         subprocess.run(["cargo", "build", "--manifest-path", str(WORKSPACE / "Cargo.toml"), "--locked", "--release", "-p", "omochi-cli", "-p", "omochi-utils"], cwd=ROOT, check=True)
     files = {}

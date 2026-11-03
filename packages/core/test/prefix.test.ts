@@ -3,6 +3,8 @@ import { test } from '../src/testing.js'
 
 import {
   isValidServiceId,
+  isValidChannelId,
+  isValidNodeId,
   joinRouteId,
   joinSurfaceId,
   prefixClientMessage,
@@ -13,8 +15,20 @@ import {
   splitSurfaceId,
 } from '../src/index.js'
 
-const NODE_A = 'aaaaaaaaaaaaaaaa'
-const NODE_B = 'bbbbbbbbbbbbbbbb'
+const NODE_A = 'a'.repeat(64)
+const NODE_B = 'b'.repeat(64)
+
+test('v4 channel validators accept exact EndpointIds and reject legacy or ambiguous routes', () => {
+  assert.equal(isValidNodeId(NODE_A), true)
+  for (const id of ['a'.repeat(16), 'A'.repeat(64), 'g'.repeat(64), 'a'.repeat(63), 'a'.repeat(65)]) {
+    assert.equal(isValidNodeId(id), false)
+    assert.equal(isValidChannelId(`${id}~app`), false)
+  }
+  assert.equal(isValidChannelId(`${NODE_A}~${'s'.repeat(64)}`), true)
+  for (const channel of ['.', '..', `${NODE_A}~.`, `${NODE_A}~..`, 'a~b', '~app', `${NODE_A}~~app`]) assert.equal(isValidChannelId(channel), false)
+  assert.equal(splitSurfaceId('app/ '), null)
+  assert.equal(splitSurfaceId(`app/${'x'.repeat(4097)}`), null)
+})
 
 test('rejects service ids that would escape or collapse the service directory', () => {
   assert.equal(isValidServiceId('mic'), true)
@@ -167,4 +181,13 @@ test('re-prefixes a client message for the gateway that routes it again', () => 
     metadata: { a2uiClientDataModel: { version: 'v0.9', surfaces: { 'mic/main': { count: 1 } } } },
   })
   assert.deepEqual(routeClientMessage(forGateway)?.channelId, 'mic')
+})
+
+test('metadata routing never assigns a Surface ID through Object.prototype setters', () => {
+  const routed = routeClientMessage({ version: 'v0.9', action: { surfaceId: `${NODE_A}~app/__proto__` },
+    metadata: { a2uiClientDataModel: { version: 'v0.9', surfaces: { [`${NODE_A}~app/__proto__`]: { field: 'literal Surface ID' } } } } })!
+  const metadata = routed.message.metadata as { a2uiClientDataModel: { surfaces: Record<string, unknown> } }
+  assert.equal(Object.getPrototypeOf(metadata.a2uiClientDataModel.surfaces), Object.prototype)
+  assert.equal(Object.hasOwn(metadata.a2uiClientDataModel.surfaces, '__proto__'), true)
+  assert.deepEqual(metadata.a2uiClientDataModel.surfaces.__proto__, { field: 'literal Surface ID' })
 })

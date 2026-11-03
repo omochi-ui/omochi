@@ -1,5 +1,25 @@
 import { expect, test } from 'bun:test';
-import { distributionManifest, existingPyPiFiles, npmStageId, publicationOrder, validateContents, validateVersion, type Manifest } from './release.ts';
+import { distributionManifest, existingPyPiFiles, npmStageId, publicationOrder, publicSdkVersions, sdkWorkspaces, validateContents, validateVersion, type Manifest } from './release.ts';
+
+test('SDK version selection excludes independent private browser and native build inputs', () => {
+  const manifests: Manifest[] = [
+    { name: '@omochi-ui/core', version: '0.1.2' },
+    { name: '@omochi-ui/browser-hub', version: '0.0.0', private: true },
+    { name: '@omochi-ui/browser-transport', version: '0.0.0', private: true },
+    { name: '@omochi-ui/browser-dashboard-experiment', version: '0.0.0', private: true },
+    { name: '@omochi-ui/cli', version: '0.2.0', omochiNative: { crate: 'cli', binary: 'omochi-ui' } },
+  ];
+  const workspaces = manifests.map(manifest => ({ directory: manifest.name, manifest }));
+  expect(publicSdkVersions(workspaces)).toEqual({ '@omochi-ui/core': '0.1.2' });
+  expect(sdkWorkspaces(workspaces).map(workspace => workspace.manifest.name)).toEqual(['@omochi-ui/core']);
+  expect(() => validateVersion('0.1.2', publicSdkVersions([
+    ...workspaces, { directory: 'renderer', manifest: { name: '@omochi-ui/renderer', version: '0.2.0' } },
+  ]))).toThrow('@omochi-ui/renderer has version');
+  for (const field of ['dependencies', 'optionalDependencies', 'peerDependencies'] as const) {
+    const publicPackage = { directory: 'renderer', manifest: { name: 'renderer', version: '0.1.2', [field]: { '@omochi-ui/browser-hub': 'workspace:*' } } };
+    expect(() => publicationOrder([...workspaces, publicPackage])).toThrow('private');
+  }
+});
 
 test('release versions must agree across SDKs and match a stable tag', () => {
   validateVersion('0.1.0', { npm: '0.1.0', rust: '0.1.0' }, 'v0.1.0');

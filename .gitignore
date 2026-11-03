@@ -147,6 +147,9 @@ vite.config.ts.timestamp-*
 
 # TypeScript test compilation
 dist-test/
+dist-browser-test/
+dist-hosted/
+test-results/
 
 # Separate repository prepared for public release
 /.public/

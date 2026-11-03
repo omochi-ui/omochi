@@ -13,10 +13,10 @@
  */
 export const SERVICE_ID_PATTERN = /^[A-Za-z0-9._-]{1,64}$/
 
-export const NODE_ID_PATTERN = /^[a-z2-7]{16}$/
+export const NODE_ID_PATTERN = /^[0-9a-f]{64}$/
 
-/** A node id (16), `~`, and a service id (64). */
-export const CHANNEL_ID_PATTERN = /^[A-Za-z0-9._~-]{1,81}$/
+/** A bare service, or a v4 EndpointId (64), `~`, and a service (64). */
+export const CHANNEL_ID_PATTERN = /^(?:[A-Za-z0-9._-]{1,64}|[0-9a-f]{64}~[A-Za-z0-9._-]{1,64})$/
 
 export function isValidServiceId(serviceId: string): boolean {
   // `.` and `..` match the character class but would escape or collapse the service directory.
@@ -28,9 +28,12 @@ export function isValidNodeId(nodeId: string): boolean {
   return NODE_ID_PATTERN.test(nodeId)
 }
 
+export function isValidSurfaceId(surfaceId: string): boolean {
+  return surfaceId.length <= 4096 && surfaceId.trim().length > 0
+}
+
 export function isValidChannelId(channelId: string): boolean {
-  if (channelId === '.' || channelId === '..') return false
-  return CHANNEL_ID_PATTERN.test(channelId)
+  return isValidServiceId(channelId) || splitRouteId(channelId) !== null
 }
 
 export function joinRouteId(nodeId: string, serviceId: string): string {

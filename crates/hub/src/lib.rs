@@ -1,10 +1,23 @@
 //! Hub aggregation independent of browser HTTP and gateway transport.
+#[cfg(feature = "browser")]
+mod browser_images;
+pub mod capacity;
+#[cfg(test)]
+mod capacity_wire;
+#[cfg(feature = "browser")]
 pub mod dashboards;
 mod heartbeat;
+pub mod host;
+#[cfg(feature = "browser")]
 pub mod http;
+pub mod identity;
+pub mod images;
+pub mod native;
 pub mod remote;
+#[cfg(feature = "browser")]
 mod resource_http;
 pub mod routing;
+pub mod scoped;
 pub mod stdio;
 use anyhow::{Context, Result, bail};
 use omochi_protocol::{
@@ -15,7 +28,7 @@ use omochi_protocol::{
 use omochi_ui::A2uiSnapshot;
 use serde_json::{Value, json};
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     path::PathBuf,
     pin::Pin,
     sync::{
@@ -61,13 +74,24 @@ struct Channel {
     service: Service,
     node_name: String,
     local: bool,
-    snapshot: A2uiSnapshot,
-    actions: omochi_protocol::queue::Sender<Value>,
+    snapshot: Arc<A2uiSnapshot>,
+    snapshot_charge: Option<Arc<capacity::SnapshotLease>>,
+    actions: omochi_protocol::queue::Sender<OutboundAction>,
     connection: Connection,
+    instance: u64,
+    lifetime: CancellationToken,
+    scopes: BTreeMap<String, scoped::Scope>,
+}
+struct OutboundAction {
+    message: Value,
+    scope: Option<(CancellationToken, CancellationToken)>,
 }
 struct State {
     channels: BTreeMap<String, Channel>,
-    events: omochi_protocol::fanout::Sender,
+    events: omochi_protocol::fanout::Sender<scoped::HubEvent>,
+    blocked_gateways: BTreeSet<String>,
+    scoped: Option<CancellationToken>,
+    unavailable: BTreeMap<String, Value>,
 }
 #[derive(Clone)]
 pub struct Hub {
@@ -77,13 +101,16 @@ pub struct Hub {
     stop: CancellationToken,
     standalone: Option<stdio::Backend>,
     close_code: Arc<std::sync::atomic::AtomicU16>,
+    #[cfg(feature = "browser")]
     browser_tasks: tokio_util::task::TaskTracker,
     diagnostics: remote::Diagnostics,
     peer_names: Arc<Mutex<BTreeMap<String, String>>>,
+    images: images::ImageResolver,
+    capacity: Option<Arc<capacity::Capacity>>,
 }
 pub struct Subscription {
     pub snapshot: Vec<Value>,
-    pub events: omochi_protocol::fanout::Receiver,
+    pub events: scoped::EventReceiver,
 }
 impl Default for Hub {
     fn default() -> Self {
@@ -99,16 +126,27 @@ impl Hub {
             state: Arc::new(Mutex::new(State {
                 channels: BTreeMap::new(),
                 events,
+                blocked_gateways: BTreeSet::new(),
+                scoped: None,
+                unavailable: BTreeMap::new(),
             })),
             changes,
             epoch: Arc::new(AtomicU64::new(1)),
             stop: CancellationToken::new(),
             standalone: None,
             close_code: Arc::new(std::sync::atomic::AtomicU16::new(1001)),
+            #[cfg(feature = "browser")]
             browser_tasks: tokio_util::task::TaskTracker::new(),
             diagnostics: Arc::default(),
             peer_names: Arc::default(),
+            images: images::ImageResolver::default(),
+            capacity: None,
         }
+    }
+    pub fn embedded() -> Self {
+        let mut hub = Self::new();
+        hub.capacity = Some(Arc::new(capacity::Capacity::default()));
+        hub
     }
     pub fn attach_stdio(
         input: impl AsyncRead + Unpin + Send + 'static,
@@ -143,7 +181,7 @@ impl Hub {
                 .values()
                 .flat_map(|c| c.snapshot.messages())
                 .collect(),
-            events: state.events.subscribe(),
+            events: scoped::EventReceiver::scoped(state.events.subscribe()),
         }
     }
     pub async fn connection_status(&self) -> Vec<Value> {
@@ -155,27 +193,48 @@ impl Hub {
             .collect()
     }
     pub async fn services(&self) -> Vec<Value> {
-        self.state.lock().await.channels.iter().map(|(route, channel)| {
+        let state = self.state.lock().await;
+        let mut views = state.unavailable.clone();
+        views.extend(state.channels.iter().map(|(route, channel)| {
             let mut view = json!({"id":route,"name":channel.service.name,"status":"connected","node":{"id":route.split_once('~').unwrap().0,"name":channel.node_name,"local":channel.local}});
-            if let Some(icon) = &channel.service.icon { view["icon"] = icon.clone().into(); } view
-        }).collect()
+            if let Some(icon) = &channel.service.icon { view["icon"] = icon.clone().into(); } (route.clone(), view)
+        }));
+        views.into_values().collect()
     }
     pub async fn action(&self, message: Value) -> Result<()> {
+        if self.stop.is_cancelled() {
+            bail!("Hub stopped")
+        }
         if let Some(backend) = &self.standalone {
             return backend.action(message);
         }
         let (route, message) = routing::route_action(message)?;
         let bytes = serde_json::to_vec(&message)?.len();
         let state = self.state.lock().await;
+        if state
+            .blocked_gateways
+            .contains(routing::split_route(&route)?.0)
+        {
+            bail!("gateway authorization revoked")
+        }
         state
             .channels
             .get(&route)
             .context("service unavailable")?
             .actions
-            .try_send(message, bytes)
+            .try_send(
+                OutboundAction {
+                    message,
+                    scope: None,
+                },
+                bytes,
+            )
             .map_err(|_| anyhow::anyhow!("service busy or disconnected"))
     }
     pub async fn resource(&self, route: &str, request: Value) -> Result<Value> {
+        if self.stop.is_cancelled() {
+            bail!("Hub stopped")
+        }
         if let Some(backend) = &self.standalone {
             if route != "_" {
                 bail!("unknown resource route");
@@ -185,6 +244,12 @@ impl Hub {
         routing::split_route(route)?;
         let (connection, service) = {
             let state = self.state.lock().await;
+            if state
+                .blocked_gateways
+                .contains(routing::split_route(route)?.0)
+            {
+                bail!("gateway authorization revoked")
+            }
             let c = state.channels.get(route).context("service unavailable")?;
             (c.connection.clone(), c.service.clone())
         };
@@ -201,6 +266,34 @@ impl Hub {
                 .context("resource connection closed")
         })
         .await?
+    }
+
+    /// Deny immediately, before durable removal or supervisor acknowledgement.
+    /// The supervisor still owns joining the connection and resource work.
+    pub(crate) async fn revoke_gateway(&self, id: &str) {
+        let mut state = self.state.lock().await;
+        state.blocked_gateways.insert(id.into());
+        let routes: Vec<_> = state
+            .channels
+            .keys()
+            .filter(|route| route.split_once('~').is_some_and(|(node, _)| node == id))
+            .cloned()
+            .collect();
+        for route in routes {
+            if let Some(channel) = state.channels.remove(&route) {
+                for surface in channel.snapshot.surface_ids() {
+                    state.emit(
+                        json!({"version":"v0.9","deleteSurface":{"surfaceId":surface}}),
+                        None,
+                    );
+                }
+            }
+        }
+        let _ = self.changes.send(());
+    }
+
+    pub(crate) async fn allow_gateway(&self, id: &str) {
+        self.state.lock().await.blocked_gateways.remove(id);
     }
     pub fn attach_unix(&self, path: PathBuf) -> JoinHandle<()> {
         let hub = self.clone();
@@ -221,9 +314,10 @@ impl Hub {
         if state.channels.get(route).is_some_and(|c| c.epoch == epoch) {
             if let Some(channel) = state.channels.remove(route) {
                 for surface in channel.snapshot.surface_ids() {
-                    let _ = state.events.send(Arc::new(
+                    state.emit(
                         json!({"version":"v0.9","deleteSurface":{"surfaceId":surface}}),
-                    ));
+                        None,
+                    );
                 }
             }
             let _ = self.changes.send(());
@@ -291,38 +385,45 @@ impl Hub {
         let (pong, replies) = tokio::sync::watch::channel(0u64);
         let heartbeat = heartbeat::run(writer, replies, Duration::from_secs(10));
         tokio::pin!(heartbeat);
-        let mut services: BTreeMap<String, (Service, CancellationToken, JoinHandle<()>)> =
-            BTreeMap::new();
+        let mut services = BTreeMap::new();
+        let mut roster = BTreeMap::new();
+        let mut capacity_changes = self.capacity.as_ref().map(|capacity| capacity.subscribe());
+        let first_roster_deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+        let mut roster_received = false;
         let result = async {
             loop {
                 // Reading is never cancelled to publish a service update: the only alternative ends this session.
-                let frame = tokio::select! {
-                    _ = stop.cancelled() => return Ok(()),
-                    result = &mut heartbeat => return result,
-                    frame = read_frame::<_, Control>(&mut reader) => frame?,
+                let read = read_frame::<_, Control>(&mut reader);
+                tokio::pin!(read);
+                let frame = loop {
+                    tokio::select! {
+                        _ = stop.cancelled() => return Ok(()),
+                        result = &mut heartbeat => return result,
+                        _ = tokio::time::sleep_until(first_roster_deadline), if !roster_received => bail!("gateway service discovery timed out"),
+                        frame = &mut read => break frame?,
+                        _ = async {
+                            if let Some(changes) = &mut capacity_changes { let _ = changes.changed().await; }
+                            else { std::future::pending::<()>().await; }
+                        } => {
+                            self.reconcile_services(&connection, epoch, &node_id, &name, local, &session_stop, &roster, &mut services).await;
+                        }
+                    }
                 };
                 let Some(frame) = frame else { bail!("gateway disconnected") };
                 match frame {
                     Control::Services { services: listed } => {
+                        roster_received = true;
                         if listed.len() > 256 { bail!("too many services") }
                         let mut next = BTreeMap::new();
                         for spec in listed {
                             if !valid_service_id(&spec.id) || spec.generation == 0 || next.insert(spec.id.clone(), spec).is_some() { bail!("invalid service list") }
                         }
-                        let removed: Vec<_> = services.iter().filter(|(id, (spec, _, _))| next.get(*id) != Some(spec)).map(|(id, _)| id.clone()).collect();
-                        for id in removed { let (_, stop, task) = services.remove(&id).unwrap(); stop.cancel(); let _ = task.await; self.remove(&format!("{node_id}~{id}"), epoch).await; }
-                        for (id, spec) in next {
-                            if services.contains_key(&id) { continue }
-                            let stop = session_stop.child_token(); let token = stop.clone(); let hub = self.clone(); let conn = connection.clone(); let node = node_id.clone(); let node_name = name.clone(); let service = spec.clone();
-                            let task = tokio::spawn(async move {
-                                loop {
-                                    tokio::select! { _ = token.cancelled() => break, _ = hub.service_stream(conn.clone(), epoch, &node, &node_name, local, service.clone()) => {} }
-                                    hub.remove(&format!("{node}~{}", service.id), epoch).await;
-                                    tokio::select! { _ = token.cancelled() => break, _ = tokio::time::sleep(Duration::from_millis(250)) => {} }
-                                }
-                            });
-                            services.insert(id, (spec, stop, task));
+                        if !local {
+                            self.diagnostics.lock().await.insert(node_id.clone(), "connected".into());
                         }
+                        if let Some(capacity) = &self.capacity { capacity.roster(&node_id, &next); }
+                        roster = next;
+                        self.reconcile_services(&connection, epoch, &node_id, &name, local, &session_stop, &roster, &mut services).await;
                     }
                     Control::Pong { id } => { pong.send_replace(id); },
                     Control::Bye { reason } => bail!("gateway closed: {reason}"),
@@ -335,7 +436,109 @@ impl Hub {
             let _ = task.await;
             self.remove(&format!("{node_id}~{id}"), epoch).await;
         }
+        if let Some(capacity) = &self.capacity {
+            capacity.offline(&node_id);
+        }
+        self.state
+            .lock()
+            .await
+            .unavailable
+            .retain(|route, _| !route.starts_with(&format!("{node_id}~")));
         result
+    }
+
+    async fn service_unavailable(
+        &self,
+        route: &str,
+        service: &Service,
+        node_name: &str,
+        local: bool,
+        error: capacity::CapacityError,
+    ) {
+        self.state.lock().await.unavailable.insert(
+            route.into(),
+            json!({
+                "id":route,"name":service.name,"status":"error","detail":error.to_string(),
+                "node":{"id":route.split_once('~').unwrap().0,"name":node_name,"local":local}
+            }),
+        );
+        let _ = self.changes.send(());
+    }
+
+    async fn reconcile_services(
+        &self,
+        connection: &Connection,
+        epoch: u64,
+        node: &str,
+        name: &str,
+        local: bool,
+        session_stop: &CancellationToken,
+        next: &BTreeMap<String, Service>,
+        services: &mut BTreeMap<String, (Service, CancellationToken, JoinHandle<()>)>,
+    ) {
+        let removed: Vec<_> = services
+            .iter()
+            .filter(|(id, (spec, _, _))| next.get(*id) != Some(spec))
+            .map(|(id, _)| id.clone())
+            .collect();
+        for id in removed {
+            let (_, stop, task) = services.remove(&id).unwrap();
+            stop.cancel();
+            let _ = task.await;
+            self.remove(&format!("{node}~{id}"), epoch).await;
+        }
+        self.state.lock().await.unavailable.retain(|route, _| {
+            route
+                .split_once('~')
+                .is_none_or(|(gateway, id)| gateway != node || next.contains_key(id))
+        });
+        for (id, spec) in next {
+            if services.contains_key(id) {
+                continue;
+            }
+            let route = format!("{node}~{id}");
+            let permit = match &self.capacity {
+                Some(capacity) => match capacity.admit(&route) {
+                    Ok(permit) => Some(permit),
+                    Err(error) => {
+                        self.service_unavailable(&route, spec, name, local, error)
+                            .await;
+                        continue;
+                    }
+                },
+                None => None,
+            };
+            self.state.lock().await.unavailable.remove(&route);
+            let stop = session_stop.child_token();
+            let token = stop.clone();
+            let hub = self.clone();
+            let conn = connection.clone();
+            let node = node.to_owned();
+            let name = name.to_owned();
+            let service = spec.clone();
+            let task = tokio::spawn(async move {
+                let _permit = permit;
+                loop {
+                    let result = tokio::select! {
+                        _=token.cancelled()=>break,
+                        result=hub.service_stream(conn.clone(),epoch,&node,&name,local,service.clone())=>result,
+                    };
+                    hub.remove(&route, epoch).await;
+                    if let Err(error) = result
+                        && let Some(error) = error.downcast_ref::<capacity::CapacityError>()
+                    {
+                        if let Some(capacity) = &hub.capacity {
+                            capacity.disable(&route, service.generation);
+                        }
+                        hub.service_unavailable(&route, &service, &name, local, *error)
+                            .await;
+                        break;
+                    }
+                    tokio::select! { _=token.cancelled()=>break, _=tokio::time::sleep(Duration::from_millis(250))=>{} }
+                }
+            });
+            services.insert(id.clone(), (spec.clone(), stop, task));
+        }
     }
     async fn service_stream(
         &self,
@@ -354,6 +557,11 @@ impl Hub {
             })
             .await?;
         let mut snapshot = A2uiSnapshot::new();
+        let snapshot_charge = self
+            .capacity
+            .as_ref()
+            .map(|capacity| capacity.snapshot(0))
+            .transpose()?;
         if !matches!(
             read_frame::<_, ServiceFrame>(&mut reader).await?,
             Some(ServiceFrame::SnapshotStart)
@@ -363,7 +571,10 @@ impl Hub {
         loop {
             match read_frame::<_, ServiceFrame>(&mut reader).await? {
                 Some(ServiceFrame::Message { message }) => {
-                    apply_snapshot(&mut snapshot, &routing::prefix(&route, message)?)?
+                    apply_snapshot(&mut snapshot, &routing::prefix(&route, message)?)?;
+                    if let Some(charge) = &snapshot_charge {
+                        charge.resize(capacity::snapshot_bytes(&snapshot, true)?)?;
+                    }
                 }
                 Some(ServiceFrame::SnapshotEnd) => break,
                 _ => bail!("incomplete snapshot"),
@@ -374,10 +585,32 @@ impl Hub {
             omochi_protocol::queue::DEFAULT_BYTES,
             omochi_protocol::MAX_FRAME_BYTES,
         );
+        let instance = self.epoch.fetch_add(1, Ordering::Relaxed);
+        let lifetime = self.stop.child_token();
+        let scopes: BTreeMap<_, _> = snapshot
+            .surface_ids()
+            .into_iter()
+            .map(|surface| {
+                let scope = scoped::Scope {
+                    route: route.clone(),
+                    surface: surface.clone(),
+                    instance,
+                    generation: self.epoch.fetch_add(1, Ordering::Relaxed),
+                    stop: lifetime.child_token(),
+                };
+                (surface, scope)
+            })
+            .collect();
         {
             let mut state = self.state.lock().await;
+            if state.blocked_gateways.contains(node) {
+                bail!("gateway authorization revoked")
+            }
             for message in snapshot.messages() {
-                let _ = state.events.send(Arc::new(message));
+                let scope = scoped::surface_id(&message)
+                    .and_then(|id| scopes.get(id))
+                    .cloned();
+                state.emit(message, scope);
             }
             state.channels.insert(
                 route.clone(),
@@ -386,9 +619,13 @@ impl Hub {
                     service,
                     node_name: name.into(),
                     local,
-                    snapshot,
+                    snapshot: Arc::new(snapshot),
+                    snapshot_charge,
                     actions,
                     connection,
+                    instance,
+                    lifetime,
+                    scopes,
                 },
             );
             let _ = self.changes.send(());
@@ -404,16 +641,55 @@ impl Hub {
                     .get_mut(&route)
                     .filter(|c| c.epoch == epoch)
                     .context("superseded service")?;
-                apply_snapshot(&mut channel.snapshot, &message)?;
-                let _ = state.events.send(Arc::new(message));
+                capacity::apply_retained(
+                    &mut channel.snapshot,
+                    &mut channel.snapshot_charge,
+                    &message,
+                )?;
+                let surface = scoped::surface_id(&message).context("missing surface")?;
+                let scope = if message.get("deleteSurface").is_some() {
+                    if let Some(scope) = channel.scopes.remove(surface) {
+                        scope.stop.cancel();
+                    }
+                    None
+                } else if message.get("createSurface").is_some() {
+                    let scope = scoped::Scope {
+                        route: route.clone(),
+                        surface: surface.into(),
+                        instance: channel.instance,
+                        generation: self.epoch.fetch_add(1, Ordering::Relaxed),
+                        stop: channel.lifetime.child_token(),
+                    };
+                    if let Some(old) = channel.scopes.insert(surface.into(), scope.clone()) {
+                        old.stop.cancel();
+                    }
+                    Some(scope)
+                } else {
+                    channel.scopes.get(surface).cloned()
+                };
+                state.emit(message, scope);
             }
             Ok::<_, anyhow::Error>(())
         };
         let write = async {
             while let Some(action) = rx.recv().await {
                 let (action, _charge) = action.into_parts();
-                tokio::time::timeout(Duration::from_secs(5), write_frame(&mut writer, &action))
+                if let Some((surface, subscription)) = action.scope {
+                    if surface.is_cancelled() || subscription.is_cancelled() {
+                        continue;
+                    }
+                    tokio::select! {
+                        _ = surface.cancelled() => bail!("Surface expired during action write"),
+                        _ = subscription.cancelled() => bail!("subscription ended during action write"),
+                        result = tokio::time::timeout(Duration::from_secs(5), write_frame(&mut writer, &action.message)) => result??,
+                    }
+                } else {
+                    tokio::time::timeout(
+                        Duration::from_secs(5),
+                        write_frame(&mut writer, &action.message),
+                    )
                     .await??;
+                }
             }
             Ok::<_, anyhow::Error>(())
         };
@@ -424,13 +700,11 @@ impl Hub {
 fn apply_snapshot(snapshot: &mut A2uiSnapshot, message: &Value) -> Result<()> {
     omochi_protocol::data_path::validate(message)?;
     snapshot.apply(message)?;
-    if serde_json::to_vec(&snapshot.messages())?.len() > 16 * 1024 * 1024 {
-        bail!("snapshot exceeds limit")
-    }
+    capacity::snapshot_bytes(snapshot, false)?;
     Ok(())
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "browser"))]
 mod tests {
     use super::*;
     use futures_util::{SinkExt, StreamExt};

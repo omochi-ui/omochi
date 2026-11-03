@@ -1,7 +1,9 @@
 //! One shared SDK connection per discovered service, independent of hub transports.
+mod dispatch;
 pub mod remote;
 pub mod wire;
 use anyhow::{Context, Result, bail};
+use dispatch::CommandOrigin;
 use futures_util::{SinkExt, StreamExt};
 use omochi_local_discovery::{DiscoveredService, scan};
 use omochi_protocol::{MAX_FRAME_BYTES, session::Service};
@@ -40,8 +42,8 @@ struct Running {
     state: Mutex<StreamState>,
 }
 enum Command {
-    Action(Value),
-    Resource(Value, oneshot::Sender<Value>),
+    Action(Value, CommandOrigin),
+    Resource(Value, oneshot::Sender<Value>, CommandOrigin),
 }
 #[derive(Clone)]
 pub struct Gateway {
@@ -102,6 +104,16 @@ impl Gateway {
         })
     }
     pub async fn action(&self, id: &str, generation: u64, message: Value) -> Result<()> {
+        self.action_from(id, generation, message, CommandOrigin::Local)
+            .await
+    }
+    async fn action_from(
+        &self,
+        id: &str,
+        generation: u64,
+        message: Value,
+        origin: CommandOrigin,
+    ) -> Result<()> {
         if message.get("version").and_then(Value::as_str) != Some("v0.9")
             || !["action", "error"].iter().any(|key| {
                 message
@@ -120,10 +132,20 @@ impl Gateway {
         self.running(id, generation)
             .await?
             .input
-            .try_send(Command::Action(message), bytes)
+            .try_send(Command::Action(message, origin), bytes)
             .map_err(|_| anyhow::anyhow!("service busy or disconnected"))
     }
-    pub async fn resource(&self, id: &str, generation: u64, mut request: Value) -> Result<Value> {
+    pub async fn resource(&self, id: &str, generation: u64, request: Value) -> Result<Value> {
+        self.resource_from(id, generation, request, CommandOrigin::Local)
+            .await
+    }
+    async fn resource_from(
+        &self,
+        id: &str,
+        generation: u64,
+        mut request: Value,
+        origin: CommandOrigin,
+    ) -> Result<Value> {
         let op = request.get("op").and_then(Value::as_str);
         let valid_id = request
             .get("resource")
@@ -156,7 +178,7 @@ impl Gateway {
         let (tx, rx) = oneshot::channel();
         running
             .input
-            .try_send(Command::Resource(request, tx), bytes)
+            .try_send(Command::Resource(request, tx, origin), bytes)
             .map_err(|_| anyhow::anyhow!("service busy"))?;
         Ok(tokio::time::timeout(Duration::from_secs(15), rx).await??)
     }
@@ -268,11 +290,14 @@ impl Gateway {
         }
     }
 }
-async fn serve_sdk(
-    socket: UnixStream,
+async fn serve_sdk<S>(
+    socket: S,
     running: Arc<Running>,
     mut commands: mpsc::Receiver<omochi_protocol::queue::Entry<Command>>,
-) -> Result<()> {
+) -> Result<()>
+where
+    S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
+{
     let mut frames = Framed::new(socket, LinesCodec::new_with_max_length(MAX_FRAME_BYTES));
     let mut pending: BTreeMap<String, oneshot::Sender<Value>> = BTreeMap::new();
     loop {
@@ -304,13 +329,18 @@ async fn serve_sdk(
                 let Some(command) = command else { return Ok(()) };
                 let (command, _charge) = command.into_parts();
                 pending.retain(|_, sender| !sender.is_closed());
-                let message = match command {
-                    Command::Action(value) => value,
-                    Command::Resource(value, reply) => {
-                        if pending.len() >= 8 { continue }
-                        pending.insert(value["id"].as_str().unwrap().into(), reply); value
+                let (message, reply, origin) = match command {
+                    Command::Action(value, origin) => (value, None, origin),
+                    Command::Resource(value, reply, origin) => {
+                        if reply.is_closed() || pending.len() >= 8 { continue }
+                        (value, Some(reply), origin)
                     }
                 };
+                let Some(_dispatch) = origin.enter().await else { continue };
+                if let Some(reply) = reply {
+                    if reply.is_closed() { continue }
+                    pending.insert(message["id"].as_str().unwrap().into(), reply);
+                }
                 tokio::time::timeout(Duration::from_secs(5), frames.send(serde_json::to_string(&message)?)).await??;
             }
         }
@@ -332,6 +362,142 @@ mod tests {
     use serde_json::json;
     use std::os::unix::fs::PermissionsExt;
     use tokio::net::UnixListener;
+    #[tokio::test]
+    async fn blocked_sdk_write_drains_before_barrier_and_revoked_queued_work_is_skipped() {
+        use crate::dispatch::AuthorizationEpoch;
+        use tokio::io::{AsyncBufReadExt, AsyncReadExt, BufReader};
+
+        // A tiny bounded socket deterministically blocks a partially written SDK frame.
+        let (socket, mut sdk) = tokio::io::duplex(64);
+        let (input, receiver) =
+            omochi_protocol::queue::channel(8, 8 * 1024 * 1024, MAX_FRAME_BYTES);
+        let (events, _) = omochi_protocol::fanout::channel(8, 1024);
+        let running = Arc::new(Running {
+            service: Service {
+                id: "app".into(),
+                name: "App".into(),
+                generation: 1,
+                icon: None,
+            },
+            input: input.clone(),
+            state: Mutex::new(StreamState {
+                snapshot: A2uiSnapshot::new(),
+                events,
+                resources: true,
+            }),
+        });
+        let epoch = AuthorizationEpoch::new();
+        let session = CancellationToken::new();
+        let origin = CommandOrigin::Remote {
+            epoch: epoch.clone(),
+            session: session.clone(),
+        };
+        let task = tokio::spawn(serve_sdk(socket, running, receiver));
+        let first = json!({"version":"v0.9","action":{"surfaceId":"main","name":"started","payload":"x".repeat(16384)}});
+        input
+            .try_send(Command::Action(first.clone(), origin.clone()), 17000)
+            .unwrap();
+        let mut first_byte = [0u8; 1];
+        tokio::time::timeout(Duration::from_secs(1), sdk.read_exact(&mut first_byte))
+            .await
+            .unwrap()
+            .unwrap();
+        let cancelled = json!({"version":"v0.9","action":{"surfaceId":"main","name":"revoked"}});
+        input
+            .try_send(Command::Action(cancelled, origin.clone()), 100)
+            .unwrap();
+        let (reply, response) = oneshot::channel();
+        input
+            .try_send(
+                Command::Resource(json!({"id":"r1","op":"stat"}), reply, origin),
+                100,
+            )
+            .unwrap();
+        let local = json!({"version":"v0.9","action":{"surfaceId":"main","name":"local"}});
+        input
+            .try_send(Command::Action(local.clone(), CommandOrigin::Local), 100)
+            .unwrap();
+        epoch.cancel();
+        session.cancel();
+        let draining = epoch.drain();
+        tokio::pin!(draining);
+        assert!(
+            futures_util::poll!(&mut draining).is_pending(),
+            "an already dispatched partial write must finish"
+        );
+        let mut reader = BufReader::new(sdk);
+        let mut line = vec![first_byte[0]];
+        tokio::time::timeout(Duration::from_secs(1), reader.read_until(b'\n', &mut line))
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(serde_json::from_slice::<Value>(&line).unwrap(), first);
+        tokio::time::timeout(Duration::from_secs(1), draining)
+            .await
+            .unwrap();
+        line.clear();
+        tokio::time::timeout(Duration::from_secs(1), reader.read_until(b'\n', &mut line))
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            serde_json::from_slice::<Value>(&line).unwrap(),
+            local,
+            "Local work survives while queued Remote action/resource are skipped"
+        );
+        assert!(response.await.is_err());
+        task.abort();
+        let _ = task.await;
+    }
+
+    #[tokio::test]
+    async fn abandoned_resource_reply_is_discarded_before_sdk_dispatch() {
+        use tokio::io::{AsyncBufReadExt, BufReader};
+        let (socket, sdk) = tokio::io::duplex(256);
+        let (input, receiver) = omochi_protocol::queue::channel(8, 1024, 1024);
+        let (events, _) = omochi_protocol::fanout::channel(8, 1024);
+        let running = Arc::new(Running {
+            service: Service {
+                id: "app".into(),
+                name: "App".into(),
+                generation: 1,
+                icon: None,
+            },
+            input: input.clone(),
+            state: Mutex::new(StreamState {
+                snapshot: A2uiSnapshot::new(),
+                events,
+                resources: true,
+            }),
+        });
+        let (reply, response) = oneshot::channel();
+        drop(response);
+        input
+            .try_send(
+                Command::Resource(json!({"id":"r1"}), reply, CommandOrigin::Local),
+                100,
+            )
+            .unwrap();
+        input
+            .try_send(
+                Command::Action(json!({"marker":"local"}), CommandOrigin::Local),
+                100,
+            )
+            .unwrap();
+        let task = tokio::spawn(serve_sdk(socket, running, receiver));
+        let mut reader = BufReader::new(sdk);
+        let mut line = String::new();
+        tokio::time::timeout(Duration::from_secs(1), reader.read_line(&mut line))
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            serde_json::from_str::<Value>(&line).unwrap(),
+            json!({"marker":"local"})
+        );
+        task.abort();
+        let _ = task.await;
+    }
     #[test]
     fn merged_snapshot_must_fit_each_wire_frame() {
         let mut snapshot = A2uiSnapshot::new();

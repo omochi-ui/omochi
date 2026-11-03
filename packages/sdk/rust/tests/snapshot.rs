@@ -20,6 +20,13 @@ fn materializes_the_shared_snapshot_fixture() {
         Value::Array(snapshot.messages()),
         fixture["snapshot"].clone()
     );
+    let mut cursor = omochi_ui::SnapshotCursor::default();
+    let mut streamed = Vec::new();
+    while let Some(message) = snapshot.next_message(&mut cursor) {
+        streamed.push(message);
+    }
+    assert_eq!(Value::Array(streamed), fixture["snapshot"].clone());
+    assert!(snapshot.next_message(&mut cursor).is_none());
 }
 
 #[test]

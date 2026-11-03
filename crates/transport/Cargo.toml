@@ -8,6 +8,10 @@ description = "Iroh transport and device enrollment for Omochi"
 readme = "README.md"
 include = ["src/**", "tests/**", "Cargo.toml", "Cargo.lock", "README.md", "LICENSE"]
 
+[features]
+default = ["desktop"]
+desktop = ["dep:fs2"]
+
 [dependencies]
 iroh.workspace = true
 tokio.workspace = true
@@ -16,7 +20,7 @@ omochi-protocol = { path = "../protocol", version = "=0.2.1" }
 iroh-mdns-address-lookup = "=0.6.1"
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
-fs2 = "0.4.3"
+fs2 = { version = "0.4.3", optional = true }
 rand = "0.9"
 sha2 = "0.11.1"
 hex = "0.4.3"

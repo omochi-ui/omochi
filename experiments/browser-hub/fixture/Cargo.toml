@@ -1,0 +1,17 @@
+[package]
+name = "omochi-browser-hub-fixture"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+anyhow = "1"
+tokio = { version = "1", features = ["full"] }
+iroh = "=1.4.1"
+omochi-gateway = { path = "../../../crates/gateway" }
+omochi-transport = { path = "../../../crates/transport" }
+omochi-protocol = { path = "../../../crates/protocol" }
+omochi-ui = { path = "../../../packages/sdk/rust" }
+serde_json = "1"
+base64 = "0.23.1"
+tempfile = "3"

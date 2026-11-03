@@ -1,0 +1,12 @@
+{
+  "extends": "../../../packages/hub-ui/tsconfig.app.json",
+  "compilerOptions": {
+    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.hosted.tsbuildinfo"
+  },
+  "include": [
+    "src"
+  ],
+  "exclude": [
+    "src/main.browser-test.tsx"
+  ]
+}

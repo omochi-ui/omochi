@@ -1,0 +1,107 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "name": "maximum u64 generation stays exact across the bridge",
+      "kind": "control",
+      "wire": "{\"kind\":\"services\",\"services\":[{\"id\":\"app\",\"name\":\"App\",\"generation\":18446744073709551615}]}",
+      "bridge": { "kind": "services", "services": [{ "id": "app", "name": "App", "generation": "18446744073709551615" }] },
+      "valid": true
+    },
+    {
+      "name": "maximum pong ID stays exact across the bridge",
+      "kind": "control",
+      "wire": "{\"kind\":\"pong\",\"id\":18446744073709551615}",
+      "bridge": { "kind": "pong", "id": "18446744073709551615" },
+      "valid": true
+    },
+    {
+      "name": "native v4 hello",
+      "kind": "control",
+      "wire": "{\"kind\":\"hello\",\"protocol\":4,\"nodeId\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"name\":\"Gateway\"}",
+      "valid": true
+    },
+    {
+      "name": "legacy node IDs are rejected",
+      "kind": "control",
+      "wire": "{\"kind\":\"hello\",\"protocol\":4,\"nodeId\":\"aaaaaaaaaaaaaaaa\",\"name\":\"Gateway\"}",
+      "valid": false
+    },
+    {
+      "name": "control envelopes reject unknown fields",
+      "kind": "control",
+      "wire": "{\"kind\":\"services\",\"services\":[],\"message\":{}}",
+      "valid": false
+    },
+    {
+      "name": "generation zero is not a live instance",
+      "kind": "control",
+      "wire": "{\"kind\":\"services\",\"services\":[{\"id\":\"app\",\"name\":\"App\",\"generation\":0}]}",
+      "bridge": { "kind": "services", "services": [{ "id": "app", "name": "App", "generation": "0" }] },
+      "valid": false
+    },
+    {
+      "name": "duplicate service IDs reject the entire roster",
+      "kind": "control",
+      "wire": "{\"kind\":\"services\",\"services\":[{\"id\":\"app\",\"name\":\"App\",\"generation\":1},{\"id\":\"app\",\"name\":\"Other\",\"generation\":2}]}",
+      "bridge": { "kind": "services", "services": [{ "id": "app", "name": "App", "generation": "1" }, { "id": "app", "name": "Other", "generation": "2" }] },
+      "valid": false
+    },
+    {
+      "name": "an optional icon must be a string when present",
+      "kind": "control",
+      "wire": "{\"kind\":\"services\",\"services\":[{\"id\":\"app\",\"name\":\"App\",\"generation\":1,\"icon\":null}]}",
+      "bridge": { "kind": "services", "services": [{ "id": "app", "name": "App", "generation": "1", "icon": null }] },
+      "valid": false
+    },
+    {
+      "name": "snapshot start",
+      "kind": "service",
+      "wire": "{\"kind\":\"snapshotStart\"}",
+      "valid": true
+    },
+    {
+      "name": "snapshot envelope rejects unknown fields",
+      "kind": "service",
+      "wire": "{\"kind\":\"snapshotEnd\",\"message\":null}",
+      "valid": false
+    },
+    {
+      "name": "escaped and empty data pointer segments are preserved",
+      "kind": "service",
+      "wire": "{\"kind\":\"message\",\"message\":{\"version\":\"v0.9\",\"updateDataModel\":{\"surfaceId\":\"main/nested\",\"path\":\"/a~1b//~0\",\"value\":null}}}",
+      "valid": true
+    },
+    {
+      "name": "prototype data keys are rejected before merging",
+      "kind": "service",
+      "wire": "{\"kind\":\"message\",\"message\":{\"version\":\"v0.9\",\"updateDataModel\":{\"surfaceId\":\"main\",\"value\":{\"__proto__\":{\"polluted\":true}}}}}",
+      "valid": false
+    },
+    {
+      "name": "combined numeric pointer budget",
+      "kind": "service",
+      "wire": "{\"kind\":\"message\",\"message\":{\"version\":\"v0.9\",\"updateDataModel\":{\"surfaceId\":\"main\",\"path\":\"/50000/50001\",\"value\":1}}}",
+      "valid": false
+    },
+    {
+      "name": "only one A2UI operation per message",
+      "kind": "service",
+      "wire": "{\"kind\":\"message\",\"message\":{\"version\":\"v0.9\",\"updateDataModel\":{\"surfaceId\":\"main\",\"value\":1},\"deleteSurface\":{\"surfaceId\":\"main\"}}}",
+      "valid": false
+    },
+    {
+      "name": "service data cannot impersonate a control frame",
+      "kind": "service",
+      "wire": "{\"kind\":\"message\",\"message\":{\"kind\":\"pong\",\"id\":1}}",
+      "valid": false
+    }
+  ],
+  "framing": [
+    { "name": "empty", "headerHex": "00000000", "valid": false },
+    { "name": "one byte", "headerHex": "00000001", "valid": true, "size": 1 },
+    { "name": "exact 4 MiB", "headerHex": "00400000", "valid": true, "size": 4194304 },
+    { "name": "over 4 MiB", "headerHex": "00400001", "valid": false },
+    { "name": "unsigned maximum", "headerHex": "ffffffff", "valid": false }
+  ]
+}

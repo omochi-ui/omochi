@@ -1,4 +1,5 @@
 //! Serialized, durable state for the new identity domain. Legacy trust is never read.
+pub use crate::trust::{Peer, Role};
 use anyhow::{Context, Result, bail};
 use fs2::FileExt;
 use iroh::{EndpointId, SecretKey};
@@ -13,17 +14,6 @@ use std::{
     path::{Path, PathBuf},
 };
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "lowercase")]
-pub enum Role {
-    Gateway,
-    Hub,
-}
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct Peer {
-    pub name: String,
-    pub role: Role,
-}
 #[derive(Serialize, Deserialize)]
 struct Invitation {
     expires_at: u64,

@@ -104,6 +104,8 @@ try {
     await cdp('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 });
     await cdp('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 });
     await until(() => evaluate("!document.querySelector('dialog[open]') && document.activeElement.classList.contains('details-button')"), 'details escape focus restoration').catch(async error => { console.log(await evaluate("({dialog:!!document.querySelector('dialog[open]'), focus:document.activeElement.outerHTML})")); throw error; });
+    await evaluate("new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))");
+    assert.equal(await evaluate("document.activeElement.classList.contains('details-button')"), true, 'dialog focus stays on its trigger after animation frames');
     await input('[aria-label="Dashboard name"]', ''); await click('Save dashboard');
     await until(() => evaluate("document.activeElement.id === 'dashboard-name' && document.activeElement.getAttribute('aria-invalid') === 'true'"), 'name validation');
     await input('[aria-label="Dashboard name"]', 'Daily overview');

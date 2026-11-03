@@ -4,10 +4,10 @@ use crate::{
     dashboards::{ApiError, DashboardStore, validate},
 };
 use axum::{
-    Json, Router,
+    Extension, Json, Router,
     body::{Body, to_bytes},
     extract::{
-        Request, State, WebSocketUpgrade,
+        Query, Request, State, WebSocketUpgrade,
         ws::{Message, WebSocket},
     },
     http::{HeaderMap, Method, StatusCode, header},
@@ -106,10 +106,13 @@ pub async fn serve(
     let stop = state.hub.stop.clone();
     let browser_tasks = state.hub.browser_tasks.clone();
     let state = Arc::new(state);
-    let app = Router::new().route("/ws", get(upgrade)).route(
-        "/resources/{route}/{resource}",
-        get(crate::resource_http::resource),
-    );
+    let app = Router::new()
+        .route("/ws", get(upgrade))
+        .route("/images/{id}", any(crate::browser_images::image))
+        .route(
+            "/resources/{route}/{resource}",
+            get(crate::resource_http::resource),
+        );
     let app = if state.hub.standalone.is_some() {
         app.route("/", get(upgrade))
     } else {
@@ -121,6 +124,7 @@ pub async fn serve(
             .route("/api/connections", get(connections))
             .fallback(static_ui)
     }
+    .layer(Extension(crate::browser_images::References::default()))
     .layer(middleware::from_fn_with_state(state.clone(), origin))
     .with_state(state);
     let listener = tokio::net::TcpListener::bind(address).await?;
@@ -156,13 +160,22 @@ async fn events(State(state): State<Arc<HttpState>>) -> impl IntoResponse {
     };
     Sse::new(stream).keep_alive(KeepAlive::new().interval(Duration::from_secs(15)))
 }
-async fn upgrade(State(state): State<Arc<HttpState>>, ws: WebSocketUpgrade) -> Response {
+async fn upgrade(
+    State(state): State<Arc<HttpState>>,
+    Extension(references): Extension<crate::browser_images::References>,
+    Query(query): Query<std::collections::BTreeMap<String, String>>,
+    ws: WebSocketUpgrade,
+) -> Response {
     let guard = state.hub.browser_tasks.token();
     ws.max_message_size(omochi_protocol::MAX_FRAME_BYTES)
         .max_frame_size(omochi_protocol::MAX_FRAME_BYTES)
         .on_upgrade(move |socket| async move {
             let _guard = guard;
-            browser(socket, state.hub.clone()).await;
+            if query.get("images").is_some_and(|version| version == "1") {
+                crate::browser_images::browser(socket, state.hub.clone(), references).await;
+            } else {
+                browser(socket, state.hub.clone()).await;
+            }
         })
 }
 async fn browser(socket: WebSocket, hub: Hub) {

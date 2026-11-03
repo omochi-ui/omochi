@@ -6,6 +6,15 @@
  * service id otherwise. The renderer never has to tell them apart: it treats the whole
  * thing as opaque and shows `node` when the hub reports one.
  */
+import type { Panel } from './contracts.js';
+
+/** First-panel order, then one explicit picker choice; only selected gateway profiles are considered in direct mode. */
+export function desiredServices(panels: readonly Panel[], picker: string | null, gateways?: ReadonlySet<string>): string[] {
+  const keys = panels.map(panel => `${panel.reference.nodeId}~${panel.reference.serviceId}`);
+  if (picker) keys.push(picker);
+  return [...new Set(keys)].filter(key => gateways === undefined || gateways.has(key.split('~')[0]!));
+}
+
 export interface ServiceNodeView {
   id: string
   name: string

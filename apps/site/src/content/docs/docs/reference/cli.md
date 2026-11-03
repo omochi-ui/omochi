@@ -50,6 +50,10 @@ omochi-ui gateway --remote --pair --name workstation
 
 Hubは既定で`127.0.0.1:5555`にバインドします。ポート変更は`--port`、Origin許可の追加は`--allow-origin`で行います。外部公開が必要でなければ既定のループバックを維持してください。Gatewayのリモート待受は明示的な`--remote`が必要です。
 
+ブラウザ用ダッシュボードへの招待には、`gateway --remote --pair --web-url https://app.example.com/`を使います。`--web-url`には、認証情報・クエリ・フラグメントを含まない2048文字以下の絶対HTTPS URLを指定します。`--pair`で新しい招待を発行したときだけ、ネイティブ用招待とブラウザ用リンクを表示します。公開ダッシュボードのURLは自動では設定されません。
+
+両方の招待には同じ一時的な秘密が含まれるため、非公開の経路で共有してください。登録したブラウザは、そのGatewayが公開するすべてのサービス・アクション・リソースにアクセスできます。ブラウザ側の接続記録を削除してもGateway側の信頼は失効しません。取り消すにはGatewayで`trust forget <browser-endpoint-id>`を実行します。
+
 ## pair・status・trust
 
 [マシン間接続](../../guides/remote/)に登録・確認・失効の手順があります。`--offline`で公開検索とリレーを止め、`--relay`で専用リレーを選びます。`status`は接続試行と診断を表示します。

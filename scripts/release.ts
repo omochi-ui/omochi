@@ -31,6 +31,14 @@ interface Workspace { directory: string; manifest: Manifest }
 interface Packed { name: string; version: string; filename: string; integrity: string }
 interface PyPiFile { filename: string; digests: { sha256: string } }
 
+/** Private browser build inputs and native launcher versions are independent of SDK releases. */
+export function sdkWorkspaces(workspaces: Workspace[]): Workspace[] {
+  return workspaces.filter(({ manifest }) => !manifest.private && !manifest.omochiNative);
+}
+export function publicSdkVersions(workspaces: Workspace[]): Record<string, string> {
+  return Object.fromEntries(sdkWorkspaces(workspaces).map(({ manifest }) => [manifest.name, manifest.version]));
+}
+
 export function npmStageId(json: string, artifact: Pick<Packed, 'name' | 'version' | 'integrity'>): string {
   const staged = JSON.parse(json)[artifact.name];
   if (!staged || staged.name !== artifact.name || staged.version !== artifact.version || staged.integrity !== artifact.integrity
@@ -134,7 +142,7 @@ export async function loadRelease(tag?: string): Promise<{ version: string; pack
   const macros = Bun.TOML.parse(await Bun.file(path.join(root, 'packages/sdk/rust/macros/Cargo.toml')).text()) as { package: { version: string } };
   const version = python.project.version;
   validateVersion(version, {
-    ...Object.fromEntries(workspaces.filter(({ manifest }) => !manifest.private && !manifest.omochiNative).map(({ manifest }) => [manifest.name, manifest.version])),
+    ...publicSdkVersions(workspaces),
     'Python workspace': pythonRoot.project.version, 'Rust SDK': rust.package.version, 'Rust SDK macros': macros.package.version,
   }, tag);
   const license = await readFile(path.join(root, 'LICENSE'));

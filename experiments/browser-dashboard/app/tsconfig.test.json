@@ -1,0 +1,9 @@
+{
+  "extends": "../../../packages/hub-ui/tsconfig.test.json",
+  "compilerOptions": {
+    "rootDir": "../../.."
+  },
+  "include": [
+    "test/**/*.ts"
+  ]
+}

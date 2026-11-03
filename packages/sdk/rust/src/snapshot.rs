@@ -8,20 +8,28 @@ use crate::{Error, Result};
 /// `packages/sdk/python/src/omochi_ui/snapshot.py`; `spec/fixtures/snapshot.json` pins the
 /// three implementations to the same output. Only messages the Runtime itself produced
 /// are applied, so the four v0.9 message kinds are matched structurally.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct A2uiSnapshot {
     // Insertion order is part of the contract, so surfaces and components are kept in
     // vectors rather than a sorted map.
     surfaces: Vec<(String, SurfaceSnapshot)>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct SurfaceSnapshot {
     create: Value,
     components: Vec<(String, Value)>,
     data: Option<Value>,
     /// A surface whose data model was deleted at the root still needs one replay message.
     has_data: bool,
+}
+
+/// Position in an immutable snapshot replay. Each step materializes one message,
+/// allowing embedded renderers to apply bounded batches without cloning a full snapshot.
+#[derive(Debug, Default)]
+pub struct SnapshotCursor {
+    surface: usize,
+    phase: u8,
 }
 
 fn is_array_index(value: &str) -> bool {
@@ -260,6 +268,37 @@ impl A2uiSnapshot {
             }
         }
         messages
+    }
+
+    pub fn next_message(&self, cursor: &mut SnapshotCursor) -> Option<Value> {
+        loop {
+            let (id, surface) = self.surfaces.get(cursor.surface)?;
+            let phase = cursor.phase;
+            cursor.phase += 1;
+            match phase {
+                0 => return Some(surface.create.clone()),
+                1 if !surface.components.is_empty() => {
+                    return Some(serde_json::json!({
+                        "version": "v0.9",
+                        "updateComponents": {"surfaceId": id, "components": surface.components.iter().map(|(_, c)| c.clone()).collect::<Vec<_>>()}
+                    }));
+                }
+                2 if surface.has_data => {
+                    let mut body = Map::new();
+                    body.insert("surfaceId".into(), id.clone().into());
+                    body.insert("path".into(), "/".into());
+                    if let Some(data) = &surface.data {
+                        body.insert("value".into(), data.clone());
+                    }
+                    return Some(serde_json::json!({"version":"v0.9","updateDataModel":body}));
+                }
+                3 => {
+                    cursor.surface += 1;
+                    cursor.phase = 0;
+                }
+                _ => {}
+            }
+        }
     }
 
     pub fn surface_ids(&self) -> Vec<String> {

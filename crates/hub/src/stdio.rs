@@ -1,5 +1,8 @@
 //! Single-application bridge. Surface IDs and client draft metadata stay unchanged.
-use crate::{Subscription, apply_snapshot};
+use crate::{
+    OutboundAction, Subscription, apply_snapshot,
+    scoped::{HubEvent, Scope, surface_id},
+};
 use anyhow::{Context, Result, bail};
 use futures_util::{SinkExt, StreamExt};
 use omochi_protocol::MAX_FRAME_BYTES;
@@ -23,16 +26,17 @@ use tokio_util::{
     sync::CancellationToken,
 };
 enum Command {
-    Action(Value),
+    Action(OutboundAction),
     Resource(Value, oneshot::Sender<Value>),
 }
-struct State {
-    snapshot: A2uiSnapshot,
-    events: omochi_protocol::fanout::Sender,
+pub(crate) struct State {
+    pub snapshot: Arc<A2uiSnapshot>,
+    pub scopes: BTreeMap<String, Scope>,
+    pub events: omochi_protocol::fanout::Sender<HubEvent>,
 }
 #[derive(Clone)]
 pub struct Backend {
-    state: Arc<Mutex<State>>,
+    pub(crate) state: Arc<Mutex<State>>,
     commands: omochi_protocol::queue::Sender<Command>,
     resources: Arc<AtomicBool>,
     next: Arc<AtomicU64>,
@@ -52,7 +56,8 @@ impl Backend {
             omochi_protocol::fanout::channel(32, omochi_protocol::fanout::DEFAULT_BYTES);
         let backend = Self {
             state: Arc::new(Mutex::new(State {
-                snapshot: A2uiSnapshot::new(),
+                snapshot: Arc::new(A2uiSnapshot::new()),
+                scopes: BTreeMap::new(),
                 events,
             })),
             commands,
@@ -61,6 +66,8 @@ impl Backend {
         };
         let shared = backend.clone();
         let task = tokio::spawn(async move {
+            let lifetime = stop.child_token();
+            let _lifetime = lifetime.clone().drop_guard();
             let mut input =
                 FramedRead::new(input, LinesCodec::new_with_max_length(MAX_FRAME_BYTES));
             let mut output =
@@ -80,21 +87,45 @@ impl Backend {
                         }
                         if value["version"] != "v0.9" { bail!("invalid child A2UI version"); }
                         let mut state = shared.state.lock().await;
-                        apply_snapshot(&mut state.snapshot,&value)?;
-                        let _ = state.events.send(Arc::new(value));
+                        apply_snapshot(Arc::make_mut(&mut state.snapshot),&value)?;
+                        let surface = surface_id(&value).context("missing Surface")?.to_owned();
+                        let scope = if value.get("deleteSurface").is_some() {
+                            if let Some(old) = state.scopes.remove(&surface) { old.stop.cancel(); }
+                            None
+                        } else if value.get("createSurface").is_some() {
+                            let scope = Scope { route: "_".into(), surface: surface.clone(), instance: 0,
+                                generation: shared.next.fetch_add(1, Ordering::Relaxed), stop: lifetime.child_token() };
+                            if let Some(old) = state.scopes.insert(surface, scope.clone()) { old.stop.cancel(); }
+                            Some(scope)
+                        } else { state.scopes.get(&surface).cloned() };
+                        let _ = state.events.send(Arc::new(HubEvent { message: Arc::new(value), scope }));
                     },
                     command = receive.recv()=>{
                         let Some(command) = command else { break; };
                         let (command, _charge) = command.into_parts();
                         pending.retain(|_,sender| !sender.is_closed());
+                        let mut scope = None;
                         let message = match command {
-                            Command::Action(value)=>value,
+                            Command::Action(action)=>{
+                                if let Some((surface, subscription)) = &action.scope {
+                                    if surface.is_cancelled() || subscription.is_cancelled() { continue; }
+                                }
+                                scope = action.scope;
+                                action.message
+                            },
                             Command::Resource(value,reply)=>{
                                 if pending.len() >= 8 { continue; }
                                 pending.insert(value["id"].as_str().unwrap().into(),reply); value
                             },
                         };
-                        tokio::time::timeout(Duration::from_secs(5),output.send(message.to_string())).await??;
+                        let write = tokio::time::timeout(Duration::from_secs(5),output.send(message.to_string()));
+                        if let Some((surface, subscription)) = scope {
+                            tokio::select! {
+                                _ = surface.cancelled() => bail!("Surface expired during action write"),
+                                _ = subscription.cancelled() => bail!("subscription ended during action write"),
+                                result = write => result??,
+                            }
+                        } else { write.await??; }
                     }
                 }
             }
@@ -106,10 +137,17 @@ impl Backend {
         let state = self.state.lock().await;
         Subscription {
             snapshot: state.snapshot.messages(),
-            events: state.events.subscribe(),
+            events: crate::scoped::EventReceiver::scoped(state.events.subscribe()),
         }
     }
     pub fn action(&self, message: Value) -> Result<()> {
+        self.enqueue_action(OutboundAction {
+            message,
+            scope: None,
+        })
+    }
+    pub(crate) fn enqueue_action(&self, action: OutboundAction) -> Result<()> {
+        let message = &action.message;
         if message["version"] != "v0.9"
             || !["action", "error"]
                 .iter()
@@ -119,7 +157,7 @@ impl Backend {
         }
         let bytes = serde_json::to_vec(&message)?.len();
         self.commands
-            .try_send(Command::Action(message), bytes)
+            .try_send(Command::Action(action), bytes)
             .map_err(|_| anyhow::anyhow!("child unavailable or busy"))
     }
     pub async fn resource(&self, mut request: Value) -> Result<Value> {

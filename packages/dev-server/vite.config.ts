@@ -10,6 +10,7 @@ export default defineConfig({
     proxy: {
       '/ws': { target: bridge, ws: true },
       '/resources': { target: bridge },
+      '/images': { target: bridge },
     },
   },
 })

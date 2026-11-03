@@ -1,0 +1,7 @@
+[workspace]
+members = ["wasm", "fixture"]
+resolver = "3"
+
+[profile.release]
+opt-level = "s"
+lto = "thin"

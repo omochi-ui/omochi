@@ -104,13 +104,13 @@ test('an unresolved action is reported and never sent to the socket', async t =>
   t.after(() => client.close());
   client.connect();
   sockets[0]!.onopen!();
-  processor!.processMessages([
+  for (const message of [
     { version: 'v0.9', createSurface: { surfaceId: 'main', catalogId: resourceCatalog.id } },
     { version: 'v0.9', updateComponents: { surfaceId: 'main', components: [
       { id: 'button', component: 'Button', child: 'label', action: { event: { name: 'run', context: { input: { call: 'omochiMergeObjects', args: { objects: [{ path: '/value' }] }, returnType: 'object' } } } } },
       { id: 'label', component: 'Text', text: 'Run' },
     ] } },
-  ]);
+  ]) sockets[0]!.onmessage!({ data: JSON.stringify(message) });
   const surface = processor!.model.surfacesMap.get('main')!;
   const binder = new GenericBinder<{ action: () => void }>(new ComponentContext(surface, 'button'), ButtonApi.schema);
   t.after(() => { binder.dispose(); surface.dispose(); });

@@ -14,7 +14,7 @@ export function ViewPicker({
   returnTo,
 }: DialogProps & {
   services: ServiceView[];
-  surfaceIds: string[];
+  surfaceIds: readonly string[];
   draft: Dashboard | null;
   addSurface: (service: ServiceView, id: string) => void;
 }) {

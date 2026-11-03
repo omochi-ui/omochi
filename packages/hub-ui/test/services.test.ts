@@ -6,6 +6,7 @@ import {
   resolveHubOrigin,
   splitSurfaceId,
   surfacesForService,
+  desiredServices,
 } from '../src/services.js'
 
 test('derives the hub HTTP origin from the renderer WebSocket endpoint', () => {
@@ -13,6 +14,17 @@ test('derives the hub HTTP origin from the renderer WebSocket endpoint', () => {
   assert.equal(resolveHubOrigin('wss://example.com/ws'), 'https://example.com')
   assert.equal(resolveHubOrigin('ws://localhost:5173/a2ui'), 'http://localhost:5173')
 })
+
+test('direct desired services preserve first-panel order and offline selected slots, append only one picker, and never select imported gateways', () => {
+  const a = 'a'.repeat(64), b = 'b'.repeat(64), unknown = 'c'.repeat(64);
+  const panels = [
+    { nodeId: b, serviceId: 'second', surfaceId: 'main' }, { nodeId: a, serviceId: 'first', surfaceId: 'main' },
+    { nodeId: b, serviceId: 'second', surfaceId: 'another' }, { nodeId: unknown, serviceId: 'unselected', surfaceId: 'main' },
+  ].map((reference, index) => ({ id: String(index), title: 'View', reference, x: 0, y: index, w: 1, h: 1 }));
+  assert.deepEqual(desiredServices(panels, `${a}~picker`, new Set([a, b])), [`${b}~second`, `${a}~first`, `${a}~picker`]);
+  assert.deepEqual(desiredServices(panels, `${unknown}~picker`, new Set()), []);
+  assert.equal(desiredServices(panels, null).length, 3, 'native adapter retains its own no-op subscription policy');
+});
 
 test('splits a namespaced surface id on its first separator only', () => {
   assert.deepEqual(splitSurfaceId('mic/main'), { channelId: 'mic', surfaceId: 'main' })
