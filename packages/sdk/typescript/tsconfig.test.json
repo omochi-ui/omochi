@@ -2,6 +2,7 @@
   "extends": "./tsconfig.json",
   "compilerOptions": {
     "noEmit": true,
+    "types": ["node", "bun"],
     "rootDir": ".",
     "declaration": false
   },

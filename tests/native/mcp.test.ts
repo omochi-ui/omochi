@@ -1,7 +1,6 @@
 import { test, expect } from "bun:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import { WebSocket } from "ws";
 import { mkdtemp, rm, access } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { resolve, join } from "node:path";
@@ -41,8 +40,8 @@ test.skipIf(!process.env.OMOCHI_NATIVE_TEST)("native MCP works through native ga
     expect((await call("list_surfaces")).structuredContent).toEqual({serviceId:"agent",surfaceIds:["main"]});
     const messages: any[] = [];
     socket = new WebSocket(new URL("/ws",base).toString().replace("http:","ws:"));
-    socket.on("message",data=>messages.push(JSON.parse(data.toString())));
-    await new Promise<void>((ok,fail)=>{socket!.once("open",()=>ok());socket!.once("error",fail)});
+    socket.addEventListener("message",event=>messages.push(JSON.parse(String(event.data))));
+    await new Promise<void>((ok,fail)=>{socket!.addEventListener("open",()=>ok(),{once:true});socket!.addEventListener("error",fail,{once:true})});
     await wait(()=>messages.some(m=>m.createSurface));
     const surface = messages.find(m=>m.createSurface).createSurface.surfaceId;
     expect(surface).toMatch(/^[0-9a-f]{64}~agent\/main$/);
@@ -67,7 +66,7 @@ test.skipIf(!process.env.OMOCHI_NATIVE_TEST)("native MCP works through native ga
     await wait(()=>messages.some(m=>m.deleteSurface?.surfaceId===last));
     await wait(async()=>{try {await access(join(root,"omochi","agent","manifest.json"));return false;}catch{return true;}});
   } finally {
-    socket?.terminate(); await client.close().catch(()=>{}); hub.kill("SIGTERM");
+    socket?.close(); await client.close().catch(()=>{}); hub.kill("SIGTERM");
     await new Promise<void>(ok=>{if(hub.exitCode!==null)ok();else hub.once("exit",()=>ok())});
     await rm(root,{recursive:true,force:true});
   }

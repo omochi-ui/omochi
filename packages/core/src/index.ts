@@ -29,16 +29,4 @@ export {
   type ServicesEndpointsOptions,
   type ServiceView,
 } from './services-http.js'
-export {
-  closeSocket,
-  startWsEndpoint,
-  webSocketClient,
-  type TcpWsEndpoint,
-  type TcpWsEndpointOptions,
-  type UnixWsEndpointOptions,
-  type UpgradeDecision,
-  type WsEndpoint,
-  type WsEndpointCommonOptions,
-  type WsEndpointOptions,
-} from './ws-endpoint.js'
 export { RESOURCE_PROTOCOL, RESOURCE_CHUNK, ResourceClient, ResourceError, isResourceFrame, resourceHello, validResourceRequest, serveResources, resourceOriginAllowed, type ResourceFrame, type ResourceRequest } from './resources.js'

@@ -4,7 +4,6 @@
  * These live in `src` rather than a test directory so each package can import them
  * across the `dist` boundary the same way it imports the code under test.
  */
-import type { WebSocket } from 'ws'
 import { test as bunTest } from 'bun:test'
 
 /** Per-test disposal, including dynamically allocated sockets and directories. */
@@ -39,8 +38,8 @@ export function test(name: string, optionsOrBody: { timeout?: number; skip?: boo
 export function messageQueue(socket: WebSocket): () => Promise<unknown> {
   const pending: unknown[] = []
   const waiters: Array<(message: unknown) => void> = []
-  socket.on('message', (data) => {
-    const message: unknown = JSON.parse(data.toString())
+  socket.addEventListener('message', (event) => {
+    const message: unknown = JSON.parse(String(event.data))
     const waiter = waiters.shift()
     if (waiter) waiter(message)
     else pending.push(message)
@@ -53,8 +52,8 @@ export function messageQueue(socket: WebSocket): () => Promise<unknown> {
 
 export function opened(socket: WebSocket): Promise<void> {
   return new Promise((resolvePromise, reject) => {
-    socket.once('open', resolvePromise)
-    socket.on('error', reject)
+    socket.addEventListener('open', () => resolvePromise(), { once: true })
+    socket.addEventListener('error', reject, { once: true })
   })
 }
 

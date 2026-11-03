@@ -2,24 +2,22 @@ import assert from "node:assert/strict";
 import { createServer } from "node:net";
 import { test } from "@omochi-ui/core/testing";
 
-import { WebSocket } from "ws";
-
 import { schema, App } from "../src/index.js";
 import { WebSocketServerTransport } from "../src/node/index.js";
 import type { JsonObject } from "../src/index.js";
 
 function opened(socket: WebSocket): Promise<void> {
   return new Promise((resolve, reject) => {
-    socket.once("open", resolve);
-    socket.once("error", reject);
+    socket.addEventListener("open", () => resolve(), { once: true });
+    socket.addEventListener("error", reject, { once: true });
   });
 }
 
 function messages(socket: WebSocket): () => Promise<JsonObject> {
   const pending: JsonObject[] = [];
   const waiters: Array<(message: JsonObject) => void> = [];
-  socket.on("message", (data) => {
-    const message = JSON.parse(data.toString()) as JsonObject;
+  socket.addEventListener("message", (event) => {
+    const message = JSON.parse(String(event.data)) as JsonObject;
     if (message.omochi === "resources/1") return;
     const waiter = waiters.shift();
     if (waiter) waiter(message);
@@ -126,19 +124,19 @@ test("rejects invalid input without disconnecting other clients", async (t) => {
   const invalidJson = new WebSocket(transport.url!);
   await opened(invalidJson);
   invalidJson.send("not json");
-  assert.equal(await new Promise<number>((resolve) => invalidJson.once("close", resolve)), 1007);
+  assert.equal(await new Promise<number>((resolve) => invalidJson.addEventListener("close", event => resolve(event.code), { once: true })), 1007);
   assert.equal(healthy.readyState, WebSocket.OPEN);
 
   const invalidMessage = new WebSocket(transport.url!);
   await opened(invalidMessage);
   invalidMessage.send(JSON.stringify({ version: "v0.9", error: { message: "not an action" } }));
-  assert.equal(await new Promise<number>((resolve) => invalidMessage.once("close", resolve)), 1007);
+  assert.equal(await new Promise<number>((resolve) => invalidMessage.addEventListener("close", event => resolve(event.code), { once: true })), 1007);
   assert.equal(healthy.readyState, WebSocket.OPEN);
 
   const binary = new WebSocket(transport.url!);
   await opened(binary);
   binary.send(Buffer.from("{}"));
-  assert.equal(await new Promise<number>((resolve) => binary.once("close", resolve)), 1003);
+  assert.equal(await new Promise<number>((resolve) => binary.addEventListener("close", event => resolve(event.code), { once: true })), 1003);
   assert.equal(healthy.readyState, WebSocket.OPEN);
   healthy.close();
 });
@@ -155,4 +153,20 @@ test("reports bind errors through ready and app.start", async () => {
   await assert.rejects(app.start(transport), { code: "EADDRINUSE" });
   await transport.close();
   await new Promise<void>((resolve, reject) => occupied.close((error) => error ? reject(error) : resolve()));
+});
+
+test("only upgrades the configured path and closes active clients on shutdown", async t => {
+  const transport = new WebSocketServerTransport({ port: 0, path: "/a2ui" });
+  t.after(() => transport.close());
+  await transport.ready;
+  const wrongPath = new WebSocket(transport.url!.replace('/a2ui', '/other'));
+  t.after(() => wrongPath.close());
+  await assert.rejects(opened(wrongPath));
+  assert.equal((await fetch(transport.url!.replace('ws:', 'http:'))).status, 404);
+  const client = new WebSocket(transport.url!);
+  t.after(() => client.close());
+  await opened(client);
+  const closed = new Promise<number>(resolve => client.addEventListener('close', event => resolve(event.code), { once: true }));
+  await transport.close();
+  assert.equal(await closed, 1001);
 });

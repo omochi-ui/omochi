@@ -42,9 +42,9 @@ test('public packages are ordered by dependencies and cannot depend on private w
 });
 
 test('distribution manifests resolve runtime workspace dependencies without changing source manifests', () => {
-  const source: Manifest = { name: '@omochi-ui/cli', version: '0.1.0', dependencies: { '@omochi-ui/core': 'workspace:*', ws: '^8.18.0' }, devDependencies: { typescript: '*' }, scripts: { build: 'tsc' } };
+  const source: Manifest = { name: '@omochi-ui/cli', version: '0.1.0', dependencies: { '@omochi-ui/core': 'workspace:*', example: '^1.0.0' }, devDependencies: { typescript: '*' }, scripts: { build: 'tsc' } };
   const distributed = distributionManifest(source, new Map([['@omochi-ui/core', '0.1.0']]));
-  expect(distributed.dependencies).toEqual({ '@omochi-ui/core': '0.1.0', ws: '^8.18.0' });
+  expect(distributed.dependencies).toEqual({ '@omochi-ui/core': '0.1.0', example: '^1.0.0' });
   expect(distributed.devDependencies).toBeUndefined();
   expect(distributed.scripts).toBeUndefined();
   expect(source.dependencies!['@omochi-ui/core']).toBe('workspace:*');

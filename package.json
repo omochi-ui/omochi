@@ -53,9 +53,7 @@
     "@omochi-ui/dev-server": "workspace:*",
     "typescript": "^5.9.0",
     "@types/bun": "^1.3.0",
-    "@modelcontextprotocol/sdk": "^1.31.0",
-    "ws": "^8.18.0",
-    "@types/ws": "^8.18.0"
+    "@modelcontextprotocol/sdk": "^1.31.0"
   },
   "engines": {
     "bun": ">=1.4.3"
