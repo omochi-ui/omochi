@@ -11,8 +11,73 @@ struct Node {
 #[derive(Serialize, ActionInput)]
 struct GenericNode<T> {
     value: T,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Self::has_no_next")]
     next: Option<Box<Self>>,
+}
+
+impl<T> GenericNode<T> {
+    fn has_no_next(next: &Option<Box<Self>>) -> bool {
+        next.is_none()
+    }
+}
+
+#[derive(Serialize, ActionInput)]
+struct SelfPredicate {
+    #[serde(skip_serializing_if = "Self::is_empty")]
+    value: Option<u32>,
+}
+
+impl SelfPredicate {
+    fn is_empty(value: &Option<u32>) -> bool {
+        value.is_none()
+    }
+}
+
+#[test]
+fn self_skip_predicates_preserve_literal_omission() {
+    for value in [None, Some(7)] {
+        let encoded = SelfPredicateInput {
+            value: value.into(),
+        }
+        .encode()
+        .unwrap();
+        assert_eq!(
+            encoded,
+            serde_json::to_value(SelfPredicate { value }).unwrap()
+        );
+    }
+}
+
+#[derive(Serialize, ActionInput)]
+#[serde(rename = "not_transparent")]
+struct RenamedRecord {
+    value: String,
+}
+
+#[derive(Serialize, ActionInput)]
+#[serde(transparent)]
+struct TransparentRecord {
+    value: String,
+}
+
+#[test]
+fn only_the_transparent_attribute_removes_the_field_projection_segment() {
+    let mut ui = omochi_ui::Ui::new("main", omochi_ui::STANDARD_CATALOG);
+    let renamed = ui
+        .local("renamed", RenamedRecord { value: "x".into() })
+        .unwrap();
+    let transparent = ui
+        .local("transparent", TransparentRecord { value: "x".into() })
+        .unwrap();
+    assert_eq!(
+        omochi_ui::checked_json(renamed.field(RenamedRecord::field_value()).value()).unwrap(),
+        json!({"path":"/$local/renamed/value"})
+    );
+    assert_eq!(
+        omochi_ui::checked_json(transparent.field(TransparentRecord::field_value()).value())
+            .unwrap(),
+        json!({"path":"/$local/transparent"})
+    );
 }
 
 #[derive(Serialize, Deserialize, ActionInput)]

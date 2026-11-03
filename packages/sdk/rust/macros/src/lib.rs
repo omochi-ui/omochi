@@ -72,7 +72,7 @@ fn skip_serializing(attrs: &[syn::Attribute]) -> syn::Result<bool> {
     Ok(serde_flag(attrs, "skip")? || serde_flag(attrs, "skip_serializing")?)
 }
 
-/// Field types and bounds keep referring to the original type in mirrors and helpers.
+/// Types, bounds, and predicates keep referring to the original type in mirrors and helpers.
 struct ResolveSelf(syn::TypePath);
 impl VisitMut for ResolveSelf {
     // Items inside const expressions introduce their own Self scope.
@@ -141,7 +141,8 @@ fn rename_field(name: &str, rule: &str) -> String {
 fn expand(mut input: DeriveInput) -> syn::Result<proc_macro2::TokenStream> {
     let name = &input.ident;
     let (_, types, _) = input.generics.split_for_impl();
-    ResolveSelf(parse_quote!(#name #types)).visit_derive_input_mut(&mut input);
+    let mut resolve_self = ResolveSelf(parse_quote!(#name #types));
+    resolve_self.visit_derive_input_mut(&mut input);
     let name = &input.ident;
     let generated = format_ident!("{}Input", name.unraw());
     if let Some(adapter) = adapter(&input.attrs)? {
@@ -161,13 +162,7 @@ fn expand(mut input: DeriveInput) -> syn::Result<proc_macro2::TokenStream> {
         }
     }
     let rename_all = serde_name(&input.attrs, "rename_all")?.unwrap_or_default();
-    let transparent = input.attrs.iter().any(|a| {
-        a.path().is_ident("serde")
-            && a.meta
-                .require_list()
-                .map(|m| m.tokens.to_string().contains("transparent"))
-                .unwrap_or(false)
-    });
+    let transparent = serde_flag(&input.attrs, "transparent")?;
     let mut mirror = input.clone();
     mirror.ident = generated.clone();
     mirror.attrs.retain(|a| a.path().is_ident("serde"));
@@ -275,7 +270,8 @@ fn expand(mut input: DeriveInput) -> syn::Result<proc_macro2::TokenStream> {
                                 continue;
                             };
                             let syn::Lit::Str(s) = &lit.lit else { continue };
-                            let predicate: syn::Path = s.parse()?;
+                            let mut predicate: syn::ExprPath = s.parse()?;
+                            resolve_self.visit_expr_path_mut(&mut predicate);
                             let helper = format_ident!("__omochi_{}_skip_{}", name.unraw(), count);
                             count += 1;
                             predicates.push(quote! { #[allow(non_snake_case)] fn #helper #helper_generics (value: &#helper_ty) -> bool #helper_where { value.literal_matches(|v| #predicate(v)) } });
