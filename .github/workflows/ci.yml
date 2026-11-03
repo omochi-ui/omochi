@@ -43,6 +43,7 @@ jobs:
             packages/sdk/rust -> target
             examples/rust -> target
       - run: bun run test
+      - run: bun run check:dashboard-app
       - run: bun run --bun --filter '*' lint
 
   python:

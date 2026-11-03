@@ -16,9 +16,20 @@ fn command(root: &Path) -> Command {
 }
 #[tokio::test]
 async fn native_hub_serves_bundled_dashboard_without_bun_and_cleans_up_owned_gateway() {
+    local_dashboard(false).await;
+}
+#[tokio::test]
+async fn offline_hub_preserves_local_http_and_websocket_without_remote_tools() {
+    local_dashboard(true).await;
+}
+async fn local_dashboard(offline: bool) {
     let root = tempfile::tempdir().unwrap();
     let mut child = command(root.path())
-        .args(["hub", "--port", "0"])
+        .args(if offline {
+            vec!["hub", "--offline", "--port", "0"]
+        } else {
+            vec!["hub", "--port", "0"]
+        })
         .stderr(Stdio::piped())
         .spawn()
         .unwrap();
@@ -51,6 +62,11 @@ async fn native_hub_serves_bundled_dashboard_without_bun_and_cleans_up_owned_gat
         assert!(response.starts_with("HTTP/1.1 200"), "{response}");
         assert!(response.to_lowercase().contains(expected), "{response}");
     }
+    let (mut websocket, _) = tokio_tungstenite::connect_async(format!("ws://{url}/ws"))
+        .await
+        .unwrap();
+    websocket.close(None).await.unwrap();
+    drop(websocket);
     let reader_root = root.path().join("status-reader");
     let status = command(&reader_root)
         .args([
@@ -218,8 +234,12 @@ service = "worker"
     assert!(response.contains("\"serviceId\":\"worker\""));
     let pid = tokio::time::timeout(Duration::from_secs(3), async {
         loop {
-            if let Ok(pid) = std::fs::read_to_string(root.path().join("worker.pid")) {
-                break pid.trim().parse::<i32>().unwrap();
+            if let Some(pid) = std::fs::read_to_string(root.path().join("worker.pid"))
+                .ok()
+                .and_then(|text| text.trim().parse::<i32>().ok())
+                .filter(|pid| *pid > 0)
+            {
+                break pid;
             }
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
@@ -292,5 +312,79 @@ async fn catalog_generation_runs_without_bun_or_state_and_check_detects_stale_ou
     assert_eq!(
         std::fs::read_to_string(root.path().join("catalog.ts")).unwrap(),
         "user edit"
+    );
+}
+
+#[tokio::test]
+async fn remote_dashboard_listener_starts_without_registered_gateways_and_keeps_http_local() {
+    let _ = rustls::crypto::ring::default_provider().install_default();
+    let root = tempfile::tempdir().unwrap();
+    let mut child = command(root.path())
+        .args([
+            "hub",
+            "--remote",
+            "--web-url",
+            "https://ui.example/dashboard/",
+            "--relay",
+            "https://127.0.0.1:9/",
+            "--no-auto-gateway",
+            "--port",
+            "0",
+        ])
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut lines = BufReader::new(child.stderr.take().unwrap()).lines();
+    let line = tokio::time::timeout(Duration::from_secs(10), lines.next_line())
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    let base = line
+        .strip_prefix("[omochi-ui] dashboard ")
+        .unwrap()
+        .trim_end_matches('/')
+        .to_owned();
+    assert!(base.starts_with("http://127.0.0.1:"));
+    let client = reqwest::Client::new();
+    tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            let info: serde_json::Value = client
+                .get(format!("{base}/api/sharing"))
+                .send()
+                .await
+                .unwrap()
+                .json()
+                .await
+                .unwrap();
+            if info["hubId"].as_str().is_some_and(|s| s.len() == 64) {
+                assert_eq!(info["webUrl"], "https://ui.example/dashboard/");
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .unwrap();
+    assert_eq!(
+        client
+            .get(format!("{base}/api/sharing"))
+            .header("Origin", "https://attacker.example")
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        403
+    );
+    assert_eq!(
+        unsafe { libc::kill(child.id().unwrap() as i32, libc::SIGTERM) },
+        0
+    );
+    assert!(
+        tokio::time::timeout(Duration::from_secs(10), child.wait())
+            .await
+            .unwrap()
+            .unwrap()
+            .success()
     );
 }

@@ -145,15 +145,26 @@ not stop a gateway it did not start.
 | `--port PORT` | HTTP/WebSocket port; `0` chooses an available port | `5555` |
 | `--no-auto-gateway` | Do not start a missing local gateway | Auto-start enabled |
 | `--allow-origin ORIGIN` | Add an exact allowed browser origin; repeatable | Loopback origins only |
+| `--remote` | Accept dashboard clients over iroh; requires `--web-url`, conflicts with `--offline` | Off |
+| `--web-url HTTPS_BASE` | Static hosted hub-client UI base; requires `--remote` | Unset |
 | `--offline` | Disable public address lookup and relays; retain LAN mDNS | Off |
 | `--relay URL` | Custom relay URL; repeatable | Release: `https://relay.omochi.fyi`; debug: n0 public relays |
 | `--assets DIR` | Override the embedded dashboard assets | Embedded assets |
 
 Every registered gateway connects in the background; an unavailable gateway does
 not delay local startup or other peers. Registration changes are picked up while
-the hub runs. With no registered peers the hub creates no remote endpoint.
+the hub runs. With no registered peers the hub creates no remote endpoint unless `--remote`
+explicitly enables downstream dashboard access.
 The browser-facing HTTP/WebSocket listener has no TLS or authentication; keep
 its loopback binding. Origin checks apply to both HTTP and WebSocket requests.
+
+Remote dashboard sharing uses `hub --remote --web-url https://app.omochi.fyi/`.
+Create identity invitations or reusable readonly links in the local dashboard’s
+**Share dashboard** dialog. The hosted browser connects to this native hub;
+recipients do not pair with its gateways. Release hubs default to
+`https://relay.omochi.fyi`; browsers use the sharing link’s relay URLs and apply
+the same production relay admission policy. Dashboard authorization remains
+separate from relay admission.
 
 ## gateway
 

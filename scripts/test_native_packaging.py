@@ -108,9 +108,12 @@ class CrateSourceTests(unittest.TestCase):
             '[package]\nname = "private-native"\npublish = false\n')
         workspace = self.workspace / 'Cargo.toml'
         workspace.write_text(workspace.read_text().replace('["hub"]', '["hub", "private"]'))
-        browser = self.root / 'experiments/browser-dashboard/transport'
-        browser.mkdir(parents=True)
-        (browser / 'Cargo.toml').write_text('[workspace]\n[package]\nname = "browser-wasm"\npublish = false\n')
+        for directory, name in [('experiments/browser-dashboard/transport', 'browser-wasm'),
+                                ('packages/hub-transport', 'hub-client-wasm')]:
+            browser = self.root / directory
+            browser.mkdir(parents=True)
+            (browser / 'Cargo.toml').write_text(
+                f'[workspace]\n[package]\nname = "{name}"\npublish = false\n')
         subprocess.run(['git', 'add', '.'], cwd=self.root, check=True)
         subprocess.run(['git', '-c', 'user.name=Test', '-c', 'user.email=test@example.invalid',
                         '-c', 'commit.gpgsign=false', 'commit', '-qm', 'private fixtures'], cwd=self.root, check=True)
@@ -121,6 +124,7 @@ class CrateSourceTests(unittest.TestCase):
             self.assertIn('--exclude', command)
             self.assertEqual(command[command.index('--exclude') + 1], 'private-native')
             self.assertNotIn('browser-wasm', command)
+            self.assertNotIn('hub-client-wasm', command)
             package = self.workspace / 'target/package'
             package.mkdir(parents=True)
             (package / 'omochi-hub-0.2.0.crate').write_bytes(b'public archive')

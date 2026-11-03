@@ -39,7 +39,10 @@
     "build:site": "bun run --filter @omochi-ui/site build",
     "preview:site": "bun run --filter @omochi-ui/site preview",
     "deploy:site": "bun run --filter @omochi-ui/site deploy",
-    "experiment:browser-dashboard": "bun experiments/browser-dashboard/run.ts"
+    "experiment:browser-dashboard": "bun experiments/browser-dashboard/run.ts",
+    "build:hosted": "bun run build:web && bun run --filter @omochi-ui/hub-transport build:wasm && bun run --filter @omochi-ui/hub-ui build:hosted",
+    "test:dashboard-sharing": "bun run build:native && bun run build:hosted && cargo build --manifest-path crates/Cargo.toml --locked -p omochi-hub --example dashboard_fixture && bun tests/browser/sharing.mjs",
+    "check:dashboard-app": "bun run --filter @omochi-ui/dashboard-app check"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
@@ -68,7 +71,9 @@
     "apps/site",
     "experiments/browser-dashboard/transport",
     "experiments/browser-dashboard/hub",
-    "experiments/browser-dashboard/app"
+    "experiments/browser-dashboard/app",
+    "packages/hub-transport",
+    "apps/dashboard"
   ],
   "trustedDependencies": [
     "esbuild"

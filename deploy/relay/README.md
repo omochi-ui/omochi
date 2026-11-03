@@ -1,7 +1,8 @@
 # Project relay deployment
 
 The production relay is **https://relay.omochi.fyi**. Release builds select it
-automatically and send the built-in shared admission token. Debug builds retain
+automatically and send the built-in shared admission token. Hosted browser
+clients use the sharing link’s relay URLs with the same admission policy. Debug builds retain
 n0 public relays; use `--relay https://relay.omochi.fyi` to test production from a
 debug build. The token is attached only to that exact relay URL.
 
@@ -51,7 +52,7 @@ The production host uses shared-token admission. Its server configuration uses
 template's `access = "everyone"` admits any iroh endpoint; replace it with
 `access.shared_token = ["<relay-admission-token>"]` for a restricted host.
 Relay admission is separate from Omochi trust: application streams still require
-registered peers.
+registered gateway peers or valid dashboard grants.
 The upstream server rate-limits new connections to 10/s with a burst of 20 and
 client ingress to 1 MiB/s with a 4 MiB burst. Adjust after measuring real workloads.
 The systemd unit caps memory at 1 GiB, tasks at 256 and open files at 8192.
@@ -59,8 +60,10 @@ These are process protections, not a total bandwidth or billing cap. Configure
 host/provider egress quotas and budget alerts before public distribution.
 
 For a restricted rollout, replace `access = "everyone"` with an upstream
-`access.allowlist = ["<64-hex-endpoint-id>", ...]` list containing both hub and
-gateway identities. Restart the relay after policy edits; config is not hot-reloaded.
+`access.allowlist = ["<64-hex-endpoint-id>", ...]` list containing participating hub,
+gateway and browser identities. Public dashboard links use ephemeral browser
+identities, so a fixed allowlist does not support arbitrary public recipients.
+Restart the relay after policy edits; config is not hot-reloaded.
 Do not store invitation bearer secrets in relay config or logs.
 
 ## Monitoring and acceptance

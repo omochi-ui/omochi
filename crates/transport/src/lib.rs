@@ -6,24 +6,18 @@ pub mod pairing;
 pub mod store;
 pub mod trust;
 use anyhow::Result;
-pub use iroh::endpoint::Connection as EndpointConnection;
+#[cfg(test)]
+use iroh::RelayConfig;
+pub use iroh::endpoint::{Connection as EndpointConnection, RecvStream, SendStream};
 pub use iroh::{Endpoint, EndpointAddr, EndpointId, SecretKey};
-use iroh::{RelayConfig, RelayMode, RelayUrl, endpoint::presets};
+use iroh::{RelayMode, RelayUrl, endpoint::presets};
 use iroh_mdns_address_lookup::MdnsAddressLookup;
 use omochi_protocol::{ALPN, PAIR_ALPN};
 
-const PRODUCTION_RELAY_URL: &str = "https://relay.omochi.fyi";
-// Shared admission for distributed clients; peer authorization still requires pairing.
-const PRODUCTION_RELAY_TOKEN: &str = "omochi-gateway-relay";
-
-fn production_relay() -> RelayConfig {
-    RelayConfig::from(
-        PRODUCTION_RELAY_URL
-            .parse::<RelayUrl>()
-            .expect("valid relay URL"),
-    )
-    .with_auth_token(PRODUCTION_RELAY_TOKEN)
-}
+mod relay;
+#[cfg(test)]
+use relay::{PRODUCTION_RELAY_TOKEN, PRODUCTION_RELAY_URL};
+use relay::{production_relay, relay_config};
 
 fn relay_mode(offline: bool, relays: Option<Vec<RelayUrl>>) -> RelayMode {
     if offline {
@@ -34,19 +28,7 @@ fn relay_mode(offline: bool, relays: Option<Vec<RelayUrl>>) -> RelayMode {
         None if cfg!(debug_assertions) => return iroh::endpoint::default_relay_mode(),
         None => vec![production_relay().url],
     };
-    let production = production_relay();
-    RelayMode::Custom(
-        relays
-            .into_iter()
-            .map(|url| {
-                if url == production.url {
-                    production.clone()
-                } else {
-                    RelayConfig::from(url)
-                }
-            })
-            .collect(),
-    )
+    RelayMode::Custom(relays.into_iter().map(relay_config).collect())
 }
 
 /// Construct only when remote access has explicitly been enabled.
@@ -120,6 +102,24 @@ mod tests {
                 .len(),
             1
         );
+    }
+
+    #[test]
+    fn production_admission_is_scoped_to_the_exact_relay_url() {
+        let production = relay_config("https://relay.omochi.fyi/".parse().unwrap());
+        assert!(production.auth_token.as_deref() == Some(PRODUCTION_RELAY_TOKEN));
+        for url in [
+            "http://relay.omochi.fyi/",
+            "https://relay.omochi.fyi:444/",
+            "https://relay.omochi.fyi/other",
+            "https://relay.omochi.fyi/?other=1",
+            "https://relay.omochi.fyi.example/",
+        ] {
+            assert!(
+                relay_config(url.parse().unwrap()).auth_token.is_none(),
+                "{url}"
+            );
+        }
     }
 
     async fn exchange_over_relay(config: RelayConfig) {

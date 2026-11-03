@@ -65,7 +65,7 @@ try {
     if (result.exceptionDetails) throw new Error(JSON.stringify(result.exceptionDetails));
     return result.result.value;
   };
-  const text = () => evaluate('document.body.innerText');
+  const text = () => evaluate('document.body?.innerText ?? ""');
   const click = async label => {
     await until(() => evaluate(`Array.from(document.querySelectorAll('button')).some(b => b.textContent.replace('▧', '').trim() === ${JSON.stringify(label)} && !b.disabled)`), `button ${label}`);
     await evaluate(`(() => { const b = Array.from(document.querySelectorAll('button')).find(b => b.textContent.trim() === ${JSON.stringify(label)} && !b.disabled && b.getClientRects().length); b.focus(); b.click(); })()`);

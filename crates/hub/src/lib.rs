@@ -5,6 +5,8 @@ pub mod capacity;
 #[cfg(test)]
 mod capacity_wire;
 #[cfg(feature = "browser")]
+pub mod dashboard_remote;
+#[cfg(feature = "browser")]
 pub mod dashboards;
 mod heartbeat;
 pub mod host;
@@ -18,6 +20,10 @@ pub mod remote;
 mod resource_http;
 pub mod routing;
 pub mod scoped;
+#[cfg(feature = "browser")]
+pub mod sharing;
+#[cfg(feature = "browser")]
+mod sharing_live;
 pub mod stdio;
 use anyhow::{Context, Result, bail};
 use omochi_protocol::{
@@ -103,6 +109,8 @@ pub struct Hub {
     close_code: Arc<std::sync::atomic::AtomicU16>,
     #[cfg(feature = "browser")]
     browser_tasks: tokio_util::task::TaskTracker,
+    #[cfg(feature = "browser")]
+    dashboard_host: Arc<std::sync::RwLock<Option<(omochi_transport::Endpoint, String)>>>,
     diagnostics: remote::Diagnostics,
     peer_names: Arc<Mutex<BTreeMap<String, String>>>,
     images: images::ImageResolver,
@@ -137,6 +145,8 @@ impl Hub {
             close_code: Arc::new(std::sync::atomic::AtomicU16::new(1001)),
             #[cfg(feature = "browser")]
             browser_tasks: tokio_util::task::TaskTracker::new(),
+            #[cfg(feature = "browser")]
+            dashboard_host: Arc::default(),
             diagnostics: Arc::default(),
             peer_names: Arc::default(),
             images: images::ImageResolver::default(),
