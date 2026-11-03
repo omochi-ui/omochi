@@ -1,0 +1,306 @@
+{
+  "startedAt": "2026-11-02T14:49:55.135Z",
+  "checks": {
+    "unauthorizedIdentityRejected": true,
+    "enrollmentAccepted": true,
+    "exactGatewayAuthenticated": true,
+    "relayOnlyPath": true,
+    "invitationRemovedFromUrl": true,
+    "noInvitationPersisted": true,
+    "sdkResourceImageDecoded": true,
+    "sdkResourceImagePixels": true,
+    "actionUpdatedSdkState": true,
+    "controlHeartbeat": true,
+    "reconnectFreshSnapshot": true,
+    "reloadWithoutInvitation": true,
+    "gatewayRevocationClosesBrowser": true,
+    "noHubApplicationHttpRequests": true,
+    "relayWebSocketObserved": true,
+    "noBrowserExceptions": true
+  },
+  "errors": [],
+  "requests": [
+    {
+      "type": "Document",
+      "url": "http://127.0.0.1:34843/"
+    },
+    {
+      "type": "Script",
+      "url": "http://127.0.0.1:34843/assets/index-COs2ygw4.js"
+    },
+    {
+      "type": "Stylesheet",
+      "url": "http://127.0.0.1:34843/assets/index-kowAOsqY.css"
+    },
+    {
+      "type": "Fetch",
+      "url": "http://127.0.0.1:34843/assets/omochi_browser_hub_spike_bg-DuKGneHs.wasm"
+    },
+    {
+      "type": "WebSocket",
+      "url": "wss://aps1-1.relay.n0.iroh.link./relay"
+    },
+    {
+      "type": "Other",
+      "url": "http://127.0.0.1:34843/favicon.ico"
+    },
+    {
+      "type": "Fetch",
+      "url": "https://aps1-1.relay.n0.iroh.link./ping"
+    },
+    {
+      "type": "Fetch",
+      "url": "https://aps1-1.relay.n0.iroh.link./ping"
+    },
+    {
+      "type": "Fetch",
+      "url": "https://aps1-1.relay.n0.iroh.link./ping"
+    },
+    {
+      "type": "Document",
+      "url": "http://127.0.0.1:34843/"
+    },
+    {
+      "type": "Script",
+      "url": "http://127.0.0.1:34843/assets/index-COs2ygw4.js"
+    },
+    {
+      "type": "Stylesheet",
+      "url": "http://127.0.0.1:34843/assets/index-kowAOsqY.css"
+    },
+    {
+      "type": "Fetch",
+      "url": "http://127.0.0.1:34843/assets/omochi_browser_hub_spike_bg-DuKGneHs.wasm"
+    },
+    {
+      "type": "Other",
+      "url": "http://127.0.0.1:34843/favicon.ico"
+    },
+    {
+      "type": "WebSocket",
+      "url": "wss://aps1-1.relay.n0.iroh.link./relay"
+    },
+    {
+      "type": "Fetch",
+      "url": "https://aps1-1.relay.n0.iroh.link./ping"
+    },
+    {
+      "type": "Fetch",
+      "url": "https://aps1-1.relay.n0.iroh.link./ping"
+    }
+  ],
+  "console": [],
+  "gatewayId": "f576e400eff1ed29ced2d331c95498db7a03e4bbda36d5ee01d2577f813f9614",
+  "relay": "https://aps1-1.relay.n0.iroh.link./",
+  "pageOrigin": "http://127.0.0.1:34843",
+  "browser": {
+    "protocolVersion": "1.3",
+    "product": "Chrome/156.0.8078.73",
+    "revision": "@2f9a11097447f226133bc1a31c787291a5eeab98",
+    "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+    "jsVersion": "15.6.75.25"
+  },
+  "firstSession": {
+    "events": [
+      {
+        "name": "wasmReady",
+        "at": 108
+      },
+      {
+        "name": "browserId",
+        "at": 121
+      },
+      {
+        "name": "unauthorizedRejectionReason",
+        "at": 860
+      },
+      {
+        "name": "unauthorizedRejected",
+        "at": 860
+      },
+      {
+        "name": "enrolled",
+        "at": 1208
+      },
+      {
+        "name": "gatewayAuthenticated",
+        "at": 1369
+      },
+      {
+        "name": "relayOnly",
+        "at": 1369
+      },
+      {
+        "name": "serviceDiscovered",
+        "at": 1562
+      },
+      {
+        "name": "snapshotStart",
+        "at": 1729
+      },
+      {
+        "name": "snapshotEnd",
+        "at": 1731
+      },
+      {
+        "name": "resourceRequested",
+        "at": 1747
+      },
+      {
+        "name": "imageMetadata",
+        "at": 1913
+      },
+      {
+        "name": "resourceRequested",
+        "at": 1913
+      },
+      {
+        "name": "resourceImageBytes",
+        "at": 2073
+      },
+      {
+        "name": "heartbeatPong",
+        "at": 6751
+      }
+    ],
+    "frames": 4,
+    "resources": 2,
+    "actions": 1,
+    "wasmReady": true,
+    "browserId": "e20be18e9a0e4c5eb4ba566a244c8e50f9bb318d2a309f20994004a6ecc50215",
+    "unauthorizedRejectionReason": "closed by peer: not authorized (code 1)",
+    "unauthorizedRejected": true,
+    "enrolled": true,
+    "gatewayAuthenticated": true,
+    "relayOnly": true,
+    "serviceDiscovered": true,
+    "snapshotStart": true,
+    "snapshotEnd": true,
+    "resourceRequested": "read",
+    "imageMetadata": {
+      "status": 200,
+      "size": 70,
+      "mime": "image/png"
+    },
+    "resourceImageBytes": 70,
+    "heartbeatPong": true
+  },
+  "restoredSession": {
+    "events": [
+      {
+        "name": "wasmReady",
+        "at": 44
+      },
+      {
+        "name": "browserId",
+        "at": 45
+      },
+      {
+        "name": "restoredIdentity",
+        "at": 45
+      },
+      {
+        "name": "gatewayAuthenticated",
+        "at": 713
+      },
+      {
+        "name": "relayOnly",
+        "at": 713
+      },
+      {
+        "name": "serviceDiscovered",
+        "at": 1049
+      },
+      {
+        "name": "snapshotStart",
+        "at": 1264
+      },
+      {
+        "name": "snapshotEnd",
+        "at": 1265
+      },
+      {
+        "name": "resourceRequested",
+        "at": 1269
+      }
+    ],
+    "frames": 3,
+    "resources": 0,
+    "actions": 0,
+    "wasmReady": true,
+    "browserId": "e20be18e9a0e4c5eb4ba566a244c8e50f9bb318d2a309f20994004a6ecc50215",
+    "restoredIdentity": true,
+    "gatewayAuthenticated": true,
+    "relayOnly": true,
+    "serviceDiscovered": true,
+    "snapshotStart": true,
+    "snapshotEnd": true,
+    "resourceRequested": "stat"
+  },
+  "revocation": {
+    "events": [
+      {
+        "name": "wasmReady",
+        "at": 44
+      },
+      {
+        "name": "browserId",
+        "at": 45
+      },
+      {
+        "name": "restoredIdentity",
+        "at": 45
+      },
+      {
+        "name": "gatewayAuthenticated",
+        "at": 713
+      },
+      {
+        "name": "relayOnly",
+        "at": 713
+      },
+      {
+        "name": "serviceDiscovered",
+        "at": 1049
+      },
+      {
+        "name": "snapshotStart",
+        "at": 1264
+      },
+      {
+        "name": "snapshotEnd",
+        "at": 1265
+      },
+      {
+        "name": "resourceRequested",
+        "at": 1269
+      },
+      {
+        "name": "connectionClosed",
+        "at": 1482
+      },
+      {
+        "name": "imageError",
+        "at": 1482
+      }
+    ],
+    "frames": 3,
+    "resources": 0,
+    "actions": 0,
+    "wasmReady": true,
+    "browserId": "e20be18e9a0e4c5eb4ba566a244c8e50f9bb318d2a309f20994004a6ecc50215",
+    "restoredIdentity": true,
+    "gatewayAuthenticated": true,
+    "relayOnly": true,
+    "serviceDiscovered": true,
+    "snapshotStart": true,
+    "snapshotEnd": true,
+    "resourceRequested": "stat",
+    "connectionClosed": "closed by peer: session ended (code 0)",
+    "imageError": "connection lost"
+  },
+  "wasmBytes": 4808265,
+  "wasmGzipBytes": 1317730,
+  "result": "PASS",
+  "finishedAt": "2026-11-02T14:50:06.038Z"
+}

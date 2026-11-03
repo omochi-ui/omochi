@@ -1,5 +1,6 @@
 //! Gateway stream dispatch shared by Unix sockets and authenticated iroh connections.
 use crate::Gateway;
+use crate::dispatch::CommandOrigin;
 use anyhow::{Context, Result, bail};
 use omochi_protocol::{
     OpenStream, VERSION, read_frame,
@@ -41,10 +42,25 @@ impl Gateway {
     /// before dispatching. Local callers use the private Unix socket trust boundary.
     pub async fn serve_stream<R, W>(
         &self,
+        reader: R,
+        writer: W,
+        node_id: &str,
+        name: &str,
+    ) -> Result<()>
+    where
+        R: AsyncRead + Unpin + Send,
+        W: AsyncWrite + Unpin + Send,
+    {
+        self.serve_stream_from(reader, writer, node_id, name, CommandOrigin::Local)
+            .await
+    }
+    pub(crate) async fn serve_stream_from<R, W>(
+        &self,
         mut reader: R,
         mut writer: W,
         node_id: &str,
         name: &str,
+        origin: CommandOrigin,
     ) -> Result<()>
     where
         R: AsyncRead + Unpin + Send,
@@ -115,7 +131,8 @@ impl Gateway {
                 let mut events = subscription.events;
                 let read = async {
                     while let Some(action) = read_frame::<_, Value>(&mut reader).await? {
-                        self.action(&service, generation, action).await?;
+                        self.action_from(&service, generation, action, origin.clone())
+                            .await?;
                     }
                     Ok::<_, anyhow::Error>(())
                 };
@@ -147,7 +164,9 @@ impl Gateway {
                 )
                 .await??
                 .context("missing resource request")?;
-                let response = self.resource(&service, generation, request).await?;
+                let response = self
+                    .resource_from(&service, generation, request, origin)
+                    .await?;
                 send(&mut writer, &response).await
             }
         }

@@ -58,6 +58,9 @@ enum Command {
         remote: bool,
         #[arg(long, requires = "remote")]
         pair: bool,
+        /// HTTPS dashboard base used only when printing a new invitation.
+        #[arg(long, requires = "remote", value_parser = validate_web_url)]
+        web_url: Option<String>,
         #[arg(long)]
         offline: bool,
         #[arg(long)]
@@ -139,6 +142,48 @@ fn config_root(explicit: Option<PathBuf>) -> Result<PathBuf> {
         .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".config")))
         .context("set XDG_CONFIG_HOME or --config-dir")?;
     Ok(base.join("omochi/rust-v1"))
+}
+fn validate_web_url(text: &str) -> std::result::Result<String, String> {
+    let invalid = || {
+        "--web-url requires an absolute HTTPS URL without credentials, query or fragment (maximum 2048 characters)".to_owned()
+    };
+    let parsed = url::Url::parse(text).map_err(|_| invalid())?;
+    if text.chars().count() > 2048
+        || text.trim() != text
+        || !text.to_ascii_lowercase().starts_with("https://")
+        || text
+            .split('/')
+            .nth(2)
+            .is_some_and(|host| host.contains('@'))
+        || parsed.scheme() != "https"
+        || parsed.host_str().is_none()
+        || !parsed.username().is_empty()
+        || parsed.password().is_some()
+        || parsed.query().is_some()
+        || parsed.fragment().is_some()
+    {
+        return Err(invalid());
+    }
+    Ok(text.to_owned())
+}
+fn web_invitation(base: &str, invitation: &str) -> Result<String> {
+    // Unpadded URL-safe base64 without another native runtime dependency.
+    const ALPHABET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+    let bytes = serde_json::to_vec(&serde_json::json!({"version": 1, "invitation": invitation}))?;
+    let mut encoded = String::new();
+    for chunk in bytes.chunks(3) {
+        let bits = (u32::from(chunk[0]) << 16)
+            | (u32::from(*chunk.get(1).unwrap_or(&0)) << 8)
+            | u32::from(*chunk.get(2).unwrap_or(&0));
+        for offset in (0..chunk.len() + 1).map(|i| 18 - i * 6) {
+            encoded.push(ALPHABET[((bits >> offset) & 63) as usize] as char);
+        }
+    }
+    let fragment = format!("#connect:{encoded}");
+    if fragment.len() > 32768 {
+        bail!("hosted invitation exceeds the fragment limit")
+    }
+    Ok(format!("{base}{fragment}"))
 }
 fn private_directory(path: &Path) -> Result<()> {
     if !path.exists() {
@@ -315,6 +360,7 @@ async fn run(cli: Cli) -> Result<()> {
         Command::Gateway {
             remote,
             pair,
+            web_url,
             offline,
             relay,
             name,
@@ -344,6 +390,13 @@ async fn run(cli: Cli) -> Result<()> {
                     tokio::io::stdout()
                         .write_all(format!("{invitation}\n").as_bytes())
                         .await?;
+                    if let Some(base) = &web_url {
+                        tokio::io::stdout()
+                            .write_all(
+                                format!("{}\n", web_invitation(base, &invitation)?).as_bytes(),
+                            )
+                            .await?;
+                    }
                 }
                 Some(gateway.listen_remote(endpoint, store, name)?)
             } else {
@@ -552,6 +605,42 @@ async fn serve_hub(
 #[cfg(test)]
 mod shutdown_tests {
     use super::*;
+
+    #[test]
+    fn hosted_invitation_requires_explicit_https_base_and_remote_mode() {
+        for base in [
+            "http://example.com/",
+            "https://u:p@example.com/",
+            "https://example.com/?",
+            "https://example.com/#",
+            "relative",
+            " https://example.com/",
+        ] {
+            assert!(validate_web_url(base).is_err());
+        }
+        assert!(validate_web_url(&format!("https://example.com/{}", "x".repeat(2048))).is_err());
+        assert!(
+            Cli::try_parse_from(["omochi-ui", "gateway", "--web-url", "https://example.com/"])
+                .is_err()
+        );
+        let base = "https://example.com/ui/";
+        assert_eq!(validate_web_url(base).unwrap(), base);
+        assert_eq!(
+            web_invitation(base, "a").unwrap(),
+            "https://example.com/ui/#connect:eyJ2ZXJzaW9uIjoxLCJpbnZpdGF0aW9uIjoiYSJ9"
+        );
+        assert!(
+            Cli::try_parse_from([
+                "omochi-ui",
+                "gateway",
+                "--remote",
+                "--pair",
+                "--web-url",
+                base
+            ])
+            .is_ok()
+        );
+    }
 
     #[tokio::test]
     async fn shutdown_is_registered_before_wait_is_polled() {

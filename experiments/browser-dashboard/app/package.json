@@ -1,0 +1,32 @@
+{
+  "name": "@omochi-ui/browser-dashboard-experiment",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build:hosted": "tsc -p tsconfig.hosted.json && vite build --config vite.hosted.config.ts",
+    "build:browser-test": "tsc -p tsconfig.browser-test.json && vite build --config vite.browser-test.config.ts",
+    "test": "tsc -p tsconfig.test.json && bun test ./test",
+    "lint": "oxlint src test"
+  },
+  "dependencies": {
+    "@omochi-ui/browser-hub": "workspace:*",
+    "@omochi-ui/browser-transport": "workspace:*",
+    "@omochi-ui/core": "workspace:*",
+    "@omochi-ui/hub-ui": "workspace:*",
+    "@omochi-ui/renderer": "workspace:*"
+  },
+  "devDependencies": {
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
+    "@types/node": "^24.13.3",
+    "@types/bun": "^1.3.0",
+    "@vitejs/plugin-react": "^6.0.4",
+    "fake-indexeddb": "6.2.5",
+    "oxlint": "^1.75.0",
+    "typescript": "~6.0.2",
+    "vite": "^8.2.0"
+  }
+}

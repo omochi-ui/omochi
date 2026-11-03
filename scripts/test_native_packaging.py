@@ -102,6 +102,34 @@ class CrateSourceTests(unittest.TestCase):
         self.assertFalse((self.workspace / 'hub/assets').exists())
         self.assertEqual(subprocess.check_output(['git', 'status', '--porcelain'], cwd=self.root), b'')
 
+    def test_private_native_and_standalone_browser_inputs_are_not_distributed(self):
+        (self.workspace / 'private').mkdir()
+        (self.workspace / 'private/Cargo.toml').write_text(
+            '[package]\nname = "private-native"\npublish = false\n')
+        workspace = self.workspace / 'Cargo.toml'
+        workspace.write_text(workspace.read_text().replace('["hub"]', '["hub", "private"]'))
+        browser = self.root / 'experiments/browser-dashboard/transport'
+        browser.mkdir(parents=True)
+        (browser / 'Cargo.toml').write_text('[workspace]\n[package]\nname = "browser-wasm"\npublish = false\n')
+        subprocess.run(['git', 'add', '.'], cwd=self.root, check=True)
+        subprocess.run(['git', '-c', 'user.name=Test', '-c', 'user.email=test@example.invalid',
+                        '-c', 'commit.gpgsign=false', 'commit', '-qm', 'private fixtures'], cwd=self.root, check=True)
+        original_run = subprocess.run
+        def fake_cargo(command, **kwargs):
+            if command[0] != 'cargo':
+                return original_run(command, **kwargs)
+            self.assertIn('--exclude', command)
+            self.assertEqual(command[command.index('--exclude') + 1], 'private-native')
+            self.assertNotIn('browser-wasm', command)
+            package = self.workspace / 'target/package'
+            package.mkdir(parents=True)
+            (package / 'omochi-hub-0.2.0.crate').write_bytes(b'public archive')
+            return subprocess.CompletedProcess(command, 0)
+        with patch.object(self.crates, 'ROOT', self.root), patch.object(self.crates, 'WORKSPACE', self.workspace), patch.object(sys, 'argv', ['package-crates.py']), patch('subprocess.run', side_effect=fake_cargo):
+            self.crates.main()
+        manifest = json.loads((self.root / 'artifacts/crates/manifest.json').read_text())
+        self.assertEqual([package['name'] for package in manifest['packages']], ['omochi-hub'])
+
     def test_real_cargo_packages_and_verifies_gitignored_dashboard_assets(self):
         (self.workspace / 'hub/Cargo.toml').write_text(
             '[package]\nname = "omochi-hub"\nversion.workspace = true\n'

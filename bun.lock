@@ -18,6 +18,54 @@
         "ws": "^8.18.0",
       },
     },
+    "experiments/browser-dashboard/app": {
+      "name": "@omochi-ui/browser-dashboard-experiment",
+      "version": "0.0.0",
+      "dependencies": {
+        "@omochi-ui/browser-hub": "workspace:*",
+        "@omochi-ui/browser-transport": "workspace:*",
+        "@omochi-ui/core": "workspace:*",
+        "@omochi-ui/hub-ui": "workspace:*",
+        "@omochi-ui/renderer": "workspace:*",
+      },
+      "devDependencies": {
+        "@types/bun": "^1.3.0",
+        "@types/node": "^24.13.3",
+        "@types/react": "^19.2.17",
+        "@types/react-dom": "^19.2.3",
+        "@vitejs/plugin-react": "^6.0.4",
+        "fake-indexeddb": "6.2.5",
+        "oxlint": "^1.75.0",
+        "react": "^19.2.8",
+        "react-dom": "^19.2.8",
+        "typescript": "~6.0.2",
+        "vite": "^8.2.0",
+      },
+    },
+    "experiments/browser-dashboard/hub": {
+      "name": "@omochi-ui/browser-hub",
+      "version": "0.0.0",
+      "dependencies": {
+        "@omochi-ui/browser-transport": "workspace:*",
+        "@omochi-ui/core": "workspace:*",
+      },
+      "devDependencies": {
+        "@types/bun": "^1.3.0",
+        "fake-indexeddb": "6.2.5",
+        "typescript": "~6.0.2",
+      },
+    },
+    "experiments/browser-dashboard/transport": {
+      "name": "@omochi-ui/browser-transport",
+      "version": "0.0.0",
+      "dependencies": {
+        "@omochi-ui/core": "workspace:*",
+      },
+      "devDependencies": {
+        "@types/bun": "^1.3.0",
+        "typescript": "~6.0.2",
+      },
+    },
     "packages/core": {
       "name": "@omochi-ui/core",
       "version": "0.1.2",
@@ -65,6 +113,7 @@
         "@types/react": "^19.2.17",
         "@types/react-dom": "^19.2.3",
         "@vitejs/plugin-react": "^6.0.4",
+        "ajv": "8.20.0",
         "oxlint": "^1.75.0",
         "typescript": "~6.0.2",
         "vite": "^8.2.0",
@@ -91,12 +140,12 @@
         "@a2ui/markdown-it": "0.1.1",
         "@a2ui/react": "0.10.2",
         "@a2ui/web_core": "0.10.5",
+        "@omochi-ui/core": "workspace:*",
         "markdown-it": "^14.2.0",
         "react": "^19.2.8",
         "react-dom": "^19.2.8",
       },
       "devDependencies": {
-        "@omochi-ui/core": "workspace:*",
         "@types/markdown-it": "^14.1.2",
         "@types/node": "^24.13.3",
         "@types/react": "^19.2.17",
@@ -128,6 +177,12 @@
     "@hono/node-server": ["@hono/node-server@2.1.1", "", { "peerDependencies": { "hono": "^4" } }, "sha512-ELuehkj5VCBdgEw9zs+ivkKwyzzUCSQuE96YmiPvn1ECBoZCczbFXJLeEGMTYjphP6gydh4pHMqEYPVMYUVgQg=="],
 
     "@modelcontextprotocol/sdk": ["@modelcontextprotocol/sdk@1.31.0", "", { "dependencies": { "@hono/node-server": "^1.19.9 || ^2.0.5", "ajv": "^8.17.1", "ajv-formats": "^3.0.1", "content-type": "^1.0.5", "cors": "^2.8.5", "cross-spawn": "^7.0.5", "eventsource": "^3.0.2", "eventsource-parser": "^3.0.0", "express": "^5.2.1", "express-rate-limit": "^8.2.1", "hono": "^4.11.4", "jose": "^6.1.3", "json-schema-typed": "^8.0.2", "pkce-challenge": "^5.0.0", "raw-body": "^3.0.0", "zod": "^3.25 || ^4.0", "zod-to-json-schema": "^3.25.1" }, "peerDependencies": { "@cfworker/json-schema": "^4.1.1" }, "optionalPeers": ["@cfworker/json-schema"] }, "sha512-UvTMgnNlnIBO/22ob2RcVGDlcvOslQs8T59+FTGdA0L27a39fdGF/EDETNtDVK4DZGpwomlsYpRdA8UXcVL/pw=="],
+
+    "@omochi-ui/browser-dashboard-experiment": ["@omochi-ui/browser-dashboard-experiment@workspace:experiments/browser-dashboard/app"],
+
+    "@omochi-ui/browser-hub": ["@omochi-ui/browser-hub@workspace:experiments/browser-dashboard/hub"],
+
+    "@omochi-ui/browser-transport": ["@omochi-ui/browser-transport@workspace:experiments/browser-dashboard/transport"],
 
     "@omochi-ui/cli": ["@omochi-ui/cli@workspace:packages/npm/cli"],
 
@@ -304,6 +359,8 @@
     "express": ["express@5.2.1", "", { "dependencies": { "accepts": "2.0.0", "body-parser": "2.3.0", "content-disposition": "1.1.0", "content-type": "1.0.5", "cookie": "0.7.2", "cookie-signature": "1.2.2", "debug": "4.4.3", "depd": "2.0.0", "encodeurl": "2.0.0", "escape-html": "1.0.3", "etag": "1.8.1", "finalhandler": "2.1.1", "fresh": "2.0.0", "http-errors": "2.0.1", "merge-descriptors": "2.0.0", "mime-types": "3.0.2", "on-finished": "2.4.1", "once": "1.4.0", "parseurl": "1.3.3", "proxy-addr": "2.0.8", "qs": "6.16.0", "range-parser": "1.3.0", "router": "2.2.0", "send": "1.2.1", "serve-static": "2.2.1", "statuses": "2.0.2", "type-is": "2.1.0", "vary": "1.1.2" } }, "sha512-hIS4idWWai69NezIdRt2xFVofaF4j+6INOpJlVOLDO8zXGpUVEVzIYk12UUi2JzjEzWL3IOAxcTubgz9Po0yXw=="],
 
     "express-rate-limit": ["express-rate-limit@8.7.0", "", { "dependencies": { "debug": "4.4.3", "ip-address": "10.7.2" }, "peerDependencies": { "express": ">= 4.11" } }, "sha512-hOwV7WOxXfjRpAM1DSJWZDXx3GhplwD8IfwuwvogD8i1Qnkgosw/H45s4ZnFAUHDAhPjlY9hLBvJhKmGMyY26g=="],
+
+    "fake-indexeddb": ["fake-indexeddb@6.2.5", "", {}, "sha512-CGnyrvbhPlWYMngksqrSSUT1BAVP49dZocrHuK0SvtR0D5TMs5wP0o3j7jexDJW01KSadjBp1M/71o/KR3nD1w=="],
 
     "fast-deep-equal": ["fast-deep-equal@3.1.3", "", {}, "sha512-f3qQ9oQy9j2AhBe/H9VC91wLmKBCCU/gDOnKNAYG5hswO7BLKj09Hc5HYNz9cGI++xlpDCIgDaitVs03ATR84Q=="],
 
@@ -500,6 +557,12 @@
     "@a2ui/react/zod": ["zod@3.25.76", "", {}, "sha512-gzUt/qt81nXsFGKIFcC3YnfEAx5NkunCfnDlvuBSSFS02bcXu4Lmea0AFIUwbLWxWPx3d9p8S5QoaujKcNQxcQ=="],
 
     "@a2ui/web_core/zod": ["zod@3.25.76", "", {}, "sha512-gzUt/qt81nXsFGKIFcC3YnfEAx5NkunCfnDlvuBSSFS02bcXu4Lmea0AFIUwbLWxWPx3d9p8S5QoaujKcNQxcQ=="],
+
+    "@omochi-ui/browser-dashboard-experiment/typescript": ["typescript@6.0.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-y2TvuxSZPDyQakkFRPZHKFm+KKVqIisdg9/CZwm9ftvKXLP8NRWj38/ODjNbr43SsoXqNuAisEf1GdCxqWcdBw=="],
+
+    "@omochi-ui/browser-hub/typescript": ["typescript@6.0.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-y2TvuxSZPDyQakkFRPZHKFm+KKVqIisdg9/CZwm9ftvKXLP8NRWj38/ODjNbr43SsoXqNuAisEf1GdCxqWcdBw=="],
+
+    "@omochi-ui/browser-transport/typescript": ["typescript@6.0.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-y2TvuxSZPDyQakkFRPZHKFm+KKVqIisdg9/CZwm9ftvKXLP8NRWj38/ODjNbr43SsoXqNuAisEf1GdCxqWcdBw=="],
 
     "@omochi-ui/core/typescript": ["typescript@6.0.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-y2TvuxSZPDyQakkFRPZHKFm+KKVqIisdg9/CZwm9ftvKXLP8NRWj38/ODjNbr43SsoXqNuAisEf1GdCxqWcdBw=="],
 

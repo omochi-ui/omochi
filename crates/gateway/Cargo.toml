@@ -20,3 +20,7 @@ futures-util = { version = "0.3", features = ["sink"] }
 tokio-util = { version = "0.7", features = ["codec", "rt"] }
 [dev-dependencies]
 tempfile = "3"
+iroh.workspace = true
+iroh-relay = { version = "=1.4.1", features = ["server"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
+rustls-pemfile = "=2.2.0"

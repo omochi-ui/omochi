@@ -29,6 +29,15 @@ export interface DashboardFile {
   version: 1;
   dashboards: Dashboard[];
 }
+/** Advisory import-preview text; this never configures or grants a gateway connection. */
+export interface SourceLabel { nodeId: string; name?: string }
+/** One configuration-only copy. Local board IDs, revisions, timestamps and live data are excluded. */
+export interface BoardExport {
+  format: 'omochi.board';
+  version: 1;
+  board: DashboardInput;
+  sources: SourceLabel[];
+}
 export function referenceId(reference: SurfaceReference): string {
   return `${reference.nodeId}~${reference.serviceId}/${reference.surfaceId}`;
 }

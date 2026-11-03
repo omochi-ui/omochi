@@ -248,6 +248,75 @@ mod tests {
     use super::*;
     use serde_json::json;
     #[test]
+    fn shared_board_exchange_fixtures_agree_on_native_layout_semantics() {
+        // Cargo's published archive has no repository-level spec directory. Other unit
+        // tests remain self-contained; shared-contract parity runs in the workspace.
+        if Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("Cargo.toml.orig")
+            .is_file()
+        {
+            return;
+        }
+        let path =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../spec/fixtures/board-export.json");
+        let fixture: Value = serde_json::from_slice(
+            &fs::read(path).expect("run shared-fixture tests from the repository workspace"),
+        )
+        .unwrap();
+        for case in fixture["valid"].as_array().unwrap() {
+            validate(case["document"]["board"].clone()).unwrap();
+        }
+        for case in fixture["invalid"].as_array().unwrap() {
+            let base = fixture["valid"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|valid| valid["name"] == case["base"])
+                .unwrap();
+            let mut document = base["document"].clone();
+            for change in case["changes"].as_array().unwrap() {
+                let path = change["path"].as_str().unwrap();
+                let (parent, key) = path.rsplit_once('/').unwrap();
+                let parent = document.pointer_mut(parent).unwrap();
+                let key = key.replace("~1", "/").replace("~0", "~");
+                if let Some(object) = parent.as_object_mut() {
+                    if change["op"] == "delete" {
+                        object.remove(&key);
+                    } else {
+                        object.insert(key, change["value"].clone());
+                    }
+                } else {
+                    parent.as_array_mut().unwrap()[key.parse::<usize>().unwrap()] =
+                        change["value"].clone();
+                }
+            }
+            let name = case["name"].as_str().unwrap();
+            if matches!(
+                name,
+                "legacy-node"
+                    | "blank-title"
+                    | "invalid-service-dot"
+                    | "x-overflow"
+                    | "fractional-grid"
+                    | "missing-panels"
+                    | "duplicate-panel-id"
+                    | "duplicate-reference"
+                    | "rectangle-overlap"
+                    | "utf16-title-overflow"
+            ) {
+                assert!(validate(document["board"].clone()).is_err(), "{name}");
+            }
+        }
+        let mut input = fixture["valid"][1]["document"]["board"].clone();
+        input["panels"][0]["x"] = json!(11);
+        input["panels"][0]["w"] = json!(1);
+        input["panels"][0]["y"] = json!(100000);
+        input["panels"][0]["h"] = json!(1000);
+        validate(input.clone()).unwrap(); // Native validation has no additional y+h bound.
+        input["panels"][0]["reference"]["unrecognized"] = json!(true);
+        validate(input).unwrap(); // File import must not change native serde's existing unknown-field behavior.
+    }
+    #[test]
     fn stale_writes_and_corrupt_storage_do_not_overwrite_saved_dashboards() {
         let root = tempfile::tempdir().unwrap();
         let store = DashboardStore::open(root.path().join("state")).unwrap();

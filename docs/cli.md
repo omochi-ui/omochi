@@ -165,6 +165,7 @@ bun run omochi-ui gateway --remote --pair --name workstation
 | --- | --- | --- |
 | `--remote` | Enable the authenticated iroh endpoint | Off |
 | `--pair` | Issue a temporary invitation; requires `--remote` | Off |
+| `--web-url HTTPS_BASE` | Also print a browser invitation for this dashboard base; requires `--remote` | Unset |
 | `--name NAME` | Gateway display name | `gateway` |
 | `--offline` | LAN mDNS/direct connections without public services | Off |
 | `--relay URL` | Custom relay URL; repeatable | n0 public relays when online |
@@ -173,6 +174,16 @@ mDNS locates endpoints; it never grants access. Only registered hubs can open
 application streams. On LANs that permit multicast and direct traffic, registered
 peers can reconnect without internet access. Across networks, iroh uses direct
 connections where possible and a relay otherwise.
+
+For a hosted or self-hosted browser dashboard, use
+`gateway --remote --pair --web-url https://app.example.com/`. The base must be an
+absolute HTTPS URL of at most 2048 characters with no credentials, query or
+fragment. The command prints both the native invitation and the browser link
+only when `--pair` issues a new invitation. No public dashboard address is assumed.
+Both links carry the same temporary bearer secret: share them privately. Accepting
+one enrolls the browser for all exposed services, actions and resources on that
+gateway. Removing its browser connection record does not revoke gateway trust;
+use `trust forget <browser-endpoint-id>` at the gateway to revoke it.
 
 ## pair
 

@@ -6,7 +6,7 @@
  * re-namespaces it by `<nodeId>~<serviceId>`, which is what keeps two machines running
  * the same service from colliding.
  */
-import { isValidChannelId, joinRouteId } from './service-id.js'
+import { isValidChannelId, isValidSurfaceId, joinRouteId } from './service-id.js'
 
 /** Surface id carriers in the four A2UI v0.9 server messages. */
 const SERVER_SURFACE_KEYS = ['createSurface', 'updateComponents', 'updateDataModel', 'deleteSurface'] as const
@@ -25,12 +25,16 @@ export function splitSurfaceId(prefixed: string): { channelId: string; surfaceId
   const separator = prefixed.indexOf('/')
   if (separator <= 0 || separator === prefixed.length - 1) return null
   const channelId = prefixed.slice(0, separator)
-  if (!isValidChannelId(channelId)) return null
+  if (!isValidChannelId(channelId) || !isValidSurfaceId(prefixed.slice(separator + 1))) return null
   return { channelId, surfaceId: prefixed.slice(separator + 1) }
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : null
+}
+
+function setSurface(target: Record<string, unknown>, id: string, value: unknown): void {
+  Object.defineProperty(target, id, { value, enumerable: true, configurable: true, writable: true })
 }
 
 /** Namespaces the surface id of one backend message before it reaches a renderer. */
@@ -78,7 +82,7 @@ function scopeClientDataModel(dataModel: Record<string, unknown>, channelId: str
   const scoped: Record<string, unknown> = {}
   for (const [prefixed, value] of Object.entries(surfaces)) {
     const split = splitSurfaceId(prefixed)
-    if (split?.channelId === channelId) scoped[split.surfaceId] = value
+    if (split?.channelId === channelId) setSurface(scoped, split.surfaceId, value)
   }
   return { ...dataModel, surfaces: scoped }
 }
@@ -93,7 +97,7 @@ function prefixClientDataModel(dataModel: Record<string, unknown>, channelId: st
   const surfaces = asRecord(dataModel.surfaces)
   if (!surfaces) return dataModel
   const prefixed: Record<string, unknown> = {}
-  for (const [surfaceId, value] of Object.entries(surfaces)) prefixed[joinSurfaceId(channelId, surfaceId)] = value
+  for (const [surfaceId, value] of Object.entries(surfaces)) setSurface(prefixed, joinSurfaceId(channelId, surfaceId), value)
   return { ...dataModel, surfaces: prefixed }
 }
 

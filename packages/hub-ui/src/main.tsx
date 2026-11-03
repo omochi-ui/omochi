@@ -1,5 +1,8 @@
 import { createRoot } from 'react-dom/client';
 import App from './App.js';
+import { createLocalHubSession } from '@omochi-ui/renderer';
+import { HttpBoardRepository } from './http-boards.js';
 import './styles.css';
 import '@omochi-ui/renderer/styles.css';
-createRoot(document.getElementById('root')!).render(<App />);
+const session = createLocalHubSession(`${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}/ws`);
+createRoot(document.getElementById('root')!).render(<App environment={{ session, boards: new HttpBoardRepository() }} />);

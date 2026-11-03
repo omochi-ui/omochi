@@ -36,9 +36,14 @@ def main():
     output.mkdir(parents=True, exist_ok=True)
     config = tomllib.loads((WORKSPACE / 'Cargo.toml').read_text())
     version = config['workspace']['package']['version']
+    members = [tomllib.loads((WORKSPACE / member / 'Cargo.toml').read_text())['package']
+               for member in config['workspace']['members']]
     # Cargo treats explicitly included, gitignored assets as dirty. Check the
     # source tree ourselves; allow only this generated staging data in releases.
     command = ['cargo', 'package', '--manifest-path', str(WORKSPACE / 'Cargo.toml'), '--workspace', '--locked', '--allow-dirty']
+    for member in members:
+        if member.get('publish') is False:
+            command.extend(['--exclude', member['name']])
     if args.no_verify:
         command.append('--no-verify')
     try:
@@ -48,8 +53,10 @@ def main():
         if final_commit != commit or (final_dirty and not args.allow_dirty):
             raise RuntimeError('Source tree changed while packaging')
         packages = []
-        for member in config['workspace']['members']:
-            name = tomllib.loads((WORKSPACE / member / 'Cargo.toml').read_text())['package']['name']
+        for member in members:
+            if member.get('publish') is False:
+                continue
+            name = member['name']
             filename = f'{name}-{version}.crate'
             archive = WORKSPACE / 'target/package' / filename
             shutil.copy2(archive, output / filename)

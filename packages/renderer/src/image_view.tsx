@@ -10,6 +10,11 @@ export function ScopedImage({ scope, uri, description, style }: { scope?: Browse
     const cancel = new AbortController();
     const target = canvas.current;
     let retained: BrowserImage | undefined;
+    const revoke = () => {
+      cancel.abort(); retained?.dispose(); retained = undefined;
+      if (target) { target.width = 0; target.height = 0; }
+    };
+    scope?.signal.addEventListener('abort', revoke, { once: true });
     setState({ scope, uri, ready: false, error: false });
     const load = async () => {
       try {
@@ -24,13 +29,14 @@ export function ScopedImage({ scope, uri, description, style }: { scope?: Browse
         setState({ scope, uri, ready: true, error: false });
       } catch {
         retained?.dispose(); retained = undefined;
+        if (target) { target.width = 0; target.height = 0; }
         if (!cancel.signal.aborted) setState({ scope, uri, ready: false, error: true });
       }
     };
     void load();
     return () => {
-      cancel.abort(); retained?.dispose();
-      if (target) { target.width = 0; target.height = 0; }
+      scope?.signal.removeEventListener('abort', revoke);
+      revoke();
     };
   }, [scope, uri, attempt]);
   const current = state?.scope === scope && state?.uri === uri ? state : undefined;

@@ -1,0 +1,217 @@
+{
+  "recordedAt": "2026-11-03",
+  "scope": "Local loopback TLS acceptance only; no deployment or separate-network claim",
+  "versions": {
+    "bun": "1.4.3",
+    "rustc": "1.99.0 (b940084d7 2026-09-28)",
+    "wasmBindgen": "0.2.130",
+    "iroh": "1.4.1",
+    "chromium": "Chrome/156.0.8078.73"
+  },
+  "modes": {
+    "session": {
+      "checks": 11,
+      "passed": true,
+      "startedAt": "2026-11-03T04:47:11.554Z"
+    },
+    "profile": {
+      "checks": 27,
+      "passed": true,
+      "startedAt": "2026-11-03T04:49:30.502Z"
+    },
+    "media": {
+      "checks": 27,
+      "passed": true,
+      "startedAt": "2026-11-03T04:47:33.048Z"
+    },
+    "boards": {
+      "checks": 25,
+      "passed": true,
+      "startedAt": "2026-11-03T04:30:14.640Z"
+    },
+    "hosted": {
+      "checks": 13,
+      "passed": true,
+      "startedAt": "2026-11-03T04:49:41.456Z"
+    },
+    "load": {
+      "checks": 9,
+      "passed": true,
+      "startedAt": "2026-11-03T04:31:14.685Z"
+    },
+    "faults": {
+      "checks": 18,
+      "passed": true,
+      "startedAt": "2026-11-03T04:38:03.299Z"
+    },
+    "revocation": {
+      "checks": 8,
+      "passed": true,
+      "startedAt": "2026-11-03T04:45:33.482Z"
+    }
+  },
+  "hosted": {
+    "base": "/dashboard/",
+    "gzip": true,
+    "controlledRelayRecoveryMilliseconds": 14557
+  },
+  "load": {
+    "durationMilliseconds": 600438,
+    "samples": 599,
+    "updates": 10000,
+    "payloadBytes": 1024,
+    "pngReads": 126,
+    "peaks": {
+      "frameBytes": 0,
+      "snapshotBytes": 16430,
+      "peakSnapshotBytes": 18720,
+      "largestServiceSnapshot": 2290,
+      "deliveryBytes": 0,
+      "peakDeliveryBytes": 2633,
+      "renderBytes": 1178,
+      "peakRenderBytes": 1430,
+      "renderCount": 1,
+      "actionBytes": 0,
+      "peakActionBytes": 0,
+      "actionCount": 0,
+      "leases": 8,
+      "leaseBytes": 812,
+      "activeReads": 0,
+      "encodedBytes": 0,
+      "peakEncodedBytes": 145,
+      "peakReads": 2
+    },
+    "imagePeaks": {
+      "scopes": 8,
+      "loading": 0,
+      "decodedBytes": 16
+    },
+    "retainedCountersZeroAfterStop": true,
+    "heap": {
+      "usedSize": 11747300,
+      "totalSize": 46137344,
+      "embedderHeapUsedSize": 3081744,
+      "backingStorageSize": 843889
+    },
+    "processTreeRss": {
+      "minBytes": 862556160,
+      "maxBytes": 898093056
+    }
+  },
+  "verification": [
+    "bun run test:browser-hub (six modes at execution; subsequent faults/revocation modes tested independently)",
+    "bun tests/browser/browser-hub.mjs --mode faults",
+    "bun tests/browser/browser-hub.mjs --mode revocation",
+    "bun run test",
+    "bun run test:python",
+    "bun run test:rust",
+    "bun run test:renderer-package",
+    "bun run release:check",
+    "cargo test --manifest-path packages/browser-transport/Cargo.toml --locked",
+    "profile/hosted rerun after persisted-pageshow recovery change"
+  ],
+  "files": [
+    {
+      "path": "assets/ConnectionScreen-BmjDpHLv.js",
+      "bytes": 285512,
+      "gzipBytes": 100050,
+      "sha256": "35a9a41972b32ad77e8e3660d0c63662db153eb49599bf673b4bbdfc3b06b1d4"
+    },
+    {
+      "path": "assets/board-codec-CPKXeF3Y.js",
+      "bytes": 3638,
+      "gzipBytes": 1637,
+      "sha256": "e1d3aca96730566a00d89fc3be63ae2d2659752278994e987763026947b5e620"
+    },
+    {
+      "path": "assets/browser-DLjoe2We.js",
+      "bytes": 73719,
+      "gzipBytes": 18588,
+      "sha256": "c06e5d41d14de48c0f79c59d52c59b7cc60772cffa50acd5b46775b03ba1b137"
+    },
+    {
+      "path": "assets/browser-boards-Dv_jT3bi.js",
+      "bytes": 4499,
+      "gzipBytes": 1561,
+      "sha256": "648b65a02974a745bbe42c792ba33eea454f27e2e4865b27f9c5043b6bd8c220"
+    },
+    {
+      "path": "assets/client-Cdk91ys-.js",
+      "bytes": 182318,
+      "gzipBytes": 56761,
+      "sha256": "5b9046c1e3aff4d00b0770e1e846b82ddab847f432fe00f594bbcc9dcb3d8005"
+    },
+    {
+      "path": "assets/connections-DlgZ0hkY.css",
+      "bytes": 1614,
+      "gzipBytes": 605,
+      "sha256": "e849af5fa6d6befecae5f8069f212227a0589cd28106d61ead5c58732f987233"
+    },
+    {
+      "path": "assets/dist-C5AasS1j.js",
+      "bytes": 54852,
+      "gzipBytes": 15828,
+      "sha256": "196ff3ef2a6fc28a28ec173f711899d7630f2442990a09c0f0652902fd632fa5"
+    },
+    {
+      "path": "assets/dist-SR3G69KO.js",
+      "bytes": 6196,
+      "gzipBytes": 1957,
+      "sha256": "210bc2b6aaf561d99a7c2fcfaaa06e9ce2caa9971f1f63e5f621767f14a6c47c"
+    },
+    {
+      "path": "assets/index-CU9T4_bB.js",
+      "bytes": 4671,
+      "gzipBytes": 2081,
+      "sha256": "c43e1034d98b1d4adeea524b4d1588b49a0d548ef833675a8e5489ef0410755b"
+    },
+    {
+      "path": "assets/react-D6B8DJKR.js",
+      "bytes": 7521,
+      "gzipBytes": 2899,
+      "sha256": "ba8a528fdb90f35b20cf473db1b918dd628337e621b8af2a5553550236413f99"
+    },
+    {
+      "path": "assets/styles-BF4Hplqa.css",
+      "bytes": 1440,
+      "gzipBytes": 534,
+      "sha256": "4f9f262825c7b888faff30296c4a2f365ca120bbbc139a05ba2c57675d23334b"
+    },
+    {
+      "path": "assets/styles-CjiuTnRl.css",
+      "bytes": 12357,
+      "gzipBytes": 3077,
+      "sha256": "c2a362462c28db60f11e788bcd73e2ff6fae57df50f80483e2f8d7f8562fc0c3"
+    },
+    {
+      "path": "index.html",
+      "bytes": 319,
+      "gzipBytes": 245,
+      "sha256": "4918d7be7567d4ba7a7064e2bbd317c9588b7e0e3b57a683e437c49a6bcbf634"
+    },
+    {
+      "path": "iroh/iroh.d.ts",
+      "bytes": 7701,
+      "gzipBytes": 1620,
+      "sha256": "9225ccd881c6bf90430d8eb1d71dae5b6e98e68392a5af927a4550c717eac023"
+    },
+    {
+      "path": "iroh/iroh.js",
+      "bytes": 52881,
+      "gzipBytes": 9152,
+      "sha256": "bba184029f9239511874289f4fc415340baba7532295b1dbdfec86051b456350"
+    },
+    {
+      "path": "iroh/iroh_bg.wasm",
+      "bytes": 5230697,
+      "gzipBytes": 1394019,
+      "sha256": "9751f5dbe1d97ab1193ea6a80895553a03ba31fedf59e069c71cdea2cce4ab86"
+    },
+    {
+      "path": "iroh/iroh_bg.wasm.d.ts",
+      "bytes": 4698,
+      "gzipBytes": 775,
+      "sha256": "8cf1e3530696ed7e98216538a9e71e5d27e9a856811c2667577a286a87d94326"
+    }
+  ]
+}

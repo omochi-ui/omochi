@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://omochi.fyi/schemas/board-export-v1.json",
+  "title": "Omochi single-board exchange v1",
+  "$comment": "Future runtime codec. UTF-8 byte limit, UTF-16 text lengths, blank text, source-set equality, duplicate references and geometry/overlap semantics are specified in browser-hub-v1.md and checked outside JSON Schema.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["format", "version", "board", "sources"],
+  "properties": {
+    "format": { "const": "omochi.board" },
+    "version": { "const": 1 },
+    "board": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "panels"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "panels": {
+          "type": "array", "maxItems": 200,
+          "items": { "$ref": "#/$defs/panel" }
+        }
+      }
+    },
+    "sources": {
+      "type": "array", "maxItems": 200,
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["nodeId"],
+        "properties": {
+          "nodeId": { "$ref": "#/$defs/nodeId" },
+          "name": { "type": "string", "minLength": 1, "maxLength": 256 }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "nodeId": { "type": "string", "minLength": 64, "maxLength": 64, "pattern": "^[a-f0-9]{64}$" },
+    "reference": {
+      "type": "object", "additionalProperties": false,
+      "required": ["nodeId", "serviceId", "surfaceId"],
+      "properties": {
+        "nodeId": { "$ref": "#/$defs/nodeId" },
+        "serviceId": {
+          "type": "string", "minLength": 1, "maxLength": 64,
+          "pattern": "^[A-Za-z0-9._-]{1,64}$", "not": { "enum": [".", ".."] }
+        },
+        "surfaceId": { "type": "string", "minLength": 1, "maxLength": 4096 }
+      }
+    },
+    "panel": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "title", "reference", "x", "y", "w", "h"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "title": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "reference": { "$ref": "#/$defs/reference" },
+        "x": { "type": "integer", "minimum": 0, "maximum": 11 },
+        "y": { "type": "integer", "minimum": 0, "maximum": 100000 },
+        "w": { "type": "integer", "minimum": 1, "maximum": 12 },
+        "h": { "type": "integer", "minimum": 1, "maximum": 1000 }
+      }
+    }
+  }
+}

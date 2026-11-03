@@ -27,8 +27,9 @@ export async function validateNativeSources(): Promise<void> {
   for (const member of workspace.workspace.members) {
     const directory = path.join(root, 'crates', member);
     const manifest = Bun.TOML.parse(await Bun.file(path.join(directory, 'Cargo.toml')).text()) as Record<string, any>;
-    names.push(manifest.package.name);
     if (manifest.package.version?.workspace !== true) throw new Error(`${member} must inherit the native version`);
+    if (manifest.package.publish === false) continue;
+    names.push(manifest.package.name);
     if (!license.equals(await readFile(path.join(directory, 'LICENSE')))) throw new Error(`${member} LICENSE differs from the root`);
     for (const field of ['dependencies', 'dev-dependencies', 'build-dependencies']) {
       for (const [name, dependency] of Object.entries(manifest[field] ?? {}) as [string, any][]) {

@@ -79,7 +79,43 @@ test('revoked scopes cancel pending references and late decode results; encoded 
   images.close();
 });
 
-test('image transport wraps untrusted service fields, acknowledges application and stops repeated resyncs', t => {
+test('revoking a completed image disposes its retained bitmap and frees decoded accounting before the consumer cleanup', async t => {
+  const original = globalThis.createImageBitmap;
+  t.after(() => { globalThis.createImageBitmap = original; });
+  let closed = 0;
+  globalThis.createImageBitmap = async () => ({ width: 2048, height: 2048, close: () => { closed++; } }) as ImageBitmap;
+  const images = new BrowserImages(async () => new Response(new Uint8Array([1]), { headers: {
+    ...headers, 'x-omochi-image-width': '2048', 'x-omochi-image-height': '2048',
+  } }));
+  t.after(() => images.close());
+  images.update('A', 'first'); images.update('B', 'independent');
+  const first = await images.scope('A')!.load('omochi://resources/' + 'a'.repeat(32), new AbortController().signal);
+  await assert.rejects(images.scope('B')!.load('omochi://resources/' + 'b'.repeat(32), new AbortController().signal), /memory limit/);
+  images.update('A', 'replacement'); assert.equal(closed, 1);
+  const second = await images.scope('B')!.load('omochi://resources/' + 'b'.repeat(32), new AbortController().signal);
+  first.dispose(); assert.equal(closed, 1);
+  images.close(); assert.equal(closed, 2); second.dispose(); assert.equal(closed, 2);
+});
+
+test('scope/caller cancellation interrupts a stalled Response body without waiting for another chunk', async t => {
+  const original = globalThis.createImageBitmap;
+  t.after(() => { globalThis.createImageBitmap = original; });
+  let cancelled = 0, decodes = 0;
+  globalThis.createImageBitmap = async () => { decodes++; throw new Error('Unexpected decode'); };
+  const images = new BrowserImages(async () => new Response(new ReadableStream({ cancel() { cancelled++; } }), { headers }));
+  t.after(() => images.close());
+  for (const viaScope of [false, true]) {
+    images.update('main', crypto.randomUUID()); const cancel = new AbortController();
+    const image = images.scope('main')!.load('omochi://resources/' + 'a'.repeat(32), cancel.signal);
+    // Allow the loader to return and the body reader to attach its abort listener.
+    for (let turn = 0; turn < 10; turn++) await Promise.resolve();
+    if (viaScope) images.update('main', null); else cancel.abort();
+    await assert.rejects(image);
+  }
+  assert.equal(cancelled, 2); assert.equal(decodes, 0);
+});
+
+test('image transport wraps untrusted service fields, acknowledges application and stops repeated resyncs', async t => {
   const original = globalThis.WebSocket;
   const sockets: FakeSocket[] = [];
   class FakeSocket {
@@ -110,8 +146,15 @@ test('image transport wraps untrusted service fields, acknowledges application a
   const create = { version: 'v0.9', createSurface: { surfaceId: 'main', catalogId: 'https://a2ui.org/specification/v0_9/catalogs/basic/catalog.json' }, omochi: 'images/1', kind: 'image', reference: 'attacker' };
   socket.push({ omochi: 'images/1', kind: 'update', sequence: 1, handle: 'trusted', message: create });
   assert((processor as Processor | null)?.model.surfacesMap.has('main'));
-  assert.equal((images as BrowserImages | null)?.scope('main')?.token, 'trusted');
-  assert.deepEqual(socket.messages, [{ omochi: 'images/1', kind: 'ack', sequence: 1 }]);
+  const scope = (images as BrowserImages | null)?.scope('main');
+  assert(scope);
+  assert.notEqual(scope.token, 'trusted', 'local lease IDs are separate from native server handles');
+  assert.deepEqual(socket.messages.slice(), [{ omochi: 'images/1', kind: 'ack', sequence: 1 }]);
+  const cancel = new AbortController();
+  const pending = images!.fetch(scope.token, 'https://example.com/image.png', cancel.signal);
+  assert.equal(socket.messages[1]!.handle, 'trusted', 'the local source resolves the captured native handle');
+  cancel.abort();
+  await assert.rejects(pending);
   socket.push({ omochi: 'images/1', kind: 'update', sequence: 2, handle: null, message: { version: 'v0.9', deleteSurface: { surfaceId: 'main' } } });
   assert.equal((images as BrowserImages | null)?.scope('main'), undefined);
   socket.onclose!({ reason: 'session ended', code: 1009 });

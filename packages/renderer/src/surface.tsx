@@ -1,41 +1,63 @@
-import { type BrowserImages } from './images.js';
 import { ResourceContext } from './resources.js';
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
+import type { LiveSession } from '@omochi-ui/core/browser';
+import { createA2uiSession, type A2uiSession, type RendererSession } from './session.js';
+import { createLocalHubSession } from './local-source.js';
 import { A2uiSurface, MarkdownContext } from '@a2ui/react/v0_9';
 import { renderMarkdown } from '@a2ui/markdown-it';
-import { A2uiWebSocketClient, type Processor } from './client.js';
 
-/** One session per endpoint, shared by all of its rendered panels. */
-export function useA2uiSession(url: string, resourceBaseUrl?: string) {
-  const [images, setImages] = useState<BrowserImages | null>(null);
-  const [processor, setProcessor] = useState<Processor | null>(null);
-  const [status, setStatus] = useState('Connecting…');
-  const [error, setError] = useState<string | null>(null);
+export type { A2uiSession } from './session.js';
+const emptySession: Readonly<A2uiSession> = {
+  processor: null, surfaceIds: [], services: [], status: 'Connecting…', error: null,
+  images: null, endpoint: 'browser:gateway',
+};
+const noSubscription = () => () => {};
+const emptySnapshot = () => emptySession;
+
+/** The hook owns its controller and closes the source on final cleanup. */
+export function useA2uiSource(source: LiveSession): Readonly<A2uiSession> {
+  type Owner = { source: LiveSession; controller: RendererSession; owners: number; closing: Promise<void> | null };
+  const active = useRef<Owner | null>(null);
+  const lifecycle = useRef<Promise<void>>(Promise.resolve());
+  const [controller, setController] = useState<RendererSession | null>(null);
   useEffect(() => {
-    setProcessor(null);
-    setStatus('Connecting…');
-    setError(null);
-    const client = new A2uiWebSocketClient(url, {
-      onProcessor: setProcessor, onStatus: setStatus, onError: setError, onImages: setImages,
-    });
-    try { client.connect(); } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason));
+    let disposed = false;
+    let captured: Owner | null = null;
+    const close = (record: Owner) => record.closing ??= record.controller.close();
+    const previous = active.current;
+    if (previous?.source === source && !previous.closing) {
+      captured = previous; captured.owners++; setController(captured.controller);
+    } else {
+      setController(null);
+      const job = lifecycle.current.then(async () => {
+        if (disposed) return;
+        if (active.current) await close(active.current);
+        if (disposed) return;
+        captured = { source, controller: createA2uiSession(source), owners: 1, closing: null };
+        active.current = captured; setController(captured.controller);
+      });
+      lifecycle.current = job.catch(() => {});
     }
-    return () => client.close();
-  }, [url]);
-  const [surfaceIds, setSurfaceIds] = useState<string[]>([]);
-  useEffect(() => {
-    const sync = () => setSurfaceIds(processor ? [...processor.model.surfacesMap.keys()] : []);
-    sync();
-    if (!processor) return;
-    const created = processor.onSurfaceCreated(sync);
-    const deleted = processor.onSurfaceDeleted(sync);
-    return () => { created.unsubscribe(); deleted.unsubscribe(); };
-  }, [processor]);
-  return { processor, surfaceIds, status, error, images, endpoint: url, resourceBaseUrl };
+    return () => {
+      disposed = true;
+      if (!captured) return;
+      const record = captured; record.owners--;
+      // StrictMode immediately reattaches effects; don't restart a one-shot source.
+      queueMicrotask(() => {
+        if (record.owners === 0) void close(record).catch(() => {});
+      });
+    };
+  }, [source]);
+  return useSyncExternalStore(controller?.subscribe ?? noSubscription,
+    controller?.getSnapshot ?? emptySnapshot, emptySnapshot);
 }
 
-export type A2uiSession = ReturnType<typeof useA2uiSession>;
+/** Compatible URL hook; direct consumers supply a LiveSession explicitly. */
+export function useA2uiSession(url: string, resourceBaseUrl?: string): Readonly<A2uiSession> {
+  const source = useMemo(() => createLocalHubSession(url), [url]);
+  const snapshot = useA2uiSource(source);
+  return useMemo(() => ({ ...snapshot, endpoint: url, resourceBaseUrl }), [snapshot, url, resourceBaseUrl]);
+}
 
 export function SurfaceView({ session, surfaceId, fallback = null }: {
   session: A2uiSession; surfaceId: string; fallback?: ReactNode;
