@@ -7,7 +7,7 @@ import { npmStageId, root, run } from './release.ts';
 const registry = 'https://registry.npmjs.org/';
 export const crateNames = ['omochi-protocol', 'omochi-transport', 'omochi-local-discovery', 'omochi-gateway', 'omochi-hub', 'omochi-cli', 'omochi-utils'];
 type Artifact = { name: string; version: string; filename: string; integrity?: string; sha256?: string };
-type Bundle = { version: string; packages: Artifact[]; complete?: boolean; verified?: boolean; commit?: string; dirty?: boolean };
+type Bundle = { version: string; packages: Artifact[]; complete?: boolean; verified?: boolean; commit?: string; dirty?: boolean; localSdk?: boolean };
 const targets = await Bun.file(path.join(root, 'scripts/native/targets.json')).json() as { os: string; cpu: string }[];
 export const npmNames = [...targets.map(t => `@omochi-ui/native-${t.os}-${t.cpu}`), '@omochi-ui/cli', '@omochi-ui/utils'];
 
@@ -56,7 +56,7 @@ export function validateBundle(bundle: Bundle, version: string, kind: 'npm' | 'c
   if (bundle.version !== version || bundle.packages.length !== expected.length
       || new Set(bundle.packages.map(p => p.name)).size !== expected.length
       || (kind === 'npm' && (!bundle.complete || bundle.dirty))
-      || (kind === 'crates' && (!bundle.verified || bundle.dirty))) throw new Error('Incomplete, dirty or unverified native bundle');
+      || (kind === 'crates' && (!bundle.verified || bundle.dirty || bundle.localSdk))) throw new Error('Incomplete, dirty or unverified native bundle');
   for (const artifact of bundle.packages) {
     const filename = kind === 'npm' ? `${artifact.name.replace('@', '').replace('/', '-')}-${version}.tgz` : `${artifact.name}-${version}.crate`;
     if (!expected.includes(artifact.name) || artifact.version !== version || artifact.filename !== filename) throw new Error('Unexpected native artifact');

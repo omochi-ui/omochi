@@ -375,10 +375,8 @@ impl Hub {
             )
         } else {
             let mut state = self.state.lock().await;
-            if exclusive {
-                if let Some(previous) = state.scoped.replace(stop.clone()) {
-                    previous.cancel();
-                }
+            if exclusive && let Some(previous) = state.scoped.replace(stop.clone()) {
+                previous.cancel();
             }
             // Freeze snapshots at the event cursor. Browser subscriptions are independent;
             // the native binding deliberately permits only one active renderer.

@@ -54,7 +54,7 @@ jobs:
       - run: python3 scripts/package-native-npm.py --partial artifacts/native/*.tar.gz
       - run: bun run release:native:smoke:npm
       - if: runner.os == 'Linux'
-        run: python3 scripts/package-crates.py
+        run: python3 scripts/package-crates.py --local-sdk
       - run: cargo test --manifest-path crates/Cargo.toml --release --locked --workspace
       - run: OMOCHI_NATIVE_TEST=1 OMOCHI_NATIVE_PROFILE=release bun test tests/native/mcp.test.ts
       - run: OMOCHI_NATIVE_TEST=1 OMOCHI_NATIVE_PROFILE=release bun test packages/renderer/test/native.test.ts

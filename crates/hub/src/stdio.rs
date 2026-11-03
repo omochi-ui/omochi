@@ -107,9 +107,8 @@ impl Backend {
                         let mut scope = None;
                         let message = match command {
                             Command::Action(action)=>{
-                                if let Some((surface, subscription)) = &action.scope {
-                                    if surface.is_cancelled() || subscription.is_cancelled() { continue; }
-                                }
+                                if let Some((surface, subscription)) = &action.scope
+                                    && (surface.is_cancelled() || subscription.is_cancelled()) { continue; }
                                 scope = action.scope;
                                 action.message
                             },

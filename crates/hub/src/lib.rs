@@ -83,6 +83,15 @@ impl Connection {
         Ok((reader, writer))
     }
 }
+#[derive(Clone, Copy)]
+struct GatewaySession<'a> {
+    connection: &'a Connection,
+    epoch: u64,
+    node: &'a str,
+    name: &'a str,
+    local: bool,
+    stop: &'a CancellationToken,
+}
 struct Channel {
     epoch: u64,
     service: Service,
@@ -408,6 +417,14 @@ impl Hub {
             .cloned()
             .unwrap_or(name);
         let session_stop = stop.child_token();
+        let session = GatewaySession {
+            connection: &connection,
+            epoch,
+            node: &node_id,
+            name: &name,
+            local,
+            stop: &session_stop,
+        };
         let (pong, replies) = tokio::sync::watch::channel(0u64);
         let heartbeat = heartbeat::run(writer, replies, Duration::from_secs(10));
         tokio::pin!(heartbeat);
@@ -431,7 +448,7 @@ impl Hub {
                             if let Some(changes) = &mut capacity_changes { let _ = changes.changed().await; }
                             else { std::future::pending::<()>().await; }
                         } => {
-                            self.reconcile_services(&connection, epoch, &node_id, &name, local, &session_stop, &roster, &mut services).await;
+                            self.reconcile_services(&session, &roster, &mut services).await;
                         }
                     }
                 };
@@ -449,7 +466,7 @@ impl Hub {
                         }
                         if let Some(capacity) = &self.capacity { capacity.roster(&node_id, &next); }
                         roster = next;
-                        self.reconcile_services(&connection, epoch, &node_id, &name, local, &session_stop, &roster, &mut services).await;
+                        self.reconcile_services(&session, &roster, &mut services).await;
                     }
                     Control::Pong { id } => { pong.send_replace(id); },
                     Control::Bye { reason } => bail!("gateway closed: {reason}"),
@@ -493,15 +510,18 @@ impl Hub {
 
     async fn reconcile_services(
         &self,
-        connection: &Connection,
-        epoch: u64,
-        node: &str,
-        name: &str,
-        local: bool,
-        session_stop: &CancellationToken,
+        session: &GatewaySession<'_>,
         next: &BTreeMap<String, Service>,
         services: &mut BTreeMap<String, (Service, CancellationToken, JoinHandle<()>)>,
     ) {
+        let GatewaySession {
+            connection,
+            epoch,
+            node,
+            name,
+            local,
+            stop: session_stop,
+        } = *session;
         let removed: Vec<_> = services
             .iter()
             .filter(|(id, (spec, _, _))| next.get(*id) != Some(spec))

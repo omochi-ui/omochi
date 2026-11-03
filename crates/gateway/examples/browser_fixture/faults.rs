@@ -136,8 +136,9 @@ pub fn listen(
                                             while let Some(mut frame) = read_frame::<_, Value>(&mut output).await? {
                                                 frames += 1;
                                                 let kind = frame["kind"].as_str().unwrap_or("").to_owned();
-                                                if faults.state.lock().unwrap().maximum && kind == "services" {
-                                                    if let Some(services) = frame["services"].as_array_mut() { for service in services { if service["id"] == "s" { service["generation"] = json!(u64::MAX); } } }
+                                                if faults.state.lock().unwrap().maximum && kind == "services"
+                                                    && let Some(services) = frame["services"].as_array_mut() {
+                                                    for service in services { if service["id"] == "s" { service["generation"] = json!(u64::MAX); } }
                                                 }
                                                 if mode.as_deref() == Some("delete-recreate") && kind == "message" {
                                                     if replay.len() >= 32 { bail!("fixture replay capacity") }

@@ -26,6 +26,7 @@ test('native publication requires every exact package with safe filenames and ve
   expect(() => validateBundle({ ...bundle('npm'), complete: false }, version, 'npm')).toThrow();
   expect(() => validateBundle({ ...bundle('npm'), dirty: true }, version, 'npm')).toThrow();
   expect(() => validateBundle({ ...bundle('crates'), verified: false }, version, 'crates')).toThrow();
+  expect(() => validateBundle({ ...bundle('crates'), localSdk: true }, version, 'crates')).toThrow();
 });
 
 test('native wrappers retain existing package names and release platforms match the build matrix', async () => {

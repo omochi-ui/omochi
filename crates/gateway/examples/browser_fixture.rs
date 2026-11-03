@@ -74,7 +74,7 @@ impl Transport for ObservedSdk {
                 })
             {
                 let emitted = self.emitted.fetch_add(1, Ordering::SeqCst) + 1;
-                if emitted % 1000 == 0 {
+                if emitted.is_multiple_of(1000) {
                     output(json!({"kind":"load-progress","emitted":emitted}))
                         .map_err(|_| omochi_ui::Error::Protocol("fixture output closed".into()))?;
                 }
@@ -243,17 +243,28 @@ struct Source {
     faults: Option<faults::Faults>,
     sdk_gate: Option<(sdk_gate::Gate, JoinHandle<()>)>,
 }
-async fn source(
-    root: &Path,
-    sockets: &Path,
-    index: usize,
-    custom: Option<(&str, &Path)>,
+struct SourceOptions<'a> {
+    custom: Option<(&'a str, &'a Path)>,
     media: bool,
     load: bool,
     emitted: Arc<AtomicU64>,
     protocol_faults: bool,
     gated_sdk: bool,
+}
+async fn source(
+    root: &Path,
+    sockets: &Path,
+    index: usize,
+    options: SourceOptions<'_>,
 ) -> Result<Source> {
+    let SourceOptions {
+        custom,
+        media,
+        load,
+        emitted,
+        protocol_faults,
+        gated_sdk,
+    } = options;
     let directory = root.join(format!("gateway-{index}"));
     std::fs::create_dir_all(&directory)?;
     // A valid 64-byte service ID must still fit sockaddr_un's pathname limit.
@@ -531,14 +542,16 @@ async fn run() -> Result<()> {
                 root.path(),
                 sockets.path(),
                 index,
-                relay_url
-                    .as_deref()
-                    .map(|url| (url, ca.as_deref().unwrap())),
-                media,
-                load,
-                emitted.clone(),
-                protocol_faults,
-                gated_sdk,
+                SourceOptions {
+                    custom: relay_url
+                        .as_deref()
+                        .map(|url| (url, ca.as_deref().unwrap())),
+                    media,
+                    load,
+                    emitted: emitted.clone(),
+                    protocol_faults,
+                    gated_sdk,
+                },
             )
             .await?,
         );

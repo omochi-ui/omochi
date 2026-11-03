@@ -438,6 +438,46 @@ async fn static_ui(State(state): State<Arc<HttpState>>, request: Request) -> Res
         .unwrap()
 }
 
+async fn owners(
+    State(state): State<Arc<HttpState>>,
+    request: Request,
+) -> Result<Response, ApiError> {
+    let store = state.dashboards.owners();
+    let control = crate::control::HubControl {
+        hub: state.hub.clone(),
+        boards: state.dashboards.clone(),
+    };
+    if request.uri().path().starts_with("/api/owners/") && request.method() != Method::DELETE {
+        return Err(ApiError::new(405, "Method not allowed"));
+    }
+    match *request.method() {
+        Method::GET => Ok(Json(control.owners_list().await?).into_response()),
+        Method::POST => {
+            let host = state
+                .hub
+                .dashboard_host()
+                .ok_or_else(|| ApiError::new(400, "Enable remote access first"))?;
+            if host["relayUrls"].as_array().is_none_or(|r| r.is_empty()) {
+                return Err(ApiError::new(503, "Relay address unavailable"));
+            }
+            let (grant, secret) = control.owner_create().await?;
+            use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
+            let payload = json!({"version":1,"hubId":host["hubId"],"relayUrls":host["relayUrls"],"grantId":grant.id,"mode":"owner","secret":secret});
+            Ok(Json(json!({"grant":grant,"url":format!("{}#owner:{}",host["webUrl"].as_str().unwrap(),URL_SAFE_NO_PAD.encode(serde_json::to_vec(&payload).unwrap()))})).into_response())
+        }
+        Method::DELETE => {
+            let id = request
+                .uri()
+                .path()
+                .strip_prefix("/api/owners/")
+                .ok_or_else(|| ApiError::new(405, "Missing owner ID"))?;
+            store.revoke_live(id).await?;
+            Ok(Json(json!({"deleted":true})).into_response())
+        }
+        _ => Err(ApiError::new(405, "Method not allowed")),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -639,45 +679,5 @@ mod tests {
             .unwrap()
             .unwrap()
             .unwrap();
-    }
-}
-
-async fn owners(
-    State(state): State<Arc<HttpState>>,
-    request: Request,
-) -> Result<Response, ApiError> {
-    let store = state.dashboards.owners();
-    let control = crate::control::HubControl {
-        hub: state.hub.clone(),
-        boards: state.dashboards.clone(),
-    };
-    if request.uri().path().starts_with("/api/owners/") && request.method() != Method::DELETE {
-        return Err(ApiError::new(405, "Method not allowed"));
-    }
-    match *request.method() {
-        Method::GET => Ok(Json(control.owners_list().await?).into_response()),
-        Method::POST => {
-            let host = state
-                .hub
-                .dashboard_host()
-                .ok_or_else(|| ApiError::new(400, "Enable remote access first"))?;
-            if host["relayUrls"].as_array().is_none_or(|r| r.is_empty()) {
-                return Err(ApiError::new(503, "Relay address unavailable"));
-            }
-            let (grant, secret) = control.owner_create().await?;
-            use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
-            let payload = json!({"version":1,"hubId":host["hubId"],"relayUrls":host["relayUrls"],"grantId":grant.id,"mode":"owner","secret":secret});
-            Ok(Json(json!({"grant":grant,"url":format!("{}#owner:{}",host["webUrl"].as_str().unwrap(),URL_SAFE_NO_PAD.encode(serde_json::to_vec(&payload).unwrap()))})).into_response())
-        }
-        Method::DELETE => {
-            let id = request
-                .uri()
-                .path()
-                .strip_prefix("/api/owners/")
-                .ok_or_else(|| ApiError::new(405, "Missing owner ID"))?;
-            store.revoke_live(id).await?;
-            Ok(Json(json!({"deleted":true})).into_response())
-        }
-        _ => Err(ApiError::new(405, "Method not allowed")),
     }
 }

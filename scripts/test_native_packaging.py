@@ -74,7 +74,7 @@ class CrateSourceTests(unittest.TestCase):
         (self.workspace / 'hub').mkdir(parents=True)
         (self.workspace / 'Cargo.toml').write_text('[workspace]\nmembers = ["hub"]\n[workspace.package]\nversion = "0.2.0"\n')
         (self.workspace / 'hub/Cargo.toml').write_text('[package]\nname = "omochi-hub"\n')
-        (self.root / '.gitignore').write_text('/crates/hub/assets/\n/crates/target/\n/packages/hub-ui/dist/\n/artifacts/\n')
+        (self.root / '.gitignore').write_text('/crates/hub/assets/\n/crates/target/\n/packages/hub-ui/dist/\n/packages/sdk/rust/target/\n/artifacts/\n')
         source = self.root / 'packages/hub-ui/dist'
         source.mkdir(parents=True)
         (source / 'index.html').write_text('<html>generated</html>')
@@ -167,6 +167,40 @@ class CrateSourceTests(unittest.TestCase):
         self.assertIn('Commit source changes before packaging', stderr.getvalue())
         self.assertFalse((self.workspace / 'hub/assets').exists())
         self.assertFalse((self.root / 'artifacts/crates/manifest.json').exists())
+
+    def test_unpublished_sdk_is_verified_from_archives_only_in_local_sdk_mode(self):
+        sdk = self.root / 'packages/sdk/rust'
+        for directory, name in [(sdk, 'omochi-ui'), (sdk / 'macros', 'omochi-ui-macros')]:
+            (directory / 'src').mkdir(parents=True)
+            (directory / 'Cargo.toml').write_text(
+                f'[package]\nname = "{name}"\nversion = "9.99.99"\nedition = "2024"\n')
+        with (sdk / 'Cargo.toml').open('a') as file:
+            file.write('[workspace]\nmembers = ["macros"]\n[dependencies]\n'
+                       'omochi-ui-macros = { path = "macros", version = "=9.99.99" }\n')
+        (sdk / 'macros/src/lib.rs').write_text('pub fn cursor() {}\n')
+        (sdk / 'src/lib.rs').write_text('pub fn snapshot_cursor() { omochi_ui_macros::cursor(); }\n')
+        (self.workspace / 'hub/Cargo.toml').write_text(
+            '[package]\nname = "omochi-hub"\nversion.workspace = true\nedition = "2024"\n'
+            'include = ["src/**", "assets/**", "Cargo.toml", "Cargo.lock"]\n'
+            '[dependencies]\nomochi-ui = { path = "../../packages/sdk/rust", version = "=9.99.99" }\n')
+        (self.workspace / 'hub/src').mkdir()
+        (self.workspace / 'hub/src/lib.rs').write_text(
+            'pub const DASHBOARD: &str = include_str!("../assets/index.html");\n'
+            'pub fn replay() { omochi_ui::snapshot_cursor(); }\n')
+        for manifest in [sdk / 'Cargo.toml', self.workspace / 'Cargo.toml']:
+            subprocess.run(['cargo', 'generate-lockfile', '--offline', '--manifest-path', str(manifest)], check=True)
+        subprocess.run(['git', 'add', '.'], cwd=self.root, check=True)
+        subprocess.run(['git', '-c', 'user.name=Test', '-c', 'user.email=test@example.invalid',
+                        '-c', 'commit.gpgsign=false', 'commit', '-qm', 'unpublished SDK'], cwd=self.root, check=True)
+        original_lock = (self.workspace / 'Cargo.lock').read_bytes()
+        with patch.object(self.crates, 'ROOT', self.root), patch.object(self.crates, 'WORKSPACE', self.workspace), patch.object(sys, 'argv', ['package-crates.py', '--local-sdk']), patch.dict(os.environ, {'CARGO_NET_OFFLINE': 'true'}):
+            self.crates.main()
+        manifest = json.loads((self.root / 'artifacts/crates/manifest.json').read_text())
+        self.assertTrue(manifest['verified'])
+        self.assertTrue(manifest['localSdk'])
+        self.assertFalse((self.workspace / 'hub/assets').exists())
+        self.assertEqual((self.workspace / 'Cargo.lock').read_bytes(), original_lock)
+        self.assertEqual(subprocess.check_output(['git', 'status', '--porcelain'], cwd=self.root), b'')
 
 
 if __name__ == '__main__':
