@@ -12,9 +12,13 @@ Gateway and hub have separate durable private keys. The authenticated iroh peer
 identity, together with its registered role, controls authorization. An advertised
 name, address, mDNS record or application-supplied ID never grants access.
 
-Remote access is opt-in. Online mode uses public address lookup and relays; custom
-relay URLs replace the relay set. Offline mode uses direct paths and LAN mDNS,
-without public lookup or relays. An offline registered peer does not block the
+Remote access is opt-in. Online release builds use `https://relay.omochi.fyi` with
+shared-token relay admission; debug builds default to n0 public relays. Both use
+n0 public address lookup. Custom relay URLs replace the relay set; the built-in
+admission token is attached only to the production relay, never to other URLs or
+advertised endpoint addresses. Relay admission does not grant application access.
+Offline mode uses direct paths and LAN mDNS without public lookup or relays.
+An offline registered peer does not block the
 hub's local dashboard. All registered gateways reconnect independently with
 bounded backoff and jitter. IP addresses remain internal addressing information.
 

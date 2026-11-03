@@ -1,8 +1,13 @@
 # Project relay deployment
 
+The production relay is **https://relay.omochi.fyi**. Release builds select it
+automatically and send the built-in shared admission token. Debug builds retain
+n0 public relays; use `--relay https://relay.omochi.fyi` to test production from a
+debug build. The token is attached only to that exact relay URL.
+
 These templates target **iroh-relay 1.4.1**, matching the native application's
-pinned iroh version. They prepare a public relay; no host has been provisioned.
-The operator must supply a DNS hostname, machine and certificate contact.
+pinned iroh version. They are provisioning examples for additional hosts. The
+operator must supply a DNS hostname, machine and certificate contact.
 
 Build the upstream binary with current stable Rust:
 
@@ -34,15 +39,19 @@ curl --fail http://127.0.0.1:9090/metrics
 ```
 
 Use `--relay https://YOUR_RELAY_HOST` on `gateway --remote`, `pair`, and `hub`.
-These arguments select the project relay explicitly. Development defaults still
-use n0 services, and online EndpointId lookup still uses n0 address discovery;
-providing a relay does not replace that lookup service. `--offline` disables
+These arguments override the default relay set. Online EndpointId lookup still
+uses n0 address discovery; providing a relay does not replace that lookup service.
+`--offline` disables
 public relay and address lookup entirely while preserving LAN discovery.
 
 ## Admission and capacity
 
-`access = "everyone"` intentionally admits any iroh endpoint. Relay admission is
-separate from Omochi trust: application streams still require registered peers.
+The production host uses shared-token admission. Its server configuration uses
+`access.shared_token`, matching the token bundled with clients. The example
+template's `access = "everyone"` admits any iroh endpoint; replace it with
+`access.shared_token = ["<relay-admission-token>"]` for a restricted host.
+Relay admission is separate from Omochi trust: application streams still require
+registered peers.
 The upstream server rate-limits new connections to 10/s with a burst of 20 and
 client ingress to 1 MiB/s with a 4 MiB burst. Adjust after measuring real workloads.
 The systemd unit caps memory at 1 GiB, tasks at 256 and open files at 8192.
@@ -73,8 +82,15 @@ cargo test --release --manifest-path crates/Cargo.toml -p omochi-transport --tes
 ```
 
 This validates protocol behavior through a relay, not the deployed host's DNS,
-certificate, firewall or network capacity. Before distributing the public URL,
-verify pairing and service/action/resource traffic between two separate networks,
+certificate, firewall or network capacity. To check the production host's TLS,
+shared-token admission and relay-only round trip, run the opt-in smoke test:
+
+```sh
+cargo test --manifest-path crates/Cargo.toml -p omochi-transport deployed_production_relay_carries_traffic -- --ignored --nocapture
+```
+
+Both smoke-test endpoints run on the same machine. Also verify pairing and
+service/action/resource traffic between two separate networks,
 then verify reconnect after a relay restart and the expected traffic/rate limits.
 
 The config smoke test runs the actual pinned relay with the same admission/rate

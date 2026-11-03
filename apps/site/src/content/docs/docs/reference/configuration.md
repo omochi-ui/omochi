@@ -15,7 +15,8 @@ sidebar:
 | ネイティブID・信頼 | `$XDG_CONFIG_HOME/omochi/rust-v1`、未設定なら`$HOME/.config/omochi/rust-v1` |
 | リモート接続 | 明示的に有効にするまで無効 |
 | `--allow-origin` | HubのHTTP・WebSocketの許可Originを追加 |
-| `--relay` | 専用リレーを指定 |
+| オンラインの既定リレー | releaseは`https://relay.omochi.fyi`（共有トークン組み込み）、debugはn0 |
+| `--relay` | 既定のリレー一覧を置き換え。本番リレーを明示指定した場合も自動認証 |
 | `--offline` | 公開検索・リレーを停止し、直接経路とLAN mDNSを維持 |
 
 ## 所有権と安全性

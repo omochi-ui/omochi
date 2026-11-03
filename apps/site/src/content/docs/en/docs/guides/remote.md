@@ -21,7 +21,9 @@ omochi-ui hub
 
 The invitation admits one hub and expires after 180 seconds. Treat it as a secret. Once enrolled, registered gateways reconnect by their full iroh EndpointIds. Discovery locates identities; it never grants authorization.
 
-`--offline` disables public lookup and relays while keeping direct connections and LAN mDNS. Online development uses n0 lookup/relays; `--relay` selects a project relay. An offline gateway does not block other peers or local services.
+Release builds use the production relay at `https://relay.omochi.fyi` with built-in shared-token authentication. Debug builds use n0 public relays for development. Both use n0 public address lookup when online. `--relay` overrides the relay set; use `--relay https://relay.omochi.fyi` to test production from a debug build. The built-in token is sent only to the production relay.
+
+`--offline` disables public lookup and relays while keeping direct connections and LAN mDNS. An offline gateway does not block other peers or local services.
 
 ## Inspect and revoke
 

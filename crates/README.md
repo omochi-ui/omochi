@@ -5,14 +5,16 @@ checkout entry points launch these Rust binaries. npm stubs contain only launche
 the former TypeScript services remain in Git history. SDK APIs and the browser
 dashboard remain unchanged apart from full EndpointId resource routes.
 The wire contract is documented in [gateway-v4.md](../spec/gateway-v4.md).
-Public relay deployment and platform/browser validation remain release checks.
+Production relay validation across networks and platform/browser validation
+remain release checks.
 
 ## Implemented
 
 - `omochi-protocol`: protocol version 4, separate gateway and enrollment ALPNs,
   bounded length-prefixed JSON, control/service messages, session-generation guard.
-- `omochi-transport`: pinned iroh 1.4.1, optional custom relays, public address
-  lookup in online mode, mDNS lookup, and offline endpoints without public services.
+- `omochi-transport`: pinned iroh 1.4.1, authenticated `relay.omochi.fyi` by default
+  in release builds (n0 relays in debug builds), optional custom relays, public
+  address lookup in online mode, mDNS lookup, and offline endpoints without public services.
 - Durable role-specific keys and serialized state writes with atomic rename and
   fsync; 180-second single-use enrollment, identity-bound retry, and record revocation.
 - Enrollment exchange over the dedicated ALPN, using the authenticated remote
@@ -140,11 +142,11 @@ The following environment-dependent checks remain before distribution:
   actions, late joins and service restart, but do not exercise DOM layout.
 - macOS packaging/runtime validation. Linux installation and runtime-free startup
   pass locally; the macOS CI job is configured but has not been executed here.
-- Deploy and validate the project relay between separate networks. The
+- Validate `relay.omochi.fyi` between separate networks. The
   [deployment templates](../deploy/relay/README.md) include TLS, public admission,
   rate limits, systemd limits and monitoring. The upstream binary passes a local
-  verified-TLS/config/metrics smoke test. Public DNS, ACME issuance and hosting
-  require deployment infrastructure; no project relay is deployed by this change.
+  verified-TLS/config/metrics smoke test. Release clients use the deployed project
+  relay with shared-token admission; cross-network validation remains separate.
 
 ## Migration decisions
 

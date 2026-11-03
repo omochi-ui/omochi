@@ -146,7 +146,7 @@ not stop a gateway it did not start.
 | `--no-auto-gateway` | Do not start a missing local gateway | Auto-start enabled |
 | `--allow-origin ORIGIN` | Add an exact allowed browser origin; repeatable | Loopback origins only |
 | `--offline` | Disable public address lookup and relays; retain LAN mDNS | Off |
-| `--relay URL` | Custom relay URL; repeatable | n0 public relays when online |
+| `--relay URL` | Custom relay URL; repeatable | Release: `https://relay.omochi.fyi`; debug: n0 public relays |
 | `--assets DIR` | Override the embedded dashboard assets | Embedded assets |
 
 Every registered gateway connects in the background; an unavailable gateway does
@@ -172,7 +172,7 @@ bun run omochi-ui gateway --remote --pair --name workstation
 | `--pair` | Issue a temporary invitation; requires `--remote` | Off |
 | `--name NAME` | Gateway display name | `gateway` |
 | `--offline` | LAN mDNS/direct connections without public services | Off |
-| `--relay URL` | Custom relay URL; repeatable | n0 public relays when online |
+| `--relay URL` | Custom relay URL; repeatable | Release: `https://relay.omochi.fyi`; debug: n0 public relays |
 
 mDNS locates endpoints; it never grants access. Only registered hubs can open
 application streams. On LANs that permit multicast and direct traffic, registered
@@ -195,6 +195,9 @@ admits one hub. The same winning identity can retry an interrupted exchange.
 `--name` is the local gateway alias; `--hub-name` defaults to `hub`.
 Use `--offline` for LAN-only enrollment or `--relay URL` for a custom relay.
 Configure matching relay options on gateway, pair and hub.
+Release builds authenticate to the production relay automatically. Debug builds
+can select it with `--relay https://relay.omochi.fyi`. Its built-in shared token
+is never sent to other relay URLs. Public address lookup still uses n0.
 
 Users do not enter IP addresses. Registered gateways reconnect by identity;
 the alias makes them recognizable. Endpoint identity is the full 64-character

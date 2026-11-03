@@ -15,7 +15,8 @@ sidebar:
 | Native identity/trust | `$XDG_CONFIG_HOME/omochi/rust-v1` or `$HOME/.config/omochi/rust-v1` |
 | Remote access | Off until explicitly enabled |
 | `--allow-origin` | Widens hub HTTP/WebSocket origin permissions |
-| `--relay` | Selects project relay |
+| Default online relay | Release: `https://relay.omochi.fyi` with built-in shared-token admission; debug: n0 |
+| `--relay` | Replaces the default relay set; explicitly selecting production also authenticates automatically |
 | `--offline` | No public lookup/relays; direct paths and LAN mDNS remain |
 
 ## Ownership and security

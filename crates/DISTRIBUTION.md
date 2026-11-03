@@ -32,10 +32,13 @@ one hub; keep it private. Registered gateways connect automatically without IP
 input. --offline disables public discovery and relays while retaining LAN mDNS
 and direct connections.
 
-Online development uses n0 public discovery and relays. For a project relay, use
-the same --relay https://your-relay.example option on remote gateway, pair and hub
-commands. This archive does not provision a relay. The source repository includes host
-configuration and monitoring templates in deploy/relay.
+Release builds use https://relay.omochi.fyi with built-in shared-token admission.
+Debug builds use n0 public relays for development. Both use n0 public address
+discovery when online. To override the relay set, use the same --relay URL option
+on remote gateway, pair and hub commands. The built-in token is sent only to the
+production relay, including when selected explicitly in a debug build.
+The source repository includes host configuration and monitoring templates in
+deploy/relay.
 
 status reports registered gateway connection attempts and failures from the running
 hub (use --port if the hub has a non-default port). It does not initialize state.
