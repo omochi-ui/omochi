@@ -212,6 +212,9 @@ class _MobileHomeState extends State<MobileHome> with WidgetsBindingObserver {
     final surface = selected != null && ids.contains(selected)
         ? selected
         : null;
+    final surfaceContext = surface == null
+        ? null
+        : hub.contextForSurface(surface);
     return Scaffold(
       appBar: AppBar(
         title: Text(tab == 0 ? messages.apps : messages.connections),
@@ -250,24 +253,29 @@ class _MobileHomeState extends State<MobileHome> with WidgetsBindingObserver {
             Expanded(
               child: tab == 0
                   ? surface != null
-                        ? ListView(
+                        ? Padding(
                             padding: const EdgeInsets.all(16),
-                            children: [
-                              TextButton.icon(
-                                onPressed: () =>
-                                    setState(() => selected = null),
-                                icon: const Icon(Icons.arrow_back),
-                                label: Text(messages.apps),
-                              ),
-                              if (hub.surfaceErrors[surface] != null)
-                                Text(hub.surfaceErrors[surface]!),
-                              Surface(
-                                key: ValueKey(
-                                  '${hub.rendererVersion}/$surface',
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                TextButton.icon(
+                                  onPressed: () =>
+                                      setState(() => selected = null),
+                                  icon: const Icon(Icons.arrow_back),
+                                  label: Text(messages.apps),
                                 ),
-                                surfaceContext: hub.contextForSurface(surface),
-                              ),
-                            ],
+                                if (hub.surfaceErrors[surface] != null)
+                                  Text(hub.surfaceErrors[surface]!),
+                                Expanded(
+                                  child: Surface(
+                                    key: ValueKey(
+                                      '${hub.rendererVersion}/${surfaceContext!.surfaceId}',
+                                    ),
+                                    surfaceContext: surfaceContext,
+                                  ),
+                                ),
+                              ],
+                            ),
                           )
                         : ListView(
                             padding: const EdgeInsets.all(16),

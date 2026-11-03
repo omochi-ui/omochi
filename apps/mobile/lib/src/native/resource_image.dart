@@ -76,17 +76,40 @@ Catalog nativeCatalog(
             // item.surfaceId is a renderer-local generation ID. Capture it here;
             // neither the URI nor later action payload chooses the service route.
             final surface = item.surfaceId;
-            return _ResourceImage(
+            Widget child = _ResourceImage(
               key: ValueKey('$surface/$url'),
               load: () => read(surface, url),
-              description: data['description'] is String
-                  ? data['description'] as String
-                  : messages.appImage,
               fit:
                   BoxFit.values
                       .where((f) => f.name == data['fit'])
                       .firstOrNull ??
                   BoxFit.contain,
+            );
+            if (data['variant'] == 'avatar') {
+              child = ClipOval(child: child);
+            }
+            if (data['variant'] == 'header') {
+              child = SizedBox(width: double.infinity, child: child);
+            } else {
+              final size = switch (data['variant']) {
+                'icon' || 'avatar' => 32.0,
+                'smallFeature' => 50.0,
+                'largeFeature' => 400.0,
+                _ => 150.0,
+              };
+              child = SizedBox(width: size, height: size, child: child);
+            }
+            final image = child;
+            return BoundString(
+              dataContext: item.dataContext,
+              value: data['description'] ?? messages.appImage,
+              builder: (context, label) => Semantics(
+                label: label == null || label.isEmpty
+                    ? messages.appImage
+                    : label,
+                image: true,
+                child: image,
+              ),
             );
           },
         );
@@ -99,11 +122,11 @@ class _ResourceImage extends StatefulWidget {
   const _ResourceImage({
     super.key,
     required this.load,
-    required this.description,
+    this.description,
     required this.fit,
   });
   final GatewayImageRequest Function() load;
-  final String description;
+  final String? description;
   final BoxFit fit;
   @override
   State<_ResourceImage> createState() => _ResourceImageState();
@@ -191,11 +214,9 @@ class _ResourceImageState extends State<_ResourceImage> {
           child: Center(child: CircularProgressIndicator()),
         );
       }
-      return Semantics(
-        label: widget.description,
-        image: true,
-        child: RawImage(image: snapshot.data!.image, fit: widget.fit),
-      );
+      final child = RawImage(image: snapshot.data!.image, fit: widget.fit);
+      if (widget.description == null) return child;
+      return Semantics(label: widget.description, image: true, child: child);
     },
   );
 }
