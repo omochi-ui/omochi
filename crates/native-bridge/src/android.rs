@@ -24,3 +24,12 @@ pub extern "system" fn Java_fyi_omochi_omochi_MainActivity_initSharedHub<'local>
     })
     .resolve::<ThrowRuntimeExAndDefault>();
 }
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_fyi_omochi_mobile_MainActivity_initSharedHub<'local>(
+    env: EnvUnowned<'local>,
+    _activity: JObject<'local>,
+    context: JObject<'local>,
+) {
+    Java_fyi_omochi_omochi_MainActivity_initSharedHub(env, _activity, context);
+}

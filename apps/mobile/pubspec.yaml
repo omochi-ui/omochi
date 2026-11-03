@@ -1,0 +1,35 @@
+name: omochi_mobile
+description: "A built-in Omochi Hub with GenUI and direct iroh Gateway connections."
+publish_to: 'none'
+version: 0.1.0+1
+
+environment:
+  sdk: ^3.13.7
+
+dependencies:
+  a2ui_core: ^0.1.1
+  cupertino_icons: ^2.0.0
+  flutter:
+    sdk: flutter
+  flutter_localizations:
+    sdk: flutter
+  app_links: ^7.0.0
+  ffi: ^2.1.4
+  flutter_markdown_plus: ^1.0.12
+  flutter_secure_storage: ^11.2.0
+  genui: ^0.10.4
+  intl: ^0.20.3
+  shared_preferences: ^2.5.6
+
+dev_dependencies:
+  http: ^1.6.0
+  integration_test:
+    sdk: flutter
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+  vm_service: ^15.4.0
+
+flutter:
+  generate: true
+  uses-material-design: true

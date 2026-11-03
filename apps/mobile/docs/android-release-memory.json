@@ -1,0 +1,40 @@
+{
+  "platform": "android",
+  "mode": "release",
+  "gateways": 2,
+  "services": 8,
+  "samples": [
+    {
+      "phase": "started",
+      "rssBytes": 220680192,
+      "decodedImageBytes": 0,
+      "imageLoads": 0
+    },
+    {
+      "phase": "eight-services-images",
+      "rssBytes": 249540608,
+      "decodedImageBytes": 33554432,
+      "imageLoads": 0
+    },
+    {
+      "phase": "suspended",
+      "rssBytes": 250556416,
+      "decodedImageBytes": 0,
+      "imageLoads": 0
+    },
+    {
+      "phase": "stopped",
+      "rssBytes": 250556416,
+      "decodedImageBytes": 0,
+      "imageLoads": 0
+    }
+  ],
+  "device": "Waydroid / Android 13 / x86_64",
+  "renderer": "Skia (launch argument enable-impeller=false)",
+  "modelBytesPerService": 65536,
+  "imageSize": [
+    1024,
+    1024
+  ],
+  "testResult": "passed; 9th service rejected and healthy action continued"
+}

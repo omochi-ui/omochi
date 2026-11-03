@@ -224,6 +224,7 @@ export function GatewayInvitation({
       >
         {job?.status === 'savePending' ? 'Retry saving registration' : 'Add to this hub'}
       </Button>
+      <a className="hub-button" href={invite.invitation}>Open in Omochi app</a>
       {!ownsProfile && (
         <Button onClick={() => setSendAttempt((v) => v + 1)}>Send to connected tab</Button>
       )}

@@ -20,3 +20,7 @@ iroh = "=1.4.1"
 strip = true
 lto = "thin"
 codegen-units = 1
+
+[patch.crates-io]
+netdev = { path = "../vendor/netdev" }
+netwatch = { path = "../vendor/netwatch" }
