@@ -48,4 +48,4 @@ tokio-tungstenite = "0.30.0"
 # Isolated TLS relay for actual downstream Chromium acceptance.
 iroh = { version = "=1.4.1", default-features = false, features = ["tls-ring"] }
 iroh-relay = { version = "=1.4.1", features = ["server"] }
-rustls-pemfile = "=2.2.0"
+rustls-pki-types = { version = "1.15.1", features = ["std"] }

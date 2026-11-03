@@ -19,6 +19,7 @@ use omochi_ui::{
     App, ButtonOptions, ImageOptions, TextFieldOptions, Transport, UnixSocketServerOptions,
     UnixSocketServerTransport,
 };
+use rustls_pki_types::{CertificateDer, PrivateKeyDer, pem::PemObject};
 use serde_json::{Value, json};
 use std::{
     io::{self, BufRead, Write},
@@ -121,16 +122,12 @@ fn output(value: Value) -> Result<()> {
     io::stdout().flush()?;
     Ok(())
 }
-fn certificates(path: &Path) -> Result<Vec<rustls::pki_types::CertificateDer<'static>>> {
-    Ok(
-        rustls_pemfile::certs(&mut io::BufReader::new(std::fs::File::open(path)?))
-            .collect::<std::result::Result<Vec<_>, _>>()?,
-    )
+fn certificates(path: &Path) -> Result<Vec<CertificateDer<'static>>> {
+    Ok(CertificateDer::pem_file_iter(path)?.collect::<std::result::Result<Vec<_>, _>>()?)
 }
 async fn relay(cert: &Path, key: &Path, port: u16) -> Result<Server> {
     let certificates = certificates(cert)?;
-    let key = rustls_pemfile::private_key(&mut io::BufReader::new(std::fs::File::open(key)?))?
-        .context("TLS key missing")?;
+    let key = PrivateKeyDer::from_pem_file(key).context("TLS key missing")?;
     let tls = rustls::ServerConfig::builder_with_provider(Arc::new(
         rustls::crypto::ring::default_provider(),
     ))

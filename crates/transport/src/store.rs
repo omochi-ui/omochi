@@ -2,7 +2,7 @@
 pub use crate::trust::{Peer, Role};
 use anyhow::{Context, Result, bail};
 use iroh::{EndpointId, SecretKey};
-use rand::RngCore;
+use rand::Rng;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
