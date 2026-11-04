@@ -282,6 +282,16 @@ At least one output flag is required. Generation resolves local schemas only;
 it does not fetch schemas over the network. Reuse the same invocation with
 `--check` in CI.
 
+Local `$ref` siblings follow the [JSON Schema 2020-12 reference rules](https://json-schema.org/draft/2020-12/json-schema-core#section-8.2.3.1):
+both the referenced schema and adjacent constraints apply. For example, a reference
+to `enum: ["a", "b"]` with a sibling `enum: ["b", "c"]` becomes an intersection,
+so TypeScript accepts only `"b"`. Annotation-only siblings such as `description`
+do not change the type. Partial `required`, `properties` and `items` constraints
+use an object or array type guaranteed by the reference; required fields without
+a local property definition use `unknown` in TypeScript and retain their referenced
+type through the intersection. Each side resolves relative references from its own
+source file. Python and Rust use the `allOf` approximations described below.
+
 Enums support JSON scalar values (strings, booleans, numbers and null), including
 inside arrays and unions. Empty enums and object or array enum members are rejected
 before any output is written. TypeScript uses literal unions; Python uses

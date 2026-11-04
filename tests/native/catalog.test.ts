@@ -4,7 +4,7 @@ import { copyFile, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { delimiter, join, resolve } from "node:path";
 
-for (const fixture of ["catalog-arrays", "catalog-enums", "catalog-property-names", "catalog-python-keys", "catalog-allof", "catalog-required", "catalog-intersections", "catalog-component-allof", "catalog-overlapping-properties"]) {
+for (const fixture of ["catalog-arrays", "catalog-enums", "catalog-property-names", "catalog-python-keys", "catalog-allof", "catalog-required", "catalog-intersections", "catalog-component-allof", "catalog-overlapping-properties", "catalog-ref-siblings"]) {
   test(`native ${fixture} bindings preserve JSON types`, {
     skip: !process.env.OMOCHI_NATIVE_TEST,
   }, async (t) => {
@@ -52,7 +52,7 @@ for (const fixture of ["catalog-arrays", "catalog-enums", "catalog-property-name
         new Response(python.stdout).text(), new Response(python.stderr).text(), python.exited,
       ]);
       expect(pythonStatus, pythonOut + pythonError).toBe(0);
-      if (fixture === "catalog-component-allof" || fixture === "catalog-overlapping-properties") {
+      if (fixture === "catalog-component-allof" || fixture === "catalog-overlapping-properties" || fixture === "catalog-ref-siblings") {
         const typescript = Bun.spawn([process.execPath, join(root, "usage.ts")], {
           stdout: "pipe", stderr: "pipe",
         });
@@ -60,7 +60,13 @@ for (const fixture of ["catalog-arrays", "catalog-enums", "catalog-property-name
           new Response(typescript.stdout).text(), new Response(typescript.stderr).text(), typescript.exited,
         ]);
         expect(tsStatus, tsError).toBe(0);
-        const expected = fixture === "catalog-overlapping-properties"
+        const expected = fixture === "catalog-ref-siblings" ? [{
+          choice: "b", reverse: "b", annotated: "label",
+          details: { label: "label", count: 2, enabled: true },
+          requiredOnly: { label: "label", count: 2 }, array: ["b"],
+          arrayType: ["label"], objectType: { label: "label" }, typed: "b", union: "label",
+          combined: "b", requiredInAllOf: { label: "label", count: 2 },
+        }] : fixture === "catalog-overlapping-properties"
           ? Array.from({ length: 4 }, () => ({ value: "b", details: { label: "label", enabled: true, count: 2 } }))
           : [
             { label: "label", count: 2 },

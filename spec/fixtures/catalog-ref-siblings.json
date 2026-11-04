@@ -1,0 +1,202 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "catalogId": "urn:test:catalog-ref-siblings",
+  "title": "RefSiblings",
+  "$defs": {
+    "choice": {
+      "enum": [
+        "a",
+        "b"
+      ]
+    },
+    "otherChoice": {
+      "enum": [
+        "b",
+        "c"
+      ]
+    },
+    "text": {
+      "type": "string"
+    },
+    "details": {
+      "type": "object",
+      "properties": {
+        "label": {
+          "type": "string"
+        },
+        "count": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "label"
+      ]
+    },
+    "array": {
+      "type": "array",
+      "items": {
+        "enum": [
+          "a",
+          "b"
+        ]
+      }
+    },
+    "arrayItems": {
+      "items": {
+        "type": "string"
+      }
+    },
+    "objectFields": {
+      "properties": {
+        "label": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "label"
+      ]
+    },
+    "mixed": {
+      "enum": [
+        "b",
+        2
+      ]
+    },
+    "union": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "number"
+        }
+      ]
+    },
+    "component": {
+      "type": "object",
+      "properties": {
+        "choice": {
+          "$ref": "#/$defs/choice",
+          "enum": [
+            "b",
+            "c"
+          ]
+        },
+        "reverse": {
+          "$ref": "#/$defs/otherChoice",
+          "enum": [
+            "a",
+            "b"
+          ]
+        },
+        "annotated": {
+          "$ref": "#/$defs/text",
+          "title": "A title",
+          "description": "Text",
+          "default": "label",
+          "examples": [
+            "label"
+          ]
+        },
+        "details": {
+          "$ref": "#/$defs/details",
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "enabled",
+            "count"
+          ]
+        },
+        "requiredOnly": {
+          "$ref": "#/$defs/details",
+          "required": [
+            "count"
+          ]
+        },
+        "array": {
+          "$ref": "#/$defs/array",
+          "items": {
+            "enum": [
+              "b",
+              "c"
+            ]
+          }
+        },
+        "arrayType": {
+          "$ref": "#/$defs/arrayItems",
+          "type": "array"
+        },
+        "objectType": {
+          "$ref": "#/$defs/objectFields",
+          "type": "object"
+        },
+        "typed": {
+          "$ref": "#/$defs/mixed",
+          "type": "string"
+        },
+        "union": {
+          "$ref": "#/$defs/union",
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "boolean"
+            }
+          ]
+        },
+        "combined": {
+          "$ref": "#/$defs/choice",
+          "enum": [
+            "b",
+            "c"
+          ],
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "boolean"
+            }
+          ]
+        },
+        "requiredInAllOf": {
+          "$ref": "#/$defs/details",
+          "allOf": [
+            {
+              "required": [
+                "count"
+              ]
+            }
+          ]
+        }
+      },
+      "required": [
+        "choice",
+        "details"
+      ]
+    }
+  },
+  "components": {
+    "Ref": {
+      "$ref": "#/$defs/component",
+      "required": [
+        "choice",
+        "reverse",
+        "annotated",
+        "details",
+        "requiredOnly",
+        "array",
+        "arrayType",
+        "objectType",
+        "typed",
+        "union",
+        "combined",
+        "requiredInAllOf"
+      ]
+    }
+  }
+}

@@ -176,8 +176,8 @@ fn resolve(
             document
         };
         let key = format!("{}:{reference}", base.display());
-        let mut stack = stack.clone();
-        if !stack.insert(key) {
+        let mut target_stack = stack.clone();
+        if !target_stack.insert(key) {
             bail!("circular schema reference: {reference}");
         }
         if !fragment.is_empty() && !fragment.starts_with('/') {
@@ -186,28 +186,153 @@ fn resolve(
         let resolved = doc
             .pointer(fragment)
             .with_context(|| format!("unresolved JSON Schema fragment: #{fragment}"))?;
-        let mut merged = resolved
+        resolved
             .as_object()
-            .context("schema reference must resolve to an object")?
-            .clone();
-        for (key, value) in object {
-            if key != "$ref" {
-                merged.insert(key.clone(), value.clone());
-            }
-        }
-        return resolve(
-            &Value::Object(merged),
+            .context("schema reference must resolve to an object")?;
+        let target = resolve(
+            resolved,
             doc,
             path.as_deref().and_then(Path::parent).unwrap_or(base),
-            &stack,
+            &target_stack,
             depth + 1,
+        )?;
+        // Siblings belong to the referring document, including relative refs.
+        let siblings = Value::Object(
+            object
+                .iter()
+                .filter(|(key, _)| *key != "$ref")
+                .map(|(key, value)| (key.clone(), value.clone()))
+                .collect(),
         );
+        let siblings = resolve(&siblings, document, base, stack, depth + 1)?;
+        return Ok(compose_reference(target, siblings));
     }
     object
         .iter()
         .map(|(k, v)| Ok((k.clone(), resolve(v, document, base, stack, depth + 1)?)))
         .collect::<Result<Map<_, _>>>()
         .map(Value::Object)
+}
+// A local $ref and its siblings are conjunctive in JSON Schema 2020-12.
+// Do not overlay keyword maps: enum, required, properties and items can all
+// carry independent constraints on the same instance.
+fn compose_reference(mut target: Value, mut siblings: Value) -> Value {
+    fn annotations_only(schema: &Value) -> bool {
+        schema.as_object().is_some_and(|object| {
+            object.keys().all(|key| {
+                matches!(
+                    key.as_str(),
+                    "title"
+                        | "description"
+                        | "default"
+                        | "examples"
+                        | "deprecated"
+                        | "readOnly"
+                        | "writeOnly"
+                        | "$comment"
+                        | "$defs"
+                        | "$schema"
+                        | "$id"
+                )
+            })
+        })
+    }
+    fn known_type(schema: &Value) -> Option<&str> {
+        if schema.get("if").is_some() || schema.get("then").is_some() {
+            return None;
+        }
+        if let Some(kind) = schema["type"].as_str() {
+            return Some(kind);
+        }
+        if let Some(layers) = schema["allOf"].as_array() {
+            return layers.iter().find_map(known_type);
+        }
+        for keyword in ["anyOf", "oneOf"] {
+            if let Some(layers) = schema[keyword].as_array() {
+                let first = layers.first().and_then(known_type)?;
+                return layers
+                    .iter()
+                    .all(|layer| known_type(layer) == Some(first))
+                    .then_some(first);
+            }
+        }
+        None
+    }
+    fn normalize(mut schema: Value, inherited_type: Option<&str>) -> Value {
+        if schema.get("if").is_some() || schema.get("then").is_some() {
+            return schema;
+        }
+        let kind = known_type(&schema).or(inherited_type).map(str::to_owned);
+        let Some(object) = schema.as_object_mut() else {
+            return schema;
+        };
+        let mut constraints = Vec::new();
+        // Keep adjacent applicators and scalar assertions independent as well:
+        // ty's single-schema dispatch must not choose anyOf over a sibling enum.
+        for keyword in ["allOf", "anyOf", "oneOf", "enum"] {
+            if let Some(value) = object.remove(keyword) {
+                if keyword == "allOf" {
+                    if let Some(layers) = value.as_array() {
+                        constraints.extend(
+                            layers
+                                .iter()
+                                .cloned()
+                                .map(|layer| normalize(layer, kind.as_deref())),
+                        );
+                    } else {
+                        constraints.push(json!({keyword: value}));
+                    }
+                } else {
+                    let value = if keyword != "enum" {
+                        match value.as_array() {
+                            Some(layers) => Value::Array(
+                                layers
+                                    .iter()
+                                    .cloned()
+                                    .map(|layer| normalize(layer, kind.as_deref()))
+                                    .collect(),
+                            ),
+                            None => value,
+                        }
+                    } else {
+                        value
+                    };
+                    constraints.push(json!({keyword: value}));
+                }
+            }
+        }
+        if !annotations_only(&schema) {
+            // Partial keywords only receive a type already guaranteed by this
+            // conjunction. Required-only objects retain unknown field types.
+            if schema.get("type").is_none()
+                && let Some(kind) = kind
+            {
+                schema["type"] = json!(kind);
+            }
+            constraints.push(schema.clone());
+        }
+        let mut layers = constraints.into_iter();
+        let Some(mut result) = layers.next() else {
+            return schema;
+        };
+        for layer in layers {
+            intersect_schemas(&mut result, layer);
+        }
+        result
+    }
+    if annotations_only(&siblings) {
+        return target;
+    }
+    if annotations_only(&target) {
+        return siblings;
+    }
+    let kind = known_type(&target)
+        .or_else(|| known_type(&siblings))
+        .map(str::to_owned);
+    target = normalize(target, kind.as_deref());
+    siblings = normalize(siblings, kind.as_deref());
+    intersect_schemas(&mut target, siblings);
+    target
 }
 fn validate_enums(schema: &Value) -> Result<()> {
     if let Some(values) = schema.get("enum") {
@@ -359,7 +484,10 @@ fn ty(schema: &Value, lang: Language) -> Result<String> {
         return Ok(types[lang as usize].into());
     }
     if schema["type"] == "array" {
-        let item = ty(&schema["items"], lang)?;
+        let item = match schema.get("items") {
+            Some(items) => ty(items, lang)?,
+            None => ["unknown", "Any", "Value"][lang as usize].into(),
+        };
         return Ok(match lang {
             // Array suffixes bind more tightly than unions and intersections,
             // including compound types expanded from symbolic references.
@@ -369,23 +497,42 @@ fn ty(schema: &Value, lang: Language) -> Result<String> {
             Rs => format!("Vec<{item}>"),
         });
     }
-    if schema["type"] == "object"
-        && let Some(props) = schema["properties"].as_object()
-    {
+    if schema["type"] == "object" {
+        let mut props = schema["properties"]
+            .as_object()
+            .cloned()
+            .unwrap_or_default();
+        let required: BTreeSet<_> = schema["required"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+            .collect();
+        // A required-only sibling still requires the key, while its referenced
+        // schema supplies the property's type through the intersection.
+        for key in &required {
+            props.entry((*key).to_owned()).or_insert(Value::Null);
+        }
         return Ok(match lang {
+            Ts if props.is_empty() => "Record<string, unknown>".into(),
             Ts => format!(
                 "{{ {} }}",
                 props
                     .iter()
-                    .map(|(k, v)| {
-                        let required = schema["required"]
-                            .as_array()
-                            .is_some_and(|keys| keys.iter().any(|key| key.as_str() == Some(k)));
+                    .map(|(key, value)| {
                         Ok(format!(
                             "{}{}: {}",
-                            quote(k),
-                            if required { "" } else { "?" },
-                            ty(v, lang)?
+                            quote(key),
+                            if required.contains(key.as_str()) {
+                                ""
+                            } else {
+                                "?"
+                            },
+                            if schema["properties"].get(key).is_none() {
+                                "unknown".into()
+                            } else {
+                                ty(value, lang)?
+                            }
                         ))
                     })
                     .collect::<Result<Vec<_>>>()?
@@ -402,6 +549,9 @@ fn add_component_property(properties: &mut Map<String, Value>, name: &str, schem
         properties.insert(name.into(), schema);
         return;
     };
+    intersect_schemas(previous, schema);
+}
+fn intersect_schemas(previous: &mut Value, schema: Value) {
     if *previous == schema {
         return;
     }
@@ -713,6 +863,140 @@ mod tests {
     fn fixture() -> PathBuf {
         Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/catalog")
     }
+    #[test]
+    fn reference_siblings_keep_constraints_and_their_own_document_scope() {
+        let temp = tempfile::tempdir().unwrap();
+        let external = temp.path().join("external");
+        std::fs::create_dir(&external).unwrap();
+        std::fs::write(temp.path().join("sibling.json"), r#"{"type":"boolean"}"#).unwrap();
+        std::fs::write(external.join("target.json"), r#"{"type":"number"}"#).unwrap();
+        std::fs::write(
+            external.join("base.json"),
+            json!({
+                "$defs": {"choice": {"enum": ["a", "b"]}},
+                "type": "object", "properties": {"value": {"$ref": "#/$defs/choice"}, "fromFile": {"$ref": "target.json"}},
+                "required": ["value"]
+            })
+            .to_string(),
+        )
+        .unwrap();
+        let document = json!({
+            "$defs": {"choice": {"enum": ["b", "c"]}},
+            "$ref": "external/base.json",
+            "properties": {"value": {"$ref": "#/$defs/choice"}, "relative": {"$ref": "sibling.json"}},
+            "required": ["other"]
+        });
+        let resolved = resolve(&document, &document, temp.path(), &BTreeSet::new(), 0).unwrap();
+        assert_eq!(
+            resolved["allOf"][0]["properties"]["value"]["enum"],
+            json!(["a", "b"])
+        );
+        assert_eq!(
+            resolved["allOf"][1]["properties"]["value"]["enum"],
+            json!(["b", "c"])
+        );
+        assert_eq!(
+            resolved["allOf"][0]["properties"]["fromFile"]["type"],
+            "number"
+        );
+        assert_eq!(
+            resolved["allOf"][1]["properties"]["relative"]["type"],
+            "boolean"
+        );
+        let mut properties = Map::new();
+        let mut required = BTreeSet::new();
+        collect_component_properties(&resolved, &mut properties, &mut required).unwrap();
+        assert_eq!(required, BTreeSet::from(["value".into(), "other".into()]));
+        assert_eq!(
+            ty(&properties["value"], Language::Ts).unwrap(),
+            r#"("a" | "b") & ("b" | "c")"#
+        );
+    }
+
+    #[test]
+    fn unsupported_reference_siblings_fail_before_writing() {
+        let temp = tempfile::tempdir().unwrap();
+        let input = temp.path().join("input.json");
+        std::fs::write(
+            &input,
+            json!({
+                "$defs": {"value": {"type": "string"}},
+                "components": {"Bad": {"properties": {"value": {
+                    "$ref": "#/$defs/value", "enum": [{"unsupported": true}]
+                }}}}
+            })
+            .to_string(),
+        )
+        .unwrap();
+        let ts = temp.path().join("catalog.ts");
+        let py = temp.path().join("catalog.py");
+        let rs = temp.path().join("catalog.rs");
+        for output in [&ts, &py, &rs] {
+            std::fs::write(output, "existing").unwrap();
+        }
+        let error = generate(Options {
+            catalog: input,
+            name: None,
+            typescript: Some(ts.clone()),
+            python: Some(py.clone()),
+            rust: Some(rs.clone()),
+            check: false,
+        })
+        .unwrap_err();
+        assert!(error.to_string().contains("unsupported enum"));
+        for output in [ts, py, rs] {
+            assert_eq!(std::fs::read_to_string(output).unwrap(), "existing");
+        }
+    }
+
+    #[test]
+    fn reference_annotations_and_partial_constraints_remain_typable() {
+        let string = json!({"type": "string"});
+        assert_eq!(
+            compose_reference(
+                string.clone(),
+                json!({"description": "label", "title": "Title", "default": "ok", "examples": ["ok"]})
+            ),
+            string
+        );
+        for (target, sibling, expected) in [
+            (
+                json!({"type": "object", "properties": {"value": {"type": "string"}}}),
+                json!({"required": ["value"]}),
+                r#"{ "value"?: string } & { "value": unknown }"#,
+            ),
+            (
+                json!({"type": "array", "items": {"type": "string"}}),
+                json!({"items": {"enum": ["b"]}}),
+                r#"string[] & "b"[]"#,
+            ),
+            (
+                json!({"type": "string"}),
+                json!({"type": "number"}),
+                "string & number",
+            ),
+            (
+                json!({"allOf": [{"if": {}, "type": "string"}, {"type": "object", "properties": {"value": {"type": "string"}}}]}),
+                json!({"required": ["value"]}),
+                r#"{ "value"?: string } & { "value": unknown }"#,
+            ),
+        ] {
+            assert_eq!(
+                ty(&compose_reference(target, sibling), Language::Ts).unwrap(),
+                expected
+            );
+        }
+        // Null is not an unconstrained property schema; only absent definitions
+        // in required-only constraints receive an unknown type.
+        assert!(
+            ty(
+                &json!({"type": "object", "properties": {"bad": null}}),
+                Language::Ts
+            )
+            .is_err()
+        );
+    }
+
     #[test]
     fn overlapping_properties_preserve_every_constraint_and_deduplicate_identical_schemas() {
         let first = json!({"enum": ["a", "b"]});

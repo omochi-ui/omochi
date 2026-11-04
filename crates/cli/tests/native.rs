@@ -289,6 +289,61 @@ mod generated_property_names;
 mod generated_component_allof;
 
 #[allow(dead_code, unused_imports)]
+#[path = "fixtures/catalog-ref-siblings/expected.rs"]
+#[rustfmt::skip]
+mod generated_ref_siblings;
+
+#[tokio::test]
+async fn catalog_ref_siblings_preserve_values_and_compile() {
+    use generated_ref_siblings::RefProps;
+    use omochi_ui::ComponentProps;
+    use serde_json::json;
+
+    let root = tempfile::tempdir().unwrap();
+    let source = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let output = command(root.path())
+        .args(["generate", "catalog", "--catalog"])
+        .arg(source.join("../../spec/fixtures/catalog-ref-siblings.json"))
+        .arg("--rust")
+        .arg(root.path().join("catalog.rs"))
+        .output()
+        .await
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        std::fs::read(root.path().join("catalog.rs")).unwrap(),
+        include_bytes!("fixtures/catalog-ref-siblings/expected.rs")
+    );
+    let props = RefProps {
+        choice: json!("b"),
+        reverse: json!("b"),
+        annotated: "label".into(),
+        details: json!({"label": "label", "count": 2, "enabled": true}),
+        required_only: json!({"label": "label", "count": 2}),
+        array: json!(["b"]),
+        array_type: json!(["label"]),
+        object_type: json!({"label": "label"}),
+        typed: json!("b"),
+        union: json!("label"),
+        combined: json!("b"),
+        required_in_all_of: json!({"label": "label", "count": 2}),
+    };
+    assert_eq!(
+        json!(props.into_props()),
+        json!({
+            "choice": "b", "reverse": "b", "annotated": "label",
+            "details": {"label": "label", "count": 2, "enabled": true},
+            "requiredOnly": {"label": "label", "count": 2}, "array": ["b"],
+            "arrayType": ["label"], "objectType": {"label": "label"}, "typed": "b", "union": "label",
+            "combined": "b", "requiredInAllOf": {"label": "label", "count": 2}
+        })
+    );
+}
+
 #[path = "fixtures/catalog-overlapping-properties/expected.rs"]
 #[rustfmt::skip]
 mod generated_overlapping_properties;
