@@ -1,14 +1,28 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { access, mkdtemp, readFile, rm, mkdir } from "node:fs/promises";
 import { createConnection, Socket, type Server } from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { createInterface } from "node:readline";
+import { fileURLToPath } from "node:url";
 import { test } from "@omochi-ui/core/testing";
 
 import { schema, App } from "../src/index.js";
 import { UnixSocketServerTransport } from "../src/node/index.js";
 import type { JsonObject } from "../src/index.js";
+
+for (const runtime of ["node", "bun"]) {
+  test(`isolates a disconnect during Unix snapshot replay in ${runtime}`, () => {
+    const result = spawnSync(runtime, [
+      "--unhandled-rejections=strict",
+      fileURLToPath(new URL("./fixtures/unix-socket-disconnect.mjs", import.meta.url)),
+    ], { encoding: "utf8", timeout: 10_000 });
+    assert.ifError(result.error);
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.stdout.trim(), "disconnect isolated");
+  });
+}
 
 async function runtimeDir(t: import("@omochi-ui/core/testing").TestContext): Promise<string> {
   const directory = await mkdtemp(path.join(tmpdir(), "omochi-unix-"));

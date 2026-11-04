@@ -193,12 +193,20 @@ export class UnixSocketServerTransport implements Transport {
   private accept(socket: Socket): void {
     if (this.closed) { socket.destroy(); return; }
     this.clients.add(socket);
-    if (this.resources) socket.write(`${JSON.stringify(resourceHello())}\n`);
+    const lines = createInterface({ input: socket, crlfDelay: Infinity });
+    const disconnect = () => {
+      this.clients.delete(socket);
+      lines.close();
+      socket.destroy();
+    };
+    // readline re-emits input errors; handling only the socket leaves a fatal error.
+    lines.on("error", disconnect);
+    socket.on("error", disconnect);
+    socket.on("close", disconnect);
     socket.setNoDelay(true);
-    socket.on("error", () => this.clients.delete(socket));
-    socket.on("close", () => this.clients.delete(socket));
+    if (this.resources) socket.write(`${JSON.stringify(resourceHello())}\n`);
     for (const message of this.snapshot.messages()) socket.write(`${JSON.stringify(message)}\n`);
-    createInterface({ input: socket, crlfDelay: Infinity }).on("line", (line) => {
+    lines.on("line", (line) => {
       if (!line.trim()) return;
       try {
         const value: unknown = JSON.parse(line);
@@ -215,7 +223,7 @@ export class UnixSocketServerTransport implements Transport {
         if (!("action" in parsed.data)) return;
         this.enqueue(value as JsonObject);
       } catch {
-        socket.destroy();
+        disconnect();
       }
     });
   }
