@@ -27,6 +27,19 @@ fn adapter(attrs: &[syn::Attribute]) -> syn::Result<Option<syn::Path>> {
     }
     Ok(result)
 }
+fn string_literal(mut value: &syn::Expr) -> Option<&syn::LitStr> {
+    // Like Serde, unwrap only the invisible groups introduced by macro forwarding.
+    while let syn::Expr::Group(group) = value {
+        value = &group.expr;
+    }
+    match value {
+        syn::Expr::Lit(syn::ExprLit {
+            lit: syn::Lit::Str(literal),
+            ..
+        }) => Some(literal),
+        _ => None,
+    }
+}
 fn serde_name(attrs: &[syn::Attribute], key: &str) -> syn::Result<Option<String>> {
     for attr in attrs.iter().filter(|a| a.path().is_ident("serde")) {
         for meta in attr.parse_args_with(Punctuated::<Meta, Token![,]>::parse_terminated)? {
@@ -37,20 +50,16 @@ fn serde_name(attrs: &[syn::Attribute], key: &str) -> syn::Result<Option<String>
                     {
                         if let Meta::NameValue(nv) = nested {
                             if nv.path.is_ident("serialize") {
-                                if let syn::Expr::Lit(lit) = nv.value {
-                                    if let syn::Lit::Str(s) = lit.lit {
-                                        return Ok(Some(s.value()));
-                                    }
+                                if let Some(s) = string_literal(&nv.value) {
+                                    return Ok(Some(s.value()));
                                 }
                             }
                         }
                     }
                 }
                 if let Meta::NameValue(nv) = meta {
-                    if let syn::Expr::Lit(lit) = nv.value {
-                        if let syn::Lit::Str(s) = lit.lit {
-                            return Ok(Some(s.value()));
-                        }
+                    if let Some(s) = string_literal(&nv.value) {
+                        return Ok(Some(s.value()));
                     }
                 }
             }
@@ -272,18 +281,15 @@ fn expand(mut input: DeriveInput) -> syn::Result<proc_macro2::TokenStream> {
                     }
                     if let Meta::NameValue(nv) = meta {
                         if nv.path.is_ident("rename") {
-                            if let syn::Expr::Lit(lit) = &nv.value {
-                                if let syn::Lit::Str(s) = &lit.lit {
-                                    wire = s.value();
-                                }
+                            if let Some(s) = string_literal(&nv.value) {
+                                wire = s.value();
                             }
                         }
                         if nv.path.is_ident("skip_serializing_if") {
                             conditional = true;
-                            let syn::Expr::Lit(lit) = &nv.value else {
+                            let Some(s) = string_literal(&nv.value) else {
                                 continue;
                             };
-                            let syn::Lit::Str(s) = &lit.lit else { continue };
                             let mut predicate: syn::ExprPath = s.parse()?;
                             resolve_self.visit_expr_path_mut(&mut predicate);
                             let helper = format_ident!("__omochi_{}_skip_{}", name.unraw(), count);
@@ -625,5 +631,47 @@ fn rename_variant(name: &str, rule: &str) -> String {
             s
         }
         _ => name.into(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn grouped(value: syn::Expr) -> syn::Expr {
+        syn::Expr::Group(syn::ExprGroup {
+            attrs: Vec::new(),
+            group_token: Default::default(),
+            expr: Box::new(value),
+        })
+    }
+
+    #[test]
+    fn string_literals_unwrap_nested_invisible_groups_only() {
+        let value = grouped(grouped(parse_quote!("wire/~")));
+        assert_eq!(string_literal(&value).unwrap().value(), "wire/~");
+        for value in [
+            parse_quote!(("wire")),
+            parse_quote!(NAME),
+            parse_quote!(concat!("wi", "re")),
+            parse_quote!(17),
+        ] {
+            assert!(string_literal(&grouped(value)).is_none());
+        }
+    }
+
+    #[test]
+    fn forwarded_custom_container_serialization_still_requires_an_adapter() {
+        for key in [format_ident!("into"), format_ident!("remote")] {
+            let value = grouped(grouped(parse_quote!("Wire")));
+            let input = parse_quote! {
+                #[serde(#key = #value)]
+                struct Form { value: String }
+            };
+            assert_eq!(
+                expand(input).unwrap_err().to_string(),
+                "custom container serialization requires #[action_input(adapter = Path)]"
+            );
+        }
     }
 }
