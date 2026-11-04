@@ -91,6 +91,53 @@ fn is_phantom_data(mut ty: &syn::Type) -> bool {
 
 /// Types, bounds, and predicates keep referring to the original type in mirrors and helpers.
 struct ResolveSelf(syn::TypePath);
+impl ResolveSelf {
+    fn serde_bounds(&mut self, attrs: &mut [syn::Attribute]) -> syn::Result<()> {
+        fn rewrite(value: &mut syn::Expr, resolver: &mut ResolveSelf) -> syn::Result<()> {
+            let Some(literal) = string_literal(value) else {
+                return Ok(());
+            };
+            let mut predicates = literal
+                .parse_with(Punctuated::<syn::WherePredicate, Token![,]>::parse_terminated)?;
+            for predicate in &mut predicates {
+                resolver.visit_where_predicate_mut(predicate);
+            }
+            let literal = syn::LitStr::new(&quote!(#predicates).to_string(), literal.span());
+            *value = parse_quote!(#literal);
+            Ok(())
+        }
+
+        for attr in attrs.iter_mut().filter(|a| a.path().is_ident("serde")) {
+            let mut metas =
+                attr.parse_args_with(Punctuated::<Meta, Token![,]>::parse_terminated)?;
+            for meta in &mut metas {
+                if !meta.path().is_ident("bound") {
+                    continue;
+                }
+                match meta {
+                    Meta::NameValue(bound) => rewrite(&mut bound.value, self)?,
+                    Meta::List(bound) => {
+                        let mut directions = bound
+                            .parse_args_with(Punctuated::<Meta, Token![,]>::parse_terminated)?;
+                        for direction in &mut directions {
+                            if let Meta::NameValue(bound) = direction {
+                                if bound.path.is_ident("serialize")
+                                    || bound.path.is_ident("deserialize")
+                                {
+                                    rewrite(&mut bound.value, self)?;
+                                }
+                            }
+                        }
+                        bound.tokens = quote!(#directions);
+                    }
+                    Meta::Path(_) => {}
+                }
+            }
+            *attr = parse_quote!(#[serde(#metas)]);
+        }
+        Ok(())
+    }
+}
 impl VisitMut for ResolveSelf {
     // Items inside const expressions introduce their own Self scope.
     fn visit_item_mut(&mut self, _: &mut syn::Item) {}
@@ -184,6 +231,13 @@ fn expand(mut input: DeriveInput) -> syn::Result<proc_macro2::TokenStream> {
     let mut mirror = input.clone();
     mirror.ident = generated.clone();
     mirror.attrs.retain(|a| a.path().is_ident("serde"));
+    // Serde parses bound strings separately, outside the ordinary Rust syntax visitor.
+    resolve_self.serde_bounds(&mut mirror.attrs)?;
+    if let Data::Enum(data) = &mut mirror.data {
+        for variant in &mut data.variants {
+            resolve_self.serde_bounds(&mut variant.attrs)?;
+        }
+    }
     if serde_name(&input.attrs, "rename")?.is_none() {
         let wire_name = name.unraw().to_string();
         mirror
@@ -224,6 +278,7 @@ fn expand(mut input: DeriveInput) -> syn::Result<proc_macro2::TokenStream> {
         let mut serialized_index = 0usize;
         let mut stable_position = true;
         for (index, field) in fields.iter_mut().enumerate() {
+            resolve_self.serde_bounds(&mut field.attrs)?;
             let ty = field.ty.clone();
             let transparent_phantom = transparent && is_phantom_data(&ty);
             if skip || transparent_phantom {
@@ -658,6 +713,59 @@ mod tests {
         ] {
             assert!(string_literal(&grouped(value)).is_none());
         }
+    }
+
+    #[test]
+    fn serde_bounds_resolve_predicates_without_entering_inner_item_scopes() {
+        let value = grouped(grouped(parse_quote!(
+            "Self: DomainInput, Self::Value: Serialize, <Self as DomainInput>::Value: Serialize,
+             for<'a> &'a Self: Borrow<Self>, [u8; {
+                 struct Size;
+                 impl Size { const LEN: usize = Self::ONE; }
+                 Size::LEN
+             }]: Sized"
+        )));
+        let mut attrs = vec![parse_quote!(#[serde(bound(
+            serialize = #value,
+            deserialize = "Self: DomainInput"
+        ))])];
+        ResolveSelf(parse_quote!(Request<T>))
+            .serde_bounds(&mut attrs)
+            .unwrap();
+        let actual: syn::WhereClause = syn::parse_str(&format!(
+            "where {}",
+            serde_name(&attrs, "bound").unwrap().unwrap()
+        ))
+        .unwrap();
+        let expected: syn::WhereClause = parse_quote!(where
+            Request<T>: DomainInput,
+            <Request<T>>::Value: Serialize,
+            <Request<T> as DomainInput>::Value: Serialize,
+            for<'a> &'a Request<T>: Borrow<Request<T>>,
+            [u8; {
+                struct Size;
+                impl Size { const LEN: usize = Self::ONE; }
+                Size::LEN
+            }]: Sized
+        );
+        assert_eq!(actual, expected);
+
+        // Both bound directions are rewritten even though the mirror derives only Serialize.
+        let Meta::List(serde) = &attrs[0].meta else {
+            unreachable!()
+        };
+        let Meta::List(bound) = serde.parse_args::<Meta>().unwrap() else {
+            unreachable!()
+        };
+        let directions = bound
+            .parse_args_with(Punctuated::<Meta, Token![,]>::parse_terminated)
+            .unwrap();
+        let Meta::NameValue(deserialize) = &directions[1] else {
+            unreachable!()
+        };
+        let predicate: syn::WherePredicate =
+            string_literal(&deserialize.value).unwrap().parse().unwrap();
+        assert_eq!(predicate, parse_quote!(Request<T>: DomainInput));
     }
 
     #[test]
