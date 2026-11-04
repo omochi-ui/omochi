@@ -1,0 +1,33 @@
+{
+  "catalogId": "urn:test:catalog-component-allof",
+  "title": "Component Composition",
+  "components": {
+    "Sibling": {
+      "properties": {"label": {"type": "string"}, "note": {"type": "string"}},
+      "required": ["label"],
+      "allOf": [
+        {"properties": {"count": {"type": "number"}}, "required": ["count"]},
+        {"if": {"required": ["note"]}, "then": {"required": ["conditional"], "properties": {"conditional": {"type": "string"}}}}
+      ]
+    },
+    "Nested": {
+      "required": ["count", "isValid"],
+      "allOf": [{
+        "properties": {"label": {"type": "string"}},
+        "required": ["label"],
+        "allOf": [
+          {"$ref": "https://a2ui.org/specification/v0_9/common_types.json#/$defs/ComponentCommon"},
+          {"allOf": [
+            {"$ref": "https://a2ui.org/specification/v0_9/common_types.json#/$defs/Checkable"},
+            {"properties": {"count": {"type": "number"}, "note": {"type": "string"}, "id": {"type": "string"}, "component": {"type": "string"}}, "required": ["id", "component"]}
+          ]}
+        ]
+      }]
+    },
+    "Empty": {
+      "properties": {"label": {"type": "string"}},
+      "required": ["label"],
+      "allOf": []
+    }
+  }
+}

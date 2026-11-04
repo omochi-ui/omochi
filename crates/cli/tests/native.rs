@@ -283,6 +283,86 @@ mod generated_scalar_catalog;
 #[rustfmt::skip]
 mod generated_property_names;
 
+#[allow(dead_code, unused_imports)]
+#[path = "fixtures/catalog-component-allof/expected.rs"]
+#[rustfmt::skip]
+mod generated_component_allof;
+
+#[tokio::test]
+async fn catalog_component_allof_preserves_parent_and_nested_properties() {
+    use generated_component_allof::{EmptyProps, NestedProps, SiblingProps};
+    use omochi_ui::ComponentProps;
+    use serde_json::json;
+
+    let root = tempfile::tempdir().unwrap();
+    let source = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let output = command(root.path())
+        .args(["generate", "catalog", "--catalog"])
+        .arg(source.join("../../spec/fixtures/catalog-component-allof.json"))
+        .arg("--rust")
+        .arg(root.path().join("catalog.rs"))
+        .output()
+        .await
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    // Compile the exact current CLI output, then exercise its public conversion.
+    assert_eq!(
+        std::fs::read(root.path().join("catalog.rs")).unwrap(),
+        include_bytes!("fixtures/catalog-component-allof/expected.rs")
+    );
+    let sibling = SiblingProps {
+        label: "label".into(),
+        count: 2.0,
+        note: None,
+    };
+    let nested = NestedProps {
+        label: "label".into(),
+        count: 2.0,
+        is_valid: true,
+        note: None,
+        accessibility: None,
+        checks: None,
+        validation_errors: None,
+    };
+    assert_eq!(
+        json!(sibling.into_props()),
+        json!({"label": "label", "count": 2.0})
+    );
+    assert_eq!(
+        json!(nested.clone().into_props()),
+        json!({"label": "label", "count": 2.0, "isValid": true})
+    );
+    assert_eq!(
+        json!(
+            EmptyProps {
+                label: "label".into()
+            }
+            .into_props()
+        ),
+        json!({"label": "label"})
+    );
+    assert_eq!(
+        json!(
+            NestedProps {
+                note: Some("note".into()),
+                accessibility: Some(json!({"label": "accessible"})),
+                checks: Some(vec![]),
+                validation_errors: Some(vec!["error".into()]),
+                ..nested
+            }
+            .into_props()
+        ),
+        json!({
+            "label": "label", "count": 2.0, "isValid": true, "note": "note",
+            "accessibility": {"label": "accessible"}, "checks": [], "validationErrors": ["error"]
+        })
+    );
+}
+
 #[tokio::test]
 async fn catalog_rust_fields_serialize_with_the_original_property_names() {
     use generated_property_names::NamedProps;

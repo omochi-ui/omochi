@@ -296,6 +296,10 @@ Python preserves original property names, using functional `TypedDict` declarati
 for keywords such as `class` or keys such as `data-label` that cannot be class fields.
 Use dictionaries with these keys; required and optional fields retain their meaning.
 
+Component bindings collect properties and required fields from the component itself
+and every nested `allOf` layer, including common mixins. Fields inside conditional
+branches are not added as unconditional component properties.
+
 Python has no intersection type operator for property-level `allOf`. If all
 remaining layers generate the same Python type, that type is used (including
 `dict[str, Any]` for object layers); a single layer keeps its type. Other

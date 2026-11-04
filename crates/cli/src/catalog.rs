@@ -397,6 +397,42 @@ fn ty(schema: &Value, lang: Language) -> Result<String> {
     }
     bail!("unsupported schema fragment: {schema}")
 }
+fn collect_component_properties(
+    schema: &Value,
+    properties: &mut Map<String, Value>,
+    required: &mut BTreeSet<String>,
+) -> Result<()> {
+    if let Some(reference) = schema["$ref"].as_str() {
+        if reference.ends_with("/ComponentCommon") {
+            properties.insert("accessibility".into(), json!({"$ref":"https://a2ui.org/specification/v0_9/common_types.json#/$defs/AccessibilityAttributes"}));
+        } else if reference.ends_with("/Checkable") {
+            properties.insert("checks".into(), json!({"type":"array","items":{"$ref":"https://a2ui.org/specification/v0_9/common_types.json#/$defs/CheckRule"}}));
+            properties.insert("isValid".into(), json!({"type":"boolean"}));
+            properties.insert(
+                "validationErrors".into(),
+                json!({"type":"array","items":{"type":"string"}}),
+            );
+        } else {
+            bail!("unsupported component mixin: {reference}");
+        }
+    }
+    if let Some(props) = schema["properties"].as_object() {
+        for (key, value) in props {
+            if key != "component" && key != "id" {
+                properties.insert(key.clone(), value.clone());
+            }
+        }
+    }
+    if let Some(keys) = schema["required"].as_array() {
+        required.extend(keys.iter().filter_map(Value::as_str).map(str::to_owned));
+    }
+    if let Some(layers) = schema["allOf"].as_array() {
+        for layer in layers {
+            collect_component_properties(layer, properties, required)?;
+        }
+    }
+    Ok(())
+}
 fn model(catalog: Value, name: Option<&str>, hash: String) -> Result<Model> {
     let name = identifier(
         name.or_else(|| catalog["title"].as_str())
@@ -410,38 +446,9 @@ fn model(catalog: Value, name: Option<&str>, hash: String) -> Result<Model> {
         .as_object()
         .context("catalog must contain a components object")?
     {
-        let layers = schema["allOf"]
-            .as_array()
-            .cloned()
-            .unwrap_or_else(|| vec![schema.clone()]);
         let mut properties = Map::new();
         let mut required = BTreeSet::new();
-        for layer in layers {
-            if let Some(reference) = layer["$ref"].as_str() {
-                if reference.ends_with("/ComponentCommon") {
-                    properties.insert("accessibility".into(), json!({"$ref":"https://a2ui.org/specification/v0_9/common_types.json#/$defs/AccessibilityAttributes"}));
-                } else if reference.ends_with("/Checkable") {
-                    properties.insert("checks".into(), json!({"type":"array","items":{"$ref":"https://a2ui.org/specification/v0_9/common_types.json#/$defs/CheckRule"}}));
-                    properties.insert("isValid".into(), json!({"type":"boolean"}));
-                    properties.insert(
-                        "validationErrors".into(),
-                        json!({"type":"array","items":{"type":"string"}}),
-                    );
-                } else {
-                    bail!("unsupported component mixin: {reference}");
-                }
-            }
-            if let Some(props) = layer["properties"].as_object() {
-                for (key, value) in props {
-                    if key != "component" && key != "id" {
-                        properties.insert(key.clone(), value.clone());
-                    }
-                }
-            }
-            if let Some(keys) = layer["required"].as_array() {
-                required.extend(keys.iter().filter_map(Value::as_str).map(str::to_owned));
-            }
-        }
+        collect_component_properties(schema, &mut properties, &mut required)?;
         components.push(Component {
             name: component.clone(),
             properties: properties
