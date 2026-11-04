@@ -108,7 +108,7 @@ impl Hub {
                 if task.await.is_err() {
                     teardown_failed = true;
                 }
-                if hub.images.join_gateway(&id).await.is_err() {
+                if hub.images.join_revoked_gateway(&id).await.is_err() {
                     teardown_failed = true;
                 }
                 status.lock().await.remove(&id);
@@ -255,7 +255,7 @@ impl Hub {
             if task.await.is_err() {
                 failure = Some(anyhow::anyhow!("peer supervisor failed during shutdown"));
             }
-            if hub.images.join_gateway(&id).await.is_err() {
+            if hub.images.join_revoked_gateway(&id).await.is_err() {
                 status
                     .lock()
                     .await

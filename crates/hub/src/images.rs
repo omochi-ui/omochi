@@ -187,7 +187,19 @@ impl Https for PinnedHttps {
 pub(crate) struct ImageResolver {
     permits: Arc<Semaphore>,
     https: Arc<dyn Https>,
-    tasks: Arc<Mutex<BTreeMap<String, TaskTracker>>>,
+    tasks: Arc<Mutex<BTreeMap<ImageScope, ScopeTasks>>>,
+}
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
+struct ImageScope {
+    gateway: String,
+    // Both counters come from the Hub's monotonic epoch allocator; stdio uses
+    // instance zero and its own monotonic surface generation allocator.
+    instance: u64,
+    generation: u64,
+}
+struct ScopeTasks {
+    stop: CancellationToken,
+    tracker: TaskTracker,
 }
 impl Default for ImageResolver {
     fn default() -> Self {
@@ -231,13 +243,11 @@ impl ImageResolver {
             .split_once('~')
             .map_or("_", |(gateway, _)| gateway)
             .to_owned();
-        let tracker = self
-            .tasks
-            .lock()
-            .unwrap()
-            .entry(gateway)
-            .or_default()
-            .clone();
+        let scope = ImageScope {
+            gateway,
+            instance: handle.scope.instance,
+            generation: handle.scope.generation,
+        };
         let cancel = cancel.child_token();
         let guard = cancel.clone().drop_guard();
         let resolver = self.clone();
@@ -245,25 +255,56 @@ impl ImageResolver {
         let uri = uri.to_owned();
         // Register under the same state lock used by revocation. An acknowledgement
         // cannot race past a request which has been authorized but not registered.
-        let task = tracker.spawn(async move {
-            let _permit = permit;
-            resolver.fetch_inner(&handle, &uri, cancel).await
-        });
+        let task = {
+            let mut tasks = self.tasks.lock().unwrap();
+            // Also collect work whose caller was dropped before it could prune.
+            tasks.retain(|_, group| !group.tracker.is_empty());
+            let group = tasks.entry(scope).or_insert_with(|| ScopeTasks {
+                stop: handle.scope.stop.clone(),
+                tracker: TaskTracker::new(),
+            });
+            group.tracker.spawn(async move {
+                let _permit = permit;
+                resolver.fetch_inner(&handle, &uri, cancel).await
+            })
+        };
         drop(stdio);
         drop(state);
-        let result = task.await.map_err(|_| ImageError::Unavailable)?;
+        let result = task.await.map_err(|_| ImageError::Unavailable);
+        self.tasks
+            .lock()
+            .unwrap()
+            .retain(|_, group| !group.tracker.is_empty());
         drop(guard);
-        result
+        result?
     }
 
-    pub(crate) async fn join_gateway(&self, gateway: &str) -> Result<()> {
-        let tracker = self.tasks.lock().unwrap().get(gateway).cloned();
-        if let Some(tracker) = tracker {
+    pub(crate) async fn join_revoked_gateway(&self, gateway: &str) -> Result<()> {
+        // A registered standby may share a node with a live Unix owner. Only
+        // cancelled scopes belong to teardown, including older owner generations
+        // whose replacement has already taken over. Their state-locked validation
+        // prevents any new image registration after cancellation.
+        let trackers: Vec<_> = self
+            .tasks
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|(scope, group)| scope.gateway == gateway && group.stop.is_cancelled())
+            .map(|(scope, group)| (scope.clone(), group.tracker.clone()))
+            .collect();
+        for (_, tracker) in &trackers {
             tracker.close();
-            tokio::time::timeout(Duration::from_secs(10), tracker.wait())
-                .await
-                .map_err(|_| ImageError::Timeout)?;
-            self.tasks.lock().unwrap().remove(gateway);
+        }
+        tokio::time::timeout(Duration::from_secs(10), async {
+            for (_, tracker) in &trackers {
+                tracker.wait().await;
+            }
+        })
+        .await
+        .map_err(|_| ImageError::Timeout)?;
+        let mut tasks = self.tasks.lock().unwrap();
+        for (scope, _) in trackers {
+            tasks.remove(&scope);
         }
         Ok(())
     }
@@ -520,7 +561,7 @@ fn validate_image(bytes: Vec<u8>, mime: &str) -> Result<ImageData> {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use std::collections::VecDeque;
     use tokio::io::AsyncWriteExt;
@@ -786,6 +827,131 @@ mod tests {
     }
 
     struct PendingHttps;
+    pub(crate) fn pending_resolver() -> ImageResolver {
+        ImageResolver {
+            https: Arc::new(PendingHttps),
+            ..Default::default()
+        }
+    }
+
+    pub(crate) async fn wait_for_requests(resolver: &ImageResolver, count: usize) {
+        tokio::time::timeout(Duration::from_secs(1), async {
+            while resolver.permits.available_permits() != 2 - count {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+    }
+    pub(crate) fn active_requests(resolver: &ImageResolver) -> usize {
+        2 - resolver.permits.available_permits()
+    }
+
+    struct TeardownGate {
+        started: Option<tokio::sync::oneshot::Sender<()>>,
+        release: std::sync::mpsc::Receiver<()>,
+    }
+    impl Drop for TeardownGate {
+        fn drop(&mut self) {
+            // Keep the actual fetch task in destruction until the test releases
+            // it, so joining cannot pass merely because cancellation was sent.
+            let _ = self.started.take().unwrap().send(());
+            let _ = self.release.recv_timeout(Duration::from_secs(5));
+        }
+    }
+    struct GatedHttps {
+        gate: Mutex<Option<TeardownGate>>,
+        requested: tokio::sync::Notify,
+    }
+    impl Https for GatedHttps {
+        fn resolve<'a>(&'a self, _: &'a str) -> HostFuture<'a, Result<Vec<SocketAddr>>> {
+            Box::pin(async { Ok(vec!["8.8.8.8:443".parse().unwrap()]) })
+        }
+        fn get<'a>(
+            &'a self,
+            _: &'a Url,
+            _: &'a [SocketAddr],
+        ) -> HostFuture<'a, Result<HttpResponse>> {
+            Box::pin(async move {
+                let _gate = self.gate.lock().unwrap().take();
+                self.requested.notify_one();
+                std::future::pending().await
+            })
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn teardown_joins_old_scope_destruction_without_waiting_for_its_live_replacement() {
+        let (started, destroying) = tokio::sync::oneshot::channel();
+        let (release, wait) = std::sync::mpsc::channel();
+        let https = Arc::new(GatedHttps {
+            gate: Mutex::new(Some(TeardownGate {
+                started: Some(started),
+                release: wait,
+            })),
+            requested: tokio::sync::Notify::new(),
+        });
+        let mut hub = crate::Hub::new();
+        hub.images.https = https.clone();
+        crate::scoped::tests::install(&hub, Default::default()).await;
+        let mut old_subscription = hub.subscribe_scoped().await.unwrap();
+        let old = old_subscription
+            .next_batch()
+            .await
+            .unwrap()
+            .handle
+            .clone()
+            .unwrap();
+        let old_image = tokio::spawn(async move {
+            old.image("https://image.example/old", CancellationToken::new())
+                .await
+        });
+        https.requested.notified().await;
+
+        // Replacing the source cancels its scope under the state lock, but its
+        // network future has not finished destruction when the new owner starts.
+        crate::scoped::tests::install(&hub, Default::default()).await;
+        tokio::time::timeout(Duration::from_secs(1), destroying)
+            .await
+            .unwrap()
+            .unwrap();
+        let mut subscription = hub.subscribe_scoped().await.unwrap();
+        let handle = subscription
+            .next_batch()
+            .await
+            .unwrap()
+            .handle
+            .clone()
+            .unwrap();
+        let cancel = CancellationToken::new();
+        let image = tokio::spawn({
+            let cancel = cancel.clone();
+            async move { handle.image("https://image.example/new", cancel).await }
+        });
+        https.requested.notified().await;
+        let gateway = "a".repeat(64);
+        let join = hub.images.join_revoked_gateway(&gateway);
+        tokio::pin!(join);
+        assert!(
+            tokio::time::timeout(Duration::from_millis(50), &mut join)
+                .await
+                .is_err()
+        );
+        release.send(()).unwrap();
+        tokio::time::timeout(Duration::from_secs(1), join)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(matches!(
+            old_image.await.unwrap(),
+            Err(ImageError::Unavailable)
+        ));
+        assert!(!image.is_finished());
+        assert_eq!(active_requests(&hub.images), 1);
+        cancel.cancel();
+        assert!(matches!(image.await.unwrap(), Err(ImageError::Cancelled)));
+        assert!(hub.images.tasks.lock().unwrap().is_empty());
+    }
     impl Https for PendingHttps {
         fn resolve<'a>(&'a self, _: &'a str) -> HostFuture<'a, Result<Vec<SocketAddr>>> {
             Box::pin(async { Ok(vec!["8.8.8.8:443".parse().unwrap()]) })
@@ -894,7 +1060,10 @@ mod tests {
             Err(ImageError::Busy)
         ));
         hub.revoke_gateway(&"a".repeat(64)).await;
-        hub.images.join_gateway(&"a".repeat(64)).await.unwrap();
+        hub.images
+            .join_revoked_gateway(&"a".repeat(64))
+            .await
+            .unwrap();
         assert!(matches!(first.await.unwrap(), Err(ImageError::Unavailable)));
         assert!(matches!(
             second.await.unwrap(),

@@ -94,7 +94,8 @@ async fn unix_and_registered_iroh_share_services_and_fail_over_after_cleanup() {
             .listen_unix(socket.clone(), node.clone(), "gateway".into())
             .unwrap();
 
-        let hub = Hub::new();
+        let mut hub = Hub::new();
+        hub.images = images::tests::pending_resolver();
         let mut subscription = hub.subscribe().await;
         let local_stop = hub.stop.child_token();
         let local = tokio::spawn({
@@ -137,6 +138,15 @@ async fn unix_and_registered_iroh_share_services_and_fail_over_after_cleanup() {
         assert!(!original_lifetime.is_cancelled());
         update_through_action(&hub, &mut sdk, &mut subscription.events, &surface, 1).await;
 
+        let mut scoped = hub.subscribe_scoped().await.unwrap();
+        let handle = scoped.next_batch().await.unwrap().handle.clone().unwrap();
+        let image = tokio::spawn(async move {
+            handle
+                .image("https://image.example/local", CancellationToken::new())
+                .await
+        });
+        images::tests::wait_for_requests(&hub.images, 1).await;
+
         // Revoking a registered standby joins its connection before acknowledging
         // the store change, while the independently trusted Unix owner stays live.
         let peer = node.parse().unwrap();
@@ -149,6 +159,8 @@ async fn unix_and_registered_iroh_share_services_and_fail_over_after_cleanup() {
         );
         update_through_action(&hub, &mut sdk, &mut subscription.events, &surface, 2).await;
         assert!(!original_lifetime.is_cancelled());
+        assert!(!image.is_finished());
+        assert!(!hub.stop.is_cancelled());
         store.register_gateway(peer, "gateway").unwrap();
         loop {
             if hub
@@ -171,6 +183,10 @@ async fn unix_and_registered_iroh_share_services_and_fail_over_after_cleanup() {
         // tasks finish. The standby replays a fresh snapshot in delete/create order.
         local_stop.cancel();
         local.await.unwrap().unwrap();
+        assert!(matches!(
+            image.await.unwrap(),
+            Err(images::ImageError::Unavailable)
+        ));
         assert!(original_lifetime.is_cancelled());
         assert_eq!(
             subscription.events.recv().await.unwrap()["deleteSurface"]["surfaceId"],
@@ -190,6 +206,25 @@ async fn unix_and_registered_iroh_share_services_and_fail_over_after_cleanup() {
         );
         assert_eq!(hub.services().await[0]["node"]["local"], false);
         update_through_action(&hub, &mut sdk, &mut subscription.events, &surface, 3).await;
+
+        let mut scoped = hub.subscribe_scoped().await.unwrap();
+        let handle = scoped.next_batch().await.unwrap().handle.clone().unwrap();
+        let remote_image = tokio::spawn(async move {
+            handle
+                .image("https://image.example/remote", CancellationToken::new())
+                .await
+        });
+        images::tests::wait_for_requests(&hub.images, 1).await;
+        // This time iroh owns the source: its image task must finish destruction
+        // before forget receives the supervisor's acknowledgement.
+        omochi_transport::live::forget(store, peer, Duration::from_secs(3))
+            .await
+            .unwrap();
+        assert_eq!(images::tests::active_requests(&hub.images), 0);
+        assert!(matches!(
+            remote_image.await.unwrap(),
+            Err(images::ImageError::Unavailable)
+        ));
 
         hub.shutdown();
         registered.await.unwrap();
