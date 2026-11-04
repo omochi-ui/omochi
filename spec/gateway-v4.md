@@ -131,4 +131,10 @@ Status is `pairing`, `registered`, `failed`, `outcomeUnknown` or `savePending`.
 Jobs belong to their initiating owner grant and authenticated browser identity.
 Completed results expire after five minutes. Accepted enrollment proofs stay in
 hub memory for local save retry without redeeming the invitation again, until
-saved, revoked or shutdown. Trust revocation invalidates stale writes.
+saved, definitively rejected, revoked or shutdown. Name and role conflicts are
+checked before enrollment and again under the store lock at save time. A conflict
+introduced during enrollment ends the job as `failed`, allowing its initiating
+owner to start again with a different name or invitation; the invitation must
+still be valid. Transient storage errors or an unknown commit outcome remain
+`savePending` and retain the proof for local retry. Trust revocation invalidates
+stale writes.

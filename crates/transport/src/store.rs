@@ -33,6 +33,50 @@ pub struct Store {
     root: PathBuf,
 }
 
+/// A definite registration rejection, before any state is written. Other errors
+/// may be transient or leave the commit outcome unknown and can be retried.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GatewayRegistrationError {
+    InvalidName,
+    NameConflict,
+    RoleConflict,
+    AuthorizationChanged,
+}
+impl std::fmt::Display for GatewayRegistrationError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::InvalidName => "invalid gateway name",
+            Self::NameConflict => "gateway name already registered",
+            Self::RoleConflict => "peer role conflict",
+            Self::AuthorizationChanged => "authorization changed",
+        })
+    }
+}
+impl std::error::Error for GatewayRegistrationError {}
+
+impl State {
+    fn check_gateway_registration(&self, id: &str, name: &str) -> Result<()> {
+        if name.trim().is_empty() || name.len() > 256 {
+            return Err(GatewayRegistrationError::InvalidName.into());
+        }
+        if self
+            .peers
+            .iter()
+            .any(|(other, peer)| other != id && peer.name == name)
+        {
+            return Err(GatewayRegistrationError::NameConflict.into());
+        }
+        if self
+            .peers
+            .get(id)
+            .is_some_and(|peer| peer.role != Role::Gateway)
+        {
+            return Err(GatewayRegistrationError::RoleConflict.into());
+        }
+        Ok(())
+    }
+}
+
 fn key() -> String {
     let mut bytes = [0u8; 32];
     rand::rng().fill_bytes(&mut bytes);
@@ -171,32 +215,26 @@ impl Store {
     pub fn register_gateway(&self, endpoint: EndpointId, name: &str) -> Result<()> {
         self.register_gateway_guarded(endpoint, name, None)
     }
+    /// Check before contacting the gateway and capture the revocation watermark.
+    /// This does not reserve the name: registration rechecks under the write lock.
+    pub fn prepare_gateway_registration(&self, endpoint: EndpointId, name: &str) -> Result<u64> {
+        self.mutate(|s| {
+            s.check_gateway_registration(&endpoint.to_string(), name)?;
+            Ok(s.revocation_generation)
+        })
+    }
     pub fn register_gateway_guarded(
         &self,
         endpoint: EndpointId,
         name: &str,
         revocation: Option<u64>,
     ) -> Result<()> {
-        if name.trim().is_empty() || name.len() > 256 {
-            bail!("invalid gateway name")
-        }
         self.mutate(|s| {
             if revocation.is_some_and(|generation| generation != s.revocation_generation) {
-                bail!("authorization changed")
+                return Err(GatewayRegistrationError::AuthorizationChanged.into());
             }
             let id = endpoint.to_string();
-            if s.peers
-                .iter()
-                .any(|(other, peer)| other != &id && peer.name == name)
-            {
-                bail!("gateway name already registered")
-            }
-            if s.peers
-                .get(&id)
-                .is_some_and(|peer| peer.role != Role::Gateway)
-            {
-                bail!("peer role conflict")
-            }
+            s.check_gateway_registration(&id, name)?;
             s.peers.insert(
                 id,
                 Peer {
@@ -233,6 +271,61 @@ mod tests {
     use super::*;
     fn peer() -> EndpointId {
         SecretKey::from_bytes(&rand::random::<[u8; 32]>()).public()
+    }
+    #[test]
+    fn gateway_registration_rechecks_preflight_and_types_definite_rejections() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(dir.path().join("state")).unwrap();
+        let gateway = peer();
+        let other = peer();
+        let revocation = store.prepare_gateway_registration(gateway, "work").unwrap();
+        store.register_gateway(other, "work").unwrap();
+        let error = store
+            .prepare_gateway_registration(gateway, "work")
+            .unwrap_err();
+        assert_eq!(
+            error.downcast_ref(),
+            Some(&GatewayRegistrationError::NameConflict)
+        );
+        let error = store
+            .register_gateway_guarded(gateway, "work", Some(revocation))
+            .unwrap_err();
+        assert_eq!(
+            error.downcast_ref(),
+            Some(&GatewayRegistrationError::NameConflict)
+        );
+        assert!(!store.peers().unwrap().1.contains_key(&gateway.to_string()));
+        store.prepare_gateway_registration(other, "work").unwrap();
+        let error = store
+            .prepare_gateway_registration(gateway, " ")
+            .unwrap_err();
+        assert_eq!(
+            error.downcast_ref(),
+            Some(&GatewayRegistrationError::InvalidName)
+        );
+        let invitation = store.invite(0, 180).unwrap();
+        store.redeem(&invitation, gateway, "hub", 1).unwrap();
+        let error = store
+            .prepare_gateway_registration(gateway, "personal")
+            .unwrap_err();
+        assert_eq!(
+            error.downcast_ref(),
+            Some(&GatewayRegistrationError::RoleConflict)
+        );
+        let error = store.register_gateway(gateway, "personal").unwrap_err();
+        assert_eq!(
+            error.downcast_ref(),
+            Some(&GatewayRegistrationError::RoleConflict)
+        );
+        store.revoke_record(gateway).unwrap();
+        let error = store
+            .register_gateway_guarded(gateway, "personal", Some(revocation))
+            .unwrap_err();
+        assert_eq!(
+            error.downcast_ref(),
+            Some(&GatewayRegistrationError::AuthorizationChanged)
+        );
+        assert!(!store.peers().unwrap().1.contains_key(&gateway.to_string()));
     }
     #[test]
     fn redemption_is_durable_retryable_and_revocation_wins() {

@@ -3,7 +3,7 @@ use crate::{Hub, dashboards::ApiError, owners::OwnerStore};
 use omochi_transport::{
     Endpoint, EndpointId,
     pairing::{self, Invite},
-    store::Store,
+    store::{GatewayRegistrationError, Store},
 };
 use serde_json::{Value, json};
 use std::{
@@ -46,6 +46,19 @@ impl Hub {
 fn unavailable() -> ApiError {
     ApiError::new(503, "Gateway registration unavailable")
 }
+fn registration_error(error: anyhow::Error) -> ApiError {
+    match error.downcast_ref::<GatewayRegistrationError>() {
+        Some(GatewayRegistrationError::InvalidName) => ApiError::new(400, "Invalid gateway name"),
+        Some(GatewayRegistrationError::NameConflict) => {
+            ApiError::new(409, "Gateway name already registered")
+        }
+        Some(GatewayRegistrationError::RoleConflict) => ApiError::new(409, "Peer role conflict"),
+        Some(GatewayRegistrationError::AuthorizationChanged) => {
+            ApiError::new(403, "Gateway authorization changed")
+        }
+        None => unavailable(),
+    }
+}
 impl Service {
     pub async fn command(
         &self,
@@ -83,11 +96,13 @@ impl Service {
                     return Err(ApiError::new(400, "Invalid gateway name"));
                 }
                 let store = self.store.clone();
-                let revocation = omochi_transport::blocking::run(move || store.authorization())
-                    .await
-                    .map_err(|_| unavailable())?
-                    .map_err(|_| unavailable())?
-                    .1;
+                let (gateway, gateway_name) = (invite.gateway_id(), name.clone());
+                let revocation = omochi_transport::blocking::run(move || {
+                    store.prepare_gateway_registration(gateway, &gateway_name)
+                })
+                .await
+                .map_err(|_| unavailable())?
+                .map_err(registration_error)?;
                 let job = Job {
                     id: uuid::Uuid::new_v4().to_string(),
                     owner,
@@ -100,11 +115,12 @@ impl Service {
                     updated: Instant::now(),
                 };
                 let view = job.view();
+                let id = job.id.clone();
                 *slot = Some(job);
                 drop(slot);
                 let service = self.clone();
                 hub.browser_tasks.clone().spawn(async move {
-                    service.run(hub, owners, invite).await;
+                    service.run(hub, owners, invite, id).await;
                 });
                 Ok(view)
             }
@@ -143,7 +159,7 @@ impl Service {
             owners.authorize(&owner, &peer, || {
                 store
                     .register_gateway_guarded(id, &name, Some(revocation))
-                    .map_err(|_| unavailable())
+                    .map_err(registration_error)
             })
         })
         .await;
@@ -152,7 +168,7 @@ impl Service {
                 job.proof = false;
                 "registered"
             }
-            Ok(Err(error)) if error.0 == 403 => {
+            Ok(Err(error)) if matches!(error.0, 400 | 403 | 409) => {
                 job.proof = false;
                 "failed"
             }
@@ -163,7 +179,37 @@ impl Service {
     pub async fn retry(&self, owners: OwnerStore) {
         self.save(owners).await;
     }
-    async fn run(&self, hub: Hub, owners: OwnerStore, invite: Invite) {
+    async fn retain_proof(&self, owners: OwnerStore, id: &str) -> bool {
+        let mut slot = self.job.lock().await;
+        let Some(job) = slot.as_mut().filter(|job| job.id == id && job.proof) else {
+            return false;
+        };
+        let (owner, peer, store, revocation) = (
+            job.owner.clone(),
+            job.peer.clone(),
+            self.store.clone(),
+            job.revocation,
+        );
+        let result = omochi_transport::blocking::run(move || {
+            owners.authorize(&owner, &peer, || {
+                if store.authorization().map_err(|_| unavailable())?.1 != revocation {
+                    return Err(ApiError::new(403, "Gateway authorization changed"));
+                }
+                Ok(())
+            })
+        })
+        .await;
+        if matches!(result, Ok(Err(error)) if error.0 == 403) {
+            job.proof = false;
+            job.status = "failed";
+            job.updated = Instant::now();
+            return false;
+        }
+        // A failed read cannot establish revocation. Retain the proof; saving
+        // still rechecks authority and the watermark under their respective locks.
+        true
+    }
+    async fn run(&self, hub: Hub, owners: OwnerStore, invite: Invite, id: String) {
         let enrollment = pairing::enroll(&self.endpoint, invite, "Omochi Hub");
         tokio::pin!(enrollment);
         let mut check = tokio::time::interval(Duration::from_millis(250));
@@ -194,35 +240,7 @@ impl Service {
             // Drop retained proofs promptly when owner authority or trust changes.
             loop {
                 tokio::select! { _ = hub.stop.cancelled() => break, _ = tokio::time::sleep(Duration::from_millis(250)) => {} }
-                let mut slot = self.job.lock().await;
-                let Some(job) = slot.as_mut() else { break };
-                if !job.proof {
-                    break;
-                }
-                let (owner, peer, grants, store, revocation) = (
-                    job.owner.clone(),
-                    job.peer.clone(),
-                    owners.clone(),
-                    self.store.clone(),
-                    job.revocation,
-                );
-                if !matches!(
-                    omochi_transport::blocking::run(move || grants.authorize(
-                        &owner,
-                        &peer,
-                        || {
-                            if store.authorization().map_err(|_| unavailable())?.1 != revocation {
-                                return Err(unavailable());
-                            }
-                            Ok(())
-                        }
-                    ))
-                    .await,
-                    Ok(Ok(()))
-                ) {
-                    job.proof = false;
-                    job.status = "failed";
-                    job.updated = Instant::now();
+                if !self.retain_proof(owners.clone(), &id).await {
                     break;
                 }
             }
@@ -286,6 +304,25 @@ mod tests {
                 .await
                 .is_err()
         );
+        let existing = hub_store.identity(Role::Gateway).unwrap().public();
+        hub_store.register_gateway(existing, "test").unwrap();
+        let error = control
+            .execute_owner(
+                grant.id.clone(),
+                peer.clone(),
+                Command::GatewayPairStart {
+                    invitation: invitation.clone(),
+                    name: "test".into(),
+                },
+            )
+            .await
+            .unwrap_err();
+        assert_eq!(error.0, 409);
+        // Rejection happens before an enrollment task can contact the gateway.
+        assert!(hub.browser_tasks.is_empty());
+        let service = hub.pairing.read().unwrap().clone().unwrap();
+        assert!(service.job.lock().await.is_none());
+        hub_store.register_gateway(existing, "existing").unwrap();
         let gs = gateway_store.clone();
         let server = tokio::spawn(async move {
             let connection = gateway.accept().await.unwrap().await.unwrap();
@@ -355,22 +392,167 @@ mod tests {
 #[cfg(test)]
 mod recovery_tests {
     use super::*;
+    use crate::control::{Command, HubControl};
     use omochi_transport::store::Role;
+
+    async fn wait_for_status(
+        control: &HubControl,
+        owner: &str,
+        peer: &str,
+        id: &str,
+        status: &str,
+    ) {
+        tokio::time::timeout(Duration::from_secs(15), async {
+            loop {
+                let view = control
+                    .execute_owner(
+                        owner.into(),
+                        peer.into(),
+                        Command::GatewayPairStatus { id: id.into() },
+                    )
+                    .await
+                    .unwrap();
+                if view["status"] == status {
+                    break;
+                }
+                assert!(view["status"] == "pairing" || view["status"] == "savePending");
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+    }
+
+    #[tokio::test]
+    async fn name_conflict_during_enrollment_releases_job_for_its_owner() {
+        let temp = tempfile::tempdir().unwrap();
+        let store = Store::open(temp.path().join("hub")).unwrap();
+        let gateway_store = Store::open(temp.path().join("gateway")).unwrap();
+        let endpoint = omochi_transport::bind(store.identity(Role::Hub).unwrap(), true, None)
+            .await
+            .unwrap();
+        let gateway =
+            omochi_transport::bind(gateway_store.identity(Role::Gateway).unwrap(), true, None)
+                .await
+                .unwrap();
+        let gateway_id = gateway.id();
+        let invitation = Invite::issue(&gateway_store, &gateway)
+            .unwrap()
+            .encode()
+            .unwrap();
+        let boards = crate::dashboards::DashboardStore::open(temp.path().join("boards")).unwrap();
+        let owners = boards.owners();
+        let (owner, secret) = owners.create().unwrap();
+        let peer = "a".repeat(64);
+        owners.redeem(&owner.id, &secret, &peer).unwrap();
+        let (other_owner, other_secret) = owners.create().unwrap();
+        let other_peer = "b".repeat(64);
+        owners
+            .redeem(&other_owner.id, &other_secret, &other_peer)
+            .unwrap();
+        let hub = Hub::new();
+        hub.configure_pairing(endpoint.clone(), store.clone());
+        let control = HubControl {
+            hub: hub.clone(),
+            boards,
+        };
+        let conflict_store = store.clone();
+        let server = tokio::spawn(async move {
+            let connection = gateway.accept().await.unwrap().await.unwrap();
+            // The connection proves preflight has passed. Introduce the conflict
+            // before allowing enrollment to complete and its proof to be saved.
+            let other = conflict_store.identity(Role::Gateway).unwrap().public();
+            conflict_store.register_gateway(other, "work").unwrap();
+            pairing::accept(connection, gateway_store.clone())
+                .await
+                .unwrap();
+            let connection = gateway.accept().await.unwrap().await.unwrap();
+            pairing::accept(connection, gateway_store).await.unwrap();
+            gateway
+        });
+        let first = control
+            .execute_owner(
+                owner.id.clone(),
+                peer.clone(),
+                Command::GatewayPairStart {
+                    invitation: invitation.clone(),
+                    name: "work".into(),
+                },
+            )
+            .await
+            .unwrap();
+        let first_id = first["id"].as_str().unwrap();
+        wait_for_status(&control, &owner.id, &peer, first_id, "failed").await;
+        let service = hub.pairing.read().unwrap().clone().unwrap();
+        assert!(!service.job.lock().await.as_ref().unwrap().proof);
+        assert!(
+            !store
+                .peers()
+                .unwrap()
+                .1
+                .contains_key(&gateway_id.to_string())
+        );
+        let error = control
+            .execute_owner(
+                other_owner.id.clone(),
+                other_peer.clone(),
+                Command::GatewayPairStatus {
+                    id: first_id.into(),
+                },
+            )
+            .await
+            .unwrap_err();
+        assert_eq!(error.0, 404);
+        let error = control
+            .execute_owner(
+                other_owner.id,
+                other_peer,
+                Command::GatewayPairStart {
+                    invitation: invitation.clone(),
+                    name: "personal".into(),
+                },
+            )
+            .await
+            .unwrap_err();
+        assert_eq!(error.0, 409);
+        let second = control
+            .execute_owner(
+                owner.id.clone(),
+                peer.clone(),
+                Command::GatewayPairStart {
+                    invitation,
+                    name: "personal".into(),
+                },
+            )
+            .await
+            .unwrap();
+        assert_ne!(first["id"], second["id"]);
+        wait_for_status(
+            &control,
+            &owner.id,
+            &peer,
+            second["id"].as_str().unwrap(),
+            "registered",
+        )
+        .await;
+        assert_eq!(
+            store.peers().unwrap().1[&gateway_id.to_string()].name,
+            "personal"
+        );
+        hub.shutdown();
+        endpoint.close().await;
+        server.await.unwrap().close().await;
+    }
+
     #[tokio::test]
     async fn confirmed_proof_retries_locally_but_revocation_blocks_stale_save() {
         let temp = tempfile::tempdir().unwrap();
         let store = Store::open(temp.path().join("hub")).unwrap();
-        let other = Store::open(temp.path().join("other"))
-            .unwrap()
-            .identity(Role::Gateway)
-            .unwrap()
-            .public();
         let target = Store::open(temp.path().join("target"))
             .unwrap()
             .identity(Role::Gateway)
             .unwrap()
             .public();
-        store.register_gateway(other, "duplicate").unwrap();
         let boards = crate::dashboards::DashboardStore::open(temp.path().join("boards")).unwrap();
         let owners = boards.owners();
         let (grant, secret) = owners.create().unwrap();
@@ -388,18 +570,28 @@ mod recovery_tests {
                 peer,
                 status: "savePending",
                 gateway: target,
-                name: "duplicate".into(),
+                name: "target".into(),
                 revocation: store.authorization().unwrap().1,
                 proof: true,
                 updated: Instant::now(),
             }))),
         };
+        // Make the durable state temporarily unreadable without discarding it.
+        let path = temp.path().join("hub/state.json");
+        let backup = temp.path().join("hub/state.backup");
+        std::fs::rename(&path, &backup).unwrap();
+        std::fs::create_dir(&path).unwrap();
         service.save(owners.clone()).await;
         assert_eq!(
             service.job.lock().await.as_ref().unwrap().status,
             "savePending"
         );
-        store.register_gateway(other, "renamed").unwrap();
+        assert!(service.job.lock().await.as_ref().unwrap().proof);
+        assert!(service.retain_proof(owners.clone(), "job").await);
+        assert!(!service.retain_proof(owners.clone(), "old-job").await);
+        assert!(service.job.lock().await.as_ref().unwrap().proof);
+        std::fs::remove_dir(&path).unwrap();
+        std::fs::rename(&backup, &path).unwrap();
         service.save(owners.clone()).await;
         assert_eq!(
             service.job.lock().await.as_ref().unwrap().status,
@@ -414,8 +606,17 @@ mod recovery_tests {
         store.revoke_record(target).unwrap();
         service.save(owners.clone()).await;
         assert!(!store.peers().unwrap().1.contains_key(&target.to_string()));
+        assert_eq!(service.job.lock().await.as_ref().unwrap().status, "failed");
+        assert!(!service.job.lock().await.as_ref().unwrap().proof);
+        {
+            let mut slot = service.job.lock().await;
+            let job = slot.as_mut().unwrap();
+            job.proof = true;
+            job.status = "savePending";
+            job.revocation = store.authorization().unwrap().1;
+        }
         owners.revoke(&grant.id).unwrap();
-        service.save(owners).await;
+        assert!(!service.retain_proof(owners, "job").await);
         let slot = service.job.lock().await;
         assert_eq!(slot.as_ref().unwrap().status, "failed");
         assert!(!slot.as_ref().unwrap().proof);
