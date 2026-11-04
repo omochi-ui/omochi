@@ -7,10 +7,19 @@ from dataclasses import dataclass
 from typing import TypedDict
 from pathlib import Path
 
-from omochi_ui import schema, Expr, InputSchema, ActionContext, UI, App, DeclarationError
+from omochi_ui import schema, Expr, InputSchema, ActionContext, UI, App, CallbackTransport, DeclarationError, ProtocolError
 
 ROOT = Path(__file__).parents[4]
 FIXTURE = json.loads((ROOT / "spec/fixtures/basic.json").read_text())
+CLIENT_ERRORS = json.loads((ROOT / "spec/fixtures/client-errors.json").read_text())
+
+
+def messages_transport(messages, sent=None):
+    async def send(message):
+        if sent is not None: sent.append(message)
+    async def receive():
+        for message in messages: yield message
+    return CallbackTransport(send, receive)
 
 @dataclass
 class RunInput:
@@ -39,6 +48,43 @@ def make_runtime():
     return app.build(), state
 
 class RuntimeTests(unittest.TestCase):
+    def test_client_reports_allow_subsequent_actions(self):
+        async def scenario(report):
+            runtime, state = make_runtime()
+            self.assertEqual(await runtime.handle(report), [])
+            sent = []
+            await runtime.start(messages_transport([report, FIXTURE["action"]], sent))
+            self.assertEqual(state["temperature"], 75)
+            self.assertEqual(sent[1:], FIXTURE["initialMessages"] + FIXTURE["afterActionMessages"])
+        for report in CLIENT_ERRORS["reports"]:
+            with self.subTest(report=report): asyncio.run(scenario(report))
+
+    def test_malformed_reports_and_unknown_messages_stop_receive_loop(self):
+        async def scenario(message):
+            runtime, state = make_runtime()
+            with self.assertRaises(ProtocolError): await runtime.handle(message)
+            with self.assertRaises(ProtocolError):
+                await runtime.start(messages_transport([message, FIXTURE["action"]]))
+            self.assertEqual(state["temperature"], 50)
+        for message in CLIENT_ERRORS["invalid"]:
+            with self.subTest(message=message): asyncio.run(scenario(message))
+
+    def test_client_reports_do_not_mask_handler_failures(self):
+        async def scenario(failure):
+            app = App({})
+            calls = []
+            @app.action("fail", schema=schema.literal(None))
+            def fail(_, context):
+                calls.append(True)
+                raise failure
+            action = {"type": "invoke", "action": "fail"}
+            with self.assertRaises(type(failure)) as caught:
+                await app.build().start(messages_transport(CLIENT_ERRORS["reports"] + [action, action]))
+            self.assertIs(caught.exception, failure)
+            self.assertEqual(calls, [True])
+        for failure in [RuntimeError("handler failed"), ProtocolError("handler failed")]:
+            asyncio.run(scenario(failure))
+
     def test_shared_fixture(self):
         runtime, state = make_runtime()
         self.assertEqual(runtime.render(), FIXTURE["initialMessages"])

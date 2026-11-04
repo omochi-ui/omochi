@@ -1,0 +1,23 @@
+{
+  "reports": [
+    { "version": "v0.9", "error": { "code": "VALIDATION_FAILED", "surfaceId": "main", "path": "/x", "message": "bad" } },
+    { "version": "v0.9", "error": { "code": "RENDER_FAILED", "surfaceId": "main", "message": "unsupported component", "componentId": "x" }, "metadata": {} },
+    { "version": "v0.9", "error": { "code": 42, "surfaceId": "main", "message": "generic error codes need not be strings" } }
+  ],
+  "invalid": [
+    {},
+    { "version": "v0.9", "unknown": {} },
+    { "error": { "code": "RENDER_FAILED", "surfaceId": "main", "message": "bad" } },
+    { "version": "v0.9.1", "error": { "code": "RENDER_FAILED", "surfaceId": "main", "message": "bad" } },
+    { "version": "v0.9", "error": null },
+    { "version": "v0.9", "error": [] },
+    { "version": "v0.9", "error": { "surfaceId": "main", "message": "missing code" } },
+    { "version": "v0.9", "error": { "code": "RENDER_FAILED", "message": "missing surface" } },
+    { "version": "v0.9", "error": { "code": "RENDER_FAILED", "surfaceId": 1, "message": "bad surface" } },
+    { "version": "v0.9", "error": { "code": "RENDER_FAILED", "surfaceId": "main", "message": null } },
+    { "version": "v0.9", "error": { "code": "VALIDATION_FAILED", "surfaceId": "main", "message": "missing path" } },
+    { "version": "v0.9", "error": { "code": "VALIDATION_FAILED", "surfaceId": "main", "path": 1, "message": "bad path" } },
+    { "version": "v0.9", "error": { "code": "VALIDATION_FAILED", "surfaceId": "main", "path": "/x", "message": "bad", "extra": true } },
+    { "version": "v0.9", "error": { "code": "RENDER_FAILED", "surfaceId": "main", "message": "ambiguous message" }, "action": { "name": "run", "context": { "input": { "temperature": 75 } } } }
+  ]
+}
