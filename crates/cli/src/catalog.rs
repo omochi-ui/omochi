@@ -416,6 +416,9 @@ fn ty_schema(schema: &Value, lang: Language) -> Result<String> {
             values[0].clone()
         } else if lang == Rs {
             "Value".into()
+        } else if values.is_empty() {
+            // Ignored conditional layers leave no static constraint.
+            "unknown".into()
         } else {
             // Intersections bind more tightly than unions, including unions
             // expanded from enum schemas and symbolic references.
@@ -1139,6 +1142,28 @@ mod tests {
         // Unconstrained layers remain outside the supported schema subset.
         for schema in [json!({"allOf": [{}]}), json!({"allOf": [true]})] {
             assert!(ty(&schema, Language::Py).is_err());
+        }
+    }
+    #[test]
+    fn typescript_allof_without_unconditional_layers_uses_unknown() {
+        let conditional = json!({"allOf": [{"if": {"type": "string"}, "then": {"minLength": 1}}]});
+        for schema in [json!({"allOf": []}), conditional.clone()] {
+            assert_eq!(ty(&schema, Language::Ts).unwrap(), "unknown");
+            assert_eq!(ty(&schema, Language::Py).unwrap(), "Any");
+            assert_eq!(ty(&schema, Language::Rs).unwrap(), "Value");
+        }
+        for (schema, expected) in [
+            (json!({"type": "array", "items": conditional}), "unknown[]"),
+            (
+                json!({"anyOf": [conditional, {"type": "string"}]}),
+                "unknown | string",
+            ),
+            (
+                json!({"allOf": [conditional, {"type": "string"}]}),
+                "unknown & string",
+            ),
+        ] {
+            assert_eq!(ty(&schema, Language::Ts).unwrap(), expected);
         }
     }
     #[test]

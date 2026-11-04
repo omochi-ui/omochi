@@ -108,7 +108,7 @@ for (const fixture of ["catalog-arrays", "catalog-enums", "catalog-property-name
   });
 }
 
-test("native Python empty and conditional allOf annotations evaluate", {
+test("native empty and conditional allOf bindings compile and annotations evaluate", {
   skip: !process.env.OMOCHI_NATIVE_TEST,
 }, async (t) => {
   const root = await mkdtemp(join(tmpdir(), "omochi-catalog-allof-"));
@@ -119,7 +119,7 @@ test("native Python empty and conditional allOf annotations evaluate", {
   await writeFile(join(root, "input.json"), JSON.stringify({
     components: { Edge: { properties: {
       empty: { allOf: [] },
-      conditional: { allOf: [{ if: {}, then: {} }] },
+      conditional: { allOf: [{ if: { type: "string" }, then: { minLength: 1 } }] },
       array: { type: "array", items: { allOf: [] } },
       union: { oneOf: [{ allOf: [] }, { type: "string" }] },
     } } },
@@ -128,9 +128,33 @@ test("native Python empty and conditional allOf annotations evaluate", {
     join(workspace, "crates/target", profile, "omochi-ui"),
     "generate", "catalog", "--catalog", join(root, "input.json"),
     "--python", join(root, "catalog.py"),
+    "--typescript", join(root, "catalog.ts"),
   ], { stdout: "pipe", stderr: "pipe" });
   const generationError = await new Response(generate.stderr).text();
   expect(await generate.exited, generationError).toBe(0);
+  await symlink(join(workspace, "node_modules"), join(root, "node_modules"));
+  await writeFile(join(root, "usage.ts"), `
+import type { EdgeProps } from "./catalog.js";
+const props: EdgeProps = { empty: {}, conditional: 42, array: [true], union: null };
+// @ts-expect-error An ignored conditional yields unknown, which requires narrowing.
+const value: string = props.conditional;
+void value;
+`);
+  await writeFile(join(root, "tsconfig.json"), JSON.stringify({
+    compilerOptions: {
+      target: "ES2023", module: "Preserve", moduleResolution: "Bundler",
+      strict: true, noEmit: true, skipLibCheck: true, types: [],
+    },
+    files: ["catalog.ts", "usage.ts"],
+  }));
+  const compile = Bun.spawn([
+    process.execPath, join(workspace, "node_modules/typescript/bin/tsc"),
+    "--project", join(root, "tsconfig.json"), "--pretty", "false",
+  ], { stdout: "pipe", stderr: "pipe" });
+  const [stdout, stderr, status] = await Promise.all([
+    new Response(compile.stdout).text(), new Response(compile.stderr).text(), compile.exited,
+  ]);
+  expect(status, stdout + stderr).toBe(0);
   const python = Bun.spawn(["python3", "-B", "-c", `
 from typing import Any, get_type_hints
 from catalog import EdgeProps
