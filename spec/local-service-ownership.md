@@ -18,10 +18,14 @@ manifest stay unchanged. A service id has one owner across all publisher types.
 4. Hold the descriptor until advertisement/socket cleanup and listener shutdown
    finish. A failed contender never removes the owner's directory. Completed
    transports forget their cleanup ownership before allowing a successor.
-5. Close the descriptor to release the lock. **Never unlink or replace the lock
-   file**, even after a crash or normal close: all contenders must lock the same
-   inode. The kernel releases ownership when a process dies. The next owner can
-   recover the stale socket while holding the same lock.
+5. Release the lock and close the descriptor. Rust and Python explicitly call
+   `flock(LOCK_UN)` before closing: a concurrent fork can retain the same open file
+   description until exec, even with CLOEXEC, so close alone can delay a successor.
+   TypeScript closes its descriptor through the Node/Bun transport. **Never unlink
+   or replace the lock file**, even after a crash or normal close: all contenders
+   must lock the same inode. After a crash the kernel releases ownership when the
+   last reference to the open file description closes. The next owner can recover
+   the stale socket while holding the same lock.
 
 These guarantees apply to publisher versions implementing this agreement. Older
 publishers ignore the advisory lock; a live older socket is detected by the probe,
@@ -56,4 +60,6 @@ leaves each publisher's real socket behind. Each SDK also has same-process
 lifecycle regressions, including controlled bind and cleanup boundaries. Native
 utility tests add same-process SDK contention, cancelled close, supervisor abort,
 and successor ownership after close, while checking that the lock inode survives
-cleanup.
+cleanup. Rust and Python regressions retain a duplicated descriptor through owner
+shutdown to reproduce fork inheritance deterministically, and verify that the
+successor is immediately available while that descriptor remains open.

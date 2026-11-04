@@ -26,6 +26,29 @@ struct State {
     snapshot: A2uiSnapshot,
     events: fanout::Sender,
 }
+struct ServiceLock(fs::File);
+impl ServiceLock {
+    fn acquire(root: &Path, service_id: &str) -> Result<Self> {
+        let file = fs::OpenOptions::new()
+            .create(true)
+            .truncate(false)
+            .read(true)
+            .write(true)
+            .mode(0o600)
+            .open(root.join(format!(".{service_id}.lock~")))?;
+        file.try_lock_exclusive()
+            .context("another omochi service owns this service id")?;
+        Ok(Self(file))
+    }
+}
+impl Drop for ServiceLock {
+    fn drop(&mut self) {
+        // A concurrent fork can inherit this open file description until exec,
+        // even with CLOEXEC. Closing our fd alone would leave its flock held.
+        // Release explicitly after publication cleanup, then close our fd.
+        let _ = FileExt::unlock(&self.0);
+    }
+}
 struct OwnedFiles {
     directory: PathBuf,
     socket: PathBuf,
@@ -51,7 +74,7 @@ impl Drop for OwnedFiles {
 struct Publication {
     listener: UnixListener,
     _files: OwnedFiles,
-    _lock: fs::File,
+    _lock: ServiceLock,
 }
 impl Publication {
     async fn accept(&self) -> std::io::Result<(UnixStream, tokio::net::unix::SocketAddr)> {
@@ -85,15 +108,7 @@ impl LocalTransport {
             .runtime_dir
             .unwrap_or_else(omochi_ui::omochi_runtime_root);
         private(&root)?;
-        let lock = fs::OpenOptions::new()
-            .create(true)
-            .truncate(false)
-            .read(true)
-            .write(true)
-            .mode(0o600)
-            .open(root.join(format!(".{}.lock~", options.service_id)))?;
-        lock.try_lock_exclusive()
-            .context("another omochi service owns this service id")?;
+        let lock = ServiceLock::acquire(&root, &options.service_id)?;
         let directory = root.join(&options.service_id);
         private(&directory)?;
         let socket = directory.join("a2ui.sock");
@@ -256,6 +271,23 @@ mod tests {
         root
     }
 
+    #[test]
+    fn releasing_ownership_does_not_wait_for_inherited_file_descriptions() {
+        let root = private_root();
+        let owner = ServiceLock::acquire(root.path(), "shared").unwrap();
+        // dup and fork both retain the same open file description. Keep that
+        // reference alive deterministically, as a child would before exec closes
+        // its CLOEXEC descriptors, without relying on subprocess scheduling.
+        let inherited = owner.0.try_clone().unwrap();
+        assert!(ServiceLock::acquire(root.path(), "shared").is_err());
+        drop(owner);
+        let successor = ServiceLock::acquire(root.path(), "shared").unwrap();
+        drop(inherited);
+        assert!(ServiceLock::acquire(root.path(), "shared").is_err());
+        drop(successor);
+        ServiceLock::acquire(root.path(), "shared").unwrap();
+    }
+
     #[tokio::test]
     async fn sdk_and_utility_share_the_persistent_lock_and_allow_successors_after_close() {
         let root = private_root();
@@ -294,13 +326,7 @@ mod tests {
     #[tokio::test]
     async fn shared_lock_excludes_sdk_and_utility_before_a_socket_exists() {
         let root = private_root();
-        let lock = fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .mode(0o600)
-            .open(root.path().join(".shared.lock~"))
-            .unwrap();
-        lock.try_lock_exclusive().unwrap();
+        let lock = ServiceLock::acquire(root.path(), "shared").unwrap();
         let options = UnixSocketServerOptions::new("shared").with_runtime_dir(root.path());
         assert!(LocalTransport::bind(options.clone()).await.is_err());
         assert!(

@@ -22,6 +22,27 @@ impl Drop for TempRoot {
     }
 }
 
+#[tokio::test]
+async fn close_releases_ownership_with_an_inherited_file_description() {
+    let root = TempRoot::new();
+    let options = UnixSocketServerOptions::new("demo").with_runtime_dir(&root.0);
+    let mut owner = UnixSocketServerTransport::bind(options.clone())
+        .await
+        .unwrap();
+    // dup retains the same open file description as a fork before exec. Hold it
+    // through close to reproduce inherited flock ownership without scheduling races.
+    let inherited = owner.service_lock.as_ref().unwrap().0.try_clone().unwrap();
+    owner.close().await;
+    let mut successor = UnixSocketServerTransport::bind(options.clone())
+        .await
+        .unwrap();
+    drop(inherited);
+    drop(owner);
+    assert!(UnixSocketServerTransport::bind(options).await.is_err());
+    UnixStream::connect(successor.socket_path()).await.unwrap();
+    successor.close().await;
+}
+
 async fn assert_atomic_subscription(publish_first: bool, update_existing: bool) {
     let root = TempRoot::new();
     let mut transport = UnixSocketServerTransport::bind(

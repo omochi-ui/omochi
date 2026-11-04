@@ -137,7 +137,7 @@ pub struct UnixSocketServerTransport {
     directory: PathBuf,
     socket_path: PathBuf,
     closed: bool,
-    service_lock: Option<fs::File>,
+    service_lock: Option<ServiceLock>,
 }
 
 impl UnixSocketServerTransport {
@@ -306,9 +306,20 @@ impl Transport for UnixSocketServerTransport {
     }
 }
 
+struct ServiceLock(fs::File);
+
+impl Drop for ServiceLock {
+    fn drop(&mut self) {
+        // A concurrent fork can keep this open file description alive until exec,
+        // despite CLOEXEC. Release ownership before closing our descriptor so a
+        // successor does not depend on an unrelated child's scheduling.
+        unsafe { libc::flock(self.0.as_raw_fd(), libc::LOCK_UN) };
+    }
+}
+
 /// Keep this inode forever: unlinking a locked file would allow a second owner.
 /// `~` cannot occur in service ids, and service cleanup never touches the lock file.
-fn lock_service(root: &Path, service_id: &str) -> Result<fs::File> {
+fn lock_service(root: &Path, service_id: &str) -> Result<ServiceLock> {
     let file = fs::OpenOptions::new()
         .create(true)
         .append(true)
@@ -326,7 +337,7 @@ fn lock_service(root: &Path, service_id: &str) -> Result<fs::File> {
         }
         return Err(error.into());
     }
-    Ok(file)
+    Ok(ServiceLock(file))
 }
 
 /// Takes ownership of the socket path, removing one left behind by a crash.

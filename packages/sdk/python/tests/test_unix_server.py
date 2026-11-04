@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import tempfile
 import subprocess
 import sys
@@ -41,6 +42,35 @@ async def read_messages(reader: asyncio.StreamReader, count: int) -> list[dict]:
 
 
 class UnixSocketServerTransportTests(unittest.TestCase):
+    def test_close_releases_ownership_with_an_inherited_file_description(self) -> None:
+        async def scenario() -> None:
+            with tempfile.TemporaryDirectory() as root:
+                owner = UnixSocketServerTransport("demo", runtime_dir=root)
+                successor = UnixSocketServerTransport("demo", runtime_dir=root)
+                contender = UnixSocketServerTransport("demo", runtime_dir=root)
+                await owner.start()
+                assert owner._lock_fd is not None
+                # dup and fork retain the same open file description. Keep one
+                # alive through close, independent of subprocess scheduling.
+                inherited = os.dup(owner._lock_fd)
+                try:
+                    await owner.close()
+                    await successor.start()
+                finally:
+                    os.close(inherited)
+                try:
+                    owner._cleanup_sync()
+                    with self.assertRaisesRegex(RuntimeError, "another omochi service"):
+                        await contender.start()
+                    reader, writer = await asyncio.open_unix_connection(str(successor.socket_path))
+                    writer.close()
+                    await writer.wait_closed()
+                finally:
+                    await contender.close()
+                    await successor.close()
+
+        asyncio.run(scenario())
+
     def test_close_waits_for_start_and_retracts_the_service(self) -> None:
         async def scenario() -> None:
             with tempfile.TemporaryDirectory() as root:

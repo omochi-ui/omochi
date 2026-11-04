@@ -258,8 +258,16 @@ class UnixSocketServerTransport(Transport):
 
     def _release_lock(self) -> None:
         if self._lock_fd is not None:
-            os.close(self._lock_fd)
+            import fcntl
+
+            fd = self._lock_fd
             self._lock_fd = None
+            try:
+                # fork can retain this open file description until exec even with
+                # CLOEXEC. Closing our fd alone must not delay a successor.
+                fcntl.flock(fd, fcntl.LOCK_UN)
+            finally:
+                os.close(fd)
 
     def _cleanup_sync(self) -> None:
         """Last-resort cleanup: interpreter shutdown cannot await ``close()``."""
