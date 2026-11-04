@@ -119,7 +119,12 @@ final nativeColumn = CatalogItem(
           for (final key in keys)
             child(
               id,
-              item.dataContext.nested(DataPath('$path/$key')),
+              item.dataContext.nested(
+                // A map key is one JSON Pointer segment, even with / or ~.
+                DataPath(
+                  '$path/${key.replaceAll('~', '~0').replaceAll('/', '~1')}',
+                ),
+              ),
               key: ValueKey(key),
             ),
         ], spacing: 0);
