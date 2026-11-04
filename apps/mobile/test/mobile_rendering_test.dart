@@ -46,6 +46,99 @@ Future<void> openService(
 }
 
 void main() {
+  for (final kind in ['direct', 'nested', 'function']) {
+    testWidgets('missing $kind action reference fails and later taps work', (
+      tester,
+    ) async {
+      final client = TestClient();
+      final hub = session(client);
+      final scope = TestScope('missing:$kind');
+      await openService(tester, hub, client, scope);
+      final template = kind != 'direct';
+      final binding = {'path': template ? 'value' : '/value'};
+      final Object input = switch (kind) {
+        'nested' => {
+          'values': [binding],
+        },
+        'function' => {
+          'call': 'not',
+          'args': {'value': binding},
+        },
+        _ => binding,
+      };
+      void updateModel(Map<String, Object?> row) => client.onMessage(
+        dataMessage(
+          counterId,
+          template
+              ? {
+                  'rows': [row],
+                }
+              : row,
+        ),
+      );
+      updateModel({});
+      client.onMessage({
+        'version': 'v0.9',
+        'updateComponents': {
+          'surfaceId': counterId,
+          'components': [
+            if (template)
+              {
+                'id': 'root',
+                'component': 'Column',
+                'children': {'path': '/rows', 'componentId': 'button'},
+              },
+            buttonComponent(
+              'button',
+              'label',
+              'run',
+              context: {'input': input},
+            ),
+          ],
+        },
+      });
+      await tester.pumpAndSettle();
+      expect(hub.surfaceErrors, isEmpty);
+      await tester.tap(find.text('Run'));
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+      expect(scope.actions, isEmpty);
+      expect(hub.surfaceErrors.keys, [counterId]);
+      final detail = hub.surfaceErrors[counterId]!;
+      expect(detail, contains('Missing action input reference:'));
+      expect(find.text(detail), findsOneWidget);
+
+      // Root model updates preserve explicit JSON null. The same connection and
+      // component can submit that value and a later non-null value successfully.
+      updateModel({'value': null});
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Run'));
+      await tester.pumpAndSettle();
+      expect(scope.actions, hasLength(1));
+      expect(scope.actions.single['action']['context']['input'], switch (kind) {
+        'nested' => {
+          'values': [null],
+        },
+        'function' => true,
+        _ => null,
+      });
+      updateModel({'value': true});
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Run'));
+      await tester.pumpAndSettle();
+      expect(scope.actions, hasLength(2));
+      expect(scope.actions.last['action']['context']['input'], switch (kind) {
+        'nested' => {
+          'values': [true],
+        },
+        'function' => false,
+        _ => true,
+      });
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox());
+    });
+  }
+
   testWidgets('action functions resolve array bindings at each click', (
     tester,
   ) async {

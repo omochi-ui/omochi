@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:a2ui_core/a2ui_core.dart' as core;
 import 'package:genui/genui.dart';
 import 'package:json_schema_builder/json_schema_builder.dart';
 
@@ -52,7 +53,7 @@ class ActionInputFunction implements ClientFunction {
     if (value is! Map) return value;
     if (value.containsKey('path')) {
       // Resolved model values are data, even when they contain path/call keys.
-      return context.getValue<Object?>(DataPath(value['path'] as String));
+      return _resolveReference(value['path'] as String, context);
     }
     if (value.containsKey('call')) {
       final name = value['call'] as String;
@@ -72,5 +73,27 @@ class ActionInputFunction implements ClientFunction {
       for (final entry in value.entries)
         entry.key as String: await _resolve(entry.value, context, depth + 1),
     };
+  }
+
+  Object? _resolveReference(String reference, ExecutionContext context) {
+    final path = context.resolvePath(DataPath(reference));
+    // GenUI returns null for both absent paths and existing JSON null. Walk the
+    // root snapshot using the underlying model's JSON Pointer parsing so only
+    // absent references fail, including in template-relative contexts.
+    Object? current = context.getValue<Object?>(DataPath.root);
+    for (final segment in core.DataPath.parse(path.toString()).segments) {
+      if (current is Map && current.containsKey(segment)) {
+        current = current[segment];
+      } else if (current is List) {
+        final index = int.tryParse(segment);
+        if (index == null || index < 0 || index >= current.length) {
+          throw StateError('Missing action input reference: $reference');
+        }
+        current = current[index];
+      } else {
+        throw StateError('Missing action input reference: $reference');
+      }
+    }
+    return current;
   }
 }

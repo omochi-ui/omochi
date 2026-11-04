@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:omochi_mobile/src/action_input.dart';
 import 'package:omochi_mobile/src/context_codec.dart';
 
 void main() {
@@ -34,7 +35,7 @@ void main() {
     final context =
         incoming['updateComponents']['components'][0]['action']['event']['context'];
     expect(context, {
-      'v0': {'path': 'relative/name'},
+      'v0': ActionInputFunction.encode({'path': 'relative/name'}),
       'v1': 7,
     });
     final restored = codec.outgoing({
