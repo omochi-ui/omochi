@@ -15,35 +15,78 @@ import { RemoteHubSession, type SharedView } from './session.js';
 import { SharedBoardRepository } from './boards.js';
 import { openHubProfile, resetHubProfile, type HubProfile, type ShareRecord } from './profile.js';
 import { acceptInvitation, recoverShare } from './enrollment.js';
-import type { ShareLink, SavedShare } from './link.js';
+import { parseShareLink, type ShareLink, type SavedShare } from './link.js';
 const noGateway = () => null;
+const noFragments = () => () => {};
+function sameLink(a: ShareLink | null, b: ShareLink) {
+  return a?.hubId === b.hubId && a.grantId === b.grantId && a.mode === b.mode && a.secret === b.secret && a.relayUrls.join('\n') === b.relayUrls.join('\n');
+}
 const PUBLIC_CONTEXT = 'omochi.shared.public', SELECTED = 'omochi.shared.selected';
 function cache(key: string, value?: string) { try { if (value === undefined) return sessionStorage.getItem(key); if (value) sessionStorage.setItem(key, value); else sessionStorage.removeItem(key); } catch { /* Storage denial does not grant network authority. */ } return null; }
 function fixed(error: unknown): SessionFault { return error instanceof SessionFault ? error : new SessionFault('StorageUnavailable'); }
-function Connections({ transport, takeLink, bootstrapError, takeGateway = noGateway }: { transport: BrowserTransport; takeLink(): ShareLink | null; bootstrapError: SessionFault | null; takeGateway?: () => string | null }) {
+function Connections({ transport, takeLink, bootstrapError, takeGateway = noGateway, subscribeFragment = noFragments }: { transport: BrowserTransport; takeLink(): ShareLink | null; bootstrapError: SessionFault | null; takeGateway?: () => string | null; subscribeFragment?: (receive: (fragment: string) => void) => () => void }) {
   const { t } = useTranslation();
   const navigation = useDashboardNavigation();
   const [link, setLink] = useState(takeLink), [profile, setProfile] = useState<HubProfile | null>(null), [records, setRecords] = useState<ShareRecord[]>([]);
-  const [error, setError] = useState<SessionFault | null>(bootstrapError), [busy, setBusy] = useState(false), [attempt, setAttempt] = useState(0), [confirmReset, setConfirmReset] = useState(false);
+  const [error, setError] = useState<SessionFault | null>(bootstrapError), [busy, setBusy] = useState(true), [attempt, setAttempt] = useState(0), [confirmReset, setConfirmReset] = useState(false);
   const [live, setLive] = useState<{ source: RemoteHubSession; boards: BoardRepository; owner: boolean; name: string; id: string } | null>(null), [view, setView] = useState<SharedView | null>(null);
   const [proof, setProof] = useState<{ source: SavedShare; view: SharedView } | null>(null);
   const [forgetRecord, setForgetRecord] = useState<ShareRecord | null>(null);
+  const [incoming, setIncoming] = useState<{ link: ShareLink } | { error: SessionFault } | null>(null);
+  const currentLink = useRef(link);
+  currentLink.current = link;
+  const working = useRef(true);
   const forgetTrigger = useRef<HTMLElement | null>(null), connectionsHeading = useRef<HTMLHeadingElement>(null);
   useEffect(() => { if (!live) document.title = `${t('connection.title')} · omochi`; }, [live, t]);
   const state = useRef<{ source: RemoteHubSession | null; profile: HubProfile | null }>({ source: null, profile: null });
   const operation = useRef(new AbortController());
-  const run = async (work: () => Promise<void>) => { setBusy(true); setError(null); try { await work(); } catch (error) { if (!operation.current.signal.aborted) setError(fixed(error)); } finally { setBusy(false); } };
+  const run = async (work: () => Promise<void>) => { if (working.current) return; working.current = true; setBusy(true); setError(null); try { await work(); } catch (error) { if (!operation.current.signal.aborted) setError(fixed(error)); } finally { working.current = false; setBusy(false); } };
   const disconnect = async () => { if (!(await navigation.requestLeave())) return false; await state.current.source?.stop(); state.current.source = null; setLive(null); setView(null); cache(SELECTED, ''); return true; };
-  const connect = async (source: SavedShare, secretHex: string, publicSecret?: string) => {
-    if (!(await disconnect())) return; if (operation.current.signal.aborted) return;
+  const activate = (source: SavedShare, secretHex: string, publicSecret?: string) => {
+    if (operation.current.signal.aborted) return;
     const boards = new SharedBoardRepository();
     const session = new RemoteHubSession({ source, secretHex, publicSecret, owner: source.owner, onView(next) { boards.publish(next); setView(next); } }, transport);
     boards.bind(session); state.current.source = session; setLive({ source: session, boards: source.owner ? new OwnerBoardRepository(session) : boards, owner: !!source.owner, name: source.name, id: `${source.hubId}/${source.grantId}` });
     if (!publicSecret) cache(SELECTED, `${source.hubId}/${source.grantId}`);
   };
+  const connect = async (source: SavedShare, secretHex: string, publicSecret?: string) => {
+    if (await disconnect()) activate(source, secretHex, publicSecret);
+  };
+  const loadProfile = async () => {
+    const signal = operation.current.signal;
+    const handle = await openHubProfile(transport);
+    if (signal.aborted) { await handle.close(); return; }
+    state.current.profile = handle; setProfile(handle);
+    setRecords(await handle.shares());
+    return handle;
+  };
+  useEffect(() => subscribeFragment(fragment => {
+    try {
+      const next = parseShareLink(fragment);
+      // A duplicate must not restart acceptance or erase a local save proof.
+      if (!sameLink(currentLink.current, next)) setIncoming({ link: next });
+    } catch { setIncoming({ error: new SessionFault('InvalidInvitation') }); }
+  }), [subscribeFragment]);
+  useEffect(() => {
+    if (!incoming || busy || proof) return;
+    setIncoming(null);
+    void run(async () => {
+      if ('error' in incoming) throw incoming.error;
+      if (!(await disconnect()) || operation.current.signal.aborted) return;
+      const next = incoming.link;
+      currentLink.current = next; setLink(next);
+      cache(PUBLIC_CONTEXT, next.mode === 'public' ? JSON.stringify(next) : '');
+      if (next.mode === 'public') {
+        const identity = await transport.generateIdentity();
+        activate({ ...next, name: t('connection.defaultName') }, identity.secretHex, next.secret);
+      } else if (!state.current.profile) await loadProfile();
+    });
+    // Serializes navigation with acceptance/recovery; the latest link waits for local save proof.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [incoming, busy, proof]);
   useEffect(() => {
     let disposed = false; operation.current = new AbortController();
-    let handle: HubProfile | null = null;
+    working.current = true; setBusy(true);
     const start = async () => {
       if (link?.mode === 'public') {
         cache(PUBLIC_CONTEXT, JSON.stringify(link));
@@ -51,16 +94,19 @@ function Connections({ transport, takeLink, bootstrapError, takeGateway = noGate
         if (!disposed) await connect({ ...link, name: t('connection.defaultName') }, identity.secretHex, link.secret);
       } else {
         cache(PUBLIC_CONTEXT, '');
-        handle = await openHubProfile(transport);
-        if (disposed) { await handle.close(); return; }
-        state.current.profile = handle; setProfile(handle);
+        const handle = await loadProfile();
+        if (disposed || !handle) return;
         const records = await handle.shares(); setRecords(records);
         const selected = cache(SELECTED), saved = !link && records.find(record => record.id === selected && record.state === 'accepted');
         if (saved) await connect(saved, handle.identity.secretHex);
       }
     };
-    void start().catch(error => { if (!disposed) setError(fixed(error)); });
-    const close = () => { disposed = true; operation.current.abort(); void (async () => { await state.current.source?.stop(); await handle?.close(); })(); };
+    void start().catch(error => { if (!disposed) setError(fixed(error)); }).finally(() => { if (!disposed) { working.current = false; setBusy(false); } });
+    const close = () => {
+      disposed = true; operation.current.abort();
+      const { source, profile } = state.current;
+      void (async () => { await source?.stop(); await profile?.close(); })();
+    };
     window.addEventListener('pagehide', close, { once: true });
     return () => { window.removeEventListener('pagehide', close); close(); };
     // Profile/endpoint ownership is restarted only by the explicit recovery action.
@@ -68,8 +114,9 @@ function Connections({ transport, takeLink, bootstrapError, takeGateway = noGate
   }, [transport, attempt]);
   const saveProof = async (accepted: { source: SavedShare; view: SharedView }) => {
     if (!profile) throw new SessionFault('InvalidState');
-    setProof(accepted); await profile.save(accepted.source, 'accepted'); setProof(null); setLink(null);
+    setProof(accepted); await profile.save(accepted.source, 'accepted');
     setRecords(await profile.shares()); await connect(accepted.source, profile.identity.secretHex);
+    setProof(null); setLink(null);
   };
   const controls = <section className="shared-connections" aria-label={t('connection.label')}>
     {error && <p role="alert" data-error-code={error.code}>{t(`sessionError.${error.code}`)}</p>}

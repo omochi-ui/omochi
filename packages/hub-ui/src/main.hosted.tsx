@@ -1,6 +1,14 @@
+import { createFragmentInbox } from './remote/fragment.js';
 // Capture bearer data before loading any UI/transport module.
 let fragment: string | null = location.hash;
 if ((fragment.startsWith('#share:') || fragment.startsWith('#owner:') || fragment.startsWith('#g:'))) history.replaceState(null, '', location.pathname + location.search);
+const fragments = createFragmentInbox();
+window.addEventListener('hashchange', () => {
+  const next = location.hash;
+  if (!next.startsWith('#share:') && !next.startsWith('#owner:')) return;
+  history.replaceState(null, '', location.pathname + location.search);
+  fragments.receive(next);
+});
 window.addEventListener('pageshow', event => { if (event.persisted) location.reload(); });
 async function main() {
   await import('./i18n.js');
@@ -20,7 +28,7 @@ async function main() {
   const transport = await loadBrowserTransport(new URL('./iroh/', document.baseURI));
   const takeLink = () => { const current = link; link = null; return current; };
   const takeGateway = () => { const current = gatewayFragment; gatewayFragment = null; return current; };
-  createRoot(document.getElementById('root')!).render(createElement(ConnectionScreen, { transport, takeLink, bootstrapError, takeGateway }));
+  createRoot(document.getElementById('root')!).render(createElement(ConnectionScreen, { transport, takeLink, bootstrapError, takeGateway, subscribeFragment: fragments.subscribe }));
 }
 void main().catch(async () => {
   fragment = null;
