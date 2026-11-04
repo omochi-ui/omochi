@@ -4,7 +4,22 @@ Cloudflare Workers deployment of the native-hub client dashboard. The Worker
 serves static assets and applies the shared [header policy](headers.json).
 Dashboard state and authorization remain on each owner's native hub.
 
-## Deploy
+## GitHub Actions deployment
+
+The [Dashboard workflow](../../.github/workflows/dashboard.yml) checks the Worker,
+builds the hosted dashboard and WASM, dry-runs Wrangler, and verifies the local
+Worker with the built assets. Relevant pull requests run those checks without
+Cloudflare credentials. Pushes to `main` also deploy the verified `dashboard`
+artifact to Worker **omochi-dashboard**, using the GitHub environment
+**cloudflare-workers** and its `CLOUDFLARE_ACCOUNT_ID` / `CLOUDFLARE_API_TOKEN`
+secrets. See the shared [setup instructions](../../deploy/README.md#github-actions-setup).
+
+To redeploy manually, run **Dashboard** from GitHub Actions with branch **main**.
+Other branches only validate. The build job installs Rust with the WASM target
+and wasm-bindgen 0.2.130; the deploy job uploads the artifact without rebuilding.
+Workers Builds is not used.
+
+## Manual deployment
 
 From the repository root, install Bun 1.4.3+, Node.js and Rust, then prepare the
 locked WASM toolchain:
@@ -15,13 +30,15 @@ rustup target add wasm32-unknown-unknown
 cargo install wasm-bindgen-cli --version 0.2.130 --locked
 cd apps/dashboard
 bunx wrangler login
-bunx wrangler deploy
+bun run deploy
 ```
 
-`wrangler deploy` runs the configured build (`bun run build:hosted` at the
+`bun run deploy` runs the build (`bun run build:hosted` at the
 repository root), then uploads the Worker and the complete
 `packages/hub-ui/dist-hosted/` artifact together. `WASM_BINDGEN` may point to an
 existing wasm-bindgen 0.2.130 binary. No hand-edited generated files are needed.
+Direct `bunx wrangler deploy` only bundles the Worker and uploads existing assets;
+it does not build the dashboard. CI uses this after downloading the checked artifact.
 
 Deploy to the Cloudflare account managing the active `omochi.fyi` zone. The
 [Wrangler config](wrangler.jsonc) declares `app.omochi.fyi` as a Custom Domain;
@@ -34,9 +51,9 @@ choices, set `CLOUDFLARE_ACCOUNT_ID`. CI may authenticate with
 
 ```sh
 bun run check
-bunx wrangler deploy --dry-run
+bun run dry-run
 bun run test:preview
-bunx wrangler dev --ip 127.0.0.1
+bun run dev
 ```
 
 The dry run builds and bundles without publishing. `test:preview` verifies the
@@ -45,6 +62,8 @@ same Worker and assets. CSP, MIME and caching are applied in `src/index.ts` from
 `headers.json`; HTML and stable `iroh/` paths revalidate, while hashed assets have
 immutable caching. Only `/` maps to the HTML entry; unknown paths, missing assets
 and API/WS/resource routes return 404. There is no SPA fallback or app-data proxy.
+`dev` builds the dashboard once before starting Wrangler; rerun `bun run build`
+after changing dashboard or transport sources to refresh the served assets.
 
 After deploying, check `/`, a hashed JS/CSS asset and `/iroh/iroh_bg.wasm` for the
 configured headers, and `/api/dashboards` and `/missing.js` for 404. Then exercise

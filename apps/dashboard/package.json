@@ -5,11 +5,11 @@
   "type": "module",
   "scripts": {
     "build": "bun run --cwd ../.. build:hosted",
-    "dev": "wrangler dev --ip 127.0.0.1",
-    "deploy": "wrangler deploy",
+    "dev": "bun run build && wrangler dev --ip 127.0.0.1",
+    "deploy": "bun run build && wrangler deploy",
     "check": "bun check -p tsconfig.json && bun test ./test",
     "test:preview": "bun run build && node test/preview.mjs",
-    "dry-run": "wrangler deploy --dry-run"
+    "dry-run": "bun run build && wrangler deploy --dry-run"
   },
   "devDependencies": {
     "wrangler": "4.156.2",

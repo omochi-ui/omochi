@@ -25,15 +25,23 @@ Edit Japanese under `src/content/docs/docs/` and matching English pages under `s
 
 User guides in the site's content collection are authoritative; `docs/` at the repository root retains design, architecture, release, and development materials. Link to protocol source files instead of copying normative contracts. Installation text targets the current source checkout and verified release archives; confirm registry publication before adding versioned install commands.
 
-## Workers Builds setup
+## GitHub Actions deployment
 
-1. Create/connect Worker **omochi-site** to this GitHub repository. Set production branch to **main** and root directory to the **repository root** (not `apps/site`, because dependencies use the shared workspace lockfile).
-2. Set the build environment to Node 24 and Bun 1.4.3. Dependency install: `bun install --frozen-lockfile`. Build command: `bun run check:site && bun run build:site && bun run --filter @omochi-ui/site verify`.
-3. Deploy command: `bun run deploy:site`. For non-production branches use `cd apps/site && bunx --no-install wrangler versions upload` only if configured explicitly; otherwise disable non-production builds. Do not point preview branches at the production deploy command.
-4. Include build watch paths `apps/site/*`, `package.json`, `bun.lock`, `.bun-version`. Cloudflare's watch-path `*` also matches nested paths. Exclude unrelated SDK/native changes.
-5. Ensure `omochi.fyi` is an active zone in the account. Wrangler declares it as a Worker custom domain; Cloudflare provisions DNS/TLS. Keep Pages and other Workers from claiming the same hostname.
+The [Site workflow](../../.github/workflows/site.yml) checks, builds, verifies and
+dry-runs the site on relevant pull requests and pushes to `main`. After successful
+checks on `main`, a separate deployment job downloads the `site` artifact and
+publishes it to Worker **omochi-site**. To redeploy manually, run **Site** from
+GitHub Actions with branch **main**; manual runs on other branches only validate.
 
-Initial Git connection and account/domain setup are done in Cloudflare. No credentials belong in the repository. GitHub Actions checks the site and uploads its static output; Workers Builds owns publication.
+Both web apps use the GitHub environment **cloudflare-workers**, with environment
+secrets `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN`. See the shared
+[setup and Workers Builds migration](../../deploy/README.md#github-actions-setup).
+The build job does not use that environment or Cloudflare credentials.
+
+Wrangler declares `omochi.fyi` as a Worker custom domain in the active zone;
+Cloudflare provisions DNS/TLS. Keep Pages and other Workers from claiming the
+same hostname. Publication is owned by GitHub Actions, so disconnect the old
+Workers Builds repository connection before enabling this workflow's deployment.
 
 ## Local Worker verification / manual deployment
 
@@ -47,4 +55,4 @@ bun run deploy:site
 
 The Worker has no server entry point or bindings. `dist/404.html` handles unknown URLs with HTTP 404. Trailing slashes are canonical. The production origin used by sitemap, alternate links, and canonical metadata is `https://omochi.fyi`.
 
-After connecting Workers Builds, verify both LPs, a deep Docs URL, language switching, search in both languages, and an unknown path on the deployed domain. Previous successful deployments can be restored from the Worker deployment history.
+After deploying, verify both LPs, a deep Docs URL, language switching, search in both languages, and an unknown path on the deployed domain. Previous successful deployments can be restored from the Worker deployment history.
