@@ -1,0 +1,32 @@
+{
+  "catalogId": "urn:test:catalog-allof",
+  "title": "All Of Catalog",
+  "components": {
+    "Combined": {
+      "type": "object",
+      "properties": {
+        "object": {"allOf": [
+          {"type": "object", "properties": {"label": {"type": "string"}}, "required": ["label"]},
+          {"type": "object", "properties": {"enabled": {"type": "boolean"}}, "required": ["enabled"]}
+        ]},
+        "single": {"allOf": [{"type": "string"}]},
+        "primitive": {"allOf": [{"type": "string"}, {"type": "string", "minLength": 1}]},
+        "mixed": {"allOf": [{"type": "string"}, {"enum": ["ready", "done"]}]},
+        "conditional": {"allOf": [
+          {"type": "string"}, {"if": {"const": "ready"}, "then": {"minLength": 1}}
+        ]},
+        "array": {"type": "array", "items": {"allOf": [{"type": "string"}, {"enum": ["ready"]}]}},
+        "union": {"anyOf": [
+          {"allOf": [{"type": "string"}, {"enum": ["ready"]}]}, {"type": "boolean"}
+        ]},
+        "nested": {"allOf": [{"allOf": [{"type": "string"}, {"type": "string"}]}]}
+      },
+      "required": ["object", "single", "primitive", "mixed", "conditional", "array", "union", "nested"]
+    },
+    "Keyword": {
+      "type": "object",
+      "properties": {"class": {"allOf": [{"type": "string"}, {"type": "string"}]}},
+      "required": ["class"]
+    }
+  }
+}

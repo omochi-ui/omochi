@@ -16,7 +16,7 @@ pub struct Options {
     pub name: Option<String>,
     #[arg(long)]
     pub typescript: Option<PathBuf>,
-    /// Write Python bindings that preserve original JSON keys, including keywords.
+    /// Write Python bindings preserving JSON keys; approximate allOf without intersections.
     #[arg(long)]
     pub python: Option<PathBuf>,
     /// Write Rust bindings that preserve the original JSON property names.
@@ -268,6 +268,15 @@ fn ty(schema: &Value, lang: Language) -> Result<String> {
             .filter(|s| s.get("if").is_none() && s.get("then").is_none())
             .map(|s| ty(s, lang))
             .collect::<Result<Vec<_>>>()?;
+        if lang == Py {
+            // Python has no intersection operator for types. Reuse a shared
+            // approximation (e.g. dict[str, Any] for object layers); otherwise
+            // widen to Any without changing or coercing the JSON values.
+            return Ok(match values.first() {
+                Some(first) if values.iter().all(|value| value == first) => first.clone(),
+                _ => "Any".into(),
+            });
+        }
         return Ok(if values.len() == 1 {
             values[0].clone()
         } else if lang == Rs {
@@ -645,6 +654,54 @@ mod tests {
     use super::*;
     fn fixture() -> PathBuf {
         Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/catalog")
+    }
+    #[test]
+    fn python_allof_uses_evaluable_approximations_without_changing_other_languages() {
+        let objects = json!({"allOf": [
+            {"type": "object", "properties": {"label": {"type": "string"}}},
+            {"type": "object", "properties": {"enabled": {"type": "boolean"}}}
+        ]});
+        assert_eq!(ty(&objects, Language::Py).unwrap(), "dict[str, Any]");
+        assert_eq!(
+            ty(&objects, Language::Ts).unwrap(),
+            "{ \"label\": string } & { \"enabled\": boolean }"
+        );
+        assert_eq!(ty(&objects, Language::Rs).unwrap(), "Value");
+        for (schema, expected) in [
+            (json!({"allOf": [{"type": "string"}]}), "str"),
+            (
+                json!({"allOf": [{"type": "string"}, {"type": "string"}]}),
+                "str",
+            ),
+            (
+                json!({"allOf": [{"type": "string"}, {"enum": ["ready"]}]}),
+                "Any",
+            ),
+            (
+                json!({"allOf": [{"type": "string"}, {"type": "boolean"}]}),
+                "Any",
+            ),
+            (json!({"allOf": []}), "Any"),
+            (json!({"allOf": [{"if": {}, "then": {}}]}), "Any"),
+            (
+                json!({"allOf": [{"type": "string"}, {"if": {}, "then": {}}]}),
+                "str",
+            ),
+            (
+                json!({"anyOf": [{"allOf": []}, {"type": "string"}]}),
+                "Any | str",
+            ),
+            (
+                json!({"type": "array", "items": {"allOf": []}}),
+                "list[Any]",
+            ),
+        ] {
+            assert_eq!(ty(&schema, Language::Py).unwrap(), expected, "{schema}");
+        }
+        // Unconstrained layers remain outside the supported schema subset.
+        for schema in [json!({"allOf": [{}]}), json!({"allOf": [true]})] {
+            assert!(ty(&schema, Language::Py).is_err());
+        }
     }
     #[test]
     fn matches_legacy_outputs_and_check_never_overwrites_stale_files() {

@@ -296,6 +296,15 @@ Python preserves original property names, using functional `TypedDict` declarati
 for keywords such as `class` or keys such as `data-label` that cannot be class fields.
 Use dictionaries with these keys; required and optional fields retain their meaning.
 
+Python has no intersection type operator for property-level `allOf`. If all
+remaining layers generate the same Python type, that type is used (including
+`dict[str, Any]` for object layers); a single layer keeps its type. Other
+combinations and empty `allOf` use `Any`. As with the other bindings, layers with
+`if` or `then` are skipped; if none remain, Python uses `Any`. These approximations
+also apply inside arrays and unions. They preserve JSON values but do not enforce
+every schema constraint. Unsupported layers, such as an empty schema `{}` or a
+boolean schema, still fail generation before any output is written.
+
 Rust fields use snake case and explicitly preserve the catalog's original JSON
 property names, including acronyms and underscores. Rust keywords use raw
 identifiers (for example, `r#type`); `self`, `super` and `crate` receive a trailing

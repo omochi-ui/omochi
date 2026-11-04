@@ -2,9 +2,9 @@ import { expect } from "bun:test";
 import { test } from "@omochi-ui/core/testing";
 import { copyFile, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { delimiter, join, resolve } from "node:path";
 
-for (const fixture of ["catalog-arrays", "catalog-enums", "catalog-property-names", "catalog-python-keys"]) {
+for (const fixture of ["catalog-arrays", "catalog-enums", "catalog-property-names", "catalog-python-keys", "catalog-allof"]) {
   test(`native ${fixture} bindings preserve JSON types`, {
     skip: !process.env.OMOCHI_NATIVE_TEST,
   }, async (t) => {
@@ -75,3 +75,40 @@ for (const fixture of ["catalog-arrays", "catalog-enums", "catalog-property-name
     }
   });
 }
+
+test("native Python empty and conditional allOf annotations evaluate", {
+  skip: !process.env.OMOCHI_NATIVE_TEST,
+}, async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "omochi-catalog-allof-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const workspace = resolve(import.meta.dir, "../..");
+  const profile = process.env.OMOCHI_NATIVE_PROFILE ?? "debug";
+  if (profile !== "debug" && profile !== "release") throw new Error("invalid native profile");
+  await writeFile(join(root, "input.json"), JSON.stringify({
+    components: { Edge: { properties: {
+      empty: { allOf: [] },
+      conditional: { allOf: [{ if: {}, then: {} }] },
+      array: { type: "array", items: { allOf: [] } },
+      union: { oneOf: [{ allOf: [] }, { type: "string" }] },
+    } } },
+  }));
+  const generate = Bun.spawn([
+    join(workspace, "crates/target", profile, "omochi-ui"),
+    "generate", "catalog", "--catalog", join(root, "input.json"),
+    "--python", join(root, "catalog.py"),
+  ], { stdout: "pipe", stderr: "pipe" });
+  const generationError = await new Response(generate.stderr).text();
+  expect(await generate.exited, generationError).toBe(0);
+  const python = Bun.spawn(["python3", "-B", "-c", `
+from typing import Any, get_type_hints
+from catalog import EdgeProps
+assert get_type_hints(EdgeProps) == {
+    "empty": Any, "conditional": Any, "array": list[Any], "union": Any | str,
+}
+`], {
+    env: { ...process.env, PYTHONPATH: [root, join(workspace, "packages/sdk/python/src")].join(delimiter) },
+    stdout: "pipe", stderr: "pipe",
+  });
+  const pythonError = await new Response(python.stderr).text();
+  expect(await python.exited, pythonError).toBe(0);
+});
