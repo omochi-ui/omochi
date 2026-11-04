@@ -189,6 +189,10 @@ class Runtime(Generic[StateType, UIType]):
         self._owner = owner
         self._ready = asyncio.Event()
         self._closed = asyncio.Event()
+        self._stopping = asyncio.Event()
+        self._shutdown_task: asyncio.Task[None] | None = None
+        self._receive_task: asyncio.Future[Any] | None = None
+        self._source = None
         self._tasks: set[asyncio.Task[Any]] = set()
         self._pending_updates: list[tuple[Callable[[StateType], Any], asyncio.Future[Any]]] = []
         self._update_scheduled = False
@@ -292,24 +296,70 @@ class Runtime(Generic[StateType, UIType]):
     def spawn(self, coroutine):
         task = asyncio.create_task(coroutine); self._tasks.add(task); task.add_done_callback(self._tasks.discard); return task
     async def shutdown(self):
-        for task in self._tasks: task.cancel()
-        if self._tasks: await asyncio.gather(*self._tasks, return_exceptions=True)
-        self.resources.close()
-        self._closed.set()
+        if self._shutdown_task is not None:
+            # Cleanup hooks and canceled tasks may repeat this request. The
+            # completion barrier for concurrent callers is wait_closed().
+            return
+        self._stopping.set()
+        self._shutdown_task = asyncio.create_task(self._finish_shutdown(asyncio.current_task()))
+        await asyncio.shield(self._shutdown_task)
+    async def _finish_shutdown(self, caller):
+        # The receive task contains only anext(), never an action or start()'s
+        # finally block. Canceling it cannot recursively await this shutdown.
+        try:
+            try:
+                if self._receive_task is not None:
+                    self._receive_task.cancel()
+                    await asyncio.gather(self._receive_task, return_exceptions=True)
+                if self._source is not None:
+                    close = getattr(self._source, "aclose", None)
+                    if close is not None: await close()
+            finally:
+                stop = getattr(self._transport, "stop_receiving", None)
+                if stop is not None: await stop()
+        finally:
+            tasks = [task for task in self._tasks if task is not caller]
+            for task in tasks: task.cancel()
+            if tasks: await asyncio.gather(*tasks, return_exceptions=True)
+            try: self.resources.close()
+            finally: self._closed.set()
     async def wait_closed(self): await self._closed.wait()
     async def start(self, transport: Transport | None = None):
         if self._started: raise DeclarationError("runtime has already been started")
+        if self._stopping.is_set(): raise DeclarationError("runtime has already been shut down")
         self._started = True; self._transport = transport or StdioTransport()
         self._reconciler = Reconciler(set(self._transport.capabilities))
         self._transport.resources = self.resources
+        failed = False
         try:
+            self._source = aiter(self._transport.receive())
             await self._transport.send(hello())
             await self._render_all_and_send(); self._ready.set()
-            async for message in self._transport.receive():
+            while not self._stopping.is_set():
+                self._receive_task = asyncio.ensure_future(anext(self._source))
+                try:
+                    message = await self._receive_task
+                except StopAsyncIteration:
+                    break
+                except asyncio.CancelledError:
+                    if self._stopping.is_set(): break
+                    raise
+                finally:
+                    self._receive_task = None
+                if self._stopping.is_set(): break
                 try:
                     responses = await self.handle(message)
                 except InputValidationError:
                     continue
                 if message.get("type") == "getSurface":
                     for response in responses: await self._transport.send(response)
-        finally: await self.shutdown()
+        except BaseException:
+            failed = True
+            raise
+        finally:
+            closing = self.shutdown() if self._shutdown_task is None else asyncio.shield(self._shutdown_task)
+            if failed:
+                try: await closing
+                except BaseException: pass  # Preserve the receive/action failure.
+            else:
+                await closing

@@ -54,6 +54,8 @@ export class Runtime<State, Components extends ComponentMap = BasicComponentMap>
   private revision = 0;
   private started = false;
   private closed = false;
+  private shutdownPromise: Promise<void> | null = null;
+  private readonly stop = new AbortController();
   private readyResolve!: () => void;
   private closedResolve!: () => void;
   private readonly readyPromise = new Promise<void>((resolve) => { this.readyResolve = resolve; });
@@ -150,23 +152,73 @@ export class Runtime<State, Components extends ComponentMap = BasicComponentMap>
     const cleanup = () => { this.tasks.delete(running); this.taskControllers.delete(controller); };
     void running.then(cleanup, cleanup);
   }
-  async shutdown(): Promise<void> { if (this.closed) return; this.closed = true; for (const controller of this.taskControllers) controller.abort(); await Promise.allSettled(this.tasks); this.resources.close(); this.closedResolve(); }
+  shutdown(): Promise<void> {
+    // Keep repeat requests non-blocking, including requests from aborted tasks.
+    // waitClosed() is the completion barrier for concurrent callers.
+    if (this.closed) return Promise.resolve();
+    this.closed = true;
+    this.stop.abort();
+    for (const controller of this.taskControllers) controller.abort();
+    this.shutdownPromise = (async () => {
+      try { await this.transport?.stopReceiving?.(); }
+      finally {
+        await Promise.allSettled(this.tasks);
+        try { this.resources.close(); }
+        finally { this.closedResolve(); }
+      }
+    })();
+    return this.shutdownPromise;
+  }
   waitClosed(): Promise<void> { return this.closedPromise; }
   async start(transport: Transport = new StdioTransport()): Promise<void> {
     if (this.started) throw new DeclarationError("runtime has already been started");
+    if (this.closed) throw new DeclarationError("runtime has already been shut down");
     this.started = true; this.transport = transport; this.reconciler = new Reconciler(transport.capabilities);
     transport.resources = this.resources;
+    let failed = false;
     try {
       await transport.send(resourceHello());
       await this.renderAllAndSend(); this.readyResolve();
-      for await (const message of transport) {
-        let responses: A2UIMessage[];
-        try { responses = await this.handle(message); }
-        catch (error) { if (error instanceof InputValidationError) continue; throw error; }
-        if (message.type === "getSurface") for (const response of responses) await transport.send(response);
+      const source = transport[Symbol.asyncIterator]();
+      let exhausted = false;
+      try {
+        while (!this.closed) {
+          // A custom transport may have an indefinitely pending next(). Shutdown
+          // stops admission without taking ownership of the caller's connection.
+          const result = await nextUntilStopped(source, this.stop.signal);
+          if (this.closed || !result) break;
+          if (result.done) { exhausted = true; break; }
+          const message = result.value;
+          let responses: A2UIMessage[];
+          try { responses = await this.handle(message); }
+          catch (error) { if (error instanceof InputValidationError) continue; throw error; }
+          if (message.type === "getSurface") for (const response of responses) await transport.send(response);
+        }
+      } finally {
+        // Async generators can queue return() behind a blocked next(). Request
+        // cleanup, but do not make start depend on caller-owned I/O settling.
+        if (!exhausted) void Promise.resolve().then(() => source.return?.()).catch(() => {});
       }
-    } finally { await this.shutdown(); }
+    } catch (error) { failed = true; throw error; }
+    finally {
+      const closing = this.shutdownPromise ?? this.shutdown();
+      if (failed) await closing.catch(() => {});
+      else await closing;
+    }
   }
 }
 
 function objectValue(value: JsonValue | undefined): JsonObject | null { return value !== null && typeof value === "object" && !Array.isArray(value) ? value : null; }
+
+function nextUntilStopped<T>(source: AsyncIterator<T>, signal: AbortSignal): Promise<IteratorResult<T> | null> {
+  return new Promise((resolve, reject) => {
+    if (signal.aborted) { resolve(null); return; }
+    const stop = () => resolve(null);
+    signal.addEventListener("abort", stop, { once: true });
+    const cleanup = () => signal.removeEventListener("abort", stop);
+    Promise.resolve().then(() => source.next()).then(
+      result => { cleanup(); resolve(result); },
+      error => { cleanup(); reject(error); },
+    );
+  });
+}

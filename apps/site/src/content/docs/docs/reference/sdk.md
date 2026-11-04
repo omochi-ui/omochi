@@ -36,6 +36,10 @@ Pythonはハンドラーの第1引数の型注釈から入力スキーマを推�
 
 Python・TypeScriptは`StdioTransport`・`CallbackTransport`・`WebSocketTransport`を公開します。TypeScriptの`WebSocketServerTransport`と`UnixSocketServerTransport`は`@omochi-ui/sdk/node`、Pythonの`UnixSocketServerTransport`はパッケージ直下です。Rustは`Transport` trait、`StdioTransport`・`CallbackTransport`・`UnixSocketServerTransport`を持ちます。
 
+Python・TypeScriptの`runtime.shutdown()`はTransportからの新しいメッセージの受け付けとバックグラウンド処理を停止し、ResourceRegistryを閉じます。組み込みのサーバーTransportはリスナーも閉じ、Unixのサービス公開情報を削除します。後片付けの完了はPythonの`runtime.wait_closed()`、TypeScriptの`runtime.waitClosed()`で待てます。すでに実行中のActionが完了してから`start()`が戻る場合があります。
+
+独自TransportはPythonの`async stop_receiving()`、TypeScriptの`stopReceiving()`でRuntime終了時の後片付けに参加できます。このフックで受信を止め、Transport自身が所有するリソースを解放します。Callback・WebSocketアダプターは受信ループを止めますが、接続自体の所有者は呼び出し元です。独自Transportの`close()`をRuntimeが自動で呼ぶことはありません。
+
 ## エラー
 
 Python・TypeScriptでは宣言不正が`DeclarationError`、プロトコル不正が`ProtocolError`、機能の非対応が`CapabilityError`です。Rustは`Error`と`Result`を使います。Context更新とTransportの失敗は呼び出し元へ伝わり、完了済みの更新は巻き戻りません。

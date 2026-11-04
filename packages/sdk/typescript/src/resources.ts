@@ -65,7 +65,7 @@ export class ResourceRegistry {
   }
 }
 /** Keep reading while an action executes, serving resource RPC independently. */
-export async function* resourceMessages<T>(input: AsyncIterable<T>, send: (frame: ResourceFrame) => Promise<void>, registry?: ResourceRegistry): AsyncIterable<T> {
+export async function* resourceMessages<T>(input: AsyncIterable<T>, send: (frame: ResourceFrame) => Promise<void>, registry?: ResourceRegistry, signal?: AbortSignal): AsyncIterable<T> {
   const queue = new ReceiveQueue<T>();
   let done = false;
   let stopped = false;
@@ -78,6 +78,15 @@ export async function* resourceMessages<T>(input: AsyncIterable<T>, send: (frame
     sourceClosed = true;
     try { await source.return?.(); } catch { /* Cleanup must not mask the receive or handler failure. */ }
   };
+  const stop = () => {
+    stopped = true;
+    done = true;
+    queue.clear();
+    wake?.();
+    void closeSource();
+  };
+  signal?.addEventListener('abort', stop, { once: true });
+  if (signal?.aborted) stop();
   const pump = (async () => {
     try {
       while (!stopped) {
@@ -118,6 +127,7 @@ export async function* resourceMessages<T>(input: AsyncIterable<T>, send: (frame
     }
     if (failure) throw failure;
   } finally {
+    signal?.removeEventListener('abort', stop);
     stopped = true;
     queue.clear();
     // Request cleanup even if next() is blocked. Neither it nor return() is

@@ -139,6 +139,8 @@ export class WebSocketServerTransport implements Transport {
     }
   }
 
+  stopReceiving(): Promise<void> { return this.close(); }
+
   close(): Promise<void> {
     if (this.closePromise) return this.closePromise;
     this.closed = true;

@@ -7,9 +7,12 @@ export interface Transport extends AsyncIterable<JsonObject> {
   resources?: ResourceRegistry;
   readonly capabilities: ReadonlySet<string>;
   send(message: A2UIMessage | ResourceFrame): Promise<void>;
+  /** Optional runtime lifecycle hook. Stop reads and release owned listeners. */
+  stopReceiving?(): void | Promise<void>;
 }
 
 export class StdioTransport implements Transport {
+  private readonly stop = new AbortController();
   resources?: ResourceRegistry;
   readonly capabilities: ReadonlySet<string>;
 
@@ -25,9 +28,13 @@ export class StdioTransport implements Transport {
 
   async *[Symbol.asyncIterator](): AsyncIterator<JsonObject> {
     const lines = createInterface({ input: process.stdin, crlfDelay: Infinity });
+    const close = () => lines.close();
+    this.stop.signal.addEventListener("abort", close, { once: true });
     const input = (async function* () { for await (const line of lines) if (line.trim()) yield JSON.parse(line) as JsonObject; })();
-    try { yield* resourceMessages(input, frame => this.send(frame), this.resources); } finally { lines.close(); }
+    try { yield* resourceMessages(input, frame => this.send(frame), this.resources, this.stop.signal); }
+    finally { this.stop.signal.removeEventListener("abort", close); lines.close(); }
   }
+  stopReceiving(): void { this.stop.abort(); }
 }
 
 export interface WebSocketLike extends AsyncIterable<string | Uint8Array> {
@@ -35,6 +42,7 @@ export interface WebSocketLike extends AsyncIterable<string | Uint8Array> {
 }
 
 export class WebSocketTransport implements Transport {
+  private readonly stop = new AbortController();
   resources?: ResourceRegistry;
   readonly capabilities: ReadonlySet<string>;
 
@@ -52,11 +60,13 @@ export class WebSocketTransport implements Transport {
       const text = typeof message === "string" ? message : new TextDecoder().decode(message);
       yield JSON.parse(text) as JsonObject;
     } })();
-    yield* resourceMessages(input, frame => this.send(frame), this.resources);
+    yield* resourceMessages(input, frame => this.send(frame), this.resources, this.stop.signal);
   }
+  stopReceiving(): void { this.stop.abort(); }
 }
 
 export class CallbackTransport implements Transport {
+  private readonly stop = new AbortController();
   resources?: ResourceRegistry;
   readonly capabilities: ReadonlySet<string>;
 
@@ -73,6 +83,7 @@ export class CallbackTransport implements Transport {
   }
 
   [Symbol.asyncIterator](): AsyncIterator<JsonObject> {
-    return resourceMessages(this.receiver(), frame => this.send(frame), this.resources)[Symbol.asyncIterator]();
+    return resourceMessages(this.receiver(), frame => this.send(frame), this.resources, this.stop.signal)[Symbol.asyncIterator]();
   }
+  stopReceiving(): void { this.stop.abort(); }
 }

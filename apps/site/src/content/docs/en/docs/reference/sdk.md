@@ -45,6 +45,18 @@ before the action reaches the runtime. See [browser-owned input](../../concepts/
 
 Python and TypeScript expose `StdioTransport`, `CallbackTransport`, and `WebSocketTransport`. TypeScript's `WebSocketServerTransport` and `UnixSocketServerTransport` are exported from `@omochi-ui/sdk/node`. Python exports `UnixSocketServerTransport` at its package root. Rust exposes a `Transport` trait, `StdioTransport`, `CallbackTransport`, and `UnixSocketServerTransport`.
 
+In Python and TypeScript, `runtime.shutdown()` stops admitting transport messages,
+stops background tasks, and closes the resource registry. Built-in server transports
+also close their listeners and remove Unix discovery publications. Use
+`runtime.wait_closed()` (Python) or `runtime.waitClosed()` (TypeScript) to wait for
+cleanup to finish. An action already running may finish before `start()` returns.
+
+Custom transports can opt into runtime cleanup with `async stop_receiving()`
+(Python) or `stopReceiving()` (TypeScript). The hook should stop reads and release
+resources owned by that transport. Callback and WebSocket adapters stop their
+receive loop; the caller retains ownership of the underlying connection. Runtime
+shutdown does not call an arbitrary custom transport's `close()` method.
+
 ## Errors
 
 `DeclarationError` reports invalid declarations, `ProtocolError` invalid protocol usage, and `CapabilityError` unsupported rendering capabilities in Python and TypeScript. Rust uses its `Error`/`Result` types. Context update and transport failures propagate to the caller; completed updates are not rolled back.

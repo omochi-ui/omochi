@@ -206,6 +206,9 @@ class UnixSocketServerTransport(Transport):
                 return
             yield message
 
+    async def stop_receiving(self) -> None:
+        await self.close()
+
     async def close(self) -> None:
         if self._closed:
             return

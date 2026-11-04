@@ -6,6 +6,7 @@ import sys
 from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator, Awaitable, Callable
 from typing import Any
+from contextlib import aclosing
 
 
 from .receive_queue import ReceiveQueue, ReceiveQueueOverflowError
@@ -54,6 +55,9 @@ class Transport(ABC):
     @abstractmethod
     def receive(self) -> AsyncIterator[dict[str, Any]]: ...
 
+    async def stop_receiving(self) -> None:
+        """Runtime lifecycle hook for transports that own a listener."""
+
 
 class StdioTransport(Transport):
     """Newline-delimited JSON over stdin/stdout."""
@@ -73,8 +77,9 @@ class StdioTransport(Transport):
         sys.stdout.flush()
 
     async def receive(self) -> AsyncIterator[dict[str, Any]]:
-        async for message in resource_messages(self, self._receive()):
-            yield message
+        async with aclosing(resource_messages(self, self._receive())) as messages:
+            async for message in messages:
+                yield message
 
     async def _receive(self) -> AsyncIterator[dict[str, Any]]:
         reader = asyncio.StreamReader(limit=MAX_FRAME_BYTES)
