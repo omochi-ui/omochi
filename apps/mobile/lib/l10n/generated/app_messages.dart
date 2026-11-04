@@ -7,6 +7,7 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:intl/intl.dart' as intl;
 
 import 'app_messages_en.dart';
+import 'app_messages_ja.dart';
 
 // ignore_for_file: type=lint
 
@@ -93,7 +94,10 @@ abstract class AppMessages {
       ];
 
   /// A list of this localizations delegate's supported locales.
-  static const List<Locale> supportedLocales = <Locale>[Locale('en')];
+  static const List<Locale> supportedLocales = <Locale>[
+    Locale('en'),
+    Locale('ja'),
+  ];
 
   /// No description provided for @apps.
   ///
@@ -358,7 +362,7 @@ class _AppMessagesDelegate extends LocalizationsDelegate<AppMessages> {
 
   @override
   bool isSupported(Locale locale) =>
-      <String>['en'].contains(locale.languageCode);
+      <String>['en', 'ja'].contains(locale.languageCode);
 
   @override
   bool shouldReload(_AppMessagesDelegate old) => false;
@@ -369,6 +373,8 @@ AppMessages lookupAppMessages(Locale locale) {
   switch (locale.languageCode) {
     case 'en':
       return AppMessagesEn();
+    case 'ja':
+      return AppMessagesJa();
   }
 
   throw FlutterError(

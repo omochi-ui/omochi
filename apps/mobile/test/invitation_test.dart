@@ -5,6 +5,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:omochi_mobile/src/native/protocol.dart';
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
   test('invitation expiry must fit the displayed Dart date range', () {
     final fixture = jsonDecode(
       File('../../spec/fixtures/gateway-invitations.json').readAsStringSync(),

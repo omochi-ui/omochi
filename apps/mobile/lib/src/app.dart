@@ -4,22 +4,26 @@ import 'package:app_links/app_links.dart';
 import 'package:flutter/material.dart';
 import 'package:genui/genui.dart';
 
+import '../l10n/generated/app_messages.dart';
 import 'hub_session.dart';
 import 'messages.dart';
 import 'models.dart';
 import 'native/protocol.dart';
 
 class MobileApp extends StatelessWidget {
-  const MobileApp({super.key, required this.links});
+  const MobileApp({super.key, required this.links, this.session});
   final Stream<Uri> links;
+  final HubSession? session;
   @override
   Widget build(BuildContext context) => MaterialApp(
     title: 'Omochi',
+    localizationsDelegates: AppMessages.localizationsDelegates,
+    supportedLocales: AppMessages.supportedLocales,
     theme: ThemeData(
       colorSchemeSeed: const Color(0xff6450aa),
       useMaterial3: true,
     ),
-    home: MobileHome(links: links),
+    home: MobileHome(links: links, session: session),
   );
 }
 
@@ -91,7 +95,7 @@ class _MobileHomeState extends State<MobileHome> with WidgetsBindingObserver {
     final key = '${invitation.address.id}/${invitation.secret}';
     if (pending == key) return;
     if (pending != null || busy) {
-      notice(messages.invitationPending);
+      notice(messagesFor(context).invitationPending);
       return;
     }
     pending = key;
@@ -99,18 +103,18 @@ class _MobileHomeState extends State<MobileHome> with WidgetsBindingObserver {
       final accepted = await showDialog<bool>(
         context: context,
         builder: (context) => AlertDialog(
-          title: Text(messages.addGateway),
+          title: Text(messagesFor(context).addGateway),
           content: SingleChildScrollView(
             child: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(messages.addOnDevice),
+                Text(messagesFor(context).addOnDevice),
                 const SizedBox(height: 16),
                 SelectableText(invitation.address.id),
                 const SizedBox(height: 12),
                 Text(
-                  messages.expiresAt(
+                  messagesFor(context).expiresAt(
                     DateTime.fromMillisecondsSinceEpoch(
                       invitation.expires * 1000,
                     ).toLocal().toString(),
@@ -122,11 +126,11 @@ class _MobileHomeState extends State<MobileHome> with WidgetsBindingObserver {
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context, false),
-              child: Text(messages.cancel),
+              child: Text(messagesFor(context).cancel),
             ),
             FilledButton(
               onPressed: () => Navigator.pop(context, true),
-              child: Text(messages.addOnDeviceButton),
+              child: Text(messagesFor(context).addOnDeviceButton),
             ),
           ],
         ),
@@ -137,7 +141,7 @@ class _MobileHomeState extends State<MobileHome> with WidgetsBindingObserver {
           await hub.pairGateway(input);
           if (mounted) {
             setState(() => tab = 0);
-            notice(messages.gatewayAdded);
+            notice(messagesFor(context).gatewayAdded);
           }
         });
       }
@@ -151,21 +155,23 @@ class _MobileHomeState extends State<MobileHome> with WidgetsBindingObserver {
     final result = await showDialog<String>(
       context: context,
       builder: (context) => AlertDialog(
-        title: Text(messages.gatewayInvitation),
+        title: Text(messagesFor(context).gatewayInvitation),
         content: TextField(
           controller: text,
           autofocus: true,
           maxLines: 4,
-          decoration: InputDecoration(hintText: messages.invitationExample),
+          decoration: InputDecoration(
+            hintText: messagesFor(context).invitationExample,
+          ),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: Text(messages.cancel),
+            child: Text(messagesFor(context).cancel),
           ),
           FilledButton(
             onPressed: () => Navigator.pop(context, text.text),
-            child: Text(messages.continueButton),
+            child: Text(messagesFor(context).continueButton),
           ),
         ],
       ),
@@ -217,11 +223,15 @@ class _MobileHomeState extends State<MobileHome> with WidgetsBindingObserver {
         : hub.contextForSurface(surface);
     return Scaffold(
       appBar: AppBar(
-        title: Text(tab == 0 ? messages.apps : messages.connections),
+        title: Text(
+          tab == 0
+              ? messagesFor(context).apps
+              : messagesFor(context).connections,
+        ),
         actions: [
           if (hub.status == 'Unavailable')
             IconButton(
-              tooltip: messages.retry,
+              tooltip: messagesFor(context).retry,
               onPressed: busy
                   ? null
                   : () {
@@ -246,7 +256,7 @@ class _MobileHomeState extends State<MobileHome> with WidgetsBindingObserver {
                 actions: [
                   TextButton(
                     onPressed: () => setState(() => hub.error = null),
-                    child: Text(messages.dismiss),
+                    child: Text(messagesFor(context).dismiss),
                   ),
                 ],
               ),
@@ -262,7 +272,7 @@ class _MobileHomeState extends State<MobileHome> with WidgetsBindingObserver {
                                   onPressed: () =>
                                       setState(() => selected = null),
                                   icon: const Icon(Icons.arrow_back),
-                                  label: Text(messages.apps),
+                                  label: Text(messagesFor(context).apps),
                                 ),
                                 if (hub.surfaceErrors[surface] != null)
                                   Text(hub.surfaceErrors[surface]!),
@@ -285,8 +295,9 @@ class _MobileHomeState extends State<MobileHome> with WidgetsBindingObserver {
                                   padding: const EdgeInsets.all(24),
                                   child: Text(
                                     hub.gateways.isEmpty
-                                        ? messages.startWithInvitation
-                                        : messages.waitingForApps,
+                                        ? messagesFor(context)
+                                              .startWithInvitation
+                                        : messagesFor(context).waitingForApps,
                                   ),
                                 ),
                               for (final service in hub.services)
@@ -323,17 +334,17 @@ class _MobileHomeState extends State<MobileHome> with WidgetsBindingObserver {
                         FilledButton.icon(
                           onPressed: busy ? null : paste,
                           icon: const Icon(Icons.add),
-                          label: Text(messages.addGateway),
+                          label: Text(messagesFor(context).addGateway),
                         ),
                         const SizedBox(height: 16),
                         Text(hub.status),
                         if (hub.nativeIdentity != null)
                           ListTile(
-                            title: Text(messages.deviceIdentity),
+                            title: Text(messagesFor(context).deviceIdentity),
                             subtitle: SelectableText(hub.nativeIdentity!),
                           ),
                         SwitchListTile(
-                          title: Text(messages.internetRelays),
+                          title: Text(messagesFor(context).internetRelays),
                           value: hub.nativeOnline,
                           onChanged: busy
                               ? null
@@ -363,7 +374,7 @@ class _MobileHomeState extends State<MobileHome> with WidgetsBindingObserver {
                                           : () => hub.retryGateway(
                                               peer.address.id,
                                             ),
-                                      child: Text(messages.retry),
+                                      child: Text(messagesFor(context).retry),
                                     ),
                                     TextButton(
                                       onPressed: busy
@@ -371,37 +382,42 @@ class _MobileHomeState extends State<MobileHome> with WidgetsBindingObserver {
                                           : () async {
                                               final yes = await showDialog<bool>(
                                                 context: context,
-                                                builder: (context) => AlertDialog(
-                                                  title: Text(
-                                                    messages.forgetGatewayTitle,
-                                                  ),
-                                                  content: Text(
-                                                    messages
-                                                        .forgetLocalExplanation,
-                                                  ),
-                                                  actions: [
-                                                    TextButton(
-                                                      onPressed: () =>
-                                                          Navigator.pop(
-                                                            context,
-                                                            false,
-                                                          ),
-                                                      child: Text(
-                                                        messages.cancel,
+                                                builder: (context) =>
+                                                    AlertDialog(
+                                                      title: Text(
+                                                        messagesFor(context)
+                                                            .forgetGatewayTitle,
                                                       ),
-                                                    ),
-                                                    FilledButton(
-                                                      onPressed: () =>
-                                                          Navigator.pop(
-                                                            context,
-                                                            true,
-                                                          ),
-                                                      child: Text(
-                                                        messages.forget,
+                                                      content: Text(
+                                                        messagesFor(
+                                                          context,
+                                                        ).forgetLocalExplanation,
                                                       ),
+                                                      actions: [
+                                                        TextButton(
+                                                          onPressed: () =>
+                                                              Navigator.pop(
+                                                                context,
+                                                                false,
+                                                              ),
+                                                          child: Text(
+                                                            messagesFor(context)
+                                                                .cancel,
+                                                          ),
+                                                        ),
+                                                        FilledButton(
+                                                          onPressed: () =>
+                                                              Navigator.pop(
+                                                                context,
+                                                                true,
+                                                              ),
+                                                          child: Text(
+                                                            messagesFor(context)
+                                                                .forget,
+                                                          ),
+                                                        ),
+                                                      ],
                                                     ),
-                                                  ],
-                                                ),
                                               );
                                               if (yes == true) {
                                                 await run(
@@ -411,7 +427,7 @@ class _MobileHomeState extends State<MobileHome> with WidgetsBindingObserver {
                                                 );
                                               }
                                             },
-                                      child: Text(messages.forget),
+                                      child: Text(messagesFor(context).forget),
                                     ),
                                   ],
                                 ),
@@ -430,11 +446,11 @@ class _MobileHomeState extends State<MobileHome> with WidgetsBindingObserver {
         destinations: [
           NavigationDestination(
             icon: const Icon(Icons.apps),
-            label: messages.apps,
+            label: messagesFor(context).apps,
           ),
           NavigationDestination(
             icon: const Icon(Icons.link),
-            label: messages.connections,
+            label: messagesFor(context).connections,
           ),
         ],
       ),

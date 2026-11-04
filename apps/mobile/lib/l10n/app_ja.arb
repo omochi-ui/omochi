@@ -1,0 +1,92 @@
+{
+  "@@locale": "ja",
+  "apps": "アプリ",
+  "cancel": "キャンセル",
+  "internetRelays": "インターネットリレー",
+  "deviceIdentity": "この端末",
+  "gatewayInvitation": "ゲートウェイへの招待",
+  "invitationExample": "omochi://invite/…",
+  "forget": "登録を解除",
+  "appImage": "アプリの画像",
+  "retryImage": "画像を再読み込み",
+  "errorImageNeedsNativeHub": "この画像を読み込むには内蔵Hubを接続してください",
+  "errorOversizedMessage": "A2UIメッセージが4 MiBを超えています",
+  "errorInvalidServerMessage": "A2UI v0.9のサーバーメッセージが1件必要です",
+  "errorDisconnectedAction": "接続が切れたため、操作を送信できませんでした。",
+  "errorStoppedHub": "内蔵Hubが停止しています",
+  "errorInvalidInvitation": "ゲートウェイへの招待が無効か、有効期限が切れています。ゲートウェイで新しい招待を作成してください。",
+  "demoNotes": "メモ",
+  "demoPlayground": "プレイグラウンド",
+  "demoDevice": "この端末 · デモ",
+  "demoAddOne": "1増やす",
+  "demoTask": "何に取り組んでいますか？",
+  "demoSetIntention": "目標を設定",
+  "demoSampleTask": "Omochiを試す",
+  "demoNote": "アプリからのサンプルテキストです。",
+  "errorActionFailed": "操作に失敗しました: {error}",
+  "@errorActionFailed": {
+    "description": "原因の詳細を含む操作エラー。",
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  "errorRenderingFailed": "A2UI: {error}",
+  "@errorRenderingFailed": {
+    "description": "原因の詳細を含む描画エラー。",
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  "errorHubFailed": "内蔵Hub: {error}",
+  "@errorHubFailed": {
+    "description": "原因の詳細を含むHubエラー。",
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  "errorPairingFailed": "ペアリングに失敗しました: {error}",
+  "@errorPairingFailed": {
+    "description": "原因の詳細を含むペアリングエラー。",
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  "demoMoments": "{count}回",
+  "@demoMoments": {
+    "description": "デモのカウンター値。",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "addGateway": "ゲートウェイを追加",
+  "addOnDevice": "この端末のHubにゲートウェイを追加します。",
+  "addOnDeviceButton": "この端末に追加",
+  "expiresAt": "有効期限: {time}",
+  "@expiresAt": {
+    "placeholders": {
+      "time": {
+        "type": "String"
+      }
+    }
+  },
+  "invitationPending": "別の招待または操作が完了するまでお待ちください。",
+  "gatewayAdded": "ゲートウェイを追加しました。",
+  "continueButton": "続ける",
+  "startWithInvitation": "ゲートウェイへの招待を開くか、「接続」から追加してください。",
+  "waitingForApps": "ゲートウェイのアプリを待っています…",
+  "forgetGatewayTitle": "ゲートウェイの登録を解除しますか？",
+  "dismiss": "閉じる",
+  "connections": "接続",
+  "retry": "再試行",
+  "forgetLocalExplanation": "この端末から登録を削除します。ゲートウェイ側でこの端末のアクセス権を取り消すには、別途操作が必要です。"
+}

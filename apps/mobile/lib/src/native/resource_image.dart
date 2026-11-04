@@ -57,7 +57,7 @@ Catalog nativeCatalog(
                 imageBuilder: (uri, title, alt) => _ResourceImage(
                   key: ValueKey('${item.surfaceId}/$uri'),
                   load: () => read(item.surfaceId, uri.toString()),
-                  description: alt ?? title ?? messages.appImage,
+                  description: alt ?? title ?? messagesFor(context).appImage,
                   fit: BoxFit.contain,
                 ),
               ),
@@ -109,10 +109,10 @@ Catalog nativeCatalog(
             final image = child;
             return BoundString(
               dataContext: item.dataContext,
-              value: data['description'] ?? messages.appImage,
+              value: data['description'] ?? messagesFor(context).appImage,
               builder: (context, label) => Semantics(
                 label: label == null || label.isEmpty
-                    ? messages.appImage
+                    ? messagesFor(context).appImage
                     : label,
                 image: true,
                 child: image,
@@ -211,7 +211,7 @@ class _ResourceImageState extends State<_ResourceImage> {
             });
           },
           icon: const Icon(Icons.broken_image_outlined),
-          label: Text(messages.retryImage),
+          label: Text(messagesFor(context).retryImage),
         );
       }
       if (snapshot.connectionState != ConnectionState.done ||

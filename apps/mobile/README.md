@@ -2,6 +2,8 @@
 
 Android / iOS の Flutter アプリ。アプリ内の共通 Rust Hub から iroh で Gateway に接続し、GenUI で A2UI v0.9 の画面を表示・操作します。外部 HTTP Hub、LLM、API キーは不要です。
 
+アプリの表示言語はシステムの優先言語に合わせて日本語・英語から選び、未対応の言語は英語で表示します。起動中の言語変更にも追従します。Gateway のアプリが送るコンテンツやステータス文字列は、そのまま表示します。
+
 ## 起動
 
 Flutter 3.47.9 / Dart 3.13.7、Rust と同じ checkout のソースが必要です。
