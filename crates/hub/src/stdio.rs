@@ -7,7 +7,7 @@ use anyhow::{Context, Result, bail};
 use futures_util::{SinkExt, StreamExt};
 use omochi_protocol::MAX_FRAME_BYTES;
 use omochi_ui::A2uiSnapshot;
-use serde_json::Value;
+use serde_json::{Value, json};
 use std::{
     collections::BTreeMap,
     sync::{
@@ -113,6 +113,10 @@ impl Backend {
                                 action.message
                             },
                             Command::Resource(value,reply)=>{
+                                if !shared.resources.load(Ordering::Acquire) {
+                                    let _ = reply.send(json!({"omochi":"resources/1","kind":"response","id":value["id"],"status":501}));
+                                    continue;
+                                }
                                 if pending.len() >= 8 { continue; }
                                 pending.insert(value["id"].as_str().unwrap().into(),reply); value
                             },
@@ -160,9 +164,6 @@ impl Backend {
             .map_err(|_| anyhow::anyhow!("child unavailable or busy"))
     }
     pub async fn resource(&self, mut request: Value) -> Result<Value> {
-        if !self.resources.load(Ordering::Acquire) {
-            bail!("resources unsupported");
-        }
         request["omochi"] = "resources/1".into();
         request["kind"] = "request".into();
         request["id"] = format!("dev{}", self.next.fetch_add(1, Ordering::Relaxed)).into();

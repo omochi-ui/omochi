@@ -13,7 +13,7 @@ use omochi_protocol::{
     session::{Control, Service},
 };
 use omochi_ui::A2uiSnapshot;
-use serde_json::Value;
+use serde_json::{Value, json};
 use std::{
     collections::BTreeMap,
     path::PathBuf,
@@ -188,9 +188,6 @@ impl Gateway {
             bail!("invalid resource request")
         }
         let running = self.running(id, generation).await?;
-        if !running.state.lock().await.resources {
-            bail!("resources unsupported")
-        }
         request["omochi"] = "resources/1".into();
         request["kind"] = "request".into();
         request["id"] = format!("r{}", REQUEST_ID.fetch_add(1, Ordering::Relaxed)).into();
@@ -383,6 +380,10 @@ where
                 let Some(_dispatch) = origin.enter().await else { continue };
                 if let Some(reply) = reply {
                     if reply.is_closed() { continue }
+                    if !running.state.lock().await.resources {
+                        let _ = reply.send(json!({"omochi":"resources/1","kind":"response","id":message["id"],"status":501}));
+                        continue;
+                    }
                     pending.insert(message["id"].as_str().unwrap().into(), reply);
                 }
                 tokio::time::timeout(Duration::from_secs(5), frames.send(serde_json::to_string(&message)?)).await??;
@@ -403,7 +404,6 @@ fn validate_service_frame(message: &Value) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::json;
     use std::os::unix::fs::PermissionsExt;
     use tokio::net::UnixListener;
 

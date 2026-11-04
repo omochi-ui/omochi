@@ -146,6 +146,118 @@ mod tests {
     use futures_util::{SinkExt, StreamExt};
     use std::{os::unix::fs::PermissionsExt, time::Duration};
     use tokio_util::codec::{Framed, LinesCodec};
+    async fn assert_unsupported(client: &reqwest::Client, url: &str) {
+        for method in [reqwest::Method::GET, reqwest::Method::HEAD] {
+            let response = client.request(method.clone(), url).send().await.unwrap();
+            assert_eq!(response.status(), 501, "{method}");
+            if method == reqwest::Method::HEAD {
+                assert!(response.bytes().await.unwrap().is_empty());
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn stdio_resources_preserve_unsupported_and_unavailable_statuses() {
+        let root = tempfile::tempdir().unwrap();
+        let (sdk, bridge) = tokio::io::duplex(65536);
+        let (input, output) = tokio::io::split(bridge);
+        let (hub, attached) = Hub::attach_stdio(input, output);
+        let mut sdk = Framed::new(sdk, LinesCodec::new());
+        sdk.send(
+            json!({"version":"v0.9","createSurface":{"surfaceId":"legacy","catalogId":"test"}})
+                .to_string(),
+        )
+        .await
+        .unwrap();
+        tokio::time::timeout(Duration::from_secs(5), async {
+            while hub.subscribe().await.snapshot.is_empty() {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .unwrap();
+        let (address, http) = crate::http::serve(
+            HttpState {
+                hub: hub.clone(),
+                dashboards: DashboardStore::open(root.path().join("state")).unwrap(),
+                allow_origins: vec![],
+                assets: None,
+                presets: vec![],
+            },
+            "127.0.0.1:0".parse().unwrap(),
+        )
+        .await
+        .unwrap();
+        let _ = rustls::crypto::ring::default_provider().install_default();
+        let client = reqwest::Client::new();
+        let url = format!("http://{address}/resources/_/{}", "a".repeat(32));
+        assert_unsupported(&client, &url).await;
+        assert!(
+            tokio::time::timeout(Duration::from_millis(20), sdk.next())
+                .await
+                .is_err()
+        );
+        sdk.send(json!({"omochi":"resources/1","kind":"hello"}).to_string())
+            .await
+            .unwrap();
+        sdk.send(
+            json!({"version":"v0.9","createSurface":{"surfaceId":"ready","catalogId":"test"}})
+                .to_string(),
+        )
+        .await
+        .unwrap();
+        tokio::time::timeout(Duration::from_secs(5), async {
+            while hub.subscribe().await.snapshot.len() < 2 {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .unwrap();
+        let sdk = tokio::spawn(async move {
+            while let Some(Ok(line)) = sdk.next().await {
+                let request: Value = serde_json::from_str(&line).unwrap();
+                let mut response = json!({"omochi":"resources/1","kind":"response","id":request["id"],"status":200});
+                if request["op"] == "stat" {
+                    response["size"] = 5.into();
+                    response["mime"] = "image/png".into();
+                    response["etag"] = format!("\"{}\"", "a".repeat(32)).into();
+                } else {
+                    let offset = request["offset"].as_u64().unwrap() as usize;
+                    let length = request["length"].as_u64().unwrap() as usize;
+                    response["data"] = STANDARD.encode(&b"hello"[offset..offset + length]).into();
+                }
+                sdk.send(response.to_string()).await.unwrap();
+            }
+        });
+        let full = client.get(&url).send().await.unwrap();
+        assert_eq!(full.status(), 200);
+        assert_eq!(full.text().await.unwrap(), "hello");
+        let range = client
+            .get(&url)
+            .header("Range", "bytes=1-3")
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(range.status(), 206);
+        assert_eq!(range.headers()["content-range"], "bytes 1-3/5");
+        assert_eq!(range.text().await.unwrap(), "ell");
+        let head = client.head(&url).send().await.unwrap();
+        assert_eq!(head.status(), 200);
+        assert_eq!(head.headers()["content-length"], "5");
+        assert!(head.bytes().await.unwrap().is_empty());
+        sdk.abort();
+        let _ = sdk.await;
+        attached.await.unwrap().unwrap();
+        for method in [reqwest::Method::GET, reqwest::Method::HEAD] {
+            assert_eq!(
+                client.request(method, &url).send().await.unwrap().status(),
+                503
+            );
+        }
+        hub.shutdown();
+        http.await.unwrap().unwrap();
+    }
+
     #[tokio::test]
     async fn browser_resource_ranges_are_streamed_from_the_sdk() {
         let root = tempfile::tempdir().unwrap();
@@ -158,9 +270,11 @@ mod tests {
         )
         .unwrap();
         let listener = tokio::net::UnixListener::bind(directory.join("a2ui.sock")).unwrap();
+        let (announce, announced) = tokio::sync::oneshot::channel();
         let sdk = tokio::spawn(async move {
             let (socket, _) = listener.accept().await.unwrap();
             let mut frames = Framed::new(socket, LinesCodec::new());
+            announced.await.unwrap();
             frames
                 .send(json!({"omochi":"resources/1","kind":"hello"}).to_string())
                 .await
@@ -214,6 +328,15 @@ mod tests {
         let url = format!("http://{address}/resources/{node}~app/{}", "a".repeat(32));
         let _ = rustls::crypto::ring::default_provider().install_default();
         let client = reqwest::Client::new();
+        assert_unsupported(&client, &url).await;
+        announce.send(()).unwrap();
+        tokio::time::timeout(Duration::from_secs(5), async {
+            while hub.subscribe().await.snapshot.is_empty() {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .unwrap();
         let full = client.get(&url).send().await.unwrap();
         assert_eq!(full.status(), 200);
         assert_eq!(full.text().await.unwrap(), "hello");
@@ -249,12 +372,26 @@ mod tests {
                 .status(),
             403
         );
+        sdk.abort();
+        let _ = sdk.await;
+        tokio::time::timeout(Duration::from_secs(5), async {
+            while !hub.services().await.is_empty() {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .unwrap();
+        for method in [reqwest::Method::GET, reqwest::Method::HEAD] {
+            assert_eq!(
+                client.request(method, &url).send().await.unwrap().status(),
+                503
+            );
+        }
         hub.shutdown();
         attached.await.unwrap();
         http.await.unwrap().unwrap();
         gateway.shutdown();
         server.await.unwrap().unwrap();
         discovery.await.unwrap().unwrap();
-        sdk.await.unwrap();
     }
 }
