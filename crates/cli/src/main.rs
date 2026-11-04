@@ -550,9 +550,10 @@ async fn serve_hub(
     let remote = tokio::spawn(async move {
         let stop = remote_hub.cancellation_token();
         loop {
+            let store = remote_store.clone();
             if remote_dashboard
-                || remote_store
-                    .peers()?
+                || omochi_transport::blocking::run(move || store.peers())
+                    .await??
                     .1
                     .values()
                     .any(|p| p.role == Role::Gateway)
@@ -571,8 +572,10 @@ async fn serve_hub(
                     .collect::<std::result::Result<Vec<_>, _>>()?,
             )
         };
-        let endpoint =
-            omochi_transport::bind(remote_store.identity(Role::Hub)?, offline, relays).await?;
+        let identity_store = remote_store.clone();
+        let key =
+            omochi_transport::blocking::run(move || identity_store.identity(Role::Hub)).await??;
+        let endpoint = omochi_transport::bind(key, offline, relays).await?;
         remote_hub.configure_pairing(endpoint.clone(), remote_store.clone());
         let listener = if remote_dashboard {
             let listener = omochi_hub::dashboard_remote::listen(
