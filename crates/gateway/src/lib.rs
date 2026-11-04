@@ -470,10 +470,10 @@ mod tests {
                 loop {
                     let frame = read_frame::<_, Control>(client).await.unwrap().unwrap();
                     assert!(serde_json::to_vec(&frame).unwrap().len() <= MAX_FRAME_BYTES);
-                    if let Control::Services { services } = frame {
-                        if services == expected {
-                            break;
-                        }
+                    if let Control::Services { services } = frame
+                        && services == expected
+                    {
+                        break;
                     }
                 }
                 write_frame(client, &Control::Ping { id: 42 })

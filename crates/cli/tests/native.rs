@@ -585,6 +585,7 @@ async fn catalog_overlapping_properties_preserves_composed_values_in_every_order
     use omochi_ui::ComponentProps;
     use serde_json::json;
 
+    assert_eq!(CATALOG_ID, "urn:test:catalog-overlapping-properties");
     let root = tempfile::tempdir().unwrap();
     let source = Path::new(env!("CARGO_MANIFEST_DIR"));
     let output = command(root.path())

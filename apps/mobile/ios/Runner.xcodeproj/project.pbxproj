@@ -238,11 +238,14 @@
 /* Begin PBXShellScriptBuildPhase section */
 		AABBCCDD0011223344556677 /* Build Rust Hub */ = {
 			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
 			buildActionMask = 2147483647;
 			files = ();
 			inputPaths = ();
 			name = "Build Rust Hub";
-			outputPaths = ();
+			outputPaths = (
+				"$(PROJECT_DIR)/../build/shared-hub/ios/OmochiHub.xcframework/$(OMOCHI_HUB_SLICE)/libomochi_native_bridge.a",
+			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/bash;
 			shellScript = "bash \"$PROJECT_DIR/../tool/build_ios_hub.sh\"";

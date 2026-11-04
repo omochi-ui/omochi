@@ -515,6 +515,7 @@ mod tests {
     use tokio::sync::mpsc;
 
     #[tokio::test]
+    #[ignore = "requires multicast; run explicitly on a LAN-capable host"]
     async fn test_change_addresses() {
         let handle = tokio::runtime::Handle::current();
 

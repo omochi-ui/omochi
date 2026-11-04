@@ -59,8 +59,13 @@ impl LanDiscovery {
             local_port != 0,
             "LAN advertisement requires a bound UDP port"
         );
+        // The Rust fallback does not use the native backend's channels. On
+        // Android there is no native backend to infer their message types.
+        #[cfg(any(target_vendor = "apple", windows, target_os = "linux"))]
         let (events, receiver) = mpsc::channel(256);
+        #[cfg(any(target_vendor = "apple", windows, target_os = "linux"))]
         let (publication, updates) = watch::channel(None);
+        #[cfg(any(target_vendor = "apple", windows, target_os = "linux"))]
         let cancel = CancellationToken::new();
         #[cfg(target_vendor = "apple")]
         {

@@ -3,6 +3,23 @@ It is geared towards facilitating new peers discovering a swarm in the local net
 The difference to using plain mDNS is that this library carefully chooses when to send queries or responses such that regardless of swarm size the used network bandwidth does not grow out of bounds.
 At the same time, it maintains a steady flow of packets which can serve as an indicator of liveness and connectedness.
 
+## Omochi patch verification
+
+Run the Bonjour packet compatibility and lifecycle regression tests without
+depending on the host's multicast networking:
+
+```sh
+cargo test --manifest-path vendor/swarm-discovery/Cargo.toml --lib
+```
+
+The address-change integration test uses real multicast sockets and is ignored
+by default, matching Omochi's transport discovery tests. Run it explicitly on a
+LAN-capable host; hosted CI runners do not reliably deliver loopback multicast:
+
+```sh
+cargo test --manifest-path vendor/swarm-discovery/Cargo.toml --lib tests::test_change_addresses -- --exact --ignored --nocapture
+```
+
 ## Algorithm
 
 Configuration parameters: τ (discovery time target), φ (response frequency target)
