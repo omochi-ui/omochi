@@ -38,6 +38,8 @@ Python・TypeScriptは`StdioTransport`・`CallbackTransport`・`WebSocketTranspo
 
 Python・TypeScriptの`runtime.shutdown()`はTransportからの新しいメッセージの受け付けとバックグラウンド処理を停止し、ResourceRegistryを閉じます。組み込みのサーバーTransportはリスナーも閉じ、Unixのサービス公開情報を削除します。後片付けの完了はPythonの`runtime.wait_closed()`、TypeScriptの`runtime.waitClosed()`で待てます。すでに実行中のActionが完了してから`start()`が戻る場合があります。
 
+TypeScriptの`shutdown()`は初回も停止を要求した時点で解決済みのPromiseを返すため、`await runtime.shutdown()`だけでは後片付けの完了を待ちません。`spawn(async signal => { ... })`と`spawn(promise)`のどちらで登録したタスクも、停止を要求してから自分の後片付けを続けられます。タスクの外から`await runtime.shutdown(); await runtime.waitClosed();`を呼ぶと、登録された全タスクの終了とResourceRegistryのクローズを待てます。`waitClosed()`はタスク自身の終了も待つため、登録タスク内では待たないでください。後片付けのエラーは`waitClosed()`と`start()`に伝わります。ActionやTransportが先に失敗していた場合、`start()`は先に発生したエラーを維持します。
+
 独自TransportはPythonの`async stop_receiving()`、TypeScriptの`stopReceiving()`でRuntime終了時の後片付けに参加できます。このフックで受信を止め、Transport自身が所有するリソースを解放します。Callback・WebSocketアダプターは受信ループを止めますが、接続自体の所有者は呼び出し元です。独自Transportの`close()`をRuntimeが自動で呼ぶことはありません。
 
 ## エラー

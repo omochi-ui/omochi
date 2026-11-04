@@ -51,6 +51,15 @@ also close their listeners and remove Unix discovery publications. Use
 `runtime.wait_closed()` (Python) or `runtime.waitClosed()` (TypeScript) to wait for
 cleanup to finish. An action already running may finish before `start()` returns.
 
+In TypeScript, `shutdown()` returns a resolved promise once shutdown is requested,
+including on the first call; `await runtime.shutdown()` does not wait for cleanup.
+Tasks registered with either `spawn(async signal => { ... })` or `spawn(promise)`
+may request shutdown and then finish their own cleanup. Outside those tasks, use
+`await runtime.shutdown(); await runtime.waitClosed();` to wait for every registered
+task and the resource registry to finish closing. Tasks must not await `waitClosed()`
+themselves because it waits for them to finish. Both `waitClosed()` and `start()`
+report cleanup failures; `start()` preserves an earlier action or transport failure.
+
 Custom transports can opt into runtime cleanup with `async stop_receiving()`
 (Python) or `stopReceiving()` (TypeScript). The hook should stop reads and release
 resources owned by that transport. Callback and WebSocket adapters stop their

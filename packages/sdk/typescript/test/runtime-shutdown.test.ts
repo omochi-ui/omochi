@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import { test } from "@omochi-ui/core/testing";
 
 for (const runtime of ["node", "bun"]) {
-  for (const mode of ["custom", "late-rejection", "callback", "action", "stdio", "websocket", "unix", "task-finally", "cleanup-error", "handler-error"]) {
+  for (const mode of ["custom", "late-rejection", "callback", "action", "stdio", "websocket", "unix", "task-finally", "task-callback", "task-callback-immediate", "task-promise", "task-multiple", "task-throw", "cleanup-error", "handler-error"]) {
     test(`Runtime shutdown cleans up ${mode} in ${runtime}`, () => {
       const result = spawnSync(runtime, [
         "--unhandled-rejections=strict",

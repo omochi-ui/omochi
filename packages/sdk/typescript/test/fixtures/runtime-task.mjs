@@ -24,15 +24,12 @@ if (process.argv[2] === "abort") {
     }
   });
 
-  let shutdownFinished = false;
-  const shutdown = runtime.shutdown().then(() => { shutdownFinished = true; });
+  await runtime.shutdown();
   assert.equal(signal.aborted, true);
   await setImmediate();
-  assert.equal(shutdownFinished, false);
   assert.equal(closed, false);
   assert.equal(cleaned, false);
   releaseCleanup();
-  await shutdown;
 } else {
   const fail = process.argv[2] === "failure";
   runtime.spawn(async taskSignal => {

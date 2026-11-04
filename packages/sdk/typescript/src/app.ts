@@ -147,14 +147,18 @@ export class Runtime<State, Components extends ComponentMap = BasicComponentMap>
   ready(): Promise<void> { return this.readyPromise; }
   spawn(task: Promise<unknown> | ((signal: AbortSignal) => Promise<unknown>)): void {
     const controller = new AbortController();
-    const running = typeof task === "function" ? task(controller.signal) : task;
-    this.tasks.add(running); this.taskControllers.add(controller);
+    this.taskControllers.add(controller);
+    let running: Promise<unknown>;
+    try { running = typeof task === "function" ? task(controller.signal) : task; }
+    catch (error) { this.taskControllers.delete(controller); throw error; }
+    this.tasks.add(running);
     const cleanup = () => { this.tasks.delete(running); this.taskControllers.delete(controller); };
     void running.then(cleanup, cleanup);
   }
+  /** Request shutdown without waiting for cleanup, including on the first call.
+   * Spawned tasks may await this request; external callers use waitClosed() for completion.
+   */
   shutdown(): Promise<void> {
-    // Keep repeat requests non-blocking, including requests from aborted tasks.
-    // waitClosed() is the completion barrier for concurrent callers.
     if (this.closed) return Promise.resolve();
     this.closed = true;
     this.stop.abort();
@@ -163,13 +167,20 @@ export class Runtime<State, Components extends ComponentMap = BasicComponentMap>
       try { await this.transport?.stopReceiving?.(); }
       finally {
         await Promise.allSettled(this.tasks);
-        try { this.resources.close(); }
-        finally { this.closedResolve(); }
+        this.resources.close();
       }
     })();
-    return this.shutdownPromise;
+    // Observe detached cleanup failures until start() or waitClosed() reports them.
+    void this.shutdownPromise.then(this.closedResolve, this.closedResolve);
+    return Promise.resolve();
   }
-  waitClosed(): Promise<void> { return this.closedPromise; }
+  /** Wait for task and resource cleanup, rejecting on cleanup failure.
+   * Call outside spawned tasks: completion includes those tasks finishing.
+   */
+  async waitClosed(): Promise<void> {
+    await this.closedPromise;
+    await this.shutdownPromise;
+  }
   async start(transport: Transport = new StdioTransport()): Promise<void> {
     if (this.started) throw new DeclarationError("runtime has already been started");
     if (this.closed) throw new DeclarationError("runtime has already been shut down");
@@ -201,7 +212,8 @@ export class Runtime<State, Components extends ComponentMap = BasicComponentMap>
       }
     } catch (error) { failed = true; throw error; }
     finally {
-      const closing = this.shutdownPromise ?? this.shutdown();
+      void this.shutdown();
+      const closing = this.waitClosed();
       if (failed) await closing.catch(() => {});
       else await closing;
     }

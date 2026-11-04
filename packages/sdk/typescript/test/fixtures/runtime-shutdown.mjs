@@ -98,6 +98,69 @@ if (mode === "custom" || mode === "late-rejection" || mode === "callback") {
     await transport.close();
     if (root) await rm(root, { recursive: true, force: true });
   }
+} else if (["task-callback", "task-callback-immediate", "task-promise", "task-multiple"].includes(mode)) {
+  const trigger = Promise.withResolvers();
+  const requested = Promise.withResolvers();
+  const taskCleanup = Promise.withResolvers();
+  const tasksFinished = Promise.withResolvers();
+  const backgroundCleanup = Promise.withResolvers();
+  const initiators = mode === "task-multiple" ? 2 : 1;
+  let requests = 0;
+  let finished = 0;
+  let backgroundFinished = false;
+  let stoppedReceiving = 0;
+  let startFinished = false;
+  let closed = false;
+  const closing = runtime.waitClosed().then(() => { closed = true; });
+  const started = runtime.start({
+    capabilities: new Set(), send: async () => {},
+    async stopReceiving() { stoppedReceiving++; },
+    async *[Symbol.asyncIterator]() { await new Promise(() => {}); },
+  }).then(() => { startFinished = true; });
+  await runtime.ready();
+  runtime.spawn(async signal => {
+    await new Promise(resolve => signal.addEventListener("abort", resolve, { once: true }));
+    await backgroundCleanup.promise;
+    backgroundFinished = true;
+  });
+  async function stopFromTask(signal) {
+    if (mode !== "task-callback-immediate") await trigger.promise;
+    const request = runtime.shutdown();
+    if (signal) assert.equal(signal.aborted, true, "shutdown aborts the initiating callback too");
+    await request;
+    if (++requests === initiators) requested.resolve();
+    await taskCleanup.promise;
+    if (++finished === initiators) tasksFinished.resolve();
+  }
+  if (mode !== "task-promise") runtime.spawn(stopFromTask);
+  if (mode === "task-promise" || mode === "task-multiple") runtime.spawn(stopFromTask());
+  trigger.resolve();
+  await requested.promise;
+  await setImmediate();
+  assert.equal(stoppedReceiving, 1);
+  assert.equal(closed, false, "waitClosed includes the initiating tasks' cleanup");
+  assert.equal(startFinished, false, "start waits for task cleanup");
+  runtime.resources.bytes(new Uint8Array([2]), "image/png");
+  taskCleanup.resolve();
+  await tasksFinished.promise;
+  await setImmediate();
+  assert.equal(closed, false, "waitClosed also includes other background tasks");
+  assert.equal(startFinished, false);
+  backgroundCleanup.resolve();
+  await closing;
+  await started;
+  assert.equal(backgroundFinished, true);
+  assert.equal(finished, initiators);
+} else if (mode === "task-throw") {
+  const failure = new Error("synchronous task failure");
+  let taskSignal;
+  assert.throws(() => runtime.spawn(signal => {
+    taskSignal = signal;
+    throw failure;
+  }), error => error === failure);
+  await runtime.shutdown();
+  await runtime.waitClosed();
+  assert.equal(taskSignal.aborted, false, "a failed callback must release its controller");
 } else if (mode === "task-finally") {
   let cleaned = false;
   runtime.spawn(async signal => {
@@ -127,9 +190,10 @@ if (mode === "custom" || mode === "late-rejection" || mode === "callback") {
   });
   const rejected = assert.rejects(started, error => error === (mode === "handler-error" ? primary : cleanup));
   await reading.promise;
-  if (mode === "cleanup-error") await assert.rejects(runtime.shutdown(), error => error === cleanup);
+  if (mode === "cleanup-error") await runtime.shutdown();
   await rejected;
-  await runtime.waitClosed();
+  await setImmediate(); // Cleanup failure stays observed before a late waitClosed().
+  await assert.rejects(runtime.waitClosed(), error => error === cleanup);
   assert.equal(cleaned, true);
 }
 assert.throws(() => runtime.resources.bytes(new Uint8Array(), "image/png"), /resource registry closed/);
