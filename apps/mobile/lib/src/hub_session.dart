@@ -40,7 +40,8 @@ class HubSession extends ChangeNotifier {
   final NativeHubStore nativeStore;
   final GatewayClientFactory gatewayClientFactory;
   GatewayClient? _native;
-  Future<void> _nativeStopped = Future<void>.value();
+  GatewayClient? _closingNative;
+  Future<void>? _nativeStopped;
   final Map<String, GatewaySurface> _renderScopes = {};
   final Map<String, String> _surfaceRenderIds = {};
   String? get nativeIdentity => _native?.identity;
@@ -284,16 +285,28 @@ class HubSession extends ChangeNotifier {
     _emit();
   }
 
-  void _stop() {
+  Future<void> _stop() {
     _modals.clear();
     _epoch++;
-    final native = _native;
+    _closingNative ??= _native;
     _native = null;
-    if (native != null) _nativeStopped = native.close();
+    return _nativeStopped ??= _closeNative();
+  }
+
+  Future<void> _closeNative() async {
+    try {
+      // Keep ownership until close releases the native identity lease. A failed
+      // attempt can be retried, but must never allow a competing client to start.
+      await Future<void>.sync(() => _closingNative?.close());
+      _closingNative = null;
+    } finally {
+      _nativeStopped = null;
+    }
   }
 
   Future<void> startNative() async {
-    _stop();
+    if (_disposed) throw StateError('Hub session is disposed');
+    final stopped = _stop();
     status = 'Starting';
     error = null;
     services = [];
@@ -303,7 +316,7 @@ class HubSession extends ChangeNotifier {
     final epoch = _epoch;
     _emit();
     try {
-      await _nativeStopped;
+      await stopped;
       if (epoch != _epoch) return;
       final native = gatewayClientFactory(
         store: nativeStore,
@@ -346,10 +359,11 @@ class HubSession extends ChangeNotifier {
       await native.start();
       if (epoch == _epoch) _emit();
     } catch (e) {
-      if (epoch != _epoch) return;
-      status = 'Unavailable';
-      error = messages.errorHubFailed(describeFailure(e));
-      _emit();
+      if (epoch == _epoch) {
+        status = 'Unavailable';
+        error = messages.errorHubFailed(describeFailure(e));
+        _emit();
+      }
       rethrow;
     }
   }
@@ -391,8 +405,10 @@ class HubSession extends ChangeNotifier {
 
   /// Await endpoint shutdown when replacing an app session or in integration tests.
   Future<void> stopNative() async {
-    _stop();
-    await _nativeStopped;
+    final stopped = _stop();
+    final epoch = _epoch;
+    await stopped;
+    if (epoch != _epoch) return;
     services = [];
     connections = [];
     status = 'Stopped';
@@ -403,7 +419,14 @@ class HubSession extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
-    _stop();
+    unawaited(
+      _stop().catchError((Object failure) {
+        // dispose cannot return a Future. Observe its shutdown failure without
+        // changing the rejected Future returned to any awaiting start or stop.
+        error = messages.errorHubFailed(describeFailure(failure));
+        record('ERROR', error!);
+      }),
+    );
     _submits?.cancel();
     renderer.dispose();
     super.dispose();
