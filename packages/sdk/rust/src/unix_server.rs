@@ -1,5 +1,5 @@
 use crate::resources::{ResourceRegistry, hello, is_resource};
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, VecDeque};
 use std::fs;
 use std::os::fd::AsRawFd;
 use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
@@ -8,9 +8,9 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use serde_json::{Map, Value};
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{UnixListener, UnixStream};
-use tokio::sync::{Mutex, OwnedSemaphorePermit, Semaphore, mpsc, oneshot, watch};
+use tokio::sync::{Mutex, Notify, OwnedSemaphorePermit, Semaphore, mpsc, oneshot, watch};
 use tokio::task::{JoinHandle, JoinSet};
 
 use crate::snapshot::{A2uiSnapshot, SnapshotCursor};
@@ -24,6 +24,90 @@ const MAX_SOCKET_PATH_BYTES: usize = 100;
 
 /// Encoded UTF-8 bytes, including newlines, queued or being written per client.
 const MAX_OUTBOUND_BYTES: usize = 16 * 1024 * 1024;
+
+// Pending actions exclude the action currently executing and resource RPC frames.
+const MAX_PENDING_MESSAGES: usize = 256;
+const MAX_PENDING_BYTES: usize = 4 * 1024 * 1024;
+const MAX_INBOUND_FRAME_BYTES: usize = 4 * 1024 * 1024;
+const RECEIVE_OVERFLOW: &str = "pending action queue exceeded 256 messages or 4 MiB";
+
+#[derive(Default)]
+struct InboundState {
+    entries: VecDeque<(Value, usize)>,
+    bytes: usize,
+    closed: bool,
+    overflow: bool,
+}
+
+struct InboundQueue {
+    state: std::sync::Mutex<InboundState>,
+    ready: Notify,
+    failed: watch::Sender<()>,
+}
+
+impl InboundQueue {
+    fn new() -> Self {
+        Self {
+            state: std::sync::Mutex::new(InboundState::default()),
+            ready: Notify::new(),
+            failed: watch::channel(()).0,
+        }
+    }
+
+    fn push(&self, value: Value) -> bool {
+        let bytes = serde_json::to_vec(&value)
+            .expect("JSON value is serializable")
+            .len();
+        let mut state = self.state.lock().unwrap();
+        if state.closed {
+            return false;
+        }
+        if state.entries.len() >= MAX_PENDING_MESSAGES || state.bytes + bytes > MAX_PENDING_BYTES {
+            state.entries.clear();
+            state.bytes = 0;
+            state.closed = true;
+            state.overflow = true;
+            // Fail the whole stream: executing any pending action after losing one
+            // would silently continue from an incomplete application history.
+            self.failed.send_replace(());
+            self.ready.notify_one();
+            return false;
+        }
+        state.entries.push_back((value, bytes));
+        state.bytes += bytes;
+        self.ready.notify_one();
+        true
+    }
+
+    async fn receive(&self) -> Result<Option<Value>> {
+        loop {
+            {
+                let mut state = self.state.lock().unwrap();
+                if state.overflow {
+                    return Err(Error::Transport(RECEIVE_OVERFLOW.into()));
+                }
+                if let Some((value, bytes)) = state.entries.pop_front() {
+                    state.bytes -= bytes;
+                    return Ok(Some(value));
+                }
+                if state.closed {
+                    return Ok(None);
+                }
+            }
+            // There is only one receiver. notify_one retains a permit if a push
+            // happens between releasing the state lock and awaiting this notification.
+            self.ready.notified().await;
+        }
+    }
+
+    fn close(&self) {
+        let mut state = self.state.lock().unwrap();
+        state.entries.clear();
+        state.bytes = 0;
+        state.closed = true;
+        self.ready.notify_one();
+    }
+}
 
 struct OutboundFrame {
     line: String,
@@ -194,7 +278,7 @@ struct Publication {
 /// are merged into a single stream for the Runtime.
 pub struct UnixSocketServerTransport {
     shared: Arc<Shared>,
-    inbound: mpsc::UnboundedReceiver<Value>,
+    inbound: Arc<InboundQueue>,
     accept: JoinHandle<()>,
     shutdown: Option<oneshot::Sender<()>>,
     capabilities: BTreeSet<String>,
@@ -260,7 +344,10 @@ impl UnixSocketServerTransport {
             options.icon.as_deref(),
         )?;
 
-        let (sender, inbound) = mpsc::unbounded_channel();
+        let inbound = Arc::new(InboundQueue::new());
+        let sender = Arc::clone(&inbound);
+        let mut failed = inbound.failed.subscribe();
+        let failed_directory = directory.to_owned();
         let (shutdown, mut stopping) = oneshot::channel();
         let accept_shared = Arc::clone(&shared);
         let accept = tokio::spawn(async move {
@@ -269,6 +356,10 @@ impl UnixSocketServerTransport {
                 tokio::select! {
                     biased;
                     _ = &mut stopping => break,
+                    _ = failed.changed() => {
+                        let _ = fs::remove_file(failed_directory.join("manifest.json"));
+                        break;
+                    },
                     // Reap finished connections without keeping their task allocations.
                     _ = connections.join_next(), if !connections.is_empty() => {},
                     accepted = listener.accept() => {
@@ -286,6 +377,7 @@ impl UnixSocketServerTransport {
             // also waits for every reader and writer to release its resources.
             connections.shutdown().await;
             accept_shared.publication.lock().await.clients.clear();
+            sender.close();
         });
 
         Ok(Self {
@@ -315,6 +407,7 @@ impl UnixSocketServerTransport {
         if self.closed {
             return;
         }
+        self.inbound.close();
         let _ = fs::remove_file(self.directory.join("manifest.json"));
         if let Some(shutdown) = self.shutdown.take() {
             let _ = shutdown.send(());
@@ -322,7 +415,6 @@ impl UnixSocketServerTransport {
         // Borrow the handle so a cancelled close() can be awaited again.
         let _ = (&mut self.accept).await;
         let _ = fs::remove_dir_all(&self.directory);
-        self.inbound.close();
         self.closed = true;
         self.service_lock.take();
     }
@@ -364,7 +456,7 @@ impl Transport for UnixSocketServerTransport {
     }
 
     async fn receive(&mut self) -> Result<Option<Value>> {
-        Ok(self.inbound.recv().await)
+        self.inbound.receive().await
     }
 
     async fn stop_receiving(&mut self) {
@@ -477,11 +569,7 @@ fn is_client_message(value: &Value) -> bool {
     })
 }
 
-async fn serve_connection(
-    stream: UnixStream,
-    shared: Arc<Shared>,
-    inbound: mpsc::UnboundedSender<Value>,
-) {
+async fn serve_connection(stream: UnixStream, shared: Arc<Shared>, inbound: Arc<InboundQueue>) {
     let (reader, mut writer) = stream.into_split();
     let (sender, mut outbound, mut cancelled) = ClientSender::new();
     let announce_resources = shared.resources.read().unwrap().is_some();
@@ -520,12 +608,28 @@ async fn serve_connection(
     };
 
     let reading = async {
-        let mut lines = BufReader::new(reader).lines();
-        while let Ok(Some(line)) = lines.next_line().await {
-            if line.trim().is_empty() {
+        let mut reader = BufReader::new(reader);
+        loop {
+            // Cap partial frames as well as complete JSON. A peer that never sends
+            // a newline must not allocate unbounded memory before queue admission.
+            let mut line = Vec::new();
+            let read = (&mut reader)
+                .take((MAX_INBOUND_FRAME_BYTES + 1) as u64)
+                .read_until(b'\n', &mut line)
+                .await;
+            if !matches!(read, Ok(bytes) if bytes > 0) {
+                break;
+            }
+            if line.last() == Some(&b'\n') {
+                line.pop();
+            }
+            if line.len() > MAX_INBOUND_FRAME_BYTES {
+                break;
+            }
+            if line.iter().all(u8::is_ascii_whitespace) {
                 continue;
             }
-            let Ok(mut value) = serde_json::from_str::<Value>(&line) else {
+            let Ok(mut value) = serde_json::from_slice::<Value>(&line) else {
                 break;
             };
             if is_resource(&value) {
@@ -547,7 +651,7 @@ async fn serve_connection(
             }
             // A2UI extensions must not select the Runtime's legacy command API.
             value.as_object_mut().unwrap().remove("type");
-            if inbound.send(value).is_err() {
+            if !inbound.push(value) {
                 break;
             }
         }
@@ -575,3 +679,7 @@ mod publication_tests;
 #[cfg(test)]
 #[path = "../tests/unix_server/outbound.rs"]
 mod outbound_tests;
+
+#[cfg(test)]
+#[path = "../tests/unix_server/inbound.rs"]
+mod inbound_tests;

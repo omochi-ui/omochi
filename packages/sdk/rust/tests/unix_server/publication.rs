@@ -64,7 +64,8 @@ async fn assert_atomic_subscription(publish_first: bool, update_existing: bool) 
     let message = if update_existing { &update } else { &create };
     let shared = Arc::clone(&transport.shared);
     let (server, client) = UnixStream::pair().unwrap();
-    let (inbound, mut actions) = mpsc::unbounded_channel();
+    let actions = Arc::new(InboundQueue::new());
+    let inbound = actions.clone();
     let mut connection = Box::pin(serve_connection(server, Arc::clone(&shared), inbound));
     let mut publishing = Box::pin(transport.send(message));
 
@@ -98,7 +99,10 @@ async fn assert_atomic_subscription(publish_first: bool, update_existing: bool) 
         .write_all(format!("{ready}\n").as_bytes())
         .await
         .unwrap();
-    assert_eq!(actions.recv().await.unwrap()["action"]["name"], "ready");
+    assert_eq!(
+        actions.receive().await.unwrap().unwrap()["action"]["name"],
+        "ready"
+    );
     let marker = json!({
         "version": "v0.9",
         "updateDataModel": { "surfaceId": "main", "path": "/", "value": "marker" }

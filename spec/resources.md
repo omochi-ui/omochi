@@ -29,10 +29,11 @@ rejects outstanding requests; late responses are discarded. HTTP backpressure st
 additional reads; abort cancels local pending work and stops subsequent reads. A
 forwarded read already in flight may finish (at most 24 KiB); it is never broadcast.
 
-TypeScript and Python SDK receivers keep serving resource requests while an action
-handler runs. Their pending application-message queues are limited to 256 messages
-and 4 MiB of compact UTF-8 JSON, whichever is reached first. The running action and
-resource RPC frames do not count toward these limits. Exceeding either limit clears
+TypeScript and Python SDK receivers, and the Rust Unix server transport, keep serving
+resource requests while an action handler runs. Their pending application-message
+queues are limited to 256 messages and 4 MiB of compact UTF-8 JSON, whichever is
+reached first. The running action and resource RPC frames do not count toward these
+limits. Exceeding either limit clears
 the pending actions and latches a receive error, surfaced when the current handler
 returns. Server transports immediately disconnect clients and close their listener;
 resource pumps stop consuming and close their source iterator. Custom callback
