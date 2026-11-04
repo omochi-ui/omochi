@@ -219,14 +219,13 @@ pub async fn redeem(
     if store.identity(Role::Hub)?.public() != endpoint.id() {
         bail!("hub identity mismatch")
     }
-    if gateway_name.trim().is_empty() || gateway_name.len() > 256 {
-        bail!("invalid gateway name")
-    }
-    // A forget during enrollment must invalidate its pending local registration.
+    // Reject local conflicts before enrollment and capture the watermark so a
+    // forget during enrollment invalidates its pending local registration.
     let snapshot_store = store.clone();
-    let revocation = crate::blocking::run(move || snapshot_store.authorization())
-        .await??
-        .1;
+    let (gateway, name) = (invite.gateway_id(), gateway_name.to_owned());
+    let revocation =
+        crate::blocking::run(move || snapshot_store.prepare_gateway_registration(gateway, &name))
+            .await??;
     let address = enroll(endpoint, invite, hub_name).await?;
     let name = gateway_name.to_owned();
     crate::blocking::run(move || {
@@ -240,6 +239,99 @@ pub async fn redeem(
 #[cfg(all(test, feature = "desktop"))]
 mod tests {
     use super::*;
+    use crate::store::GatewayRegistrationError;
+
+    #[tokio::test]
+    async fn local_registration_conflicts_preserve_invitation_without_contacting_gateway() {
+        for conflict in [
+            GatewayRegistrationError::NameConflict,
+            GatewayRegistrationError::RoleConflict,
+        ] {
+            tokio::time::timeout(Duration::from_secs(15), async {
+                let directory = tempfile::tempdir().unwrap();
+                let gateway_path = directory.path().join("gateway");
+                let gs = Store::open(&gateway_path).unwrap();
+                let hs = Store::open(directory.path().join("hub")).unwrap();
+                let gateway = crate::bind(gs.identity(Role::Gateway).unwrap(), true, None)
+                    .await
+                    .unwrap();
+                let hub = crate::bind(hs.identity(Role::Hub).unwrap(), true, None)
+                    .await
+                    .unwrap();
+                if conflict == GatewayRegistrationError::NameConflict {
+                    let existing = Store::open(directory.path().join("existing"))
+                        .unwrap()
+                        .identity(Role::Gateway)
+                        .unwrap()
+                        .public();
+                    hs.register_gateway(existing, "workstation").unwrap();
+                } else {
+                    let secret = hs.invite(now(), 180).unwrap();
+                    hs.redeem(&secret, gateway.id(), "other hub", now())
+                        .unwrap();
+                }
+                let invite = Invite::issue(&gs, &gateway).unwrap().encode().unwrap();
+                let remote_state = std::fs::read(gateway_path.join("state.json")).unwrap();
+                let local_peers = hs.peers().unwrap();
+
+                let error = redeem(
+                    &hub,
+                    hs.clone(),
+                    Invite::decode(&invite).unwrap(),
+                    "workstation",
+                    "laptop",
+                )
+                .await
+                .unwrap_err();
+                assert_eq!(
+                    error.downcast_ref::<GatewayRegistrationError>(),
+                    Some(&conflict)
+                );
+                assert!(
+                    tokio::time::timeout(Duration::from_millis(100), gateway.accept())
+                        .await
+                        .is_err(),
+                    "a local registration conflict must not start an enrollment connection"
+                );
+                assert_eq!(hs.peers().unwrap(), local_peers);
+                assert!(gs.peers().unwrap().1.is_empty());
+                assert_eq!(
+                    std::fs::read(gateway_path.join("state.json")).unwrap(),
+                    remote_state,
+                    "the invitation must remain unused"
+                );
+
+                let gid = gateway.id();
+                let hid = hub.id();
+                if conflict == GatewayRegistrationError::RoleConflict {
+                    crate::live::forget(hs.clone(), gid, Duration::from_secs(2))
+                        .await
+                        .unwrap();
+                }
+                let server_store = gs.clone();
+                let server = tokio::spawn(async move {
+                    let connection = gateway.accept().await.unwrap().await.unwrap();
+                    accept(connection, server_store).await.unwrap();
+                    gateway.close().await;
+                });
+                redeem(
+                    &hub,
+                    hs.clone(),
+                    Invite::decode(&invite).unwrap(),
+                    "personal",
+                    "laptop",
+                )
+                .await
+                .unwrap();
+                server.await.unwrap();
+                assert_eq!(hs.peers().unwrap().1[&gid.to_string()].name, "personal");
+                assert_eq!(gs.peers().unwrap().1[&hid.to_string()].role, Role::Hub);
+                hub.close().await;
+            })
+            .await
+            .expect("registration conflict and pairing exchange did not complete");
+        }
+    }
 
     #[tokio::test]
     async fn forget_blocks_pending_enrollment_save_but_allows_fresh_pairing() {
