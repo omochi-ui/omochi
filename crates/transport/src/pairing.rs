@@ -222,17 +222,115 @@ pub async fn redeem(
     if gateway_name.trim().is_empty() || gateway_name.len() > 256 {
         bail!("invalid gateway name")
     }
+    // A forget during enrollment must invalidate its pending local registration.
+    let snapshot_store = store.clone();
+    let revocation = crate::blocking::run(move || snapshot_store.authorization())
+        .await??
+        .1;
     let address = enroll(endpoint, invite, hub_name).await?;
     let name = gateway_name.to_owned();
-    crate::blocking::run(move || store.register_gateway(address.id, &name))
-        .await?
-        .context("gateway accepted enrollment, but local registration could not be saved")?;
+    crate::blocking::run(move || {
+        store.register_gateway_guarded(address.id, &name, Some(revocation))
+    })
+    .await?
+    .context("gateway accepted enrollment, but local registration could not be saved")?;
     Ok(())
 }
 
 #[cfg(all(test, feature = "desktop"))]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn forget_blocks_pending_enrollment_save_but_allows_fresh_pairing() {
+        tokio::time::timeout(Duration::from_secs(15), async {
+            let directory = tempfile::tempdir().unwrap();
+            let gs = Store::open(directory.path().join("gateway")).unwrap();
+            let hub_path = directory.path().join("hub");
+            let hs = Store::open(&hub_path).unwrap();
+            let gateway = crate::bind(gs.identity(Role::Gateway).unwrap(), true, None)
+                .await
+                .unwrap();
+            let hub = crate::bind(hs.identity(Role::Hub).unwrap(), true, None)
+                .await
+                .unwrap();
+            let gid = gateway.id();
+            hs.register_gateway(gid, "workstation").unwrap();
+            let invite = Invite::issue(&gs, &gateway).unwrap();
+            let (accepted, ready) = tokio::sync::oneshot::channel();
+            let (release, resume) = tokio::sync::oneshot::channel();
+            let server_endpoint = gateway.clone();
+            let server_store = gs.clone();
+            let server = tokio::spawn(async move {
+                let connection = server_endpoint.accept().await.unwrap().await.unwrap();
+                assert_eq!(connection.alpn(), PAIR_ALPN);
+                let (mut tx, mut rx) = connection.accept_bi().await.unwrap();
+                let request: Request = read_frame_limited(&mut rx, 4096).await.unwrap().unwrap();
+                assert_eq!(request.version, VERSION);
+                server_store
+                    .redeem(
+                        &request.secret,
+                        connection.remote_id(),
+                        &request.name,
+                        now(),
+                    )
+                    .unwrap();
+                // The gateway has accepted, but the hub cannot persist until we reply.
+                accepted.send(()).unwrap();
+                resume.await.unwrap();
+                write_frame(&mut tx, &Response { accepted: true })
+                    .await
+                    .unwrap();
+                tx.finish().unwrap();
+                let _ = tx.stopped().await;
+                connection.close(0u32.into(), b"enrollment finished");
+            });
+            let client_endpoint = hub.clone();
+            let client_store = hs.clone();
+            let pairing = tokio::spawn(async move {
+                redeem(
+                    &client_endpoint,
+                    client_store,
+                    invite,
+                    "workstation",
+                    "laptop",
+                )
+                .await
+            });
+            ready.await.unwrap();
+            let other_store = Store::open(&hub_path).unwrap();
+            crate::live::forget(other_store.clone(), gid, Duration::from_secs(2))
+                .await
+                .unwrap();
+            let revoked = other_store.authorization().unwrap();
+            assert!(!revoked.2.contains_key(&gid.to_string()));
+            release.send(()).unwrap();
+            let error = pairing.await.unwrap().unwrap_err();
+            assert_eq!(error.root_cause().to_string(), "authorization changed");
+            server.await.unwrap();
+            assert_eq!(
+                Store::open(&hub_path).unwrap().authorization().unwrap(),
+                revoked
+            );
+
+            // An enrollment explicitly started after forget captures the new watermark.
+            let invite = Invite::issue(&gs, &gateway).unwrap();
+            let server = tokio::spawn(async move {
+                let connection = gateway.accept().await.unwrap().await.unwrap();
+                accept(connection, gs).await.unwrap();
+                gateway.close().await;
+            });
+            redeem(&hub, hs.clone(), invite, "workstation", "laptop")
+                .await
+                .unwrap();
+            assert_eq!(hs.peers().unwrap().1[&gid.to_string()].role, Role::Gateway);
+            server.await.unwrap();
+            hub.close().await;
+        })
+        .await
+        .expect("pairing/forget exchange did not complete");
+    }
+
     #[test]
     fn shared_invitation_fixtures() {
         let fixtures: serde_json::Value = serde_json::from_str(include_str!(
