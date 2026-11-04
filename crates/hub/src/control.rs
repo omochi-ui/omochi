@@ -166,7 +166,17 @@ impl HubControl {
             #[cfg(not(feature = "desktop"))]
             return Err(ApiError::new(503, "Gateway registration unavailable"));
         }
-        if matches!(command, Command::ShareRevoke { .. } | Command::Connections) {
+        if let Command::ShareRevoke { id: share_id } = command {
+            let owners = self.boards.owners();
+            let shares = self.boards.shares();
+            let revocation = storage(move || {
+                owners.authorize(&id, &peer, || shares.begin_revocation(&share_id))
+            })
+            .await?;
+            revocation.wait(std::time::Duration::from_secs(10)).await?;
+            return Ok(json!({"deleted":true}));
+        }
+        if matches!(command, Command::Connections) {
             let owners = self.boards.owners();
             omochi_transport::blocking::run(move || owners.authorize(&id, &peer, || Ok(())))
                 .await
@@ -224,4 +234,179 @@ pub(crate) async fn storage<T: Send + 'static>(
     omochi_transport::blocking::run(operation)
         .await
         .map_err(|_| ApiError::new(503, "Storage operation unavailable"))?
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{sharing::Permissions, sharing_live::Lease};
+    use fs2::FileExt;
+    use std::{fs::OpenOptions, time::Duration};
+
+    fn setup() -> (tempfile::TempDir, HubControl, String, String, String) {
+        let root = tempfile::tempdir().unwrap();
+        let boards = DashboardStore::open(root.path().join("state")).unwrap();
+        let board = boards
+            .mutate(None, json!({"name":"Shared","panels":[]}), false)
+            .unwrap()
+            .unwrap();
+        let (share, _) = boards
+            .shares()
+            .create(&boards, &board.id, true, Permissions::default())
+            .unwrap();
+        let (owner, secret) = boards.owners().create().unwrap();
+        let peer = "a".repeat(64);
+        boards.owners().redeem(&owner.id, &secret, &peer).unwrap();
+        let control = HubControl {
+            hub: Hub::new(),
+            boards,
+        };
+        (root, control, owner.id, peer, share.id)
+    }
+
+    #[tokio::test]
+    async fn pending_share_removal_holds_owner_authority_until_the_write_finishes() {
+        let (root, control, owner, peer, share) = setup();
+        let shares_lock =
+            omochi_transport::persistence::lock(&root.path().join("state/shares.lock")).unwrap();
+        let owners_lock = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(root.path().join("state/owners.lock"))
+            .unwrap();
+        let copy = control.clone();
+        let id = owner.clone();
+        let (ready, release) =
+            crate::sharing_live::test_hooks::pause_revocation(&control.boards.shares());
+        let removal = tokio::spawn(async move {
+            copy.execute_owner(id, peer, Command::ShareRevoke { id: share })
+                .await
+        });
+        // Pause at the durable phase, after authorization has been dispatched.
+        // This cannot accidentally observe the old, transient preflight lock.
+        tokio::time::timeout(Duration::from_secs(5), ready)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(matches!(
+            owners_lock.try_lock_exclusive(),
+            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock
+        ));
+        let owners = control.boards.owners();
+        let (started, ready) = tokio::sync::oneshot::channel();
+        let revoke_owner = omochi_transport::blocking::run(move || {
+            started.send(()).unwrap();
+            owners.revoke(&owner)
+        });
+        ready.await.unwrap();
+        assert!(matches!(
+            owners_lock.try_lock_exclusive(),
+            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock
+        ));
+        assert!(!revoke_owner.is_finished());
+        release.send(()).unwrap();
+        drop(shares_lock);
+        tokio::time::timeout(Duration::from_secs(5), async {
+            assert_eq!(removal.await.unwrap().unwrap(), json!({"deleted":true}));
+            revoke_owner.await.unwrap().unwrap();
+        })
+        .await
+        .unwrap();
+        assert!(control.boards.shares().list().unwrap().is_empty());
+        assert!(control.boards.owners().list().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn revoked_owners_cannot_remove_shares() {
+        let (_root, control, owner, peer, share) = setup();
+        control.boards.owners().revoke(&owner).unwrap();
+        assert_eq!(
+            control
+                .execute_owner(owner, peer, Command::ShareRevoke { id: share.clone() })
+                .await
+                .unwrap_err()
+                .0,
+            403
+        );
+        assert_eq!(control.boards.shares().list().unwrap()[0].id, share);
+    }
+
+    #[tokio::test]
+    async fn share_removal_waits_for_live_ack_without_holding_owner_authority() {
+        for remote in [false, true] {
+            let (_root, control, owner, peer, share) = setup();
+            let shares = control.boards.shares();
+            let lease = Lease::register(&shares).unwrap();
+            let copy = control.clone();
+            let id = owner.clone();
+            let removal = tokio::spawn(async move {
+                let command = Command::ShareRevoke { id: share };
+                if remote {
+                    copy.execute_owner(id, peer, command).await
+                } else {
+                    copy.execute(command).await
+                }
+            });
+            let generation = tokio::time::timeout(Duration::from_secs(5), async {
+                loop {
+                    let copy = shares.clone();
+                    let generation = storage(move || copy.generation()).await.unwrap();
+                    if generation > 0 {
+                        break generation;
+                    }
+                    tokio::task::yield_now().await;
+                }
+            })
+            .await
+            .unwrap();
+            let owners = control.boards.owners();
+            tokio::time::timeout(
+                Duration::from_secs(5),
+                storage(move || owners.revoke(&owner)),
+            )
+            .await
+            .unwrap()
+            .unwrap();
+            assert!(
+                !removal.is_finished(),
+                "live share teardown is still unacknowledged"
+            );
+            lease.acknowledge(generation).unwrap();
+            assert_eq!(
+                tokio::time::timeout(Duration::from_secs(5), removal)
+                    .await
+                    .unwrap()
+                    .unwrap()
+                    .unwrap(),
+                json!({"deleted":true})
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn share_removal_propagates_ack_errors_after_durable_removal() {
+        for remote in [false, true] {
+            let (root, control, owner, peer, share) = setup();
+            let shares = control.boards.shares();
+            let _lease = Lease::register(&shares).unwrap();
+            let path =
+                omochi_transport::persistence::leases(&root.path().join("state"), "share-live-")
+                    .unwrap()
+                    .pop()
+                    .unwrap();
+            // A failed lease read must not be mistaken for a teardown ACK.
+            std::fs::remove_file(&path).unwrap();
+            std::fs::create_dir(&path).unwrap();
+            let command = Command::ShareRevoke { id: share };
+            let error = if remote {
+                control.execute_owner(owner, peer, command).await
+            } else {
+                control.execute(command).await
+            }
+            .unwrap_err();
+            assert_eq!(error.0, 503);
+            assert!(error.1.contains("teardown was not confirmed"));
+            assert!(shares.list().unwrap().is_empty());
+        }
+    }
 }
