@@ -15,6 +15,135 @@ fn command(root: &Path) -> Command {
     command
 }
 #[tokio::test]
+async fn gateway_invalid_relay_allows_restart_in_the_same_runtime() {
+    let root = tempfile::tempdir().unwrap();
+    let output = tokio::time::timeout(
+        Duration::from_secs(10),
+        command(root.path())
+            .args(["gateway", "--remote", "--relay", "invalid"])
+            .output(),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    assert!(!output.status.success());
+    let error = String::from_utf8_lossy(&output.stderr);
+    assert!(error.contains("Failed to parse relay URL"), "{error}");
+    assert!(!root.path().join("runtime/gateway.sock").exists());
+    local_gateway_at(root.path()).await;
+}
+
+#[tokio::test]
+async fn gateway_invitation_output_failure_cleans_up_and_allows_restart() {
+    use std::os::{fd::OwnedFd, unix::net::UnixStream};
+
+    let root = tempfile::tempdir().unwrap();
+    let (stdout, reader) = UnixStream::pair().unwrap();
+    drop(reader); // Fail invitation output after the local listener and remote endpoint bind.
+    let output = tokio::time::timeout(
+        Duration::from_secs(10),
+        command(root.path())
+            .args(["gateway", "--remote", "--offline", "--pair"])
+            .stdout(Stdio::from(OwnedFd::from(stdout)))
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap()
+            .wait_with_output(),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    assert!(!output.status.success());
+    let error = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        error.contains(&std::io::Error::from_raw_os_error(libc::EPIPE).to_string()),
+        "{error}"
+    );
+    assert!(!root.path().join("runtime/gateway.sock").exists());
+    local_gateway_at(root.path()).await;
+    local_dashboard_at(root.path(), true).await;
+}
+
+#[tokio::test]
+async fn gateway_startup_failure_preserves_an_unowned_socket() {
+    use std::os::unix::fs::{MetadataExt, PermissionsExt};
+
+    let root = tempfile::tempdir().unwrap();
+    let runtime = root.path().join("runtime");
+    std::fs::create_dir(&runtime).unwrap();
+    std::fs::set_permissions(&runtime, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let socket = runtime.join("gateway.sock");
+    let listener = tokio::net::UnixListener::bind(&socket).unwrap();
+    let before = std::fs::symlink_metadata(&socket).unwrap();
+    let output = tokio::time::timeout(
+        Duration::from_secs(10),
+        command(root.path()).args(["gateway", "--offline"]).output(),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    assert!(!output.status.success());
+    let error = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        error.contains("gateway socket is already present"),
+        "{error}"
+    );
+    let after = std::fs::symlink_metadata(&socket).unwrap();
+    assert_eq!((before.dev(), before.ino()), (after.dev(), after.ino()));
+    let client = tokio::net::UnixStream::connect(&socket).await.unwrap();
+    tokio::time::timeout(Duration::from_secs(10), listener.accept())
+        .await
+        .unwrap()
+        .unwrap();
+    drop(client);
+}
+
+async fn local_gateway_at(root: &Path) {
+    use omochi_protocol::{OpenStream, VERSION, read_frame, session::Control, write_frame};
+
+    let mut child = command(root)
+        .args(["gateway", "--offline"])
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut lines = BufReader::new(child.stderr.take().unwrap()).lines();
+    let line = tokio::time::timeout(Duration::from_secs(10), lines.next_line())
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    assert!(line.starts_with("[omochi-ui] gateway "), "{line}");
+    let socket = root.join("runtime/gateway.sock");
+    tokio::time::timeout(Duration::from_secs(10), async {
+        let mut stream = tokio::net::UnixStream::connect(&socket).await.unwrap();
+        write_frame(&mut stream, &OpenStream::Control { protocol: VERSION })
+            .await
+            .unwrap();
+        assert!(matches!(
+            read_frame::<_, Control>(&mut stream).await.unwrap(),
+            Some(Control::Hello {
+                protocol: VERSION,
+                ..
+            })
+        ));
+    })
+    .await
+    .unwrap();
+    assert_eq!(
+        unsafe { libc::kill(child.id().unwrap() as i32, libc::SIGTERM) },
+        0
+    );
+    assert!(
+        tokio::time::timeout(Duration::from_secs(10), child.wait())
+            .await
+            .unwrap()
+            .unwrap()
+            .success()
+    );
+    assert!(!socket.exists());
+}
+
+#[tokio::test]
 async fn native_hub_serves_bundled_dashboard_without_bun_and_cleans_up_owned_gateway() {
     local_dashboard(false).await;
 }

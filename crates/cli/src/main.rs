@@ -362,38 +362,38 @@ async fn run(cli: Cli) -> Result<()> {
             name,
         } => {
             let mut shutdown = ShutdownSignal::new()?;
+            let relays = if remote && !relay.is_empty() {
+                Some(
+                    relay
+                        .into_iter()
+                        .map(|s| s.parse())
+                        .collect::<std::result::Result<Vec<_>, _>>()?,
+                )
+            } else {
+                None
+            };
             private_directory(&runtime)?;
             let gateway = omochi_gateway::Gateway::new();
-            let node = store.identity(Role::Gateway)?.public().to_string();
+            let identity = store.identity(Role::Gateway)?;
+            let node = identity.public().to_string();
             let local =
                 gateway.listen_unix(runtime.join("gateway.sock"), node.clone(), name.clone())?;
             let discovery = gateway.discover(runtime.clone());
-            let remote_task = if remote {
-                let relays = if relay.is_empty() {
-                    None
-                } else {
-                    Some(
-                        relay
-                            .into_iter()
-                            .map(|s| s.parse())
-                            .collect::<std::result::Result<Vec<_>, _>>()?,
-                    )
-                };
-                let endpoint =
-                    omochi_transport::bind(store.identity(Role::Gateway)?, offline, relays).await?;
-                if pair {
-                    let invitation = Invite::issue(&store, &endpoint)?.encode()?;
-                    tokio::io::stdout()
-                        .write_all(format!("{invitation}\n").as_bytes())
-                        .await?;
-                    {
-                        let base = &web_url;
-                        tokio::io::stdout()
-                            .write_all(
-                                format!("{}\n", web_invitation(base, &invitation)?).as_bytes(),
-                            )
+            let mut remote_endpoint = None;
+            let mut remote_task = None;
+            let mut result: Result<()> = async {
+                if remote {
+                    let endpoint = omochi_transport::bind(identity, offline, relays).await?;
+                    // Retain ownership even if invitation output or listener setup fails.
+                    remote_endpoint = Some(endpoint.clone());
+                    if pair {
+                        let invitation = Invite::issue(&store, &endpoint)?.encode()?;
+                        let url = web_invitation(&web_url, &invitation)?;
+                        let mut stdout = tokio::io::stdout();
+                        stdout
+                            .write_all(format!("{invitation}\n{url}\n").as_bytes())
                             .await?;
-                        let url = web_invitation(base, &invitation)?;
+                        stdout.flush().await?;
                         match qrcode::QrCode::new(url.as_bytes()) {
                             Ok(code) => eprintln!(
                                 "{}\nInvitation expires in 180 seconds.",
@@ -404,22 +404,29 @@ async fn run(cli: Cli) -> Result<()> {
                             ),
                         }
                     }
+                    remote_task = Some(gateway.listen_remote_async(endpoint, store, name).await?);
                 }
-                Some(gateway.listen_remote_async(endpoint, store, name).await?)
-            } else {
-                None
-            };
-            eprintln!(
-                "[omochi-ui] gateway {node} at {}",
-                runtime.join("gateway.sock").display()
-            );
-            shutdown.wait().await;
-            gateway.shutdown();
-            local.await??;
-            discovery.await??;
-            if let Some(task) = remote_task {
-                task.await?;
+                eprintln!(
+                    "[omochi-ui] gateway {node} at {}",
+                    runtime.join("gateway.sock").display()
+                );
+                shutdown.wait().await;
+                Ok(())
             }
+            .await;
+            // Always cancel and join every acquired task before returning an error.
+            // The listener removes only its own socket; preserve the first failure.
+            gateway.shutdown();
+            for task in [local, discovery] {
+                result = result.and(task.await.unwrap_or_else(|error| Err(error.into())));
+            }
+            if let Some(task) = remote_task {
+                result = result.and(task.await.map_err(anyhow::Error::from));
+            }
+            if let Some(endpoint) = remote_endpoint {
+                endpoint.close().await;
+            }
+            result?;
         }
         Command::Hub {
             host,
