@@ -26,6 +26,17 @@ def declaration(root, state):
 
 
 class LiteralJsonKeyTests(unittest.TestCase):
+    def test_component_preserves_self_property(self):
+        ui = UI("main", BASIC_CATALOG, lambda *args: "unused")
+        ui.component("Named", key="positional", **{"self": "positional"})
+        ui.component(component="Named", key="keyword", **{"self": "keyword"})
+        result = ui.build()
+        self.assertEqual(Reconciler().render(result)[1]["updateComponents"]["components"], [
+            {"id": "positional", "component": "Named", "self": "positional"},
+            {"id": "keyword", "component": "Named", "self": "keyword"},
+            {"id": "root", "component": "Column", "children": ["positional", "keyword"]},
+        ])
+
     def test_shared_reconciliation(self):
         reconciler = Reconciler()
         for step in FIXTURE["steps"]:

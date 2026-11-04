@@ -807,9 +807,9 @@ fn render(m: &Model, lang: Language) -> Result<String> {
             )
         }
         Py => {
-            let overloads = m.components.iter().map(|c| format!("    @overload\n    def component(self, component: Literal[{}], *, key: str, **props: Unpack[{}Props]) -> None: ...", quote(&c.name), c.name)).collect::<Vec<_>>().join("\n");
+            let overloads = m.components.iter().map(|c| format!("    @overload\n    def component(self, /, component: Literal[{}], *, key: str, **props: Unpack[{}Props]) -> None: ...", quote(&c.name), c.name)).collect::<Vec<_>>().join("\n");
             format!(
-                "{header}from typing import Any, Literal, Required, TypedDict, Unpack, overload\nfrom omochi_ui import Catalog, UI\nfrom omochi_ui.catalog import DataBinding, DynamicBoolean, DynamicNumber, DynamicString, DynamicStringList, FunctionCall\n\n{body}\n\nclass {name}UI(UI):\n{overloads}\n    def component(self, component: str, *, key: str, **props: Any) -> None:\n        super().component(component, key=key, **props)\n\n{constant} = Catalog(id={id}, name={}, ui_type={name}UI)\n",
+                "{header}from typing import Any, Literal, Required, TypedDict, Unpack, overload\nfrom omochi_ui import Catalog, UI\nfrom omochi_ui.catalog import DataBinding, DynamicBoolean, DynamicNumber, DynamicString, DynamicStringList, FunctionCall\n\n{body}\n\nclass {name}UI(UI):\n{overloads}\n    def component(self, /, component: str, *, key: str, **props: Any) -> None:\n        super().component(component, key=key, **props)\n\n{constant} = Catalog(id={id}, name={}, ui_type={name}UI)\n",
                 quote(name)
             )
         }

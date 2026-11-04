@@ -23,10 +23,10 @@ class EmptyProps(TypedDict, total=False):
 
 class TestCatalogUI(UI):
     @overload
-    def component(self, component: Literal["Badge"], *, key: str, **props: Unpack[BadgeProps]) -> None: ...
+    def component(self, /, component: Literal["Badge"], *, key: str, **props: Unpack[BadgeProps]) -> None: ...
     @overload
-    def component(self, component: Literal["Empty"], *, key: str, **props: Unpack[EmptyProps]) -> None: ...
-    def component(self, component: str, *, key: str, **props: Any) -> None:
+    def component(self, /, component: Literal["Empty"], *, key: str, **props: Unpack[EmptyProps]) -> None: ...
+    def component(self, /, component: str, *, key: str, **props: Any) -> None:
         super().component(component, key=key, **props)
 
 TESTCATALOG = Catalog(id="urn:test:catalog", name="TestCatalog", ui_type=TestCatalogUI)
