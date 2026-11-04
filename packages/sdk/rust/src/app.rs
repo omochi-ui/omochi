@@ -30,7 +30,7 @@ type RegisteredAction<S> =
 
 pub struct ActionContext<S> {
     state: Arc<Mutex<S>>,
-    updates: mpsc::UnboundedSender<oneshot::Sender<Result<()>>>,
+    updates: mpsc::Sender<oneshot::Sender<Result<()>>>,
     update_lock: Arc<Mutex<()>>,
     revision: Arc<AtomicU64>,
 }
@@ -51,9 +51,13 @@ impl<S> ActionContext<S> {
     {
         // Keep each mutation and its publication together, including cloned contexts.
         let _update = self.update_lock.lock().await;
-        if self.updates.is_closed() {
-            return Err(Error::Declaration("action has already completed".into()));
-        }
+        // Reserve before mutating so completion can close admission while still
+        // waiting for an accepted mutation to release the state lock and publish.
+        let publication = self
+            .updates
+            .reserve()
+            .await
+            .map_err(|_| Error::Declaration("action has already completed".into()))?;
         {
             let mut state = self.state.lock().await;
             mutator(&mut state);
@@ -61,9 +65,7 @@ impl<S> ActionContext<S> {
         }
         // Rendering must run with the state lock released. Runtime owns the transport.
         let (done, completed) = oneshot::channel();
-        self.updates
-            .send(done)
-            .map_err(|_| Error::Declaration("action has already completed".into()))?;
+        publication.send(done);
         completed
             .await
             .map_err(|_| Error::Declaration("action has already completed".into()))?
@@ -260,7 +262,7 @@ impl<S: Send + Sync + 'static> Runtime<S> {
             .get(name)
             .cloned()
             .ok_or_else(|| Error::Protocol(format!("unknown action: {name:?}")))?;
-        let (updates, mut requests) = mpsc::unbounded_channel();
+        let (updates, mut requests) = mpsc::channel(1);
         let prepared = action(
             input,
             ActionContext {
@@ -280,6 +282,13 @@ impl<S: Send + Sync + 'static> Runtime<S> {
         loop {
             tokio::select! {
                 result = &mut running => {
+                    // Reject late updates, but let reserved mutations finish and
+                    // publish even when the handler returned an error.
+                    requests.close();
+                    while let Some(done) = requests.recv().await {
+                        let result = self.render_all_and_send().await.map(|batch| messages.extend(batch));
+                        let _ = done.send(result);
+                    }
                     result?;
                     return Ok(messages);
                 }

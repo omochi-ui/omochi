@@ -136,6 +136,125 @@ async fn concurrent_context_updates_produce_separate_offline_diffs() {
 }
 
 #[tokio::test]
+async fn handler_completion_drains_publications_and_rejects_late_updates() {
+    for fail_handler in [false, true] {
+        let update_task = Arc::new(Mutex::new(None));
+        let saved_context = Arc::new(Mutex::new(None));
+        let mut app = App::new(0);
+        app.surface("main", |ui, s| text(ui, &s.to_string(), "value"))
+            .unwrap();
+        let (task, context) = (update_task.clone(), saved_context.clone());
+        app.action::<(), _, _>("work", move |_, ctx| {
+            let (task, context) = (task.clone(), context.clone());
+            async move {
+                *context.lock().unwrap() = Some(ctx.clone());
+                let mut update = Box::pin(async move { ctx.update(|s| *s = 1).await });
+                // Queue the publication in this poll, then complete the handler
+                // before the runtime has another chance to receive the request.
+                assert!(futures::poll!(update.as_mut()).is_pending());
+                *task.lock().unwrap() = Some(tokio::spawn(update));
+                if fail_handler {
+                    Err(Error::Protocol("action failed".into()))
+                } else {
+                    Ok(())
+                }
+            }
+        })
+        .unwrap();
+        let sent = Arc::new(Mutex::new(Vec::new()));
+        let output = sent.clone();
+        let transport = CallbackTransport::new(
+            move |message| {
+                output.lock().unwrap().push(message);
+                async { Ok(()) }
+            },
+            || async { Ok(None) },
+        );
+        let mut runtime = app.build();
+        runtime.start_with(transport).await.unwrap();
+        sent.lock().unwrap().clear();
+
+        let result = runtime.invoke("work", Value::Null).await;
+        let expected = vec![json!({
+            "version": "v0.9",
+            "updateComponents": {"surfaceId": "main", "components": [
+                {"id": "value", "component": "Text", "text": "1"}
+            ]}
+        })];
+        assert_eq!(*sent.lock().unwrap(), expected);
+        if fail_handler {
+            assert!(matches!(result, Err(Error::Protocol(ref s)) if s == "action failed"));
+        } else {
+            assert_eq!(result.unwrap(), expected);
+        }
+        let task = update_task.lock().unwrap().take().unwrap();
+        task.await.unwrap().unwrap();
+        let context = saved_context.lock().unwrap().take().unwrap();
+        assert!(matches!(
+            context.update(|s| *s = 2).await,
+            Err(Error::Declaration(ref s)) if s == "action has already completed"
+        ));
+        assert_eq!(runtime.read(|s| *s).await, 1);
+        assert_eq!(runtime.app_revision(), 1);
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn handler_completion_waits_for_an_accepted_mutation_to_publish() {
+    let entered = Arc::new(Notify::new());
+    let release = Arc::new(std::sync::Barrier::new(2));
+    let update_task = Arc::new(Mutex::new(None));
+    let mut app = App::new(0);
+    app.surface("main", |ui, s| text(ui, &s.to_string(), "value"))
+        .unwrap();
+    let (notification, barrier, task) = (entered.clone(), release.clone(), update_task.clone());
+    app.action::<(), _, _>("work", move |_, ctx| {
+        let (notification, barrier, task) = (notification.clone(), barrier.clone(), task.clone());
+        async move {
+            let (started, mutation_started) = tokio::sync::oneshot::channel();
+            *task.lock().unwrap() = Some(tokio::spawn(async move {
+                ctx.update(|s| {
+                    *s = 1;
+                    started.send(()).unwrap();
+                    notification.notify_one();
+                    barrier.wait();
+                })
+                .await
+            }));
+            mutation_started.await.unwrap();
+            Ok(())
+        }
+    })
+    .unwrap();
+    let mut runtime = app.build();
+    runtime.render("main").await.unwrap();
+    let messages = {
+        let mut invocation = Box::pin(runtime.invoke("work", Value::Null));
+        assert!(futures::poll!(invocation.as_mut()).is_pending());
+        entered.notified().await;
+        // The handler is now ready, but its mutation has not enqueued publication.
+        let completion = futures::poll!(invocation.as_mut());
+        release.wait();
+        assert!(
+            completion.is_pending(),
+            "invocation completed before its mutation"
+        );
+        tokio::time::timeout(std::time::Duration::from_secs(3), invocation)
+            .await
+            .unwrap()
+            .unwrap()
+    };
+    assert_eq!(messages.len(), 1);
+    assert_eq!(
+        messages[0]["updateComponents"]["components"][0]["text"],
+        "1"
+    );
+    let task = update_task.lock().unwrap().take().unwrap();
+    task.await.unwrap().unwrap();
+    assert_eq!(runtime.app_revision(), 1);
+}
+
+#[tokio::test]
 async fn errors_propagate_without_rollback_or_hanging() {
     let mut app = App::new(0);
     app.surface("main", |ui, s| text(ui, &s.to_string(), "value"))
