@@ -139,6 +139,75 @@ for (const fixture of ["catalog-builder-key", "catalog-component-names", "catalo
   });
 }
 
+test("native TypeScript imports compile with noUnusedLocals", {
+  skip: !process.env.OMOCHI_NATIVE_TEST,
+}, async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "omochi-catalog-imports-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const workspace = resolve(import.meta.dir, "../..");
+  const profile = process.env.OMOCHI_NATIVE_PROFILE ?? "debug";
+  if (profile !== "debug" && profile !== "release") throw new Error("invalid native profile");
+  const reference = (name: string) => ({
+    $ref: `https://a2ui.org/specification/v0_9/common_types.json#/$defs/${name}`,
+  });
+  const symbols = [
+    ["AccessibilityAttributes", "Accessibility"], ["CheckRule", "CheckRule"],
+    ["DataBinding", "DataBinding"], ["DynamicBoolean", "DynamicBoolean"],
+    ["DynamicNumber", "DynamicNumber"], ["DynamicString", "DynamicString"],
+    ["DynamicStringList", "DynamicStringList"], ["DynamicValue", "DynamicValue"],
+    ["FunctionCall", "FunctionCall"], ["Action", "WireAction"],
+  ] as const;
+  const literalNames = symbols.map(([, symbol]) => symbol);
+  const cases = [
+    ...symbols.map(([name, symbol]) => ({ name, schema: reference(name), imports: [symbol] })),
+    ...["ComponentId", "ChildList"].map((name) => ({ name, schema: reference(name), imports: [] })),
+    { name: "Unknown", schema: {}, imports: [] },
+    { name: "Literals", schema: { type: "object", properties: {
+      ...Object.fromEntries(literalNames.map((name) => [name, { enum: literalNames }])),
+      escaped: { enum: ['\\"DynamicString', '"DynamicStringList"', "\\", "FunctionCall"] },
+    } }, imports: [] },
+    { name: "Nested", schema: { type: "object", properties: {
+      ...Object.fromEntries(symbols.map(([name]) => [name, {
+        type: "array", items: { anyOf: [reference(name), { enum: ["DynamicString"] }] },
+      }])),
+    } }, imports: literalNames },
+  ];
+  const files = [];
+  for (const { name, schema, imports } of cases) {
+    const file = `${name}.ts`;
+    files.push(file);
+    await writeFile(join(root, "input.json"), JSON.stringify({
+      components: { DynamicStringListCheckRule: { properties: { DataBinding: schema } } },
+    }));
+    const generate = Bun.spawn([
+      join(workspace, "crates/target", profile, "omochi-ui"),
+      "generate", "catalog", "--catalog", join(root, "input.json"),
+      "--typescript", join(root, file),
+    ], { stdout: "pipe", stderr: "pipe" });
+    const generationError = await new Response(generate.stderr).text();
+    expect(await generate.exited, generationError).toBe(0);
+    const output = await readFile(join(root, file), "utf8");
+    expect(output.split("\n").find((line) => line.startsWith("import type")), name)
+      .toBe(`import type { ${["CatalogDefinition", ...imports].join(", ")} } from '@omochi-ui/sdk'`);
+  }
+  await symlink(join(workspace, "node_modules"), join(root, "node_modules"));
+  await writeFile(join(root, "tsconfig.json"), JSON.stringify({
+    compilerOptions: {
+      target: "ES2023", module: "Preserve", moduleResolution: "Bundler",
+      strict: true, noEmit: true, noUnusedLocals: true, skipLibCheck: true, types: [],
+    },
+    files,
+  }));
+  const compile = Bun.spawn([
+    process.execPath, join(workspace, "node_modules/typescript/bin/tsc"),
+    "--project", join(root, "tsconfig.json"), "--pretty", "false",
+  ], { stdout: "pipe", stderr: "pipe" });
+  const [stdout, stderr, status] = await Promise.all([
+    new Response(compile.stdout).text(), new Response(compile.stderr).text(), compile.exited,
+  ]);
+  expect(status, stdout + stderr).toBe(0);
+});
+
 test("native component unions fail with context and preserve all outputs", {
   skip: !process.env.OMOCHI_NATIVE_TEST,
 }, async (t) => {

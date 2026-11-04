@@ -796,6 +796,32 @@ fn rust_enum_name(component: &Component, property: &Property) -> String {
         name
     }
 }
+fn typescript_type_symbols(kind: &str) -> BTreeSet<String> {
+    let mut symbols = BTreeSet::new();
+    let mut chars = kind.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == '"' {
+            // Generated string literals and property names use JSON quoting.
+            // Ignore their contents, including escaped quotes and backslashes.
+            while let Some(c) = chars.next() {
+                if c == '\\' {
+                    chars.next();
+                } else if c == '"' {
+                    break;
+                }
+            }
+        } else if c.is_ascii_alphabetic() || c == '_' || c == '$' {
+            let mut symbol = String::from(c);
+            while let Some(c) =
+                chars.next_if(|c| c.is_ascii_alphanumeric() || *c == '_' || *c == '$')
+            {
+                symbol.push(c);
+            }
+            symbols.insert(symbol);
+        }
+    }
+    symbols
+}
 fn render(m: &Model, lang: Language) -> Result<String> {
     use Language::*;
     for component in &m.components {
@@ -814,6 +840,7 @@ fn render(m: &Model, lang: Language) -> Result<String> {
     );
     let mut bodies = Vec::new();
     let mut enums = Vec::new();
+    let mut typescript_symbols = BTreeSet::new();
     let mut rust_types: BTreeSet<String> = [
         "ComponentProps",
         "JsonObject",
@@ -848,6 +875,9 @@ fn render(m: &Model, lang: Language) -> Result<String> {
         for p in &c.properties {
             validate_enums(&p.schema)?;
             let mut kind = ty(&p.schema, lang)?;
+            if lang == Ts {
+                typescript_symbols.extend(typescript_type_symbols(&kind));
+            }
             if lang == Rs
                 && let Some(values) = p.schema["enum"].as_array()
                 && values.iter().all(Value::is_string)
@@ -969,7 +999,7 @@ fn render(m: &Model, lang: Language) -> Result<String> {
                     "WireAction",
                 ]
                 .into_iter()
-                .filter(|s| body.contains(s)),
+                .filter(|s| typescript_symbols.contains(*s)),
             );
             let map = m
                 .components
@@ -1771,6 +1801,43 @@ mod tests {
             assert!(ty(&schema, Language::Py).is_err());
         }
     }
+    #[test]
+    fn typescript_imports_use_rendered_symbols_instead_of_literal_text() {
+        let reference = |name: &str| json!({"$ref": format!("https://a2ui.org/specification/v0_9/common_types.json#/$defs/{name}")});
+        for (schema, expected) in [
+            (
+                reference("DynamicStringList"),
+                "CatalogDefinition, DynamicStringList",
+            ),
+            (
+                json!({"type": "object", "properties": {
+                    "DynamicString": {"enum": ["DynamicBoolean", "\\\"DynamicValue", "\\", "\"FunctionCall\""]},
+                    "values": {"type": "array", "items": reference("DynamicNumber")}
+                }}),
+                "CatalogDefinition, DynamicNumber",
+            ),
+            (
+                json!({"enum": ["DynamicString", "DynamicStringList"]}),
+                "CatalogDefinition",
+            ),
+            (json!({}), "CatalogDefinition"),
+        ] {
+            let model = model(
+                json!({"components": {"CheckRule": {"properties": {
+                    "DataBinding": schema
+                }}}}),
+                None,
+                "".into(),
+            )
+            .unwrap();
+            let output = render(&model, Language::Ts).unwrap();
+            assert_eq!(
+                output.lines().find(|line| line.starts_with("import type")),
+                Some(format!("import type {{ {expected} }} from '@omochi-ui/sdk'").as_str())
+            );
+        }
+    }
+
     #[test]
     fn typescript_allof_without_unconditional_layers_uses_unknown() {
         let conditional = json!({"allOf": [{"if": {"type": "string"}, "then": {"minLength": 1}}]});
