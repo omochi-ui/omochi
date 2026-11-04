@@ -69,6 +69,19 @@ class _NativeModal extends StatefulWidget {
 
 class _NativeModalState extends State<_NativeModal> {
   ModalBottomSheetRoute<void>? _route;
+  final _definition = ValueNotifier<int>(0);
+  bool _refreshScheduled = false;
+
+  @override
+  void didUpdateWidget(covariant _NativeModal oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (_refreshScheduled) return;
+    _refreshScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _refreshScheduled = false;
+      if (mounted) _definition.value++;
+    });
+  }
 
   @override
   void dispose() {
@@ -77,6 +90,7 @@ class _NativeModalState extends State<_NativeModal> {
       widget.owner?.routes.remove(route);
       _removeRoute(route);
     }
+    _definition.dispose();
     super.dispose();
   }
 
@@ -108,15 +122,24 @@ class _NativeModalState extends State<_NativeModal> {
               .bottomSheetTheme
               .modalBarrierColor,
           builder: (context) {
-            // A Surface can expire after push but before the route's first build.
             if (!mounted || !owner.valid) return const SizedBox.shrink();
-            return Padding(
-              padding: EdgeInsets.only(
-                bottom: MediaQuery.viewInsetsOf(context).bottom,
-              ),
-              child: SafeArea(
-                child: item.buildChild(data['content'] as String),
-              ),
+            return ListenableBuilder(
+              listenable: _definition,
+              builder: (context, _) {
+                // The route outlives builds of its trigger. Always use the latest
+                // Surface definition, including its buildChild closure.
+                if (!mounted || !owner.valid) return const SizedBox.shrink();
+                final current = widget.item;
+                final currentData = current.data as Map;
+                return Padding(
+                  padding: EdgeInsets.only(
+                    bottom: MediaQuery.viewInsetsOf(context).bottom,
+                  ),
+                  child: SafeArea(
+                    child: current.buildChild(currentData['content'] as String),
+                  ),
+                );
+              },
             );
           },
         );

@@ -25,6 +25,53 @@ VoidCallback openCallback(WidgetTester tester, String title) => tester
     .onPressed!;
 
 void main() {
+  testWidgets(
+    'open modal follows text, action and content definition updates',
+    (tester) async {
+      final client = TestClient();
+      final hub = session(client);
+      final scope = TestScope('modal:update');
+      await openService(tester, hub, client, scope);
+      List<Json> definition(String title, String content) => [
+        {
+          'id': 'root',
+          'component': 'Modal',
+          'trigger': 'open',
+          'content': content,
+        },
+        textComponent('open', 'Open'),
+        {
+          'id': content,
+          'component': 'Column',
+          'children': ['text', 'action'],
+        },
+        textComponent('text', title),
+        buttonComponent('action', 'label', title),
+        textComponent('label', 'Submit'),
+      ];
+      update(client, definition('Before', 'body'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Open'));
+      await tester.pumpAndSettle();
+      final sheet = tester.element(find.byType(BottomSheet));
+      update(client, definition('After', 'body'));
+      await tester.pumpAndSettle();
+      expect(find.text('Before'), findsNothing);
+      expect(find.text('After'), findsOneWidget);
+      expect(tester.element(find.byType(BottomSheet)), same(sheet));
+      await tester.tap(find.text('Submit'));
+      await tester.pumpAndSettle();
+      expect(scope.actions.single['action']['name'], 'After');
+      update(client, definition('Replacement', 'new-body'));
+      await tester.pumpAndSettle();
+      expect(find.text('Replacement'), findsOneWidget);
+      expect(find.text('After'), findsNothing);
+      await tester.pumpWidget(const SizedBox());
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+    },
+  );
+
   for (final operation in [
     'delete',
     'replace',
