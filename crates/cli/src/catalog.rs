@@ -219,6 +219,9 @@ fn ty(schema: &Value, lang: Language) -> Result<String> {
     if schema["type"] == "array" {
         let item = ty(&schema["items"], lang)?;
         return Ok(match lang {
+            // Array suffixes bind more tightly than unions and intersections,
+            // including compound types expanded from symbolic references.
+            Ts if item.contains(['|', '&']) => format!("({item})[]"),
             Ts => format!("{item}[]"),
             Py => format!("list[{item}]"),
             Rs => format!("Vec<{item}>"),
