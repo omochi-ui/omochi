@@ -106,11 +106,14 @@ class A2uiSnapshot:
         elif "updateComponents" in message:
             update = message["updateComponents"]
             surface = self._surface(update["surfaceId"])
+            # Prepare the whole batch before changing the replay retained for new clients.
+            components = {}
             for component in update["components"]:
                 component_id = component.get("id")
                 if not isinstance(component_id, str):
                     raise ValueError("component must contain a string id")
-                surface.components[component_id] = copy.deepcopy(component)
+                components[component_id] = copy.deepcopy(component)
+            surface.components.update(components)
         elif "updateDataModel" in message:
             update = message["updateDataModel"]
             surface = self._surface(update["surfaceId"])

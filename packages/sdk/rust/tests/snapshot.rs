@@ -63,3 +63,44 @@ fn keeps_a_root_deletion_visible_in_the_replay() {
         json!({ "version": "v0.9", "updateDataModel": { "surfaceId": "main", "path": "/" } })
     );
 }
+
+fn assert_rejected_updates_preserve_replay(kind: &str) {
+    let fixture = fixture();
+    let fixture = &fixture["rejectedUpdates"];
+    for rejected in fixture["cases"].as_array().unwrap() {
+        if rejected["message"].get(kind).is_none() {
+            continue;
+        }
+        let mut snapshot = A2uiSnapshot::new();
+        for message in fixture["messages"].as_array().unwrap() {
+            snapshot.apply(message).unwrap();
+        }
+        let before = snapshot.messages();
+        assert!(
+            snapshot.apply(&rejected["message"]).is_err(),
+            "{}",
+            rejected["name"]
+        );
+        assert_eq!(snapshot.messages(), before, "{}", rejected["name"]);
+        let mut replay = A2uiSnapshot::new();
+        let mut cursor = omochi_ui::SnapshotCursor::default();
+        while let Some(message) = snapshot.next_message(&mut cursor) {
+            replay.apply(&message).unwrap();
+        }
+        assert_eq!(replay.messages(), before);
+        for message in fixture["recoveryMessages"].as_array().unwrap() {
+            snapshot.apply(message).unwrap();
+        }
+        assert_eq!(Value::Array(snapshot.messages()), fixture["snapshot"]);
+    }
+}
+
+#[test]
+fn rejected_component_updates_preserve_replay() {
+    assert_rejected_updates_preserve_replay("updateComponents");
+}
+
+#[test]
+fn rejected_data_updates_preserve_replay() {
+    assert_rejected_updates_preserve_replay("updateDataModel");
+}

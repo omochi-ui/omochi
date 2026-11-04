@@ -25,5 +25,28 @@
     { "version": "v0.9", "updateDataModel": { "surfaceId": "main", "path": "/", "value": { "count": 5, "nested": { "list": [9] }, "__proto__": { "literal": true }, "constructor": { "prototype": { "kept": 7 } }, "a/b": { "~key": "escaped" } } } },
     { "version": "v0.9", "createSurface": { "surfaceId": "aux", "catalogId": "second" } },
     { "version": "v0.9", "updateDataModel": { "surfaceId": "aux", "path": "/", "value": { "rows": [{ "label": "first row" }] } } }
-  ]
+  ],
+  "rejectedUpdates": {
+    "messages": [
+      { "version": "v0.9", "createSurface": { "surfaceId": "main", "catalogId": "test" } },
+      { "version": "v0.9", "updateComponents": { "surfaceId": "main", "components": [{ "id": "root", "component": "Text", "text": "retained" }] } },
+      { "version": "v0.9", "updateDataModel": { "surfaceId": "main", "path": "/", "value": { "items": [1, 2], "keep": "retained" } } }
+    ],
+    "cases": [
+      { "name": "missing component id", "message": { "version": "v0.9", "updateComponents": { "surfaceId": "main", "components": [{ "id": "root", "component": "Text", "text": "changed" }, { "id": "new", "component": "Text", "text": "added" }, { "component": "Text", "text": "invalid" }] } } },
+      { "name": "non-string component id", "message": { "version": "v0.9", "updateComponents": { "surfaceId": "main", "components": [{ "id": "root", "component": "Text", "text": "changed" }, { "id": 7, "component": "Text", "text": "invalid" }] } } },
+      { "name": "invalid pointer", "message": { "version": "v0.9", "updateDataModel": { "surfaceId": "main", "path": "items/0", "value": 9 } } },
+      { "name": "non-index array leaf", "message": { "version": "v0.9", "updateDataModel": { "surfaceId": "main", "path": "/items/not-an-index", "value": 9 } } },
+      { "name": "non-index array traversal", "message": { "version": "v0.9", "updateDataModel": { "surfaceId": "main", "path": "/items/not-an-index/child", "value": 9 } } }
+    ],
+    "recoveryMessages": [
+      { "version": "v0.9", "updateDataModel": { "surfaceId": "main", "path": "/items/0", "value": 3 } },
+      { "version": "v0.9", "updateComponents": { "surfaceId": "main", "components": [{ "id": "after", "component": "Text", "text": "recovered" }] } }
+    ],
+    "snapshot": [
+      { "version": "v0.9", "createSurface": { "surfaceId": "main", "catalogId": "test" } },
+      { "version": "v0.9", "updateComponents": { "surfaceId": "main", "components": [{ "id": "root", "component": "Text", "text": "retained" }, { "id": "after", "component": "Text", "text": "recovered" }] } },
+      { "version": "v0.9", "updateDataModel": { "surfaceId": "main", "path": "/", "value": { "items": [3, 2], "keep": "retained" } } }
+    ]
+  }
 }

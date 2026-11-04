@@ -134,7 +134,7 @@ fn assign(current: &mut Value, last: &str, value: Option<Value>) -> Result<()> {
 }
 
 fn update_at_pointer(
-    root: Option<Value>,
+    root: Option<&Value>,
     path: &str,
     value: Option<Value>,
 ) -> Result<Option<Value>> {
@@ -143,7 +143,7 @@ fn update_at_pointer(
     }
     let parts = pointer_parts(path)?;
     let mut result = match root {
-        Some(existing) if is_container(&existing) => existing,
+        Some(existing) if is_container(existing) => existing.clone(),
         _ if is_array_index(&parts[0]) => Value::Array(Vec::new()),
         _ => Value::Object(Map::new()),
     };
@@ -195,17 +195,21 @@ impl A2uiSnapshot {
             let components = body(message, "updateComponents")
                 .and_then(|object| object.get("components"))
                 .and_then(Value::as_array)
-                .cloned()
                 .ok_or_else(|| {
                     Error::Protocol("updateComponents must contain components".into())
                 })?;
             let surface = self.surface_mut(&id)?;
-            for component in components {
-                let component_id = component
-                    .get("id")
-                    .and_then(Value::as_str)
-                    .ok_or_else(|| Error::Protocol("component must contain a string id".into()))?
-                    .to_owned();
+            // Prepare the whole batch before changing the replay retained for new clients.
+            let components = components
+                .iter()
+                .map(|component| {
+                    let id = component.get("id").and_then(Value::as_str).ok_or_else(|| {
+                        Error::Protocol("component must contain a string id".into())
+                    })?;
+                    Ok((id.to_owned(), component.clone()))
+                })
+                .collect::<Result<Vec<_>>>()?;
+            for (component_id, component) in components {
                 match surface
                     .components
                     .iter_mut()
@@ -227,7 +231,7 @@ impl A2uiSnapshot {
                 .to_owned();
             let value = update.get("value").cloned();
             let surface = self.surface_mut(&id)?;
-            surface.data = update_at_pointer(surface.data.take(), &path, value)?;
+            surface.data = update_at_pointer(surface.data.as_ref(), &path, value)?;
             surface.has_data = true;
         } else if message.get("deleteSurface").is_some() {
             let id = surface_id(message, "deleteSurface")?;

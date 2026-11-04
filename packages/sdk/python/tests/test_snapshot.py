@@ -14,6 +14,25 @@ class SnapshotTest(unittest.TestCase):
             snapshot.apply(message)
         self.assertEqual(snapshot.messages(), FIXTURE["snapshot"])
 
+    def test_rejected_updates_preserve_replay(self) -> None:
+        fixture = FIXTURE["rejectedUpdates"]
+        for rejected in fixture["cases"]:
+            with self.subTest(name=rejected["name"]):
+                snapshot = A2uiSnapshot()
+                for message in fixture["messages"]:
+                    snapshot.apply(message)
+                before = snapshot.messages()
+                with self.assertRaises(ValueError):
+                    snapshot.apply(rejected["message"])
+                self.assertEqual(snapshot.messages(), before)
+                replay = A2uiSnapshot()
+                for message in snapshot.messages():
+                    replay.apply(message)
+                self.assertEqual(replay.messages(), before)
+                for message in fixture["recoveryMessages"]:
+                    snapshot.apply(message)
+                self.assertEqual(snapshot.messages(), fixture["snapshot"])
+
     def test_rejects_duplicate_and_unknown_surfaces(self) -> None:
         snapshot = A2uiSnapshot()
         snapshot.apply({"version": "v0.9", "createSurface": {"surfaceId": "main", "catalogId": "test"}})
