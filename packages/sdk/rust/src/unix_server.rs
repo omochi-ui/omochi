@@ -9,8 +9,8 @@ use async_trait::async_trait;
 use serde_json::{Map, Value};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{UnixListener, UnixStream};
-use tokio::sync::{Mutex, mpsc};
-use tokio::task::JoinHandle;
+use tokio::sync::{Mutex, mpsc, oneshot};
+use tokio::task::{JoinHandle, JoinSet};
 
 use crate::snapshot::A2uiSnapshot;
 use crate::transport::Transport;
@@ -133,6 +133,7 @@ pub struct UnixSocketServerTransport {
     shared: Arc<Shared>,
     inbound: mpsc::UnboundedReceiver<Value>,
     accept: JoinHandle<()>,
+    shutdown: Option<oneshot::Sender<()>>,
     capabilities: BTreeSet<String>,
     directory: PathBuf,
     socket_path: PathBuf,
@@ -182,18 +183,6 @@ impl UnixSocketServerTransport {
             clients: Mutex::new(Vec::new()),
             snapshot: Mutex::new(A2uiSnapshot::new()),
         });
-        let (sender, inbound) = mpsc::unbounded_channel();
-        let accept_shared = Arc::clone(&shared);
-        let accept = tokio::spawn(async move {
-            while let Ok((stream, _)) = listener.accept().await {
-                let connection_shared = Arc::clone(&accept_shared);
-                let connection_sender = sender.clone();
-                tokio::spawn(async move {
-                    serve_connection(stream, connection_shared, connection_sender).await;
-                });
-            }
-        });
-
         // Advertise only once the socket accepts connections, so a readable manifest is
         // always connectable.
         write_manifest(
@@ -202,10 +191,39 @@ impl UnixSocketServerTransport {
             options.icon.as_deref(),
         )?;
 
+        let (sender, inbound) = mpsc::unbounded_channel();
+        let (shutdown, mut stopping) = oneshot::channel();
+        let accept_shared = Arc::clone(&shared);
+        let accept = tokio::spawn(async move {
+            let mut connections = JoinSet::new();
+            loop {
+                tokio::select! {
+                    biased;
+                    _ = &mut stopping => break,
+                    // Reap finished connections without keeping their task allocations.
+                    _ = connections.join_next(), if !connections.is_empty() => {},
+                    accepted = listener.accept() => {
+                        let Ok((stream, _)) = accepted else { break };
+                        connections.spawn(serve_connection(
+                            stream,
+                            Arc::clone(&accept_shared),
+                            sender.clone(),
+                        ));
+                    }
+                }
+            }
+            drop(listener);
+            // Each connection owns both socket halves, so joining their cancellation
+            // also waits for every reader and writer to release its resources.
+            connections.shutdown().await;
+            accept_shared.clients.lock().await.clear();
+        });
+
         Ok(Self {
             shared,
             inbound,
             accept,
+            shutdown: Some(shutdown),
             capabilities: options.capabilities,
             directory: directory.to_path_buf(),
             socket_path,
@@ -221,24 +239,32 @@ impl UnixSocketServerTransport {
         &self.directory
     }
 
-    /// Retracts the advertisement, stops accepting, and removes the service directory.
+    /// Retracts the advertisement and waits for all connections to stop before removing
+    /// the service directory.
     pub async fn close(&mut self) {
         if self.closed {
             return;
         }
-        self.closed = true;
         let _ = fs::remove_file(self.directory.join("manifest.json"));
-        self.accept.abort();
-        self.shared.clients.lock().await.clear();
+        if let Some(shutdown) = self.shutdown.take() {
+            let _ = shutdown.send(());
+        }
+        // Borrow the handle so a cancelled close() can be awaited again.
+        let _ = (&mut self.accept).await;
         let _ = fs::remove_dir_all(&self.directory);
         self.inbound.close();
+        self.closed = true;
     }
 }
 
 impl Drop for UnixSocketServerTransport {
     fn drop(&mut self) {
         // Last-resort cleanup for a transport dropped without close().
-        self.accept.abort();
+        // The supervisor owns every connection and completes their cancellation even
+        // when the caller cannot await close().
+        if let Some(shutdown) = self.shutdown.take() {
+            let _ = shutdown.send(());
+        }
         if !self.closed {
             let _ = fs::remove_dir_all(&self.directory);
         }
@@ -325,38 +351,45 @@ async fn serve_connection(
     }
     shared.clients.lock().await.push(sender.clone());
 
-    let writing = tokio::spawn(async move {
+    let writing = async move {
         while let Some(line) = outbound.recv().await {
             if writer.write_all(line.as_bytes()).await.is_err() {
                 return;
             }
         }
-    });
+    };
 
-    let mut lines = BufReader::new(reader).lines();
-    while let Ok(Some(line)) = lines.next_line().await {
-        if line.trim().is_empty() {
-            continue;
-        }
-        let Ok(value) = serde_json::from_str::<Value>(&line) else {
-            break;
-        };
-        if is_resource(&value) {
-            if value["kind"] == "request" {
-                if let Some(resources) = shared.resources.read().unwrap().as_ref() {
-                    let _ = sender.send(format!("{}\n", resources.respond(&value)));
-                }
+    let reading = async {
+        let mut lines = BufReader::new(reader).lines();
+        while let Ok(Some(line)) = lines.next_line().await {
+            if line.trim().is_empty() {
+                continue;
             }
-            continue;
+            let Ok(value) = serde_json::from_str::<Value>(&line) else {
+                break;
+            };
+            if is_resource(&value) {
+                if value["kind"] == "request" {
+                    if let Some(resources) = shared.resources.read().unwrap().as_ref() {
+                        let _ = sender.send(format!("{}\n", resources.respond(&value)));
+                    }
+                }
+                continue;
+            }
+            // "{error}" is a valid client message but carries no action for the Runtime to
+            // invoke; dropping it keeps a client-side report from tearing the application down.
+            if value.get("action").is_none() {
+                continue;
+            }
+            if inbound.send(value).is_err() {
+                break;
+            }
         }
-        // "{error}" is a valid client message but carries no action for the Runtime to
-        // invoke; dropping it keeps a client-side report from tearing the application down.
-        if value.get("action").is_none() {
-            continue;
-        }
-        if inbound.send(value).is_err() {
-            break;
-        }
+    };
+    // Neither half may outlive its connection task, including when cancelled during
+    // shutdown or while a slow client has blocked the writer.
+    tokio::select! {
+        _ = writing => {},
+        _ = reading => {},
     }
-    writing.abort();
 }
