@@ -86,9 +86,16 @@ async fn assert_atomic_subscription(publish_first: bool, update_existing: bool) 
     // An action is processed only after replay and registration have completed.
     // A following marker bounds the exact output prefix; no quiet-time assertion.
     let mut client = BufReader::new(client);
+    let ready = json!({
+        "version": "v0.9",
+        "action": {
+            "name": "ready", "surfaceId": "main", "sourceComponentId": "root",
+            "timestamp": "2026-08-12T00:00:00.000Z", "context": {}
+        }
+    });
     client
         .get_mut()
-        .write_all(b"{\"action\":{\"name\":\"ready\"}}\n")
+        .write_all(format!("{ready}\n").as_bytes())
         .await
         .unwrap();
     assert_eq!(actions.recv().await.unwrap()["action"]["name"], "ready");

@@ -10,7 +10,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from omochi_ui import schema, Expr, InputSchema, ActionContext, UI, App, UnixSocketServerTransport
+from omochi_ui import schema, Expr, InputSchema, ActionContext, UI, App, ResourceRegistry, UnixSocketServerTransport
 
 
 def counter_app() -> App:
@@ -42,6 +42,60 @@ async def read_messages(reader: asyncio.StreamReader, count: int) -> list[dict]:
 
 
 class UnixSocketServerTransportTests(unittest.TestCase):
+    def test_isolates_malformed_client_frames(self) -> None:
+        fixtures = Path(__file__).parents[4] / "spec/fixtures"
+        actions = json.loads((fixtures / "client-actions.json").read_text())
+        errors = json.loads((fixtures / "client-errors.json").read_text())
+
+        async def scenario() -> None:
+            with tempfile.TemporaryDirectory() as root:
+                transport = UnixSocketServerTransport("demo", runtime_dir=root)
+                resources = ResourceRegistry()
+                transport.resources = resources
+                uri = resources.bytes(b"media", "image/png")
+                writers = []
+
+                async def connect():
+                    reader, writer = await asyncio.open_unix_connection(str(transport.socket_path))
+                    writers.append(writer)
+                    self.assertEqual(json.loads(await reader.readline())["kind"], "hello")
+                    return reader, writer
+
+                def send(writer, message):
+                    writer.write((json.dumps(message) + "\n").encode())
+
+                try:
+                    await transport.start()
+                    reader, writer = await connect()
+                    received = transport.receive()
+
+                    async def verify(action):
+                        send(writer, action)
+                        expected = {key: value for key, value in action.items() if key != "type"}
+                        self.assertEqual(await asyncio.wait_for(anext(received), 5), expected)
+                        send(writer, {"omochi": "resources/1", "kind": "request", "id": "read", "op": "stat", "resource": uri.rsplit("/", 1)[1]})
+                        self.assertEqual(json.loads(await asyncio.wait_for(reader.readline(), 5))["status"], 200)
+
+                    for message in actions["invalid"] + errors["invalid"]:
+                        bad_reader, bad_writer = await connect()
+                        tail = {**actions["actions"][0], "action": {**actions["actions"][0]["action"], "name": "disconnected-peer"}}
+                        bad_writer.write((json.dumps(message) + "\n" + json.dumps(tail) + "\n").encode())
+                        self.assertEqual(await asyncio.wait_for(bad_reader.readline(), 5), b"", message)
+                        await verify(actions["actions"][0])
+                    for report in errors["reports"]:
+                        send(writer, report)
+                        await verify(actions["actions"][0])
+                    for action in actions["actions"]:
+                        await verify(action)
+                finally:
+                    for writer in writers:
+                        writer.close()
+                        await writer.wait_closed()
+                    await transport.close()
+                    resources.close()
+
+        asyncio.run(scenario())
+
     def test_close_releases_ownership_with_an_inherited_file_description(self) -> None:
         async def scenario() -> None:
             with tempfile.TemporaryDirectory() as root:

@@ -352,3 +352,67 @@ async fn ownership_process_fixture() {
     command();
     transport.close().await;
 }
+
+#[tokio::test]
+async fn isolates_malformed_client_frames() {
+    let actions: Value = serde_json::from_str(include_str!(
+        "../../../../spec/fixtures/client-actions.json"
+    ))
+    .unwrap();
+    let errors: Value =
+        serde_json::from_str(include_str!("../../../../spec/fixtures/client-errors.json")).unwrap();
+    let root = TempRoot::new("frames");
+    let (mut transport, mut good, request) = ready_resource_client(&root).await;
+
+    async fn verify(
+        transport: &mut UnixSocketServerTransport,
+        good: &mut BufReader<UnixStream>,
+        request: &str,
+        action: &Value,
+    ) {
+        good.get_mut()
+            .write_all(format!("{action}\n").as_bytes())
+            .await
+            .unwrap();
+        let mut expected = action.clone();
+        expected.as_object_mut().unwrap().remove("type");
+        assert_eq!(
+            tokio::time::timeout(Duration::from_secs(5), transport.receive())
+                .await
+                .unwrap()
+                .unwrap(),
+            Some(expected)
+        );
+        good.get_mut().write_all(request.as_bytes()).await.unwrap();
+        assert_eq!(read_messages(good, 1).await[0]["status"], 200);
+    }
+
+    for message in actions["invalid"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .chain(errors["invalid"].as_array().unwrap())
+    {
+        let mut bad = BufReader::new(UnixStream::connect(transport.socket_path()).await.unwrap());
+        read_messages(&mut bad, 2).await;
+        let mut tail = actions["actions"][0].clone();
+        tail["action"]["name"] = json!("disconnected-peer");
+        bad.get_mut()
+            .write_all(format!("{message}\n{tail}\n").as_bytes())
+            .await
+            .unwrap();
+        assert_eof(&mut bad).await;
+        verify(&mut transport, &mut good, &request, &actions["actions"][0]).await;
+    }
+    for report in errors["reports"].as_array().unwrap() {
+        good.get_mut()
+            .write_all(format!("{report}\n").as_bytes())
+            .await
+            .unwrap();
+        verify(&mut transport, &mut good, &request, &actions["actions"][0]).await;
+    }
+    for action in actions["actions"].as_array().unwrap() {
+        verify(&mut transport, &mut good, &request, action).await;
+    }
+    transport.close().await;
+}

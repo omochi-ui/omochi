@@ -29,6 +29,31 @@ _MAX_SOCKET_PATH_BYTES = 100
 _SOCKET_FILE_NAME = "a2ui.sock"
 
 
+def _is_client_message(message: Any) -> bool:
+    """Validate the v0.9 envelope before it can reach the shared Runtime."""
+    if not isinstance(message, dict) or message.get("version") != "v0.9":
+        return False
+    if ("action" in message) == ("error" in message):
+        return False
+    if "action" in message:
+        action = message["action"]
+        return (
+            isinstance(action, dict)
+            and all(isinstance(action.get(key), str) for key in ("name", "surfaceId", "sourceComponentId", "timestamp"))
+            and isinstance(action.get("context"), dict)
+        )
+    error = message["error"]
+    return (
+        isinstance(error, dict) and "code" in error
+        and isinstance(error.get("surfaceId"), str)
+        and isinstance(error.get("message"), str)
+        and (error["code"] != "VALIDATION_FAILED" or (
+            isinstance(error.get("path"), str)
+            and set(error) == {"code", "surfaceId", "path", "message"}
+        ))
+    )
+
+
 def validate_service_id(service_id: str) -> str:
     # "." and ".." match the character class but would collapse or escape the service directory.
     if service_id in (".", "..") or not SERVICE_ID_PATTERN.match(service_id):
@@ -249,11 +274,14 @@ class UnixSocketServerTransport(Transport):
                         self._write(writer, json.dumps(self.resources.respond(message)) + "\n")
                         await writer.drain()
                     continue
-                # "{error}" is a valid client message but carries no action for the
-                # Runtime to invoke; dropping it keeps a client-side report from tearing
-                # the application down.
-                if isinstance(message, dict) and "action" in message:
-                    self._queue.put_nowait(message)
+                if not _is_client_message(message):
+                    break
+                # Valid client error reports carry no action; keep the connection open.
+                if "error" in message:
+                    continue
+                # A2UI extensions must not select the Runtime's legacy command API.
+                message.pop("type", None)
+                self._queue.put_nowait(message)
         except ReceiveQueueOverflowError as error:
             # No queued action may execute after an action was lost. Abort peers
             # immediately so their resource RPCs observe a disconnect as well.

@@ -1,0 +1,27 @@
+{
+  "actions": [
+    {"version": "v0.9", "action": {"name": "increment", "surfaceId": "main", "sourceComponentId": "increment", "timestamp": "2026-08-12T00:00:00.000Z", "context": {}}},
+    {"version": "v0.9", "action": {"name": "increment", "surfaceId": "main", "sourceComponentId": "increment", "timestamp": "2026-08-12T00:00:00.000Z", "context": {}, "extension": true}, "metadata": {"a2uiClientDataModel": {"version": "v0.9", "surfaces": {}}}, "extension": true},
+    {"version": "v0.9", "action": {"name": "increment", "surfaceId": "main", "sourceComponentId": "increment", "timestamp": "2026-08-12T00:00:00.000Z", "context": {}}, "type": "invoke"},
+    {"version": "v0.9", "action": {"name": "increment", "surfaceId": "main", "sourceComponentId": "increment", "timestamp": "2026-08-12T00:00:00.000Z", "context": {}}, "type": "getSurface"}
+  ],
+  "invalid": [
+    {"version": "v0.9", "action": {"name": "increment", "surfaceId": "main", "sourceComponentId": "increment", "timestamp": "2026-08-12T00:00:00.000Z", "context": {}}, "error": {"code": "RENDER_FAILED", "surfaceId": "main", "message": "ambiguous"}},
+    {"action": 123},
+    {"version": "v0.9", "action": 123},
+    {"version": "v0.9.1", "action": {"name": "increment", "surfaceId": "main", "sourceComponentId": "increment", "timestamp": "2026-08-12T00:00:00.000Z", "context": {}}},
+    {"action": {"name": "increment", "surfaceId": "main", "sourceComponentId": "increment", "timestamp": "2026-08-12T00:00:00.000Z", "context": {}}},
+    [],
+    null,
+    {"version": "v0.9", "action": {"surfaceId": "main", "sourceComponentId": "increment", "timestamp": "2026-08-12T00:00:00.000Z", "context": {}}},
+    {"version": "v0.9", "action": {"name": [], "surfaceId": "main", "sourceComponentId": "increment", "timestamp": "2026-08-12T00:00:00.000Z", "context": {}}},
+    {"version": "v0.9", "action": {"name": "increment", "sourceComponentId": "increment", "timestamp": "2026-08-12T00:00:00.000Z", "context": {}}},
+    {"version": "v0.9", "action": {"name": "increment", "surfaceId": [], "sourceComponentId": "increment", "timestamp": "2026-08-12T00:00:00.000Z", "context": {}}},
+    {"version": "v0.9", "action": {"name": "increment", "surfaceId": "main", "timestamp": "2026-08-12T00:00:00.000Z", "context": {}}},
+    {"version": "v0.9", "action": {"name": "increment", "surfaceId": "main", "sourceComponentId": [], "timestamp": "2026-08-12T00:00:00.000Z", "context": {}}},
+    {"version": "v0.9", "action": {"name": "increment", "surfaceId": "main", "sourceComponentId": "increment", "context": {}}},
+    {"version": "v0.9", "action": {"name": "increment", "surfaceId": "main", "sourceComponentId": "increment", "timestamp": [], "context": {}}},
+    {"version": "v0.9", "action": {"name": "increment", "surfaceId": "main", "sourceComponentId": "increment", "timestamp": "2026-08-12T00:00:00.000Z"}},
+    {"version": "v0.9", "action": {"name": "increment", "surfaceId": "main", "sourceComponentId": "increment", "timestamp": "2026-08-12T00:00:00.000Z", "context": []}}
+  ]
+}
