@@ -1,6 +1,6 @@
 //! Opt-in browser image transport. Only the WS adapter can issue a fetch reference.
 //! References are one-use, short-lived and bound to the exact rendering subscription.
-use crate::{Hub, dashboards::ApiError, scoped::SurfaceHandle};
+use crate::{Hub, capacity::CapacityError, dashboards::ApiError, scoped::SurfaceHandle};
 use axum::{
     Extension,
     body::Body,
@@ -271,7 +271,11 @@ pub(crate) async fn browser(socket: WebSocket, hub: Hub, references: References)
                 }
             }
             result = subscription.next_batch(), if waiting.is_none() => {
-                let Ok(batch) = result else { break 1013 };
+                let batch = match result {
+                    Ok(batch) => batch,
+                    Err(error) if error.downcast_ref::<CapacityError>() == Some(&CapacityError::MessageLimit) => break 1009,
+                    Err(_) => break 1013,
+                };
                 handles.retain(|_, (_, h)| !h.is_cancelled());
                 let token = if let Some(handle) = &batch.handle {
                     let surface = handle.surface_id();
@@ -335,6 +339,108 @@ mod tests {
         .await;
         recv(socket).await["reference"].as_str().unwrap().into()
     }
+
+    async fn connect_browser(
+        hub: &Hub,
+    ) -> (
+        Socket,
+        tokio::task::JoinHandle<anyhow::Result<()>>,
+        tempfile::TempDir,
+    ) {
+        let root = tempfile::tempdir().unwrap();
+        let (address, server) = serve(
+            HttpState {
+                hub: hub.clone(),
+                dashboards: DashboardStore::open(root.path().join("state")).unwrap(),
+                allow_origins: vec![],
+                assets: None,
+                presets: vec![],
+            },
+            "127.0.0.1:0".parse().unwrap(),
+        )
+        .await
+        .unwrap();
+        let (mut socket, _) =
+            tokio_tungstenite::connect_async(format!("ws://{address}/ws?images=1"))
+                .await
+                .unwrap();
+        assert_eq!(recv(&mut socket).await["kind"], "hello");
+        (socket, server, root)
+    }
+
+    async fn assert_close(socket: &mut Socket, expected: u16) {
+        let message = tokio::time::timeout(Duration::from_secs(3), socket.next())
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        let WireMessage::Close(Some(frame)) = message else {
+            panic!("expected a WebSocket close frame");
+        };
+        assert_eq!(u16::from(frame.code), expected);
+    }
+
+    async fn oversized_batch_closes_with_capacity_code(snapshot: bool) {
+        let hub = Hub::new();
+        let (surface, _) = crate::scoped::tests::install(&hub, Default::default()).await;
+        let update = json!({"version":"v0.9","updateComponents":{"surfaceId":surface,
+            "components":[{"id":"root","component":"Text","text":"x".repeat(crate::scoped::MAX_BATCH_BYTES)}]}});
+        if snapshot {
+            let mut state = hub.state.lock().await;
+            let channel = state.channels.values_mut().next().unwrap();
+            Arc::make_mut(&mut channel.snapshot).apply(&update).unwrap();
+        }
+        let (mut socket, server, _root) = connect_browser(&hub).await;
+        loop {
+            let batch = recv(&mut socket).await;
+            assert_eq!(batch["kind"], "update");
+            send(
+                &mut socket,
+                json!({"omochi":"images/1","kind":"ack","sequence":batch["sequence"]}),
+            )
+            .await;
+            if snapshot || batch["snapshotEnd"] == true {
+                break;
+            }
+        }
+        if !snapshot {
+            let state = hub.state.lock().await;
+            let channel = state.channels.values().next().unwrap();
+            state.emit(update, Some(channel.scopes[&surface].clone()));
+        }
+        assert_close(&mut socket, 1009).await;
+        hub.shutdown();
+        server.await.unwrap().unwrap();
+    }
+
+    #[tokio::test]
+    async fn oversized_snapshot_closes_with_1009() {
+        oversized_batch_closes_with_capacity_code(true).await;
+    }
+
+    #[tokio::test]
+    async fn oversized_incremental_update_closes_with_1009() {
+        oversized_batch_closes_with_capacity_code(false).await;
+    }
+
+    #[tokio::test]
+    async fn fanout_overflow_while_waiting_for_ack_closes_with_1013() {
+        let hub = Hub::new();
+        let (surface, _) = crate::scoped::tests::install(&hub, Default::default()).await;
+        let (mut socket, server, _root) = connect_browser(&hub).await;
+        assert_eq!(recv(&mut socket).await["kind"], "update");
+        // Keep the first batch unacknowledged so no queued update can be consumed.
+        {
+            let state = hub.state.lock().await;
+            for value in 0..33 {
+                state.emit(json!({"version":"v0.9","updateDataModel":{"surfaceId":surface,"path":"/value","value":value}}), None);
+            }
+        }
+        assert_close(&mut socket, 1013).await;
+        hub.shutdown();
+        server.await.unwrap().unwrap();
+    }
+
     #[tokio::test]
     async fn stdio_images_are_scoped_one_use_and_do_not_change_the_legacy_protocol() {
         let root = tempfile::tempdir().unwrap();
