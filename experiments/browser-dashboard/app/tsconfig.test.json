@@ -1,7 +1,8 @@
 {
   "extends": "../../../packages/hub-ui/tsconfig.test.json",
   "compilerOptions": {
-    "rootDir": "../../.."
+    "rootDir": "../../..",
+    "jsx": "react-jsx"
   },
   "include": [
     "test/**/*.ts"
