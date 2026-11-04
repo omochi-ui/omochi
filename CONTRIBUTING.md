@@ -29,6 +29,7 @@ set `OMOCHI_HUB` to use another address.
 | CLI after building dependencies | `bun run test:server-rust` |
 | Python SDK | `bun run test:python` |
 | Rust SDK | `bun run test:rust` |
+| Cross-SDK Unix ownership (Node, Bun, Python, Rust) | `bun run test:sdk-ownership` |
 | Preview frontend | `bun run --filter @omochi-ui/dev-server lint` |
 | Dashboard frontend | `bun run --filter @omochi-ui/hub-ui lint` |
 | Rust formatting | `cargo fmt --manifest-path packages/sdk/rust/Cargo.toml --check` |

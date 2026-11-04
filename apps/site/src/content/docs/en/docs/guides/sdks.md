@@ -276,6 +276,11 @@ is rendered.
 
 TypeScript, Python, and Rust each export a `UnixSocketServerTransport` that hosts
 one application on a discoverable unix domain socket; see [Discovery and dashboards](../dashboards/).
+Concurrent publishers with the same service id are rejected. All SDKs sharing a
+runtime directory should be upgraded together to use the same lifetime lock.
+TypeScript Unix discovery requires the bundled native optional dependency for
+Linux or macOS (x64/arm64); keep optional dependencies enabled when installing.
+Its other transports do not load this native binding.
 
 The A2UI wire format has no omochi-ui session envelope. A `Transport` still hosts
 exactly one application, and session membership stays outside the messages: the

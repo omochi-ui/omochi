@@ -1,5 +1,5 @@
 import { chmod, mkdir, rename, rm, writeFile } from "node:fs/promises";
-import { rmSync, unlinkSync } from "node:fs";
+import { closeSync, openSync, rmSync, unlinkSync } from "node:fs";
 import { createConnection } from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -33,6 +33,32 @@ export function omochiRuntimeRoot(env: NodeJS.ProcessEnv = process.env): string 
   return path.join(tmpdir(), `omochi-${uid}`, "omochi");
 }
 
+/** A permanent inode outside the removable service directory serializes its entire lifetime.
+ * `~` cannot occur in a service id. Never unlink this file, including after a crash:
+ * the kernel releases the lock when its owning descriptor/process dies.
+ */
+export async function lockService(root: string, serviceId: string): Promise<() => void> {
+  validateServiceId(serviceId);
+  await mkdir(root, { recursive: true, mode: 0o700 });
+  await chmod(root, 0o700);
+  const fd = openSync(path.join(root, `.${serviceId}.lock~`), "a", 0o600);
+  try {
+    // Load the native binding only for Unix discovery, not other SDK transports.
+    const { tryLockExclusive } = await import("@deepseek-ai/node-addon-system/flock");
+    await tryLockExclusive(fd);
+  } catch (error) {
+    closeSync(fd);
+    if (["EAGAIN", "EWOULDBLOCK"].includes((error as NodeJS.ErrnoException).code ?? "")) {
+      throw new Error(`another omochi service already owns ${path.join(root, serviceId)}`);
+    }
+    throw error;
+  }
+  let held = true;
+  return () => {
+    if (held) { held = false; closeSync(fd); }
+  };
+}
+
 export async function ensureServiceDirectory(root: string, serviceId: string): Promise<string> {
   const directory = path.join(root, validateServiceId(serviceId));
   await mkdir(directory, { recursive: true, mode: 0o700 });
@@ -52,10 +78,10 @@ export function assertSocketPathFits(socketPath: string): void {
  * Takes ownership of the socket path, removing one left behind by a crash.
  *
  * A path that still accepts connections means another instance owns this service id;
- * that probe is also the mutual-exclusion primitive.
+ * the caller must hold lockService through probing, binding and final cleanup.
  */
 export async function claimSocketPath(socketPath: string): Promise<void> {
-  const inUse = await new Promise<boolean>((resolve) => {
+  const inUse = await new Promise<boolean>((resolve, reject) => {
     const probe = createConnection(socketPath);
     let settled = false;
     const settle = (result: boolean) => {
@@ -66,7 +92,10 @@ export async function claimSocketPath(socketPath: string): Promise<void> {
     // A live peer immediately replays its snapshot. Draining it and closing cleanly keeps
     // the probe from resetting the connection, which would surface as an unhandled error.
     probe.on("data", () => {});
-    probe.on("error", () => settle(false));
+    probe.on("error", (error: NodeJS.ErrnoException) => {
+      if (error.code === "ENOENT" || error.code === "ECONNREFUSED") settle(false);
+      else reject(error);
+    });
     probe.once("close", () => settle(false));
     probe.once("connect", () => {
       settle(true);

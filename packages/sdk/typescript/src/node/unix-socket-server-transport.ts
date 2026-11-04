@@ -14,6 +14,7 @@ import {
   assertSocketPathFits,
   claimSocketPath,
   ensureServiceDirectory,
+  lockService,
   omochiRuntimeRoot,
   removeServiceDirectory,
   removeServiceDirectorySync,
@@ -66,6 +67,7 @@ export class UnixSocketServerTransport implements Transport {
   private readonly received: JsonObject[] = [];
   private readonly waiting: PendingReceive[] = [];
   private readonly exitCleanup: () => void;
+  private releaseService: (() => void) | null = null;
   private resolvedDirectory: string | null = null;
   private closed = false;
   private receiveError: unknown = null;
@@ -80,6 +82,9 @@ export class UnixSocketServerTransport implements Transport {
     this.server.on("connection", (socket) => this.accept(socket));
     this.exitCleanup = () => {
       if (this.resolvedDirectory) removeServiceDirectorySync(this.resolvedDirectory);
+      this.resolvedDirectory = null;
+      this.releaseService?.();
+      this.releaseService = null;
     };
     process.once("exit", this.exitCleanup);
     this.ready = this.publish().catch((error: unknown) => {
@@ -133,19 +138,29 @@ export class UnixSocketServerTransport implements Transport {
           await new Promise<void>((resolve) => this.server.close(() => resolve()));
         }
       }
+      this.resolvedDirectory = null;
+      this.releaseService?.();
+      this.releaseService = null;
       process.off("exit", this.exitCleanup);
     })();
     return this.closePromise;
   }
 
   private async publish(): Promise<void> {
-    const directory = await ensureServiceDirectory(this.root, this.serviceId);
+    this.releaseService = await lockService(this.root, this.serviceId);
+    const directory = path.join(this.root, this.serviceId);
     try {
+      await ensureServiceDirectory(this.root, this.serviceId);
       await this.listen(directory);
     } catch (error) {
       // Leave no empty directory behind for a discovery pass to walk into. `rmdir`
       // refuses a non-empty directory, so a live service's files are never touched.
       await rmdir(directory).catch(() => undefined);
+      if (!this.resolvedDirectory) {
+        this.releaseService?.();
+        this.releaseService = null;
+        process.off("exit", this.exitCleanup);
+      }
       throw error;
     }
   }

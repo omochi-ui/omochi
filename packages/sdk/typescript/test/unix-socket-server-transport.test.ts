@@ -195,3 +195,49 @@ test("close after a manifest-write failure cleans up the successfully bound sock
   await assert.rejects(access(path.join(root, "failed")));
   await transport.close();
 });
+
+test("ownership excludes contenders before bind and until cleanup finishes", async (t) => {
+  const root = await runtimeDir(t);
+  const first = new UnixSocketServerTransport({ serviceId: "demo", runtimeDir: root });
+  const state = first as unknown as { listen(directory: string): Promise<void>; server: Server; exitCleanup(): void };
+  const listen = state.listen.bind(first);
+  let arrived!: () => void;
+  const paused = new Promise<void>((resolve) => { arrived = resolve; });
+  let resume!: () => void;
+  const barrier = new Promise<void>((resolve) => { resume = resolve; });
+  state.listen = async (directory) => { arrived(); await barrier; await listen(directory); };
+  t.after(() => first.close());
+  await paused;
+  const rejectContender = async () => {
+    const contender = new UnixSocketServerTransport({ serviceId: "demo", runtimeDir: root });
+    await assert.rejects(contender.ready, /already owns/);
+    await contender.close();
+  };
+  await rejectContender(); // Owner has no listening socket yet.
+  resume();
+  await first.ready;
+  await rejectContender();
+  const close = state.server.close.bind(state.server);
+  let finishClose!: () => void;
+  let closing!: () => void;
+  const cleanupPaused = new Promise<void>((resolve) => { closing = resolve; });
+  state.server.close = ((callback: () => void) => {
+    finishClose = () => { close(callback); };
+    closing();
+    return state.server;
+  }) as Server["close"];
+  const stopped = first.close();
+  await cleanupPaused; // Directory has gone, but listener shutdown still owns the lock.
+  await rejectContender();
+  finishClose();
+  await stopped;
+  const successor = new UnixSocketServerTransport({ serviceId: "demo", runtimeDir: root });
+  t.after(() => successor.close());
+  await successor.ready;
+  await first.close();
+  state.exitCleanup(); // An obsolete cleanup callback cannot retract the successor.
+  await access(successor.socketPath!);
+  const client = connectClient(successor.socketPath!);
+  await new Promise<void>((resolve, reject) => { client.socket.once("connect", resolve); client.socket.once("error", reject); });
+  client.socket.destroy();
+});

@@ -1,7 +1,8 @@
 use crate::resources::{ResourceRegistry, hello, is_resource};
 use std::collections::BTreeSet;
 use std::fs;
-use std::os::unix::fs::PermissionsExt;
+use std::os::fd::AsRawFd;
+use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -136,6 +137,7 @@ pub struct UnixSocketServerTransport {
     directory: PathBuf,
     socket_path: PathBuf,
     closed: bool,
+    service_lock: Option<fs::File>,
 }
 
 impl UnixSocketServerTransport {
@@ -146,13 +148,19 @@ impl UnixSocketServerTransport {
             .take()
             .unwrap_or_else(omochi_runtime_root);
         let directory = root.join(&options.service_id);
+        fs::create_dir_all(&root)?;
+        fs::set_permissions(&root, fs::Permissions::from_mode(0o700))?;
+        let service_lock = lock_service(&root, &options.service_id)?;
         fs::create_dir_all(&directory)?;
         // create_dir_all's mode is masked by umask and leaves an existing directory untouched.
         fs::set_permissions(&root, fs::Permissions::from_mode(0o700))?;
         fs::set_permissions(&directory, fs::Permissions::from_mode(0o700))?;
 
         match Self::listen(&directory, options).await {
-            Ok(transport) => Ok(transport),
+            Ok(mut transport) => {
+                transport.service_lock = Some(service_lock);
+                Ok(transport)
+            }
             Err(error) => {
                 // Leave no empty directory behind for a discovery pass to walk into.
                 // remove_dir refuses a non-empty directory, so a live service is safe.
@@ -225,6 +233,7 @@ impl UnixSocketServerTransport {
             directory: directory.to_path_buf(),
             socket_path,
             closed: false,
+            service_lock: None,
         })
     }
 
@@ -251,6 +260,7 @@ impl UnixSocketServerTransport {
         let _ = fs::remove_dir_all(&self.directory);
         self.inbound.close();
         self.closed = true;
+        self.service_lock.take();
     }
 }
 
@@ -296,19 +306,50 @@ impl Transport for UnixSocketServerTransport {
     }
 }
 
+/// Keep this inode forever: unlinking a locked file would allow a second owner.
+/// `~` cannot occur in service ids, and service cleanup never touches the lock file.
+fn lock_service(root: &Path, service_id: &str) -> Result<fs::File> {
+    let file = fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .mode(0o600)
+        .open(root.join(format!(".{service_id}.lock~")))?;
+    // flock locks open file descriptions, so distinct transports in one process also
+    // contend, and the kernel releases ownership if the process crashes.
+    if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } != 0 {
+        let error = std::io::Error::last_os_error();
+        if error.kind() == std::io::ErrorKind::WouldBlock {
+            return Err(Error::Transport(format!(
+                "another omochi service already owns {}",
+                root.join(service_id).display()
+            )));
+        }
+        return Err(error.into());
+    }
+    Ok(file)
+}
+
 /// Takes ownership of the socket path, removing one left behind by a crash.
 ///
 /// A path that still accepts connections means another instance owns this service id;
-/// that probe is also the mutual-exclusion primitive.
+/// the caller holds the lifetime lock through probing, binding and cleanup.
 async fn claim_socket_path(socket_path: &Path) -> Result<()> {
     if !socket_path.exists() {
         return Ok(());
     }
-    if UnixStream::connect(socket_path).await.is_ok() {
-        return Err(Error::Transport(format!(
-            "another omochi service already owns {}",
-            socket_path.display()
-        )));
+    match UnixStream::connect(socket_path).await {
+        Ok(_) => {
+            return Err(Error::Transport(format!(
+                "another omochi service already owns {}",
+                socket_path.display()
+            )));
+        }
+        Err(error)
+            if matches!(
+                error.kind(),
+                std::io::ErrorKind::NotFound | std::io::ErrorKind::ConnectionRefused
+            ) => {}
+        Err(error) => return Err(error.into()),
     }
     fs::remove_file(socket_path)?;
     Ok(())

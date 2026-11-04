@@ -3,6 +3,8 @@ from __future__ import annotations
 import asyncio
 import json
 import tempfile
+import subprocess
+import sys
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -202,6 +204,71 @@ class UnixSocketServerTransportTests(unittest.TestCase):
             for service_id in (".", "..", "a/b", "", "x" * 65):
                 with self.assertRaises(ValueError):
                     UnixSocketServerTransport(service_id, runtime_dir=root)
+
+    def test_sdk_import_does_not_require_unix_fcntl(self) -> None:
+        subprocess.run([sys.executable, "-c", """
+import builtins
+original = builtins.__import__
+def without_fcntl(name, *args, **kwargs):
+    if name == 'fcntl':
+        raise ModuleNotFoundError('No module named fcntl')
+    return original(name, *args, **kwargs)
+builtins.__import__ = without_fcntl
+import omochi_ui
+"""], check=True)
+
+    def test_ownership_survives_bind_and_cleanup_barriers(self) -> None:
+        async def scenario() -> None:
+            with tempfile.TemporaryDirectory() as root:
+                first = UnixSocketServerTransport("demo", runtime_dir=root)
+                paused, resume = asyncio.Event(), asyncio.Event()
+                listen = first._listen
+
+                async def paused_listen(directory):
+                    paused.set()
+                    await resume.wait()
+                    await listen(directory)
+
+                first._listen = paused_listen
+                started = asyncio.create_task(first.start())
+                await paused.wait()
+
+                async def reject_contender():
+                    contender = UnixSocketServerTransport("demo", runtime_dir=root)
+                    with self.assertRaisesRegex(RuntimeError, "already owns"):
+                        await contender.start()
+                    await contender.close()
+
+                await reject_contender()
+                resume.set()
+                await started
+                await reject_contender()
+                paused.clear()
+                resume.clear()
+                server = first._server
+                wait_closed = server.wait_closed
+
+                async def paused_close():
+                    paused.set()
+                    await resume.wait()
+                    await wait_closed()
+
+                server.wait_closed = paused_close
+                stopped = asyncio.create_task(first.close())
+                await paused.wait()
+                await reject_contender()
+                resume.set()
+                await stopped
+                successor = UnixSocketServerTransport("demo", runtime_dir=root)
+                await successor.start()
+                await first.close()
+                first._cleanup_sync()
+                reader, writer = await asyncio.open_unix_connection(str(successor.socket_path))
+                writer.close()
+                await writer.wait_closed()
+                await successor.close()
+
+        asyncio.run(scenario())
 
     def test_refuses_a_second_instance_and_recovers_a_stale_socket(self) -> None:
         async def scenario() -> None:

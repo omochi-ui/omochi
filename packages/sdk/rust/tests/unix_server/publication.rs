@@ -128,3 +128,63 @@ async fn subscription_before_publication_delivers_each_message_once() {
     .await
     .expect("subscription and publication must complete");
 }
+
+#[tokio::test]
+async fn ownership_covers_probe_bind_and_cleanup() {
+    let root = TempRoot::new();
+    fs::create_dir_all(&root.0).unwrap();
+    let lock = lock_service(&root.0, "demo").unwrap();
+    let directory = root.0.join("demo");
+    fs::create_dir(&directory).unwrap();
+    let path = directory.join(SOCKET_FILE_NAME);
+    // Explicit transition barriers: contenders finish while the owner is parked at
+    // each boundary, so no scheduling delay can make this test accidentally pass.
+    for phase in 0..3 {
+        assert!(
+            UnixSocketServerTransport::bind(
+                UnixSocketServerOptions::new("demo").with_runtime_dir(&root.0)
+            )
+            .await
+            .is_err()
+        );
+        assert!(directory.exists());
+        if phase == 0 {
+            claim_socket_path(&path).await.unwrap();
+        } else if phase == 1 {
+            let listener = UnixListener::bind(&path).unwrap();
+            assert!(
+                UnixSocketServerTransport::bind(
+                    UnixSocketServerOptions::new("demo").with_runtime_dir(&root.0)
+                )
+                .await
+                .is_err()
+            );
+            assert!(UnixStream::connect(&path).await.is_ok());
+            drop(listener);
+        }
+    }
+    fs::remove_dir_all(&directory).unwrap();
+    assert!(
+        UnixSocketServerTransport::bind(
+            UnixSocketServerOptions::new("demo").with_runtime_dir(&root.0)
+        )
+        .await
+        .is_err()
+    );
+    drop(lock);
+    let mut successor = UnixSocketServerTransport::bind(
+        UnixSocketServerOptions::new("demo").with_runtime_dir(&root.0),
+    )
+    .await
+    .unwrap();
+    successor.close().await;
+    let mut next = UnixSocketServerTransport::bind(
+        UnixSocketServerOptions::new("demo").with_runtime_dir(&root.0),
+    )
+    .await
+    .unwrap();
+    successor.close().await;
+    drop(successor);
+    assert!(UnixStream::connect(next.socket_path()).await.is_ok());
+    next.close().await;
+}

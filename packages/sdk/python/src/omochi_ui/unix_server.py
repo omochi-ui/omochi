@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import atexit
+import errno
 import json
 import os
 import re
@@ -52,7 +53,9 @@ def _is_socket_in_use(path: Path) -> bool:
     probe.settimeout(0.5)
     try:
         probe.connect(str(path))
-    except OSError:
+    except OSError as error:
+        if error.errno not in (errno.ENOENT, errno.ECONNREFUSED):
+            raise
         return False
     else:
         return True
@@ -91,6 +94,7 @@ class UnixSocketServerTransport(Transport):
         self._queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
         self._server: asyncio.AbstractServer | None = None
         self._directory: Path | None = None
+        self._lock_fd: int | None = None
         self._start_lock = asyncio.Lock()
         self._closed = False
         atexit.register(self._cleanup_sync)
@@ -108,15 +112,32 @@ class UnixSocketServerTransport(Transport):
         async with self._start_lock:
             if self._server is not None or self._closed:
                 return
+            # Keep non-Unix transports importable on platforms without fcntl.
+            import fcntl
+
             directory = self._root / self._service_id
-            directory.mkdir(parents=True, exist_ok=True)
+            self._root.mkdir(parents=True, exist_ok=True, mode=0o700)
+            self._root.chmod(0o700)
+            # A permanent inode outside the removable service directory. Never unlink it.
+            fd = os.open(self._root / f".{self._service_id}.lock~", os.O_CREAT | os.O_WRONLY, 0o600)
             try:
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BaseException as error:
+                os.close(fd)
+                if isinstance(error, BlockingIOError):
+                    raise RuntimeError(f"another omochi service already owns {directory}") from error
+                raise
+            self._lock_fd = fd
+            try:
+                directory.mkdir(exist_ok=True, mode=0o700)
                 await self._listen(directory)
             except BaseException:
                 # Leave no empty directory behind for a discovery pass to walk into.
                 # rmdir refuses a non-empty directory, so a live service is never touched.
                 with suppress(OSError):
                     directory.rmdir()
+                if self._directory is None:
+                    self._release_lock()
                 raise
 
     async def _listen(self, directory: Path) -> None:
@@ -128,14 +149,14 @@ class UnixSocketServerTransport(Transport):
             raise ValueError(f"unix socket path is too long for this platform: {path}")
         if path.exists():
             # A path that still accepts connections means another instance owns this
-            # service id; the probe doubles as the mutual-exclusion primitive.
+            # service id. The lifetime flock serializes probe, bind and cleanup.
             if _is_socket_in_use(path):
                 raise RuntimeError(f"another omochi service already owns {path}")
             path.unlink()
         self._server = await asyncio.start_unix_server(self._accept, path=str(path))
+        self._directory = directory
         # Linux enforces unix socket permissions on connect, and bind applies the umask.
         path.chmod(stat.S_IRUSR | stat.S_IWUSR)
-        self._directory = directory
         manifest: dict[str, Any] = {"name": self._name, "socket": _SOCKET_FILE_NAME}
         if self._icon is not None:
             manifest["icon"] = self._icon
@@ -181,6 +202,8 @@ class UnixSocketServerTransport(Transport):
                     server.close()
                     await server.wait_closed()
             finally:
+                self._directory = None
+                self._release_lock()
                 # Cancellation must also release a consumer parked on receive().
                 self._queue.put_nowait(None)  # type: ignore[arg-type]
 
@@ -233,7 +256,14 @@ class UnixSocketServerTransport(Transport):
             self._writers.discard(writer)
             writer.close()
 
+    def _release_lock(self) -> None:
+        if self._lock_fd is not None:
+            os.close(self._lock_fd)
+            self._lock_fd = None
+
     def _cleanup_sync(self) -> None:
         """Last-resort cleanup: interpreter shutdown cannot await ``close()``."""
         if self._directory is not None:
             shutil.rmtree(self._directory, ignore_errors=True)
+            self._directory = None
+        self._release_lock()

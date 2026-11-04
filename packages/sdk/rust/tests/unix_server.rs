@@ -320,3 +320,35 @@ async fn drops_client_messages_that_carry_no_action() {
     assert_eq!(received["action"]["name"], json!("run"));
     transport.close().await;
 }
+
+/// Driven by tests/sdk/socket_ownership.py, never run without its stdin barriers.
+#[tokio::test]
+#[ignore]
+async fn ownership_process_fixture() {
+    use std::io::Write;
+    let root = std::env::var("OMOCHI_OWNER_ROOT").expect("fixture runtime root");
+    let announce = |message| {
+        println!("OWNER {message}");
+        std::io::stdout().flush().unwrap();
+    };
+    let command = || {
+        let mut line = String::new();
+        assert_ne!(std::io::stdin().read_line(&mut line).unwrap(), 0);
+    };
+    announce("WAITING");
+    command();
+    let Ok(mut transport) = UnixSocketServerTransport::bind(
+        UnixSocketServerOptions::new("demo").with_runtime_dir(root),
+    )
+    .await
+    else {
+        announce("REJECTED");
+        return;
+    };
+    announce("READY");
+    command();
+    transport.close().await;
+    announce("CLOSED");
+    command();
+    transport.close().await;
+}
