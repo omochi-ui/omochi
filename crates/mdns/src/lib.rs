@@ -378,9 +378,11 @@ mod tests {
         receive.await.unwrap();
     }
     async fn flush_queries(lookup: &LanDiscovery) {
+        #[cfg(any(target_vendor = "apple", windows))]
+        let Backend::System(system) = &lookup.backend;
+        #[cfg(not(any(target_vendor = "apple", windows)))]
         let system = match &lookup.backend {
             Backend::System(system) => system,
-            #[cfg(not(any(target_vendor = "apple", windows)))]
             Backend::Rust(_) => panic!("expected the test system backend"),
         };
         let (send, receive) = tokio::sync::oneshot::channel();
