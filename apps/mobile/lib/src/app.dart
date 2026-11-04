@@ -44,6 +44,7 @@ class _MobileHomeState extends State<MobileHome> with WidgetsBindingObserver {
   String? selected;
   int tab = 0;
   bool busy = false;
+  bool lifecycleSuspended = false;
   @override
   void initState() {
     super.initState();
@@ -193,8 +194,13 @@ class _MobileHomeState extends State<MobileHome> with WidgetsBindingObserver {
         .then((_) async {
           await ready;
           if (state == AppLifecycleState.resumed) {
+            if (!lifecycleSuspended) return;
             await hub.resumeNative();
+            lifecycleSuspended = false;
           } else {
+            if (lifecycleSuspended) return;
+            // A failed suspension may already have stopped rendering/networking.
+            lifecycleSuspended = true;
             await hub.suspendNative();
           }
         })
