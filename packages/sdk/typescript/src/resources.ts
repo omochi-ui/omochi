@@ -71,10 +71,20 @@ export async function* resourceMessages<T>(input: AsyncIterable<T>, send: (frame
   let stopped = false;
   let failure: unknown;
   let wake: (() => void) | undefined;
+  const source = input[Symbol.asyncIterator]();
+  let sourceClosed = false;
+  const closeSource = async () => {
+    if (sourceClosed) return;
+    sourceClosed = true;
+    try { await source.return?.(); } catch { /* Cleanup must not mask the receive or handler failure. */ }
+  };
   const pump = (async () => {
     try {
-      for await (const value of input) {
+      while (!stopped) {
+        const result = await source.next();
+        if (result.done) { sourceClosed = true; break; }
         if (stopped) break;
+        const value = result.value;
         if (registry && isResourceFrame(value)) {
           if (value.kind === 'request') await send(registry.respond(value));
         } else {
@@ -82,7 +92,7 @@ export async function* resourceMessages<T>(input: AsyncIterable<T>, send: (frame
             queue.push(value);
           } catch (error) {
             if (error instanceof ReceiveQueueOverflowError) {
-              // Latch before for-await closes the source: its cleanup may await I/O.
+              // Discard queued actions as soon as the receive limit is exceeded.
               failure = error;
               queue.clear();
               done = true;
@@ -96,6 +106,7 @@ export async function* resourceMessages<T>(input: AsyncIterable<T>, send: (frame
     } catch (error) {
       failure ??= error;
     } finally {
+      void closeSource();
       done = true;
       wake?.();
     }
@@ -109,6 +120,9 @@ export async function* resourceMessages<T>(input: AsyncIterable<T>, send: (frame
   } finally {
     stopped = true;
     queue.clear();
+    // Request cleanup even if next() is blocked. Neither it nor return() is
+    // guaranteed to settle, and outer transport cleanup may be needed to unblock it.
+    void closeSource();
     void pump;
   }
 }
