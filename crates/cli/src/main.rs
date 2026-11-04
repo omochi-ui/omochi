@@ -631,12 +631,7 @@ async fn serve_hub(
         }
         eprintln!("[omochi-ui] dashboard {dashboard_url}");
         if open {
-            let browser_address = if address.ip().is_unspecified() {
-                std::net::SocketAddr::new(std::net::Ipv4Addr::LOCALHOST.into(), address.port())
-            } else {
-                address
-            };
-            dashboard_url.set_host(Some(&browser_address.ip().to_string()))?;
+            dashboard_url = dashboard_browser_url(dashboard_url, address)?;
             composition::open_browser(dashboard_url.as_str());
         }
         tokio::select! {
@@ -667,9 +662,50 @@ async fn serve_hub(
     result
 }
 
+fn dashboard_browser_url(
+    mut dashboard_url: url::Url,
+    address: std::net::SocketAddr,
+) -> Result<url::Url> {
+    let browser_ip = match address.ip() {
+        std::net::IpAddr::V4(ip) if ip.is_unspecified() => std::net::Ipv4Addr::LOCALHOST.into(),
+        std::net::IpAddr::V6(ip) if ip.is_unspecified() => std::net::Ipv6Addr::LOCALHOST.into(),
+        ip => ip,
+    };
+    dashboard_url
+        .set_ip_host(browser_ip)
+        .map_err(|()| anyhow::anyhow!("invalid dashboard browser URL"))?;
+    Ok(dashboard_url)
+}
+
 #[cfg(test)]
 mod shutdown_tests {
     use super::*;
+
+    #[test]
+    fn dashboard_browser_url_preserves_ip_family_port_and_preset() {
+        for (address, expected) in [
+            ("127.0.0.1:43210", "http://127.0.0.1:43210/"),
+            ("192.0.2.1:43210", "http://192.0.2.1:43210/"),
+            ("0.0.0.0:43210", "http://127.0.0.1:43210/"),
+            ("[::1]:43210", "http://[::1]:43210/"),
+            ("[2001:db8::1]:43210", "http://[2001:db8::1]:43210/"),
+            ("[::]:43210", "http://[::1]:43210/"),
+        ] {
+            let address = address.parse().unwrap();
+            let mut dashboard_url = url::Url::parse(&format!("http://{address}/")).unwrap();
+            dashboard_url
+                .query_pairs_mut()
+                .append_pair("preset", "demo & preview");
+
+            let browser_url = dashboard_browser_url(dashboard_url, address).unwrap();
+
+            assert_eq!(
+                browser_url.as_str(),
+                format!("{expected}?preset=demo+%26+preview"),
+                "listener address: {address}"
+            );
+        }
+    }
 
     #[test]
     fn hosted_invitation_requires_valid_https_base_and_remote_mode() {
