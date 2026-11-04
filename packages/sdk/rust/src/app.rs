@@ -373,6 +373,11 @@ impl<S: Send + Sync + 'static> Runtime<S> {
                 "runtime has already been started".into(),
             ));
         }
+        if self.closed {
+            return Err(Error::Declaration(
+                "runtime has already been shut down".into(),
+            ));
+        }
         self.started = true;
         self.reconciler = Reconciler::new(transport.capabilities());
         transport.set_resources(self.resources.clone());

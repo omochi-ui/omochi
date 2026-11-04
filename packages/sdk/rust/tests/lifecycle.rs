@@ -1,10 +1,91 @@
-use omochi_ui::{App, CallbackTransport, Error, ResourceRegistry, Result};
+use async_trait::async_trait;
+use omochi_ui::{App, CallbackTransport, Error, ResourceRegistry, Result, Transport};
 use serde_json::{Value, json};
+use std::collections::BTreeSet;
 use std::sync::{
-    Arc,
+    Arc, Mutex,
     atomic::{AtomicBool, Ordering},
 };
 use tokio::sync::Notify;
+
+#[tokio::test]
+async fn rejected_starts_leave_transports_and_views_untouched() {
+    struct ObservedTransport(Arc<Mutex<Vec<&'static str>>>);
+
+    #[async_trait]
+    impl Transport for ObservedTransport {
+        fn capabilities(&self) -> BTreeSet<String> {
+            self.0.lock().unwrap().push("capabilities");
+            BTreeSet::new()
+        }
+        fn set_resources(&mut self, _: ResourceRegistry) {
+            self.0.lock().unwrap().push("set_resources");
+        }
+        async fn send(&mut self, _: &Value) -> Result<()> {
+            self.0.lock().unwrap().push("send");
+            Ok(())
+        }
+        async fn receive(&mut self) -> Result<Option<Value>> {
+            self.0.lock().unwrap().push("receive");
+            Ok(None)
+        }
+        async fn stop_receiving(&mut self) {
+            self.0.lock().unwrap().push("stop_receiving");
+        }
+    }
+
+    for previously_started in [false, true] {
+        let rendered = Arc::new(AtomicBool::new(false));
+        let render_called = rendered.clone();
+        let mut app = App::new(());
+        app.surface("main", move |ui, _| {
+            render_called.store(true, Ordering::SeqCst);
+            ui.text("hello")
+        })
+        .unwrap();
+        let mut runtime = app.build();
+        let expected_error = if previously_started {
+            runtime
+                .start_with(CallbackTransport::new(
+                    |_| async { Ok(()) },
+                    || async { Ok(None) },
+                ))
+                .await
+                .unwrap();
+            assert!(rendered.swap(false, Ordering::SeqCst));
+            "runtime has already been started"
+        } else {
+            runtime.shutdown().await;
+            "runtime has already been shut down"
+        };
+
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        let result = runtime.start_with(ObservedTransport(calls.clone())).await;
+        assert!(matches!(result, Err(Error::Declaration(ref s)) if s == expected_error));
+        assert!(calls.lock().unwrap().is_empty());
+
+        let send_calls = calls.clone();
+        let receive_calls = calls.clone();
+        let result = runtime
+            .start_with(CallbackTransport::new(
+                move |_| {
+                    send_calls.lock().unwrap().push("send callback");
+                    async { Ok(()) }
+                },
+                move || {
+                    receive_calls.lock().unwrap().push("receive callback");
+                    async { Ok(None) }
+                },
+            ))
+            .await;
+        assert!(matches!(result, Err(Error::Declaration(ref s)) if s == expected_error));
+        runtime.shutdown().await;
+        assert!(calls.lock().unwrap().is_empty());
+        assert!(!rendered.load(Ordering::SeqCst));
+        assert!(runtime.is_closed());
+        assert_eq!(runtime.ready(), previously_started);
+    }
+}
 
 #[tokio::test]
 async fn invalid_inputs_do_not_stop_the_shared_receive_loop() {
