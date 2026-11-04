@@ -88,6 +88,71 @@ List<Json> modalComponents() => [
 ];
 
 void main() {
+  for (final template in [false, true]) {
+    testWidgets(
+      'unweighted stretch Row has finite height (template=$template)',
+      (tester) async {
+        final fixture = LayoutFixture();
+        await fixture.mount(
+          tester,
+          [
+            {
+              'id': 'root',
+              'component': 'Column',
+              'children': template
+                  ? {'path': '/rows', 'componentId': 'row'}
+                  : ['row', 'finish'],
+            },
+            {
+              'id': 'row',
+              'component': 'Row',
+              'align': 'stretch',
+              'children': ['left', 'right'],
+            },
+            textComponent('left', 'Left'),
+            textComponent('right', 'Right'),
+            buttonComponent('finish', 'label', 'finish'),
+            textComponent('label', 'Finish'),
+          ],
+          data: {
+            'rows': [1],
+          },
+        );
+        expect(tester.takeException(), isNull);
+        expect(tester.getSize(component('row')).height, 300);
+        expect(tester.getSize(component('left')).height, 300);
+        expect(tester.getSize(component('right')).height, 300);
+        if (!template) {
+          await finish(tester);
+          expect(fixture.scope.actions.single['action']['name'], 'finish');
+        }
+        // Changing alignment must also update the parent's sizing requirement.
+        update(fixture.client, [
+          {
+            'id': 'row',
+            'component': 'Row',
+            'align': 'start',
+            'children': ['left', 'right'],
+          },
+        ]);
+        await tester.pumpAndSettle();
+        expect(tester.getSize(component('row')).height, lessThan(300));
+        update(fixture.client, [
+          {
+            'id': 'row',
+            'component': 'Row',
+            'align': 'stretch',
+            'children': ['left', 'right'],
+          },
+        ]);
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull);
+        expect(tester.getSize(component('row')).height, 300);
+        await fixture.close(tester);
+      },
+    );
+  }
+
   testWidgets('40-row Column scrolls to its final action', (tester) async {
     final client = TestClient();
     final hub = session(client);

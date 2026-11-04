@@ -31,6 +31,9 @@ final nativeColumn = CatalogItem(
         key: key,
         weight: math.max(0, explicit ?? (implicit ? 1 : 0)),
         tight: explicit != null,
+        boundedHeight:
+            component?.type == 'Row' &&
+            component?.properties['align'] == 'stretch',
         child: item.buildChild(id, context),
       );
     }
@@ -100,6 +103,7 @@ final nativeColumn = CatalogItem(
 class _ColumnData extends ContainerBoxParentData<RenderBox> {
   int weight = 0;
   bool tight = false;
+  bool boundedHeight = false;
 }
 
 class _ColumnChild extends ParentDataWidget<_ColumnData> {
@@ -107,17 +111,23 @@ class _ColumnChild extends ParentDataWidget<_ColumnData> {
     super.key,
     required this.weight,
     required this.tight,
+    required this.boundedHeight,
     required super.child,
   });
   final int weight;
-  final bool tight;
+  final bool tight, boundedHeight;
 
   @override
   void applyParentData(RenderObject renderObject) {
     final data = renderObject.parentData! as _ColumnData;
-    if (data.weight == weight && data.tight == tight) return;
+    if (data.weight == weight &&
+        data.tight == tight &&
+        data.boundedHeight == boundedHeight) {
+      return;
+    }
     data.weight = weight;
     data.tight = tight;
+    data.boundedHeight = boundedHeight;
     renderObject.parent?.markNeedsLayout();
   }
 
@@ -186,7 +196,15 @@ class _RenderColumn extends RenderBox
       final data = child.parentData! as _ColumnData;
       totalWeight += data.weight;
       if (data.weight > 0) continue;
-      child.layout(childConstraints(), parentUsesSize: true);
+      // A stretch Row passes its maximum height as a tight constraint to
+      // its children. Give it a viewport instead of infinity; other natural
+      // children remain unbounded so tall content can scroll.
+      child.layout(
+        childConstraints(
+          max: data.boundedHeight ? config.viewportHeight : double.infinity,
+        ),
+        parentUsesSize: true,
+      );
       used += child.size.height;
       width = math.max(width, child.size.width);
     }
