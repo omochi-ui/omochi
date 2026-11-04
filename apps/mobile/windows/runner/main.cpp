@@ -4,16 +4,20 @@
 
 #include "app_links/app_links_plugin_c_api.h"
 #include "flutter_window.h"
+#include "identity_lease.h"
 #include "utils.h"
 
 int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
                       _In_ wchar_t *command_line, _In_ int show_command) {
   // Protect the shared identity even when two launches race before a window
   // exists. Keep the mutex until process exit; Windows releases it on crashes.
-  HANDLE instance_mutex =
-      ::CreateMutexW(nullptr, FALSE, L"Local\\fyi.omochi.mobile");
+  HANDLE instance_mutex = CreateIdentityMutex();
   if (instance_mutex == nullptr) return EXIT_FAILURE;
   DWORD ownership = ::WaitForSingleObject(instance_mutex, 0);
+  if (ownership == WAIT_FAILED) {
+    ::CloseHandle(instance_mutex);
+    return EXIT_FAILURE;
+  }
   if (ownership != WAIT_OBJECT_0 && ownership != WAIT_ABANDONED) {
     for (int attempt = 0; attempt < 50; ++attempt) {
       if (SendAppLinkToInstance()) {
