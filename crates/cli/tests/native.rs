@@ -718,6 +718,56 @@ async fn catalog_component_allof_preserves_parent_and_nested_properties() {
     );
 }
 
+#[allow(dead_code, unused_imports)]
+#[path = "fixtures/catalog-builder-key/expected.rs"]
+#[rustfmt::skip]
+mod generated_builder_key;
+
+#[tokio::test]
+async fn catalog_rust_preserves_the_python_builder_reserved_key() {
+    use generated_builder_key::{OptionalProps, RequiredOnlyProps, ShortcutProps};
+    use omochi_ui::ComponentProps;
+    use serde_json::json;
+
+    let root = tempfile::tempdir().unwrap();
+    let source = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let output = command(root.path())
+        .args(["generate", "catalog", "--catalog"])
+        .arg(source.join("../../spec/fixtures/catalog-builder-key.json"))
+        .arg("--rust")
+        .arg(root.path().join("catalog.rs"))
+        .output()
+        .await
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        std::fs::read(root.path().join("catalog.rs")).unwrap(),
+        include_bytes!("fixtures/catalog-builder-key/expected.rs")
+    );
+    assert_eq!(
+        json!([
+            ShortcutProps {
+                key: "Enter".into()
+            }
+            .into_props(),
+            OptionalProps { key: None }.into_props(),
+            OptionalProps {
+                key: Some("Escape".into())
+            }
+            .into_props(),
+            RequiredOnlyProps {
+                key: json!({"arbitrary": true})
+            }
+            .into_props(),
+        ]),
+        json!([{"key": "Enter"}, {}, {"key": "Escape"}, {"key": {"arbitrary": true}}])
+    );
+}
+
 #[tokio::test]
 async fn catalog_rust_fields_serialize_with_the_original_property_names() {
     use generated_property_names::NamedProps;

@@ -319,6 +319,11 @@ sanitization receive numeric suffixes.
 Python preserves original property names, using functional `TypedDict` declarations
 for keywords such as `class` or keys such as `data-label` that cannot be class fields.
 Use dictionaries with these keys; required and optional fields retain their meaning.
+Python reserves the component property `key` for the builder's node key. If a
+component declares `key` in `properties` or `required`, including through `allOf`
+or local references, requesting Python output fails before any output is changed.
+Rename that property when targeting Python. TypeScript and Rust still support it;
+keys inside nested object properties are unaffected.
 
 Component bindings collect properties and required fields from the component itself
 and every nested `allOf` layer, including common mixins. Repeated property names

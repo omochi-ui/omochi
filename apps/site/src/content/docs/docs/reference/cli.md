@@ -84,6 +84,8 @@ omochi-ui generate catalog --catalog ./catalog.json --name ProductCatalog \
 
 Pythonは元のプロパティ名を維持し、`class`のような予約語や`data-label`のようなクラスのフィールドにできないキーには関数形式の`TypedDict`を使います。これらのキーは辞書で指定でき、必須・任意の区別も保たれます。
 
+Pythonではコンポーネントのプロパティ名`key`をビルダーのノードキー引数に予約しています。`allOf`やローカル参照を含め、`properties`または`required`に`key`がある場合、Python出力の指定はどの出力も変更せずにエラーになります。Python向けにはプロパティ名を変更してください。TypeScriptとRustでは引き続き使用でき、入れ子のオブジェクト内のキーにも影響しません。
+
 ローカル`$ref`と兄弟キーワードは[JSON Schema 2020-12の参照規則](https://json-schema.org/draft/2020-12/json-schema-core#section-8.2.3.1)に従い、参照先と兄弟の両方の制約を適用します。たとえば`enum: ["a", "b"]`への参照に`enum: ["b", "c"]`を添えると、TypeScriptでは`"b"`だけを受け付ける交差型になります。`description`などの注釈だけでは型を変えません。`required`・`properties`・`items`だけの制約には、参照先が保証するobjectまたはarray型を補います。ローカルにプロパティ定義がない必須フィールドはTypeScriptで`unknown`とし、交差型によって参照先の型も保持します。相対参照はそれぞれの記述元ファイルを基準に解決します。PythonとRustには下記の`allOf`近似を適用します。
 
 プロパティや配列要素のスキーマでは、`$ref`がなくても隣接する制約を合わせます。たとえば文字列または数値を受け付ける`anyOf`に`enum: ["allowed"]`を添えると、TypeScriptでは`"allowed"`だけを受け付けます。`allOf`に隣接するオブジェクトのプロパティや必須フィールドも交差型に残ります。PythonとRustには`allOf`と同じ近似を適用します。生成する型はJSON Schemaのすべての制約を検証するものではありません。

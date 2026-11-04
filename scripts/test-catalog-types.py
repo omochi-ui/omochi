@@ -22,6 +22,7 @@ BADGE = {
         "tone": {"enum": ["info", "warning"]},
         "self": {"type": "string"},
         "data-label": {"type": "string"},
+        "details": {"type": "object", "properties": {"key": {"type": "string"}}},
     },
     "required": ["label"],
 }
@@ -29,7 +30,7 @@ SETUP = '''from catalog import TESTCATALOG, TestCatalogUI
 ui = TestCatalogUI("main", TESTCATALOG, lambda *args: "unused")
 '''
 POSITIVE = '''from catalog import BadgeProps
-props: BadgeProps = {"label": "hello", "tone": "info", "self": "self", "data-label": "literal"}
+props: BadgeProps = {"label": "hello", "tone": "info", "self": "self", "data-label": "literal", "details": {"key": "Enter"}}
 ui.component("Badge", key="badge", **props)
 ui.component(component="Badge", key="keyword", label="hello", self="self")
 nodes = ui.build().root.slots[0].nodes
@@ -85,6 +86,20 @@ def check(checker: str, directory: Path) -> None:
 
 def main() -> None:
     with tempfile.TemporaryDirectory(prefix="omochi-catalog-typing-") as temporary:
+        rejected = Path(temporary) / "reserved-key"
+        rejected.mkdir()
+        outputs = [rejected / f"catalog.{extension}" for extension in ("ts", "py", "rs")]
+        for output in outputs:
+            output.write_text("existing")
+        result = subprocess.run([
+            str(CLI), "generate", "catalog", "--catalog",
+            str(ROOT / "spec/fixtures/catalog-builder-key.json"),
+            "--typescript", str(outputs[0]), "--python", str(outputs[1]), "--rust", str(outputs[2]),
+        ], cwd=ROOT, text=True, capture_output=True)
+        assert result.returncode != 0, "Python accepted a builder-reserved component property"
+        assert 'component "Shortcut", property "key"' in result.stderr, result.stderr
+        assert "reserved for the Python builder's node key" in result.stderr, result.stderr
+        assert [output.read_text() for output in outputs] == ["existing"] * 3
         for name, components in [
             ("empty", {}),
             ("single", {"Badge": BADGE}),

@@ -4,14 +4,14 @@ import { copyFile, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/pro
 import { tmpdir } from "node:os";
 import { delimiter, join, resolve } from "node:path";
 
-for (const fixture of ["catalog-component-names", "catalog-annotation-data", "catalog-reference-documents", "catalog-arrays", "catalog-enums", "catalog-property-names", "catalog-python-keys", "catalog-allof", "catalog-required", "catalog-required-only", "catalog-intersections", "catalog-component-allof", "catalog-overlapping-properties", "catalog-ref-siblings", "catalog-adjacent-constraints"]) {
+for (const fixture of ["catalog-builder-key", "catalog-component-names", "catalog-annotation-data", "catalog-reference-documents", "catalog-arrays", "catalog-enums", "catalog-property-names", "catalog-python-keys", "catalog-allof", "catalog-required", "catalog-required-only", "catalog-intersections", "catalog-component-allof", "catalog-overlapping-properties", "catalog-ref-siblings", "catalog-adjacent-constraints"]) {
   test(`native ${fixture} bindings preserve JSON types`, {
     skip: !process.env.OMOCHI_NATIVE_TEST,
   }, async (t) => {
     const root = await mkdtemp(join(tmpdir(), "omochi-catalog-"));
     t.after(() => rm(root, { recursive: true, force: true }));
     const workspace = resolve(import.meta.dir, "../..");
-    const pythonBindings = fixture !== "catalog-arrays" && fixture !== "catalog-required" && fixture !== "catalog-intersections";
+    const pythonBindings = fixture !== "catalog-builder-key" && fixture !== "catalog-arrays" && fixture !== "catalog-required" && fixture !== "catalog-intersections";
     const profile = process.env.OMOCHI_NATIVE_PROFILE ?? "debug";
     if (profile !== "debug" && profile !== "release") throw new Error("invalid native profile");
     const generate = Bun.spawn([
@@ -42,6 +42,18 @@ for (const fixture of ["catalog-component-names", "catalog-annotation-data", "ca
       new Response(compile.stdout).text(), new Response(compile.stderr).text(), compile.exited,
     ]);
     expect(status, stdout + stderr).toBe(0);
+    if (fixture === "catalog-builder-key") {
+      const typescript = Bun.spawn([process.execPath, join(root, "usage.ts")], {
+        stdout: "pipe", stderr: "pipe",
+      });
+      const [stdout, stderr, status] = await Promise.all([
+        new Response(typescript.stdout).text(), new Response(typescript.stderr).text(), typescript.exited,
+      ]);
+      expect(status, stderr).toBe(0);
+      expect(JSON.parse(stdout)).toEqual([
+        { key: "Enter" }, {}, { key: "Escape" }, { key: { arbitrary: true } },
+      ]);
+    }
     if (pythonBindings) {
       await copyFile(join(import.meta.dir, `fixtures/${fixture}.py`), join(root, "usage.py"));
       const python = Bun.spawn(["python3", "-B", join(root, "usage.py")], {

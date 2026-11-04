@@ -19,6 +19,7 @@ pub struct Options {
     #[arg(long)]
     pub typescript: Option<PathBuf>,
     /// Write Python bindings preserving JSON keys; approximate allOf without intersections.
+    /// Component property `key` is reserved for the Python builder's node key.
     #[arg(long)]
     pub python: Option<PathBuf>,
     /// Write Rust bindings that preserve the original JSON property names.
@@ -781,6 +782,12 @@ fn render(m: &Model, lang: Language) -> Result<String> {
     use Language::*;
     for component in &m.components {
         validate_component_name(&component.name, lang)?;
+        if lang == Py && component.properties.iter().any(|p| p.name == "key") {
+            bail!(
+                "component {:?}, property \"key\": reserved for the Python builder's node key; rename this property to generate Python bindings",
+                component.name
+            );
+        }
     }
     let comment = if lang == Py { "#" } else { "//" };
     let header = format!(
@@ -1026,6 +1033,71 @@ pub fn generate(options: Options) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn python_builder_key_is_rejected_before_writing_any_output() {
+        let temp = tempfile::tempdir().unwrap();
+        let input = temp.path().join("input.json");
+        let outputs = ["ts", "py", "rs"].map(|ext| temp.path().join(format!("catalog.{ext}")));
+        for definition in [
+            json!({"properties": {"key": {"type": "string"}}, "required": ["key"]}),
+            json!({"properties": {"key": {"type": "string"}}}),
+            json!({"required": ["key"]}),
+        ] {
+            std::fs::write(temp.path().join("definition.json"), definition.to_string()).unwrap();
+            for schema in [
+                definition.clone(),
+                json!({"allOf": [{"allOf": [definition.clone()]}]}),
+                json!({"$ref": "#/$defs/shortcut"}),
+                json!({"allOf": [{"$ref": "definition.json"}]}),
+            ] {
+                std::fs::write(
+                    &input,
+                    json!({
+                        "$defs": {"shortcut": definition},
+                        "components": {"Shortcut": schema}
+                    })
+                    .to_string(),
+                )
+                .unwrap();
+                for check in [false, true] {
+                    for output in &outputs {
+                        std::fs::write(output, "existing").unwrap();
+                    }
+                    let error = generate(Options {
+                        catalog: input.clone(),
+                        name: None,
+                        typescript: Some(outputs[0].clone()),
+                        python: Some(outputs[1].clone()),
+                        rust: Some(outputs[2].clone()),
+                        check,
+                    })
+                    .unwrap_err()
+                    .to_string();
+                    assert!(
+                        error.contains("component \"Shortcut\", property \"key\""),
+                        "{error}"
+                    );
+                    assert!(
+                        error.contains("reserved for the Python builder's node key"),
+                        "{error}"
+                    );
+                    for output in &outputs {
+                        assert_eq!(std::fs::read_to_string(output).unwrap(), "existing");
+                    }
+                }
+                generate(Options {
+                    catalog: input.clone(),
+                    name: None,
+                    typescript: Some(outputs[0].clone()),
+                    python: None,
+                    rust: Some(outputs[2].clone()),
+                    check: false,
+                })
+                .unwrap();
+            }
+        }
+    }
+
     #[test]
     fn unsupported_component_names_preserve_all_outputs() {
         let temp = tempfile::tempdir().unwrap();

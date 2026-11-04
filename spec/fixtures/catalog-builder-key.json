@@ -1,0 +1,38 @@
+{
+  "catalogId": "urn:test:catalog-builder-key",
+  "title": "BuilderKeyCatalog",
+  "components": {
+    "Shortcut": {
+      "type": "object",
+      "properties": {
+        "key": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "key"
+      ]
+    },
+    "Optional": {
+      "properties": {
+        "key": {
+          "type": "string"
+        }
+      }
+    },
+    "RequiredOnly": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/requiredKey"
+        }
+      ]
+    }
+  },
+  "$defs": {
+    "requiredKey": {
+      "required": [
+        "key"
+      ]
+    }
+  }
+}
