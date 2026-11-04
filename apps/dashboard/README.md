@@ -73,8 +73,11 @@ does not establish public-host behavior.
 ## Connect a hub
 
 ```sh
-omochi-ui hub --remote --web-url https://app.omochi.fyi/
+omochi-ui hub --remote
 ```
+
+The web URL defaults to `https://app.omochi.fyi/`; use `--web-url HTTPS_BASE`
+to select a custom hosted client.
 
 Create links in the local dashboard's **Share dashboard** dialog. Release builds use `https://relay.omochi.fyi` by default; debug builds use n0
 relays. The browser uses the relay URLs in the sharing link and sends the shared

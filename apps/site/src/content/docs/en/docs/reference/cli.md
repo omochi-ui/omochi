@@ -10,17 +10,18 @@ See [registry installation and migration](https://github.com/omochi-ui/omochi/bl
 
 [Overview](https://github.com/omochi-ui/omochi/blob/main/README.md) · [Architecture](/en/docs/understand/architecture/) · [Discovery guide](/en/docs/guides/remote/)
 
-Build the workspace with `bun install`, `bun run build` and
-`bun run build:native` (current stable Rust). Run commands from its root using
-`bun run omochi-ui`. The private workspace package launches the native Rust
-binary. Installed native archives use `omochi-ui` directly and need no Bun.
-See the [installation guide](https://github.com/omochi-ui/omochi/blob/main/crates/DISTRIBUTION.md).
+Run the CLI from any directory with Node.js 22+ on Linux or macOS:
 
 ```sh
-bun run omochi-ui --help
-bun run omochi-ui hub --help
-bun run omochi-ui help generate catalog
+npx @omochi-ui/cli hub
+npx @omochi-ui/cli --help
 ```
+
+Or install once with `npm install -g @omochi-ui/cli` or
+`cargo install omochi-cli --locked`, then use `omochi-ui` directly as below.
+The dashboard UI is included, and `hub` starts a local gateway automatically.
+See [installation](../../start/installation/) for supported platforms and source builds.
+From a built checkout, the equivalent command is `bun run omochi-ui`.
 
 `-h`, `--help`, and `help <command>` print help to stdout and exit successfully
 without starting services or changing config.
@@ -45,8 +46,8 @@ Invalid arguments print usage to stderr and exit with code 2.
 Start local services, the hub, and a read-only dashboard preset from TOML.
 
 ```sh
-bun run omochi-ui up --open
-bun run omochi-ui up --port 5557 ./examples/quickstart/omochi.toml
+omochi-ui up --open
+omochi-ui up --port 5557 ./examples/quickstart/omochi.toml
 ```
 
 The file defaults to `./omochi.toml`. A service uses either a literal `command`
@@ -104,7 +105,7 @@ Launch a child application and bridge its JSONL stdin/stdout to WebSocket.
 # Terminal 1: browser preview
 bun run --filter @omochi-ui/dev-server dev
 # Terminal 2: app + bridge
-bun run omochi-ui dev -- uv run --project examples/python examples/python/app.py
+omochi-ui dev -- uv run --project examples/python examples/python/app.py
 ```
 
 Open `http://127.0.0.1:5173/`. The preview's default `/ws` proxy reaches the bridge.
@@ -132,7 +133,7 @@ examples select that transport when `OMOCHI_SERVICE` is set.
 # Terminal 1
 OMOCHI_SERVICE=python-example uv run --project examples/python examples/python/app.py
 # Terminal 2
-bun run omochi-ui hub
+omochi-ui hub
 ```
 
 Open `http://127.0.0.1:5555/`. The hub serves its own UI and automatically starts
@@ -145,8 +146,8 @@ not stop a gateway it did not start.
 | `--port PORT` | HTTP/WebSocket port; `0` chooses an available port | `5555` |
 | `--no-auto-gateway` | Do not start a missing local gateway | Auto-start enabled |
 | `--allow-origin ORIGIN` | Add an exact allowed browser origin; repeatable | Loopback origins only |
-| `--remote` | Accept dashboard clients over iroh; requires `--web-url`, conflicts with `--offline` | Off |
-| `--web-url HTTPS_BASE` | Static hosted hub-client UI base; requires `--remote` | Unset |
+| `--remote` | Accept dashboard clients over iroh; conflicts with `--offline` | Off |
+| `--web-url HTTPS_BASE` | Static hosted hub-client UI base; requires `--remote` | `https://app.omochi.fyi/` |
 | `--offline` | Disable public address lookup and relays; retain LAN mDNS | Off |
 | `--relay URL` | Custom relay URL; repeatable | Release: `https://relay.omochi.fyi`; debug: n0 public relays |
 | `--assets DIR` | Override the embedded dashboard assets | Embedded assets |
@@ -158,7 +159,8 @@ explicitly enables downstream dashboard access.
 The browser-facing HTTP/WebSocket listener has no TLS or authentication; keep
 its loopback binding. Origin checks apply to both HTTP and WebSocket requests.
 
-Remote dashboard sharing uses `hub --remote --web-url https://app.omochi.fyi/`.
+Remote dashboard sharing uses `hub --remote`. The hosted client defaults to
+`https://app.omochi.fyi/`; use `--web-url HTTPS_BASE` to override it.
 Create identity invitations or reusable readonly links in the local dashboard’s
 **Share dashboard** dialog. The hosted browser connects to this native hub;
 recipients do not pair with its gateways. Release hubs default to
@@ -172,16 +174,16 @@ Discover this user's running SDK apps and publish their surfaces. The gateway
 does not launch apps or serve the dashboard UI. Remote networking is opt-in:
 
 ```sh
-bun run omochi-ui gateway
+omochi-ui gateway
 # Enable remote access and issue an invitation:
-bun run omochi-ui gateway --remote --pair --name workstation
+omochi-ui gateway --remote --pair --name workstation
 ```
 
 | Option | Meaning | Default |
 | --- | --- | --- |
 | `--remote` | Enable the authenticated iroh endpoint | Off |
 | `--pair` | Issue a temporary invitation; requires `--remote` | Off |
-| `--web-url HTTPS_BASE` | Also print a browser invitation for this dashboard base; requires `--remote` | Unset |
+| `--web-url HTTPS_BASE` | Also print a browser invitation for this dashboard base; requires `--remote` | `https://app.omochi.fyi/` |
 | `--name NAME` | Gateway display name | `gateway` |
 | `--offline` | LAN mDNS/direct connections without public services | Off |
 | `--relay URL` | Custom relay URL; repeatable | Release: `https://relay.omochi.fyi`; debug: n0 public relays |
@@ -191,11 +193,12 @@ application streams. On LANs that permit multicast and direct traffic, registere
 peers can reconnect without internet access. Across networks, iroh uses direct
 connections where possible and a relay otherwise.
 
-For a hosted or self-hosted browser dashboard, use
-`gateway --remote --pair --web-url https://app.example.com/`. The base must be an
+For the hosted browser dashboard, use `gateway --remote --pair`. The web URL
+defaults to `https://app.omochi.fyi/`; for self-hosting, set
+`--web-url https://app.example.com/`. The base must be an
 absolute HTTPS URL of at most 2048 characters with no credentials, query or
 fragment. The command prints both the native invitation and the browser link
-only when `--pair` issues a new invitation. No public dashboard address is assumed.
+only when `--pair` issues a new invitation.
 Both links carry the same temporary bearer secret: share them privately. Accepting
 one enrolls the browser for all exposed services, actions and resources on that
 gateway. Removing its browser connection record does not revoke gateway trust;
@@ -206,9 +209,9 @@ use `trust forget <browser-endpoint-id>` at the gateway to revoke it.
 Import the gateway's invitation on the PC running the hub:
 
 ```sh
-bun run omochi-ui pair --name workstation
+omochi-ui pair --name workstation
 # Paste the invitation on stdin, then Ctrl+D.
-bun run omochi-ui hub
+omochi-ui hub
 ```
 
 An invitation can also be the positional argument. Stdin keeps it out of shell
@@ -228,7 +231,7 @@ pair old devices again and recreate saved dashboards.
 
 ## status
 
-`bun run omochi-ui status` reads connection diagnostics from the running hub
+`omochi-ui status` reads connection diagnostics from the running hub
 on `127.0.0.1:5555`. It prints JSON with each registered gateway’s EndpointId,
 local alias and current transport status or last connection error. Offline peers
 remain visible while reconnecting. Use `--port` (and `--host` for a different
@@ -239,10 +242,10 @@ checks. An empty array means no remote connection attempts are currently tracked
 ## id and trust
 
 ```sh
-bun run omochi-ui id
-bun run omochi-ui id --hub
-bun run omochi-ui trust list
-bun run omochi-ui trust forget workstation
+omochi-ui id
+omochi-ui id --hub
+omochi-ui trust list
+omochi-ui trust forget workstation
 ```
 
 `id` prints the persistent gateway identity; `--hub` selects the hub identity.
@@ -258,7 +261,7 @@ Create output directories before running the command.
 
 ```sh
 mkdir -p generated
-bun run omochi-ui generate catalog \
+omochi-ui generate catalog \
   --catalog ./catalog.json \
   --name ProductCatalog \
   --typescript ./generated/product-catalog.ts \

@@ -5,18 +5,18 @@ sidebar:
   order: 3
 ---
 
-ネイティブのutilsを使うと、SDKアプリを書かずに検出可能なSurfaceを公開できます。ビルド済みチェックアウトでHubを起動します。
+ネイティブのutilsを使うと、SDKアプリを書かずに検出可能なSurfaceを公開できます。LinuxまたはmacOSとNode.js 22以上があれば、任意のディレクトリでHubを起動できます。
 
 ```sh
-bun run omochi-ui hub
+npx @omochi-ui/cli hub
 ```
 
-別のターミナルでツールを起動し、ダッシュボードへ追加します。
+HubがローカルGatewayも自動起動します。**http://127.0.0.1:5555/**を開き、別のターミナルでツールを起動して、**Add view**からダッシュボードへ追加します。[インストール](../../start/installation/)すると`omochi-ui`と`omochi-utils`を直接実行できます。
 
 ```sh
-bun run omochi-utils button --name "Build" -- bun run build
-bun run omochi-utils watch --diff --interval 2s -- git status --short
-bun run omochi-utils http http://127.0.0.1:3000/health
+npx @omochi-ui/utils button --name "Build" -- bun run build
+npx @omochi-ui/utils watch --diff --interval 2s -- git status --short
+npx @omochi-ui/utils http http://127.0.0.1:3000/health
 ```
 
 buttonは押したときにコマンドを実行します。watchは定期実行と差分表示、httpはヘルス表示です。Surfaceを使う間は公開元プロセスを動かしておきます。

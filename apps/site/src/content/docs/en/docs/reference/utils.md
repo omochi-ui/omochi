@@ -9,17 +9,21 @@ Native npm releases retain this package name; Cargo releases use `omochi-utils`.
 See [registry installation and migration](https://github.com/omochi-ui/omochi/blob/main/docs/native-releasing.md).
 
 Publish command controls, development observations, and agent-created A2UI
-surfaces through the existing Omochi gateway. Requires a Unix-like environment,
-like the discovery transport. Build with `bun install && bun run build:native`
-from the repository root, or install both native binaries from a distribution
-archive. The Rust executable needs no Bun runtime.
+surfaces. On Linux or macOS with Node.js 22+, run `npx @omochi-ui/utils`.
+Start a hub in another terminal with `npx @omochi-ui/cli hub`; it includes the
+browser UI and starts a local gateway automatically.
+
+The examples below use installed commands. Install with
+`npm install -g @omochi-ui/cli @omochi-ui/utils`, or use
+`cargo install omochi-cli --locked` and `cargo install omochi-utils --locked`.
+See [installation](../../start/installation/).
 
 ## Turn a command into a button
 
 ```sh
-bun run omochi-utils button --service-id build --name "Build" -- bun run build
+omochi-utils button --service-id build --name "Build" -- bun run build
 # In another terminal:
-bun run omochi-ui hub
+omochi-ui hub
 ```
 
 Open the hub's printed URL, then use **Add view** to add `Build · main` to a
@@ -29,8 +33,8 @@ a time, including when multiple browsers are connected. After completion or a
 startup failure the button can be used again.
 
 ```sh
-bun run omochi-utils button --name "Tests" --cwd /path/to/project -- bun run test
-bun run omochi-utils button --name "Pipeline" -- sh -c 'printf hello | wc -c'
+omochi-utils button --name "Tests" --cwd /path/to/project -- bun run test
+omochi-utils button --name "Pipeline" -- sh -c 'printf hello | wc -c'
 ```
 
 Arguments after `--` are passed literally without a shell. Commands inherit the
@@ -42,9 +46,9 @@ child process groups (TERM, then KILL within one second) and retracts the servic
 ## Watch a command
 
 ```sh
-bun run omochi-utils watch --interval 2s -- git status --short
-bun run omochi-utils watch --diff --on-change --history 10 -- bun run test
-bun run omochi-utils watch --timeout 30s --cwd /path/to/project -- command args
+omochi-utils watch --interval 2s -- git status --short
+omochi-utils watch --diff --on-change --history 10 -- bun run test
+omochi-utils watch --timeout 30s --cwd /path/to/project -- command args
 ```
 
 `watch` runs immediately, waits for the command to finish, then waits for the
@@ -58,8 +62,8 @@ old full output.
 ## Control a long-running process
 
 ```sh
-bun run omochi-utils process --name "Dev server" -- bun run dev
-bun run omochi-utils process --restart on-failure --restart-delay 2s -- worker
+omochi-utils process --name "Dev server" -- bun run dev
+omochi-utils process --restart on-failure --restart-delay 2s -- worker
 ```
 
 Processes start only when **Start** is clicked. The surface provides **Stop** and
@@ -70,8 +74,8 @@ Manual stops and CLI shutdown never trigger automatic restart.
 ## Follow a log file or stdin
 
 ```sh
-bun run omochi-utils tail --lines 200 ./logs/api.log
-journalctl -f | bun run omochi-utils stream --name "System log"
+omochi-utils tail --lines 200 ./logs/api.log
+journalctl -f | omochi-utils stream --name "System log"
 ```
 
 `tail` waits if the path does not exist and follows the name across truncation
@@ -82,8 +86,8 @@ surface visible until SIGINT or SIGTERM instead of exiting immediately.
 ## Monitor HTTP
 
 ```sh
-bun run omochi-utils http http://127.0.0.1:3000/health
-bun run omochi-utils http --interval 30s --timeout 5s \
+omochi-utils http http://127.0.0.1:3000/health
+omochi-utils http --interval 30s --timeout 5s \
   --expect-status 200 --expect-body '"ready":true' https://example.test/health
 ```
 
@@ -199,7 +203,7 @@ Durations accept `ms`, `s`, and `m` suffixes. Each process has its own surfaces
 and event buffer. Service registration does not start the gateway or
 automatically place panels on a dashboard.
 
-Use `bun run omochi-utils --help` for usage. No new TCP listener, dashboard API,
+Use `omochi-utils --help` for usage. No new TCP listener, dashboard API,
 or transport protocol is introduced. Runtime directory permissions and existing
 gateway access controls apply to these services as to other Omochi apps.
 

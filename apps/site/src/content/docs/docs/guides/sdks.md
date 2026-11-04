@@ -7,6 +7,8 @@ sidebar:
 
 3つのSDKは共通のプロトコルとランタイムの概念を使います。次の例はビルド済みチェックアウトのローカルパッケージを使います。`app.start()`は標準入出力を使うため、[開発プレビュー](../../start/first-ui/)経由で表示してください。
 
+SDKとHubは別に導入します。自分のSDKアプリを表示するHubは、LinuxまたはmacOSとNode.js 22以上で`npx @omochi-ui/cli hub`として起動できます。HubがローカルGatewayも自動起動します。[インストール](../../start/installation/)と[ダッシュボードへの接続](../dashboards/)を参照してください。ローカル検出には`UnixSocketServerTransport`が必要で、以下の標準入出力の例は開発プレビュー向けです。
+
 ## Python
 
 ```python

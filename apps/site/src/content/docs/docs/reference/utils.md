@@ -5,7 +5,7 @@ sidebar:
   order: 3
 ---
 
-`omochi-utils`はコマンドや入力を通常の検出可能サービスとして公開します。Hubを起動し、公開されたSurfaceを追加して使います。ソースでは`bun run omochi-utils`として実行します。
+`omochi-utils`はコマンドや入力を通常の検出可能サービスとして公開します。LinuxまたはmacOSとNode.js 22以上があれば`npx @omochi-ui/utils`で使えます。別ターミナルで`npx @omochi-ui/cli hub`を起動し、公開されたSurfaceを追加します。HubがローカルGatewayも自動起動します。以下は[インストール](../../start/installation/)済みのコマンドを使う例です。
 
 ## モード
 

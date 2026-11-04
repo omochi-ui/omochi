@@ -7,6 +7,12 @@ sidebar:
 
 The three SDKs share the same protocol and runtime concepts. Examples here use local packages from a built checkout. `app.start()` uses stdin/stdout; connect it using the [development preview](../../start/first-ui/).
 
+The SDK and hub are separate installations. For an existing SDK app, start
+`npx @omochi-ui/cli hub` on Linux or macOS with Node.js 22+. The hub starts a
+local gateway automatically. See [installation](../../start/installation/) and
+[transports](#transports). Local discovery requires `UnixSocketServerTransport`;
+the stdio examples below use the development preview.
+
 ## Python
 
 ```python

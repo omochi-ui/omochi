@@ -73,9 +73,10 @@ Already delivered bytes and dispatched app actions cannot be recalled.
 
 ## Owner and browser entries
 
-`omochi-ui hub --remote --web-url https://your-host.example/dashboard/` opts in to
+`omochi-ui hub --remote` opts in to
 the downstream listener, including on hubs without registered remote gateways.
 `--remote` conflicts with `--offline`; local WS remains usable without relays.
+The web base defaults to `https://app.omochi.fyi/`; `--web-url` overrides it.
 The web base contains no credentials/query/fragment. It is not inferred from the
 local HTTP origin. Static UI hosting is separate from hub operation.
 

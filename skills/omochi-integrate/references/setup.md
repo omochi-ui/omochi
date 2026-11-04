@@ -9,6 +9,23 @@ compatible SDK when available. Package names are `omochi-ui` on PyPI (import
 registry version: source examples may be ahead of published releases. The native
 CLI's Cargo package is `omochi-cli`, while its executable is `omochi-ui`.
 
+For an SDK integration in the user's project, prefer a published CLI. On
+Linux/macOS with Node.js 22+, start the local hub without cloning Omochi:
+
+```sh
+npx @omochi-ui/cli hub
+```
+
+Alternatively install `npm install -g @omochi-ui/cli` or
+`cargo install omochi-cli --locked`, then run `omochi-ui hub`. The UI is bundled,
+and the hub starts a local gateway automatically. Do not ask the user to build
+Omochi or start a separate gateway for same-machine SDK/utility use. Use a source
+checkout for Omochi development, the Vite preview, or an unpublished feature.
+Verify a discovered SDK surface can be added at `http://127.0.0.1:5555/` before
+considering the browser connection complete. Installing the SDK alone does not
+start the hub. npm and Cargo release versions may differ; inspect the installed
+CLI's help before relying on newer flags.
+
 For a source dependency, obtain an omochi checkout separately from the user's
 program. Build from its root:
 
@@ -48,7 +65,7 @@ reference. Those examples explicitly read `OMOCHI_SERVICE`; setting that
 variable alone does not change the SDK's default transport. Choose a stable,
 unique service ID such as `my-tool`.
 
-Start `omochi-ui hub` and open `http://127.0.0.1:5555/`, create a dashboard, add
+Start `npx @omochi-ui/cli hub` (or installed `omochi-ui hub`) and open `http://127.0.0.1:5555/`, create a dashboard, add
 the app's surface, and save it. From a source checkout, the CLI equivalent is
 `bun run omochi-ui hub`. The hub discovers running apps; it does not start the
 program. A project composition can launch services with `omochi-ui up`; see

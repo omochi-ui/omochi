@@ -15,6 +15,8 @@ use std::{
 };
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
+const DEFAULT_WEB_URL: &str = "https://app.omochi.fyi/";
+
 #[derive(Parser)]
 #[command(
     name = "omochi-ui",
@@ -59,8 +61,8 @@ enum Command {
         #[arg(long, requires = "remote")]
         pair: bool,
         /// HTTPS dashboard base used only when printing a new invitation.
-        #[arg(long, requires = "remote", value_parser = validate_web_url)]
-        web_url: Option<String>,
+        #[arg(long, requires = "remote", default_value = DEFAULT_WEB_URL, value_parser = validate_web_url)]
+        web_url: String,
         #[arg(long)]
         offline: bool,
         #[arg(long)]
@@ -81,11 +83,11 @@ enum Command {
         #[arg(long)]
         assets: Option<PathBuf>,
         /// Accept shared dashboard clients over iroh without exposing local HTTP.
-        #[arg(long, requires = "web_url", conflicts_with = "offline")]
+        #[arg(long, conflicts_with = "offline")]
         remote: bool,
         /// HTTPS base of the separately hosted dashboard client.
-        #[arg(long, requires = "remote", value_parser = validate_web_url)]
-        web_url: Option<String>,
+        #[arg(long, requires = "remote", default_value = DEFAULT_WEB_URL, value_parser = validate_web_url)]
+        web_url: String,
         #[arg(long)]
         offline: bool,
         #[arg(long)]
@@ -385,7 +387,7 @@ async fn run(cli: Cli) -> Result<()> {
                         .write_all(format!("{invitation}\n").as_bytes())
                         .await?;
                     {
-                        let base = web_url.as_deref().unwrap_or("https://app.omochi.fyi/");
+                        let base = &web_url;
                         tokio::io::stdout()
                             .write_all(
                                 format!("{}\n", web_invitation(base, &invitation)?).as_bytes(),
@@ -473,7 +475,7 @@ async fn run(cli: Cli) -> Result<()> {
                     no_auto_gateway: false,
                     assets: None,
                     remote: false,
-                    web_url: None,
+                    web_url: DEFAULT_WEB_URL.to_owned(),
                     offline: false,
                     relay: vec![],
                     presets: vec![composition.preset],
@@ -495,7 +497,7 @@ struct HubOptions {
     no_auto_gateway: bool,
     assets: Option<PathBuf>,
     remote: bool,
-    web_url: Option<String>,
+    web_url: String,
     offline: bool,
     relay: Vec<String>,
     presets: Vec<serde_json::Value>,
@@ -578,10 +580,7 @@ async fn serve_hub(
                 remote_boards,
                 endpoint.clone(),
             )?;
-            remote_hub.set_dashboard_host(
-                endpoint.clone(),
-                web_url.context("Missing dashboard HTTPS base")?,
-            )?;
+            remote_hub.set_dashboard_host(endpoint.clone(), web_url)?;
             Some(listener)
         } else {
             None
@@ -642,7 +641,7 @@ mod shutdown_tests {
     use super::*;
 
     #[test]
-    fn hosted_invitation_requires_explicit_https_base_and_remote_mode() {
+    fn hosted_invitation_requires_valid_https_base_and_remote_mode() {
         for base in [
             "http://example.com/",
             "https://u:p@example.com/",
@@ -679,7 +678,8 @@ mod shutdown_tests {
 
     #[test]
     fn downstream_dashboard_listener_is_explicit_and_keeps_offline_ws_separate() {
-        assert!(Cli::try_parse_from(["omochi-ui", "hub", "--remote"]).is_err());
+        assert!(Cli::try_parse_from(["omochi-ui", "hub", "--remote"]).is_ok());
+        assert!(Cli::try_parse_from(["omochi-ui", "hub", "--remote", "--offline"]).is_err());
         assert!(
             Cli::try_parse_from(["omochi-ui", "hub", "--web-url", "https://ui.example/"]).is_err()
         );
@@ -705,6 +705,49 @@ mod shutdown_tests {
             ])
             .is_ok()
         );
+    }
+
+    #[test]
+    fn hosted_dashboard_defaults_allow_local_mode_and_custom_urls() {
+        for command in ["hub", "gateway"] {
+            for remote in [false, true] {
+                let mut args = vec!["omochi-ui", command];
+                if remote {
+                    args.push("--remote");
+                }
+                let cli = Cli::try_parse_from(args).unwrap();
+                match cli.command {
+                    Command::Hub {
+                        web_url,
+                        remote: actual_remote,
+                        ..
+                    }
+                    | Command::Gateway {
+                        web_url,
+                        remote: actual_remote,
+                        ..
+                    } => {
+                        assert_eq!(web_url, "https://app.omochi.fyi/");
+                        assert_eq!(actual_remote, remote);
+                    }
+                    _ => unreachable!(),
+                }
+            }
+            let cli = Cli::try_parse_from([
+                "omochi-ui",
+                command,
+                "--remote",
+                "--web-url",
+                "https://ui.example/dashboard/",
+            ])
+            .unwrap();
+            match cli.command {
+                Command::Hub { web_url, .. } | Command::Gateway { web_url, .. } => {
+                    assert_eq!(web_url, "https://ui.example/dashboard/");
+                }
+                _ => unreachable!(),
+            }
+        }
     }
 
     #[tokio::test]

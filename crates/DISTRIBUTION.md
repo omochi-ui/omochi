@@ -1,5 +1,25 @@
 # Omochi native services
 
+## Start without a checkout
+
+On Linux or macOS with Node.js 22+:
+
+```sh
+npx @omochi-ui/cli hub
+```
+
+Open http://127.0.0.1:5555/. The hub includes the dashboard UI and starts a local
+gateway automatically. Add your running SDK app or utility with **Add view**.
+SDK apps must use the discoverable Unix socket transport.
+
+For regular use, install `npm install -g @omochi-ui/cli`, or build the published
+Rust package with `cargo install omochi-cli --locked`, then run `omochi-ui hub`.
+The CLI includes both hub and gateway commands. The `omochi-ui` Cargo crate is
+the separate SDK. Utilities run with `npx @omochi-ui/utils`, or install them with
+`npm install -g @omochi-ui/utils` or `cargo install omochi-utils --locked`.
+
+## Native archive
+
 The archive contains omochi-ui and omochi-utils for the target in manifest.json.
 The production dashboard is embedded. Neither binary requires Bun, Node.js,
 Python or Rust at runtime. Applications launched by them need their own runtime.

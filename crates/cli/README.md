@@ -1,8 +1,22 @@
 # omochi-cli
 
-Native command-line tools for Omochi application UIs.
+Run the Omochi dashboard and connect applications built with the Python,
+TypeScript, or Rust SDK, or with `omochi-utils`.
 
-See [Omochi](https://github.com/omochi-ui/omochi) for usage and migration instructions.
+```sh
+cargo install omochi-cli --locked
+omochi-ui hub
+```
 
-Install with `cargo install omochi-cli --locked`; this provides `omochi-ui`.
-The dashboard assets are included; Bun is not needed to build the published crate.
+Open **http://127.0.0.1:5555/**, create a dashboard, and choose **Add view** to
+add a running app's surface. The hub starts a local gateway automatically.
+SDK apps must use `UnixSocketServerTransport` for discovery. Keep the hub and
+app running while using their UI.
+
+The package installs `omochi-ui`, including the `hub` and `gateway` commands.
+It is separate from the `omochi-ui` SDK crate. The dashboard assets are included;
+Bun, Node.js, and a repository checkout are not needed to build the published crate.
+Native services support Linux and macOS.
+
+With Node.js 22+, you can also run `npx @omochi-ui/cli hub` without a global install.
+For apps on another machine, see the [remote connection guide](https://omochi.fyi/en/docs/guides/remote/).

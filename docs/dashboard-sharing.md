@@ -8,10 +8,11 @@ operation. Gateway v4, gateway trust and SDK transports are unchanged.
 ## Start the hub and create shares
 
 ```sh
-omochi-ui hub --remote --web-url https://app.omochi.fyi/
+omochi-ui hub --remote
 ```
 
-For self-hosting, substitute the client's HTTPS base, including its trailing slash.
+The web URL defaults to `https://app.omochi.fyi/`. For self-hosting, set
+`--web-url https://your-host.example/dashboard/`, including its trailing slash.
 Remote access is opt-in and works without registered remote gateways. The hub
 uses `https://relay.omochi.fyi` by default in release builds and n0 defaults in
 debug builds; `--relay HTTPS_URL` overrides this selection. The browser follows

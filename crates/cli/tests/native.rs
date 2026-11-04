@@ -317,14 +317,29 @@ async fn catalog_generation_runs_without_bun_or_state_and_check_detects_stale_ou
 
 #[tokio::test]
 async fn remote_dashboard_listener_starts_without_registered_gateways_and_keeps_http_local() {
+    assert_remote_dashboard_web_url(None, "https://app.omochi.fyi/").await;
+}
+
+#[tokio::test]
+async fn remote_dashboard_listener_uses_custom_web_url() {
+    assert_remote_dashboard_web_url(
+        Some("https://ui.example/dashboard/"),
+        "https://ui.example/dashboard/",
+    )
+    .await;
+}
+
+async fn assert_remote_dashboard_web_url(web_url: Option<&str>, expected: &str) {
     let _ = rustls::crypto::ring::default_provider().install_default();
     let root = tempfile::tempdir().unwrap();
-    let mut child = command(root.path())
+    let mut hub = command(root.path());
+    hub.arg("hub");
+    if let Some(web_url) = web_url {
+        hub.args(["--web-url", web_url]);
+    }
+    let mut child = hub
         .args([
-            "hub",
             "--remote",
-            "--web-url",
-            "https://ui.example/dashboard/",
             "--relay",
             "https://127.0.0.1:9/",
             "--no-auto-gateway",
@@ -358,7 +373,7 @@ async fn remote_dashboard_listener_starts_without_registered_gateways_and_keeps_
                 .await
                 .unwrap();
             if info["hubId"].as_str().is_some_and(|s| s.len() == 64) {
-                assert_eq!(info["webUrl"], "https://ui.example/dashboard/");
+                assert_eq!(info["webUrl"], expected);
                 break;
             }
             tokio::time::sleep(Duration::from_millis(20)).await;

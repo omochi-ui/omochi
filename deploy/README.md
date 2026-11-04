@@ -44,8 +44,11 @@ The hosted dashboard serves browser assets. Saved boards, app state and share
 authorization live on the owner's running native hub:
 
 ```sh
-omochi-ui hub --remote --web-url https://app.omochi.fyi/
+omochi-ui hub --remote
 ```
+
+The web URL defaults to `https://app.omochi.fyi/`; use `--web-url HTTPS_BASE`
+to select a custom hosted client.
 
 Release builds use `https://relay.omochi.fyi`; debug builds use n0 defaults.
 The hosted browser follows the sharing link’s relay URLs and authenticates only
