@@ -13,6 +13,15 @@ import { UnixSocketServerTransport } from "../src/node/index.js";
 import type { JsonObject } from "../src/index.js";
 
 for (const runtime of ["node", "bun"]) {
+  test(`isolates malformed Unix client frames in ${runtime}`, () => {
+    const result = spawnSync(runtime, [
+      "--unhandled-rejections=strict",
+      fileURLToPath(new URL("./fixtures/unix-socket-client-frames.mjs", import.meta.url)),
+    ], { encoding: "utf8", timeout: 10_000 });
+    assert.ifError(result.error);
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.stdout.trim(), "client frames isolated");
+  });
   test(`isolates a disconnect during Unix snapshot replay in ${runtime}`, () => {
     const result = spawnSync(runtime, [
       "--unhandled-rejections=strict",

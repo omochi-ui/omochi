@@ -487,6 +487,32 @@ fn shared_validation_fixture() {
     }
 }
 
+#[tokio::test]
+async fn shared_action_messages_preserve_input_precedence() {
+    let fixture: serde_json::Value =
+        serde_json::from_str(include_str!("../../../../spec/fixtures/action-input.json")).unwrap();
+    for case in fixture["messages"].as_array().unwrap() {
+        let mut app = App::new(Vec::<Option<String>>::new());
+        app.action::<Option<String>, _, _>("run", |value, ctx| async move {
+            ctx.update(move |calls| calls.push(value)).await
+        })
+        .unwrap();
+        let mut runtime = app.build();
+        assert_eq!(
+            runtime.handle(case["message"].clone()).await.unwrap(),
+            Vec::<serde_json::Value>::new(),
+            "{}",
+            case["name"]
+        );
+        assert_eq!(
+            runtime.read(|calls| json!(calls)).await,
+            json!([case["input"]]),
+            "{}",
+            case["name"]
+        );
+    }
+}
+
 #[test]
 fn enum_projection_requires_matching_variant() {
     let mut ui = omochi_ui::Ui::new("main", omochi_ui::STANDARD_CATALOG);

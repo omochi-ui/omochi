@@ -384,6 +384,33 @@ fn write_manifest(directory: &Path, name: &str, icon: Option<&str>) -> Result<()
     Ok(())
 }
 
+/// Validate the v0.9 envelope before it can reach the shared Runtime.
+fn is_client_message(value: &Value) -> bool {
+    let Some(message) = value.as_object() else {
+        return false;
+    };
+    if message.get("version").and_then(Value::as_str) != Some("v0.9")
+        || message.contains_key("action") == message.contains_key("error")
+    {
+        return false;
+    }
+    if let Some(action) = message.get("action") {
+        return action.as_object().is_some_and(|action| {
+            ["name", "surfaceId", "sourceComponentId", "timestamp"]
+                .iter()
+                .all(|key| action.get(*key).is_some_and(Value::is_string))
+                && action.get("context").is_some_and(Value::is_object)
+        });
+    }
+    message["error"].as_object().is_some_and(|error| {
+        error.contains_key("code")
+            && error.get("surfaceId").is_some_and(Value::is_string)
+            && error.get("message").is_some_and(Value::is_string)
+            && (error.get("code").and_then(Value::as_str) != Some("VALIDATION_FAILED")
+                || (error.len() == 4 && error.get("path").is_some_and(Value::is_string)))
+    })
+}
+
 async fn serve_connection(
     stream: UnixStream,
     shared: Arc<Shared>,
@@ -423,7 +450,7 @@ async fn serve_connection(
             if line.trim().is_empty() {
                 continue;
             }
-            let Ok(value) = serde_json::from_str::<Value>(&line) else {
+            let Ok(mut value) = serde_json::from_str::<Value>(&line) else {
                 break;
             };
             if is_resource(&value) {
@@ -434,11 +461,15 @@ async fn serve_connection(
                 }
                 continue;
             }
-            // "{error}" is a valid client message but carries no action for the Runtime to
-            // invoke; dropping it keeps a client-side report from tearing the application down.
-            if value.get("action").is_none() {
+            if !is_client_message(&value) {
+                break;
+            }
+            // Valid client error reports carry no action; keep the connection open.
+            if value.get("error").is_some() {
                 continue;
             }
+            // A2UI extensions must not select the Runtime's legacy command API.
+            value.as_object_mut().unwrap().remove("type");
             if inbound.send(value).is_err() {
                 break;
             }

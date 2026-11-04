@@ -105,7 +105,7 @@ test('native processor bypass retains its existing default root and sparse-delet
 });
 
 class DirectSource implements LiveSession {
-  readonly imagePolicy = 'sdk-png' as const;
+  constructor(readonly imagePolicy: LiveSession['imagePolicy'] = 'sdk-png') {}
   apply!: (event: RenderEvent) => ApplyResult;
   attached = false;
   listener!: (event: LiveEvent) => void;
@@ -143,6 +143,54 @@ const commitCreate = (id: string): A2uiMessage[] => [
   { version: 'v0.9', createSurface: { surfaceId: id, catalogId: BASIC_CATALOG_ID, sendDataModel: true } },
   { version: 'v0.9', updateDataModel: { surfaceId: id, path: '/' } },
 ];
+
+for (const [name, root, hasData] of [
+  ['create-only', undefined, false], ['removed', undefined, true], ['null', null, true],
+  ['object', { saved: 1 }, true], ['array', ['saved'], true], ['primitive', 1, true],
+] as const) {
+  test(`direct ${name} snapshot roots survive commit, incremental updates and reconnect`, async t => {
+    const source = new DirectSource();
+    const session = createA2uiSession(source);
+    t.after(() => session.close());
+    const processor = session.getSnapshot().processor!;
+    const published: unknown[] = [];
+    session.subscribe(() => published.push(processor.model.getSurface(surfaceId)?.dataModel.get('/')));
+    const messages = [...commitCreate(surfaceId), ...(hasData ? [update('/', root)] : [])];
+    const commit = (epoch: number) => source.apply({ kind: 'commit', service: 'A', epoch, messages, leases: [] });
+    assert.deepEqual(commit(1), { ok: true });
+    assert.deepEqual(published, [root], 'only the completed snapshot is published');
+    const initial = processor.model.getSurface(surfaceId)!;
+    assert.deepEqual(initial.dataModel.get('/'), root);
+    assert.deepEqual(getValue(initial.dataModel.getSignal('/')), root);
+    const charge = accounting();
+    assert.deepEqual(source.apply({ kind: 'update', service: 'A', epoch: 1,
+      message: update('/0', 'first'), budget: charge.budget }), { ok: true });
+    const expected = planDataPatch(root, '/0', true, 'first').materialize();
+    assert.deepEqual(initial.dataModel.get('/'), expected);
+    assert.equal(charge.used, 0);
+    assert.deepEqual(commit(2), { ok: true });
+    const reconnected = processor.model.getSurface(surfaceId)!;
+    assert.notEqual(reconnected, initial);
+    assert.deepEqual(reconnected.dataModel.get('/'), root);
+    assert.deepEqual(published, [root, expected, root]);
+    assert.deepEqual(source.apply({ kind: 'update', service: 'A', epoch: 2,
+      message: update('/0', 'first'), budget: charge.budget }), { ok: true });
+    assert.deepEqual(reconnected.dataModel.get('/'), expected);
+    assert.equal(charge.used, 0);
+  });
+}
+
+for (const policy of ['native', 'hub'] as const) {
+  test(`${policy} snapshot commits keep the upstream root behavior`, async t => {
+    const source = new DirectSource(policy);
+    const session = createA2uiSession(source);
+    t.after(() => session.close());
+    for (const messages of [[create], commitCreate(surfaceId), [...commitCreate(surfaceId), update('/', null)]]) {
+      assert.deepEqual(source.apply({ kind: 'commit', service: 'A', epoch: 1, messages, leases: [] }), { ok: true });
+      assert.deepEqual(session.getSnapshot().processor!.model.getSurface(surfaceId)!.dataModel.get('/'), {});
+    }
+  });
+}
 
 test('authoritative renderer batches commits, preserves B, and removes the union after a partial A commit fails', async () => {
   const source = new DirectSource();

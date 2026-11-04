@@ -1,8 +1,10 @@
+import '../../../../packages/hub-ui/src/i18n.js';
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import { openBrowserProfile, parseInvitation, type ProfileOwner, type ProfileRecovery } from '@omochi-ui/browser-hub';
 import type { BrowserTransport } from '@omochi-ui/browser-transport';
 import { SessionFault, type SessionError } from '@omochi-ui/core/browser';
 import App from '../../../../packages/hub-ui/src/App.js';
+import { DashboardNavigationProvider } from '../../../../packages/hub-ui/src/DashboardNavigation.js';
 import { createDisconnectedSession } from './disconnected-session.js';
 import type { BoardRepository } from '../../../../packages/hub-ui/src/board-repository.js';
 
@@ -33,7 +35,7 @@ export function ConnectionScreen({ transport, boards, takeInvitation, bootstrapE
     return () => { window.removeEventListener('pagehide', close); close(); };
   }, [transport, attempt]);
   const reopen = () => { setProfile(null); setError(null); setAttempt(value => value + 1); };
-  return <App environment={{ authority: { kind: 'owner' }, session: source, boards }} connectionUi={<div className="connections-page">
+  return <DashboardNavigationProvider><App environment={{ authority: { kind: 'owner' }, session: source, boards }} connectionUi={<div className="connections-page">
     <header><p className="connection-eyebrow">Omochi · browser preview</p><h2>Your application connections</h2>
       <p>Connect directly to your gateways. This preview uses TLS relays without an uptime guarantee.</p></header>
     {error && <p role="alert" data-error-code={error.code}>{error.message}</p>}
@@ -41,7 +43,7 @@ export function ConnectionScreen({ transport, boards, takeInvitation, bootstrapE
       {error && <button className="hub-button" onClick={reopen}>Retry opening profile</button>}</>}
     {profile?.kind === 'recovery' && <RecoveryScreen profile={profile} reopen={reopen} />}
     {profile?.kind === 'owner' && <OwnerScreen owner={profile} takeInvitation={takeInvitation} reopen={reopen} />}
-  </div>} />;
+  </div>} /></DashboardNavigationProvider>;
 }
 
 function RecoveryScreen({ profile, reopen }: { profile: ProfileRecovery; reopen(): void }) {

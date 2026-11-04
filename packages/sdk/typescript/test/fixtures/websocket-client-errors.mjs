@@ -6,6 +6,7 @@ import { App, schema } from "@omochi-ui/sdk";
 import { WebSocketServerTransport } from "@omochi-ui/sdk/node";
 
 const fixture = JSON.parse(readFileSync(new URL("../../../../../spec/fixtures/client-errors.json", import.meta.url), "utf8"));
+const actions = JSON.parse(readFileSync(new URL("../../../../../spec/fixtures/client-actions.json", import.meta.url), "utf8"));
 const state = { count: 0 };
 const app = new App(state);
 const increment = app.action("increment", schema.literal(null), async (_input, context) => {
@@ -43,14 +44,8 @@ try {
   await once(client, "open");
   await Promise.all([next(), next(), next()]);
 
-  const invoke = async expectedCount => {
-    client.send(JSON.stringify({
-      version: "v0.9",
-      action: {
-        name: "increment", surfaceId: "main", sourceComponentId: "increment",
-        timestamp: "2026-08-12T00:00:00.000Z", context: {},
-      },
-    }));
+  const invoke = async (expectedCount, action = actions.actions[0]) => {
+    client.send(JSON.stringify(action));
     const update = await next();
     assert.equal(state.count, expectedCount);
     assert.equal(update.updateComponents.components.find(component => component.id === "count").text, `Count: ${expectedCount}`);
@@ -61,7 +56,10 @@ try {
     client.send(JSON.stringify(report));
     await invoke(index + 1);
   }
-  for (const message of fixture.invalid) {
+  for (const [index, action] of actions.actions.entries()) {
+    await invoke(fixture.reports.length + index + 1, action);
+  }
+  for (const message of [...fixture.invalid, ...actions.invalid]) {
     const invalid = new WebSocket(transport.url);
     clients.push(invalid);
     await once(invalid, "open");
@@ -69,7 +67,7 @@ try {
     invalid.send(JSON.stringify(message));
     assert.equal((await closed)[0], 1007, JSON.stringify(message));
   }
-  await invoke(fixture.reports.length + 1);
+  await invoke(fixture.reports.length + actions.actions.length + 1);
 } finally {
   for (const client of clients) client.terminate();
   await transport.close();

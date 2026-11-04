@@ -197,6 +197,8 @@ export class WebSocketServerTransport implements Transport {
           // Valid client error reports carry no action; keep the connection open.
           return;
         }
+        // A2UI extensions must not select the Runtime's legacy command API.
+        delete message.type;
         this.enqueue(message);
       } catch (error) {
         if (error instanceof ReceiveQueueOverflowError) {

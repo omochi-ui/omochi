@@ -194,6 +194,18 @@ class InputTests(unittest.IsolatedAsyncioTestCase):
         for value in fixture["invalid"]:
             with self.assertRaises(ProtocolError): validator.parse(value)
 
+    async def test_shared_action_messages_preserve_input_precedence(self):
+        from pathlib import Path
+        fixture = json.loads((Path(__file__).parents[4] / "spec/fixtures/action-input.json").read_text())
+        for case in fixture["messages"]:
+            with self.subTest(name=case["name"]):
+                calls = []
+                app = App({})
+                @app.action(schema=schema.nullable(schema.string()))
+                def run(value: str | None, ctx): calls.append(value)
+                self.assertEqual(await app.build().handle(case["message"]), [])
+                self.assertEqual(calls, [case["input"]])
+
     async def test_complete_field_schema_identity(self):
         @dataclass
         class Maps:

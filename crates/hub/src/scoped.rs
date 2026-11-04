@@ -1,5 +1,7 @@
 //! Pull-based native rendering and opaque, lifetime-bound Surface operations.
-use crate::{Channel, Hub, OpenStream, State, read_frame, routing, write_frame};
+use crate::{
+    Channel, Hub, OpenStream, State, capacity::CapacityError, read_frame, routing, write_frame,
+};
 use anyhow::{Context, Result, bail};
 use omochi_protocol::fanout;
 use omochi_ui::{A2uiSnapshot, SnapshotCursor};
@@ -314,7 +316,7 @@ impl ScopedSubscription {
             // Include origin metadata and reserve space for the binding envelope.
             if serde_json::to_vec(event.as_ref())?.len() + 256 > MAX_BATCH_BYTES {
                 self.cancel();
-                bail!("render message exceeds batch capacity")
+                return Err(CapacityError::MessageLimit.into());
             }
         }
         self.sequence += 1;

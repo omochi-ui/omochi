@@ -1,6 +1,6 @@
 import { createRoot } from 'react-dom/client';
 import { createA2uiSession, type RendererSession } from '@omochi-ui/renderer';
-import { browserSessionDiagnostics, createBrowserSession, type AcceptedGateway } from '@omochi-ui/browser-hub';
+import { browserSessionDiagnostics, createBrowserSession, parseInvitation, type AcceptedGateway } from '@omochi-ui/browser-hub';
 import { loadBrowserTransport, type BrowserTransport } from '@omochi-ui/browser-transport';
 import type { LiveSession, SessionErrorCode } from '@omochi-ui/core/browser';
 import { SessionGallery } from './SessionGallery.js';
@@ -21,8 +21,7 @@ async function pair(transport: BrowserTransport, secret: string, config: Configu
     const endpoint = await transport.openEndpoint(secret, gateway.relayUrls);
     const cancel = new AbortController(); const timer = setTimeout(() => cancel.abort(), 10000);
     try {
-      const encoded = gateway.invitation.slice('omochi://invite/'.length);
-      const invite = JSON.parse(new TextDecoder().decode(Uint8Array.from(encoded.match(/../g) ?? [], byte => parseInt(byte, 16)))) as { secret: string };
+      const invite = parseInvitation(gateway.invitation);
       const connection = await endpoint.connect(JSON.stringify({ id: gateway.nodeId, addrs: gateway.relayUrls.map(Relay => ({ Relay })) }), 'omochi/pair/1', cancel.signal);
       if (connection.remoteId !== gateway.nodeId) throw new Error('Fixture identity mismatch');
       const stream = await connection.open({ kind: 'pair' }, cancel.signal);

@@ -7,7 +7,16 @@ import type { A2UIMessage, JsonObject } from "../src/index.js";
 
 const fixture = JSON.parse(
   readFileSync(new URL("../../../../spec/fixtures/snapshot.json", import.meta.url), "utf8"),
-) as { messages: A2UIMessage[]; snapshot: JsonObject[] };
+) as {
+  messages: A2UIMessage[];
+  snapshot: JsonObject[];
+  rejectedUpdates: {
+    messages: A2UIMessage[];
+    cases: { name: string; message: A2UIMessage }[];
+    recoveryMessages: A2UIMessage[];
+    snapshot: JsonObject[];
+  };
+};
 
 test("materializes the shared snapshot fixture", () => {
   const snapshot = new A2uiSnapshot();
@@ -80,3 +89,18 @@ test("prototype-sensitive leaf keys are ordinary data properties", () => {
     assert.deepEqual((deleted.updateDataModel as { value: unknown }).value, {});
   }
 });
+
+for (const rejected of fixture.rejectedUpdates.cases) {
+  test(`rejected update preserves replay: ${rejected.name}`, () => {
+    const snapshot = new A2uiSnapshot();
+    for (const message of fixture.rejectedUpdates.messages) snapshot.apply(message);
+    const before = snapshot.messages();
+    assert.throws(() => snapshot.apply(rejected.message));
+    assert.deepEqual(snapshot.messages(), before);
+    const replay = new A2uiSnapshot();
+    for (const message of snapshot.messages()) replay.apply(message);
+    assert.deepEqual(replay.messages(), before);
+    for (const message of fixture.rejectedUpdates.recoveryMessages) snapshot.apply(message);
+    assert.deepEqual(snapshot.messages(), fixture.rejectedUpdates.snapshot);
+  });
+}

@@ -22,6 +22,86 @@ async fn native_hub_serves_bundled_dashboard_without_bun_and_cleans_up_owned_gat
 async fn offline_hub_preserves_local_http_and_websocket_without_remote_tools() {
     local_dashboard(true).await;
 }
+#[cfg(target_os = "linux")]
+#[tokio::test]
+async fn hub_store_lock_contention_keeps_single_worker_http_responsive() {
+    let _ = rustls::crypto::ring::default_provider().install_default();
+    let root = tempfile::tempdir().unwrap();
+    let mut child = command(root.path())
+        .env("TOKIO_WORKER_THREADS", "1")
+        .args(["hub", "--port", "0", "--no-auto-gateway"])
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut lines = BufReader::new(child.stderr.take().unwrap()).lines();
+    let line = tokio::time::timeout(Duration::from_secs(10), lines.next_line())
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    let base = line
+        .strip_prefix("[omochi-ui] dashboard ")
+        .unwrap()
+        .trim_end_matches('/');
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(2))
+        .build()
+        .unwrap();
+    let services = format!("{base}/services");
+    assert_eq!(client.get(&services).send().await.unwrap().status(), 200);
+
+    let lock_path = root.path().join("config/state.lock");
+    let lock = tokio::time::timeout(
+        Duration::from_secs(10),
+        omochi_transport::blocking::run(move || omochi_transport::persistence::lock(&lock_path)),
+    )
+    .await
+    .unwrap()
+    .unwrap()
+    .unwrap();
+    let pid = child.id().unwrap().to_string();
+    // Observe the hub queued behind our lock before testing HTTP progress. Waiting
+    // for an assumed number of poll intervals would not prove contention occurred.
+    tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            let locks = std::fs::read_to_string("/proc/locks").unwrap();
+            if locks.lines().any(|line| {
+                line.split_whitespace().skip(1).take(5).eq([
+                    "->",
+                    "FLOCK",
+                    "ADVISORY",
+                    "WRITE",
+                    pid.as_str(),
+                ])
+            }) {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("hub must wait for the held store lock");
+    let response = client.get(&services).send().await;
+    drop(lock);
+    assert_eq!(client.get(&services).send().await.unwrap().status(), 200);
+    assert_eq!(
+        unsafe { libc::kill(child.id().unwrap() as i32, libc::SIGTERM) },
+        0
+    );
+    assert!(
+        tokio::time::timeout(Duration::from_secs(10), child.wait())
+            .await
+            .unwrap()
+            .unwrap()
+            .success()
+    );
+    assert_eq!(
+        response
+            .expect("store lock contention must not block local HTTP")
+            .status(),
+        200
+    );
+}
 async fn local_dashboard(offline: bool) {
     let root = tempfile::tempdir().unwrap();
     let mut child = command(root.path())

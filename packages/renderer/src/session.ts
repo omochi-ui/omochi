@@ -5,7 +5,7 @@ import { SessionFault, type ApplyResult, type SessionErrorCode, type LiveEvent, 
 import { BrowserImages } from './images.js';
 import { createResourceCatalog } from './resources.js';
 import { createActionMessage, messageSurfaceId, prepareRendererMessage } from './messages.js';
-import { applyDirectCreate, applyDirectDataPatch } from './data-patch.js';
+import { applyDirectCreate, applyDirectDataPatch, preserveDirectRoot } from './data-patch.js';
 
 export type Processor = MessageProcessor<ReactCatalogComponent>;
 export interface A2uiSession {
@@ -122,6 +122,9 @@ export function createA2uiSession(source: LiveSession): RendererSession {
     return { ok: true };
   }
   const created = processor.onSurfaceCreated(surface => {
+    // Commit replay already reserves its root initialization; preserve it before
+    // the processor applies those messages without adding incremental scratch.
+    if (source.imagePolicy === 'sdk-png') preserveDirectRoot(surface.dataModel);
     surface.onError.subscribe(failure => { error = String(failure.message); publish(); });
     if (!applying) publish();
   });

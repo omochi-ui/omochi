@@ -95,10 +95,12 @@ export class A2uiSnapshot {
     } else if ("updateComponents" in message) {
       const update = message.updateComponents as Record<string, unknown>;
       const surface = this.surface(update.surfaceId as string);
-      for (const component of update.components as Record<string, unknown>[]) {
+      // Prepare the whole batch before changing the replay retained for new clients.
+      const components = (update.components as Record<string, unknown>[]).map((component) => {
         if (typeof component.id !== "string") throw new Error("component must contain a string id");
-        surface.components.set(component.id, clone(component));
-      }
+        return [component.id, clone(component)] as const;
+      });
+      for (const [id, component] of components) surface.components.set(id, component);
     } else if ("updateDataModel" in message) {
       const update = message.updateDataModel as Record<string, unknown>;
       const surface = this.surface(update.surfaceId as string);

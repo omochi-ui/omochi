@@ -209,7 +209,8 @@ export class UnixSocketServerTransport implements Transport {
     if (this.resources) socket.write(`${JSON.stringify(resourceHello())}\n`);
     for (const message of this.snapshot.messages()) socket.write(`${JSON.stringify(message)}\n`);
     lines.on("line", (line) => {
-      if (this.closed || !line.trim()) return;
+      // readline may already have split more lines from the offending peer's chunk.
+      if (this.closed || socket.destroyed || !line.trim()) return;
       try {
         const value: unknown = JSON.parse(line);
         if (this.resources && isResourceFrame(value)) {
@@ -220,10 +221,19 @@ export class UnixSocketServerTransport implements Transport {
         if (!parsed.success || parsed.data.version !== "v0.9") {
           throw new Error(parsed.success ? `unsupported version: ${parsed.data.version}` : "expected an A2UI v0.9 client message");
         }
-        // `{error}` is a valid client message but carries no action for the Runtime to
-        // invoke; dropping it keeps a client-side report from tearing the application down.
-        if (!("action" in parsed.data)) return;
-        this.enqueue(value as JsonObject);
+        const message = value as JsonObject;
+        if ("error" in message) {
+          // The schema can omit a missing generic code or strip an extra action.
+          if ("action" in message || !("error" in parsed.data) || !("code" in parsed.data.error)) {
+            throw new Error("invalid client error report");
+          }
+          // Valid client error reports carry no action; keep the connection open.
+          return;
+        }
+        // Preserve metadata/extensions, but do not dispatch legacy Runtime commands
+        // from an otherwise valid A2UI envelope.
+        delete message.type;
+        this.enqueue(message);
       } catch (error) {
         if (error instanceof ReceiveQueueOverflowError) this.failReceive(error);
         disconnect();

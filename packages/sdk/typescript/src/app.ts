@@ -139,7 +139,7 @@ export class Runtime<State, Components extends ComponentMap = BasicComponentMap>
     const payload = objectValue(message.action) ?? message;
     if (typeof payload.name !== "string") throw new ProtocolError("action must contain string name");
     const context = objectValue(payload.context) ?? {};
-    return this.invoke(payload.name, context.input ?? payload.input ?? null);
+    return this.invoke(payload.name, Object.hasOwn(context, "input") ? context.input ?? null : payload.input ?? null);
   }
   dispatch(message: JsonObject): Promise<A2UIMessage[]> { return this.handle(message); }
   ready(): Promise<void> { return this.readyPromise; }

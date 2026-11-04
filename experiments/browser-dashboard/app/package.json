@@ -6,7 +6,7 @@
   "scripts": {
     "build:hosted": "bun check -p tsconfig.hosted.json && vite build --config vite.hosted.config.ts",
     "build:browser-test": "bun check -p tsconfig.browser-test.json && vite build --config vite.browser-test.config.ts",
-    "test": "bun check -p tsconfig.test.json && bun test ./test",
+    "test": "bun check -p tsconfig.test.json && bun test --preload ../../../tests/setup-dom.ts ./test",
     "lint": "oxlint src test"
   },
   "dependencies": {
