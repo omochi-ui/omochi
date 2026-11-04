@@ -5,6 +5,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from omochi_ui import schema, Expr, InputSchema, ActionContext, UI, App, UnixSocketServerTransport
 
@@ -38,6 +39,102 @@ async def read_messages(reader: asyncio.StreamReader, count: int) -> list[dict]:
 
 
 class UnixSocketServerTransportTests(unittest.TestCase):
+    def test_close_waits_for_start_and_retracts_the_service(self) -> None:
+        async def scenario() -> None:
+            with tempfile.TemporaryDirectory() as root:
+                transport = UnixSocketServerTransport("demo", runtime_dir=root)
+                binding = asyncio.Event()
+                release_bind = asyncio.Event()
+                closing = asyncio.Event()
+                start_unix_server = asyncio.start_unix_server
+                servers = []
+
+                async def blocked_bind(*args, **kwargs):
+                    binding.set()
+                    await release_bind.wait()
+                    server = await start_unix_server(*args, **kwargs)
+                    servers.append(server)
+                    return server
+
+                async def close() -> None:
+                    closing.set()
+                    await transport.close()
+
+                with patch("omochi_ui.unix_server.asyncio.start_unix_server", blocked_bind):
+                    started = asyncio.create_task(transport.start())
+                    await asyncio.wait_for(binding.wait(), timeout=5)
+                    closed = asyncio.create_task(close())
+                    await asyncio.wait_for(closing.wait(), timeout=5)
+                    try:
+                        self.assertFalse(closed.done())
+                    finally:
+                        release_bind.set()
+                        await asyncio.wait_for(asyncio.gather(started, closed), timeout=5)
+
+                await transport.close()
+                await transport.start()
+                self.assertFalse(servers[0].is_serving())
+                self.assertIsNone(transport._server)
+                self.assertFalse((Path(root) / "demo").exists())
+                with self.assertRaises(OSError):
+                    await asyncio.open_unix_connection(str(Path(root) / "demo" / "a2ui.sock"))
+
+        asyncio.run(scenario())
+
+    def test_close_after_bind_failure_is_idempotent(self) -> None:
+        async def scenario() -> None:
+            with tempfile.TemporaryDirectory() as root:
+                transport = UnixSocketServerTransport("demo", runtime_dir=root)
+                with patch("omochi_ui.unix_server.asyncio.start_unix_server", side_effect=OSError("bind failed")):
+                    with self.assertRaisesRegex(OSError, "bind failed"):
+                        await transport.start()
+                await transport.close()
+                await transport.close()
+                await transport.start()
+                self.assertIsNone(transport._server)
+                self.assertFalse((Path(root) / "demo").exists())
+
+        asyncio.run(scenario())
+
+    def test_cancelled_close_still_releases_receive_and_retracts_the_service(self) -> None:
+        async def scenario() -> None:
+            with tempfile.TemporaryDirectory() as root:
+                transport = UnixSocketServerTransport("demo", runtime_dir=root)
+                await transport.start()
+                server = transport._server
+                assert server is not None
+                waiting_for_message = asyncio.Event()
+                waiting_for_close = asyncio.Event()
+                queue_get = transport._queue.get
+
+                async def get_message():
+                    waiting_for_message.set()
+                    return await queue_get()
+
+                async def wait_closed() -> None:
+                    waiting_for_close.set()
+                    await asyncio.Event().wait()
+
+                with patch.object(transport._queue, "get", get_message):
+                    receiving = asyncio.create_task(anext(transport.receive()))
+                    await asyncio.wait_for(waiting_for_message.wait(), timeout=5)
+                    with patch.object(server, "wait_closed", wait_closed):
+                        closing = asyncio.create_task(transport.close())
+                        await asyncio.wait_for(waiting_for_close.wait(), timeout=5)
+                        closing.cancel()
+                        with self.assertRaises(asyncio.CancelledError):
+                            await closing
+                    await transport.close()
+                    with self.assertRaises(StopAsyncIteration):
+                        await asyncio.wait_for(receiving, timeout=5)
+
+                await transport.start()
+                self.assertFalse(server.is_serving())
+                self.assertIsNone(transport._server)
+                self.assertFalse((Path(root) / "demo").exists())
+
+        asyncio.run(scenario())
+
     def test_publishes_and_cleans_up_a_discoverable_service(self) -> None:
         async def scenario() -> None:
             with tempfile.TemporaryDirectory() as root:

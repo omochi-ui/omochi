@@ -162,20 +162,27 @@ class UnixSocketServerTransport(Transport):
     async def close(self) -> None:
         if self._closed:
             return
-        self._closed = True
-        atexit.unregister(self._cleanup_sync)
-        # Retract the advertisement before tearing the socket down.
-        if self._directory is not None:
-            shutil.rmtree(self._directory, ignore_errors=True)
-        for writer in list(self._writers):
-            writer.close()
-        self._writers.clear()
-        if self._server is not None:
-            self._server.close()
-            await self._server.wait_closed()
+        # A bind in progress must finish before its socket and manifest are removed.
+        async with self._start_lock:
+            if self._closed:
+                return
+            self._closed = True
+            atexit.unregister(self._cleanup_sync)
+            # Retract the advertisement before tearing the socket down.
+            if self._directory is not None:
+                shutil.rmtree(self._directory, ignore_errors=True)
+            for writer in list(self._writers):
+                writer.close()
+            self._writers.clear()
+            server = self._server
             self._server = None
-        # Releases a consumer parked on receive().
-        self._queue.put_nowait(None)  # type: ignore[arg-type]
+            try:
+                if server is not None:
+                    server.close()
+                    await server.wait_closed()
+            finally:
+                # Cancellation must also release a consumer parked on receive().
+                self._queue.put_nowait(None)  # type: ignore[arg-type]
 
     @staticmethod
     def _write_manifest(directory: Path, manifest: dict[str, Any]) -> None:
