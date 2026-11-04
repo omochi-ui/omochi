@@ -72,6 +72,14 @@ fn skip_serializing(attrs: &[syn::Attribute]) -> syn::Result<bool> {
     Ok(serde_flag(attrs, "skip")? || serde_flag(attrs, "skip_serializing")?)
 }
 
+fn is_phantom_data(mut ty: &syn::Type) -> bool {
+    // Match Serde's syntactic exclusion when selecting a transparent field.
+    while let syn::Type::Group(group) = ty {
+        ty = &group.elem;
+    }
+    matches!(ty, syn::Type::Path(path) if path.path.segments.last().is_some_and(|segment| segment.ident == "PhantomData"))
+}
+
 /// Types, bounds, and predicates keep referring to the original type in mirrors and helpers.
 struct ResolveSelf(syn::TypePath);
 impl VisitMut for ResolveSelf {
@@ -207,9 +215,14 @@ fn expand(mut input: DeriveInput) -> syn::Result<proc_macro2::TokenStream> {
         let mut stable_position = true;
         for (index, field) in fields.iter_mut().enumerate() {
             let ty = field.ty.clone();
-            if skip {
-                // Keep the variant constructible, without bounds, adapters, or helpers for its payload.
+            let transparent_phantom = transparent && is_phantom_data(&ty);
+            if skip || transparent_phantom {
+                // Ignored payloads stay constructible without bounds, helpers, or projections.
                 field.attrs.retain(|a| a.path().is_ident("serde"));
+                if transparent_phantom && !skip_serializing(&field.attrs)? {
+                    // Input hides PhantomData from Serde's transparent field selection.
+                    field.attrs.push(parse_quote!(#[serde(skip_serializing)]));
+                }
                 field.ty = parse_quote!(::omochi_ui::Input<#ty>);
                 continue;
             }

@@ -85,6 +85,19 @@ pub trait ActionInput: Serialize {
 /// field can be absent, and all following positions depend on its value.
 /// Encoding the generated input and projecting earlier fields remain supported.
 ///
+/// Transparent structs expose only their serialized payload. Serde ignores
+/// `PhantomData` fields in transparent structs, so they have no projection.
+///
+/// ```compile_fail
+/// use omochi_ui::ActionInput;
+/// use serde::Serialize;
+/// use std::marker::PhantomData;
+/// #[derive(Serialize, ActionInput)]
+/// #[serde(transparent)]
+/// struct Identifier<T> { value: String, marker: PhantomData<T> }
+/// let field = Identifier::<u32>::field_marker();
+/// ```
+///
 /// ```compile_fail
 /// use omochi_ui::ActionInput;
 /// use serde::Serialize;

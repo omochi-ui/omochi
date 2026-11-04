@@ -2,6 +2,107 @@
 use omochi_ui::{ActionInput, Field, Input};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use std::marker::PhantomData;
+
+#[derive(Serialize, Deserialize, ActionInput)]
+#[serde(transparent)]
+struct Identifier<T> {
+    value: String,
+    marker: PhantomData<T>,
+}
+
+#[derive(Serialize, Deserialize, ActionInput)]
+#[serde(transparent)]
+struct TupleIdentifier<T>(
+    std::marker::PhantomData<T>,
+    String,
+    #[serde(skip_serializing)] PhantomData<T>,
+);
+
+#[derive(Serialize, ActionInput)]
+struct OrdinaryMarker<T> {
+    marker: PhantomData<T>,
+}
+
+// The marker's type parameter must not acquire serialization bounds.
+struct Marker;
+
+#[test]
+fn transparent_phantom_fields_preserve_serde_serialization_and_payload_projections() {
+    let concrete = Identifier::<Marker> {
+        value: "id".into(),
+        marker: PhantomData,
+    };
+    assert_eq!(
+        IdentifierInput::<Marker> {
+            value: "id".into(),
+            marker: PhantomData.into(),
+        }
+        .encode()
+        .unwrap(),
+        serde_json::to_value(&concrete).unwrap()
+    );
+    let decoded: Identifier<Marker> = serde_json::from_value(json!("id")).unwrap();
+    assert_eq!(decoded.value, "id");
+    assert_eq!(
+        TupleIdentifierInput::<Marker>(PhantomData.into(), "id".into(), PhantomData.into())
+            .encode()
+            .unwrap(),
+        serde_json::to_value(TupleIdentifier::<Marker>(
+            PhantomData,
+            "id".into(),
+            PhantomData
+        ))
+        .unwrap()
+    );
+
+    let mut ui = omochi_ui::Ui::new("main", omochi_ui::STANDARD_CATALOG);
+    let named = ui.local("named", concrete).unwrap();
+    let tuple = ui
+        .local(
+            "tuple",
+            TupleIdentifier::<Marker>(PhantomData, "id".into(), PhantomData),
+        )
+        .unwrap();
+    let value = ui.local("value", "next".to_owned()).unwrap();
+    assert_eq!(
+        IdentifierInput::<Marker> {
+            value: value.value().into(),
+            marker: PhantomData.into(),
+        }
+        .encode()
+        .unwrap(),
+        json!({"path":"/$local/value"})
+    );
+    assert_eq!(
+        omochi_ui::checked_json(named.field(Identifier::field_value()).value()).unwrap(),
+        json!({"path":"/$local/named"})
+    );
+    assert_eq!(
+        omochi_ui::checked_json(tuple.field(TupleIdentifier::field_1()).value()).unwrap(),
+        json!({"path":"/$local/tuple"})
+    );
+}
+
+#[test]
+fn ordinary_phantom_fields_remain_serializable_and_projectable() {
+    let concrete = OrdinaryMarker::<Marker> {
+        marker: PhantomData,
+    };
+    let encoded = OrdinaryMarkerInput::<Marker> {
+        marker: PhantomData.into(),
+    }
+    .encode()
+    .unwrap();
+    assert_eq!(encoded, serde_json::to_value(&concrete).unwrap());
+    assert_eq!(encoded, json!({"marker":null}));
+    let mut ui = omochi_ui::Ui::new("main", omochi_ui::STANDARD_CATALOG);
+    let local = ui.local("ordinary", concrete).unwrap();
+    assert_eq!(
+        omochi_ui::checked_json(local.field(OrdinaryMarker::field_marker()).value()).unwrap(),
+        json!({"path":"/$local/ordinary/marker"})
+    );
+}
 
 #[derive(Serialize, ActionInput)]
 struct Node {
