@@ -109,6 +109,15 @@ to select an available port, `await transport.ready` before reading
 server has no authentication or TLS; keep the loopback default unless external
 exposure is explicitly intended.
 
+WebSocket handshakes and HTTP resource requests share an Origin policy: only
+HTTP(S) origins on `localhost`, `127.0.0.1`, or `[::1]` (with an optional port)
+are accepted. External, malformed, empty, and `null` origins are rejected with
+HTTP 403 before the WebSocket opens, so they cannot read snapshots or resources
+or invoke actions. Non-browser clients may omit Origin. Requests marked
+`Sec-Fetch-Site: cross-site` are rejected even without Origin. Changing `host`
+does not widen this policy; use the hub's explicit origin configuration for
+external browser access.
+
 ## Rust
 
 The crate is named `omochi-ui` and imported as `omochi_ui`. Typed application
@@ -250,9 +259,14 @@ would wait on that same action.
 
 ## Renderer-local inputs
 
-Bind editable components to a `Local` returned by `ui.local()`. `Local.value()`
-builds an Action input expression; the renderer resolves it when the user invokes
-the action, so the Runtime receives concrete JSON and never stores the draft.
+Bind editable components to a field of the `Local` returned by `ui.local()`, as in
+the examples above. `bind()` and `value()` take no pointer argument: select the
+field first, then call `.bind()` or `.value()`. Calling `.value()` on the form
+itself references the whole form. Python also accepts `form.temperature` directly
+as `bind=` and `input=form` for the whole form.
+The renderer resolves input expressions when the user invokes the action, so the
+Runtime receives concrete JSON and never stores the draft.
+See [browser-owned input](../../concepts/inputs/) for each SDK's field syntax.
 
 ## Transports
 
@@ -276,6 +290,11 @@ is rendered.
 
 TypeScript, Python, and Rust each export a `UnixSocketServerTransport` that hosts
 one application on a discoverable unix domain socket; see [Discovery and dashboards](../dashboards/).
+Concurrent publishers with the same service id are rejected. All SDKs sharing a
+runtime directory should be upgraded together to use the same lifetime lock.
+TypeScript Unix discovery requires the bundled native optional dependency for
+Linux or macOS (x64/arm64); keep optional dependencies enabled when installing.
+Its other transports do not load this native binding.
 
 The A2UI wire format has no omochi-ui session envelope. A `Transport` still hosts
 exactly one application, and session membership stays outside the messages: the

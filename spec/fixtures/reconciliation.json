@@ -1,0 +1,102 @@
+{
+  "name": "JSON type and local reset key reconciliation",
+  "localResetCases": [
+    {
+      "name": "omitted to null",
+      "before": {"initial": "old"},
+      "after": {"initial": "new", "resetKey": null},
+      "expectedMessages": [
+        {"version": "v0.9", "updateDataModel": {"surfaceId": "main", "path": "/$local/form", "value": "new"}}
+      ]
+    },
+    {
+      "name": "null to omitted",
+      "before": {"initial": "old", "resetKey": null},
+      "after": {"initial": "new"},
+      "expectedMessages": [
+        {"version": "v0.9", "updateDataModel": {"surfaceId": "main", "path": "/$local/form", "value": "new"}}
+      ]
+    },
+    {
+      "name": "unchanged null",
+      "before": {"initial": "old", "resetKey": null},
+      "after": {"initial": "new", "resetKey": null},
+      "expectedMessages": []
+    },
+    {
+      "name": "unchanged omitted",
+      "before": {"initial": "old"},
+      "after": {"initial": "new"},
+      "expectedMessages": []
+    }
+  ],
+  "cases": [
+    {
+      "name": "false to zero",
+      "before": false,
+      "after": 0,
+      "expectedMessages": [
+        {"version": "v0.9", "updateComponents": {"surfaceId": "main", "components": [{"id": "root", "component": "Button", "action": {"event": {"name": "set", "context": {"input": 0}}}, "child": "label"}]}},
+        {"version": "v0.9", "updateDataModel": {"surfaceId": "main", "path": "/value", "value": 0}},
+        {"version": "v0.9", "updateDataModel": {"surfaceId": "main", "path": "/$local/form", "value": {"draft": 0}}}
+      ]
+    },
+    {
+      "name": "zero to false",
+      "before": 0,
+      "after": false,
+      "expectedMessages": [
+        {"version": "v0.9", "updateComponents": {"surfaceId": "main", "components": [{"id": "root", "component": "Button", "action": {"event": {"name": "set", "context": {"input": false}}}, "child": "label"}]}},
+        {"version": "v0.9", "updateDataModel": {"surfaceId": "main", "path": "/value", "value": false}},
+        {"version": "v0.9", "updateDataModel": {"surfaceId": "main", "path": "/$local/form", "value": {"draft": false}}}
+      ]
+    },
+    {
+      "name": "true to one",
+      "before": true,
+      "after": 1,
+      "expectedMessages": [
+        {"version": "v0.9", "updateComponents": {"surfaceId": "main", "components": [{"id": "root", "component": "Button", "action": {"event": {"name": "set", "context": {"input": 1}}}, "child": "label"}]}},
+        {"version": "v0.9", "updateDataModel": {"surfaceId": "main", "path": "/value", "value": 1}},
+        {"version": "v0.9", "updateDataModel": {"surfaceId": "main", "path": "/$local/form", "value": {"draft": 1}}}
+      ]
+    },
+    {
+      "name": "one to true",
+      "before": 1,
+      "after": true,
+      "expectedMessages": [
+        {"version": "v0.9", "updateComponents": {"surfaceId": "main", "components": [{"id": "root", "component": "Button", "action": {"event": {"name": "set", "context": {"input": true}}}, "child": "label"}]}},
+        {"version": "v0.9", "updateDataModel": {"surfaceId": "main", "path": "/value", "value": true}},
+        {"version": "v0.9", "updateDataModel": {"surfaceId": "main", "path": "/$local/form", "value": {"draft": true}}}
+      ]
+    },
+    {
+      "name": "boolean inside object and array",
+      "before": {"nested": [{"flag": false}]},
+      "after": {"nested": [{"flag": 0}]},
+      "expectedMessages": [
+        {"version": "v0.9", "updateComponents": {"surfaceId": "main", "components": [{"id": "root", "component": "Button", "action": {"event": {"name": "set", "context": {"input": {"nested": [{"flag": 0}]}}}}, "child": "label"}]}},
+        {"version": "v0.9", "updateDataModel": {"surfaceId": "main", "path": "/value/nested", "value": [{"flag": 0}]}},
+        {"version": "v0.9", "updateDataModel": {"surfaceId": "main", "path": "/$local/form", "value": {"draft": {"nested": [{"flag": 0}]}}}}
+      ]
+    },
+    {
+      "name": "number inside array and object",
+      "before": [{"nested": [1]}],
+      "after": [{"nested": [true]}],
+      "expectedMessages": [
+        {"version": "v0.9", "updateComponents": {"surfaceId": "main", "components": [{"id": "root", "component": "Button", "action": {"event": {"name": "set", "context": {"input": [{"nested": [true]}]}}}, "child": "label"}]}},
+        {"version": "v0.9", "updateDataModel": {"surfaceId": "main", "path": "/value", "value": [{"nested": [true]}]}},
+        {"version": "v0.9", "updateDataModel": {"surfaceId": "main", "path": "/$local/form", "value": {"draft": [{"nested": [true]}]}}}
+      ]
+    },
+    {
+      "name": "unchanged nested values",
+      "before": {"nested": [null, false, 0, true, 1, "1"]},
+      "after": {"nested": [null, false, 0, true, 1, "1"]},
+      "expectedMessages": [
+      ]
+    }
+  ]
+}

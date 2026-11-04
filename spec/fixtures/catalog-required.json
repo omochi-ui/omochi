@@ -1,0 +1,52 @@
+{
+  "catalogId": "urn:test:catalog-required",
+  "title": "Required Catalog",
+  "$defs": {
+    "Optional": {
+      "type": "object",
+      "properties": {"optional": {"type": "string"}}
+    },
+    "Partial": {
+      "type": "object",
+      "properties": {"label": {"type": "string"}, "count": {"type": "number"}},
+      "required": ["label"]
+    },
+    "Full": {
+      "type": "object",
+      "properties": {"enabled": {"type": "boolean"}, "count": {"type": "number"}},
+      "required": ["enabled", "count"]
+    }
+  },
+  "components": {
+    "Record": {
+      "type": "object",
+      "properties": {
+        "value": {"$ref": "#/$defs/Optional"},
+        "emptyRequired": {"$ref": "#/$defs/Optional", "required": []},
+        "partial": {"$ref": "#/$defs/Partial"},
+        "full": {"$ref": "#/$defs/Full"},
+        "nested": {
+          "type": "object",
+          "properties": {
+            "value": {"$ref": "#/$defs/Optional"},
+            "details": {"$ref": "#/$defs/Partial"}
+          },
+          "required": ["value"]
+        },
+        "items": {"type": "array", "items": {"$ref": "#/$defs/Partial"}},
+        "optionalItems": {"type": "array", "items": {"$ref": "#/$defs/Optional"}},
+        "intersection": {"allOf": [{"$ref": "#/$defs/Partial"}, {"$ref": "#/$defs/Optional"}]},
+        "any": {"anyOf": [{"$ref": "#/$defs/Partial"}, {"type": "boolean"}]},
+        "one": {"oneOf": [{"$ref": "#/$defs/Full"}, {"type": "string"}]},
+        "composedItems": {
+          "type": "array",
+          "items": {"anyOf": [
+            {"allOf": [{"$ref": "#/$defs/Partial"}, {"$ref": "#/$defs/Optional"}]},
+            {"type": "boolean"}
+          ]}
+        }
+      },
+      "required": ["value", "emptyRequired", "partial", "full", "nested", "items", "optionalItems", "intersection", "any", "one", "composedItems"]
+    }
+  }
+}

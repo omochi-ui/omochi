@@ -273,6 +273,842 @@ service = "worker"
 #[rustfmt::skip]
 mod generated_catalog;
 
+#[allow(dead_code, unused_imports)]
+#[path = "fixtures/catalog-enums/expected.rs"]
+#[rustfmt::skip]
+mod generated_scalar_catalog;
+
+#[allow(dead_code, unused_imports)]
+#[path = "fixtures/catalog-enum-names/expected.rs"]
+#[rustfmt::skip]
+mod generated_enum_names;
+
+#[allow(dead_code, unused_imports)]
+#[path = "fixtures/catalog-enum-identifiers/expected.rs"]
+#[rustfmt::skip]
+mod generated_enum_identifiers;
+
+#[allow(dead_code, unused_imports)]
+#[path = "fixtures/catalog-property-names/expected.rs"]
+#[rustfmt::skip]
+mod generated_property_names;
+
+#[allow(dead_code, unused_imports)]
+#[path = "fixtures/catalog-component-allof/expected.rs"]
+#[rustfmt::skip]
+mod generated_component_allof;
+
+#[allow(dead_code, unused_imports)]
+#[path = "fixtures/catalog-required-only/expected.rs"]
+#[rustfmt::skip]
+mod generated_required_only;
+
+#[allow(dead_code, unused_imports, non_camel_case_types)]
+#[path = "fixtures/catalog-component-names/expected.rs"]
+#[rustfmt::skip]
+mod generated_component_names;
+
+#[tokio::test]
+async fn catalog_component_names_compile_and_preserve_wire_names() {
+    use generated_component_names::{_BadgeProps, Card2Props, SelfProps, classProps};
+    use omochi_ui::ComponentProps;
+    use serde_json::json;
+
+    let root = tempfile::tempdir().unwrap();
+    let source = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let output = command(root.path())
+        .args(["generate", "catalog", "--catalog"])
+        .arg(source.join("../../spec/fixtures/catalog-component-names.json"))
+        .arg("--rust")
+        .arg(root.path().join("catalog.rs"))
+        .output()
+        .await
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        std::fs::read(root.path().join("catalog.rs")).unwrap(),
+        include_bytes!("fixtures/catalog-component-names/expected.rs")
+    );
+    assert_eq!(
+        json!({
+            Card2Props::NAME: Card2Props { label: "card".into() }.into_props(),
+            SelfProps::NAME: SelfProps { label: "self".into() }.into_props(),
+            _BadgeProps::NAME: _BadgeProps { label: "badge".into() }.into_props(),
+            classProps::NAME: classProps { label: "keyword".into() }.into_props(),
+        }),
+        json!({"Card2": {"label": "card"}, "Self": {"label": "self"}, "_Badge": {"label": "badge"}, "class": {"label": "keyword"}})
+    );
+}
+
+#[tokio::test]
+async fn catalog_required_only_preserves_unconstrained_required_values() {
+    use generated_required_only::{DirectProps, NestedProps, OnlyProps};
+    use omochi_ui::ComponentProps;
+    use serde_json::json;
+
+    let root = tempfile::tempdir().unwrap();
+    let source = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let output = command(root.path())
+        .args(["generate", "catalog", "--catalog"])
+        .arg(source.join("../../spec/fixtures/catalog-required-only.json"))
+        .arg("--rust")
+        .arg(root.path().join("catalog.rs"))
+        .output()
+        .await
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        std::fs::read(root.path().join("catalog.rs")).unwrap(),
+        include_bytes!("fixtures/catalog-required-only/expected.rs")
+    );
+    let direct = DirectProps {
+        label: "label".into(),
+        metadata: json!({"enabled": true}),
+    };
+    let nested = NestedProps {
+        label: "label".into(),
+        note: None,
+        parent_data: json!(null),
+        nested_data: json!([1, "two"]),
+    };
+    let only = OnlyProps {
+        payload: json!(false),
+    };
+    assert_eq!(
+        json!([direct.into_props(), nested.into_props(), only.into_props()]),
+        json!([
+            {"label": "label", "metadata": {"enabled": true}},
+            {"label": "label", "parentData": null, "nestedData": [1, "two"]},
+            {"payload": false}
+        ])
+    );
+}
+
+#[allow(dead_code, unused_imports)]
+#[path = "fixtures/catalog-annotation-data/expected.rs"]
+#[rustfmt::skip]
+mod generated_annotation_data;
+
+#[tokio::test]
+async fn catalog_literal_annotation_data_preserves_values_and_compiles() {
+    use generated_annotation_data::AnnotationProps;
+    use omochi_ui::ComponentProps;
+    use serde_json::json;
+
+    let root = tempfile::tempdir().unwrap();
+    let source = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let output = command(root.path())
+        .args(["generate", "catalog", "--catalog"])
+        .arg(source.join("../../spec/fixtures/catalog-annotation-data.json"))
+        .arg("--rust")
+        .arg(root.path().join("catalog.rs"))
+        .output()
+        .await
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        std::fs::read(root.path().join("catalog.rs")).unwrap(),
+        include_bytes!("fixtures/catalog-annotation-data/expected.rs")
+    );
+    let props = AnnotationProps {
+        value: json!({"$ref": "literal.json"}),
+        default: "label".into(),
+        examples: vec!["example".into()],
+    };
+    assert_eq!(
+        json!(props.into_props()),
+        json!({
+            "value": {"$ref": "literal.json"}, "default": "label", "examples": ["example"]
+        })
+    );
+}
+
+#[allow(dead_code, unused_imports)]
+#[path = "fixtures/catalog-reference-documents/expected.rs"]
+#[rustfmt::skip]
+mod generated_reference_documents;
+
+#[tokio::test]
+async fn catalog_same_directory_reference_documents_resolve_and_compile() {
+    use generated_reference_documents::ReferenceProps;
+    use omochi_ui::ComponentProps;
+    use serde_json::json;
+
+    let root = tempfile::tempdir().unwrap();
+    let source = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let output = command(root.path())
+        .args(["generate", "catalog", "--catalog"])
+        .arg(source.join("../../spec/fixtures/catalog-reference-documents.json"))
+        .arg("--rust")
+        .arg(root.path().join("catalog.rs"))
+        .output()
+        .await
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        std::fs::read(root.path().join("catalog.rs")).unwrap(),
+        include_bytes!("fixtures/catalog-reference-documents/expected.rs")
+    );
+    let props = ReferenceProps {
+        value: "label".into(),
+    };
+    assert_eq!(json!(props.into_props()), json!({"value": "label"}));
+}
+
+#[allow(dead_code, unused_imports)]
+#[path = "fixtures/catalog-ref-siblings/expected.rs"]
+#[rustfmt::skip]
+mod generated_ref_siblings;
+
+#[tokio::test]
+async fn catalog_ref_siblings_preserve_values_and_compile() {
+    use generated_ref_siblings::RefProps;
+    use omochi_ui::ComponentProps;
+    use serde_json::json;
+
+    let root = tempfile::tempdir().unwrap();
+    let source = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let output = command(root.path())
+        .args(["generate", "catalog", "--catalog"])
+        .arg(source.join("../../spec/fixtures/catalog-ref-siblings.json"))
+        .arg("--rust")
+        .arg(root.path().join("catalog.rs"))
+        .output()
+        .await
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        std::fs::read(root.path().join("catalog.rs")).unwrap(),
+        include_bytes!("fixtures/catalog-ref-siblings/expected.rs")
+    );
+    let props = RefProps {
+        choice: json!("b"),
+        reverse: json!("b"),
+        annotated: "label".into(),
+        details: json!({"label": "label", "count": 2, "enabled": true}),
+        required_only: json!({"label": "label", "count": 2}),
+        array: json!(["b"]),
+        array_type: json!(["label"]),
+        object_type: json!({"label": "label"}),
+        typed: json!("b"),
+        union: json!("label"),
+        combined: json!("b"),
+        required_in_all_of: json!({"label": "label", "count": 2}),
+    };
+    assert_eq!(
+        json!(props.into_props()),
+        json!({
+            "choice": "b", "reverse": "b", "annotated": "label",
+            "details": {"label": "label", "count": 2, "enabled": true},
+            "requiredOnly": {"label": "label", "count": 2}, "array": ["b"],
+            "arrayType": ["label"], "objectType": {"label": "label"}, "typed": "b", "union": "label",
+            "combined": "b", "requiredInAllOf": {"label": "label", "count": 2}
+        })
+    );
+}
+
+#[allow(dead_code, unused_imports)]
+#[path = "fixtures/catalog-adjacent-constraints/expected.rs"]
+#[rustfmt::skip]
+mod generated_adjacent_constraints;
+
+#[tokio::test]
+async fn catalog_adjacent_constraints_preserve_values_and_compile() {
+    use generated_adjacent_constraints::{AdjacentChoice, AdjacentProps};
+    use omochi_ui::ComponentProps;
+    use serde_json::json;
+
+    let root = tempfile::tempdir().unwrap();
+    let source = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let output = command(root.path())
+        .args(["generate", "catalog", "--catalog"])
+        .arg(source.join("../../spec/fixtures/catalog-adjacent-constraints.json"))
+        .arg("--rust")
+        .arg(root.path().join("catalog.rs"))
+        .output()
+        .await
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        std::fs::read(root.path().join("catalog.rs")).unwrap(),
+        include_bytes!("fixtures/catalog-adjacent-constraints/expected.rs")
+    );
+    let props = AdjacentProps {
+        choice: AdjacentChoice::Allowed,
+        details: json!({"label": "label", "count": 2}),
+        typed: json!("allowed"),
+        both: json!("label"),
+        items: vec![json!("allowed")],
+        objects: vec![json!({"label": "label", "count": 2})],
+        array: json!(["allowed"]),
+    };
+    assert_eq!(
+        json!(props.into_props()),
+        json!({
+            "choice": "allowed", "details": {"label": "label", "count": 2}, "typed": "allowed", "both": "label",
+            "items": ["allowed"], "objects": [{"label": "label", "count": 2}], "array": ["allowed"]
+        })
+    );
+}
+
+#[path = "fixtures/catalog-overlapping-properties/expected.rs"]
+#[rustfmt::skip]
+mod generated_overlapping_properties;
+
+#[tokio::test]
+async fn catalog_overlapping_properties_preserves_composed_values_in_every_order() {
+    use generated_overlapping_properties::*;
+    use omochi_ui::ComponentProps;
+    use serde_json::json;
+
+    let root = tempfile::tempdir().unwrap();
+    let source = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let output = command(root.path())
+        .args(["generate", "catalog", "--catalog"])
+        .arg(source.join("../../spec/fixtures/catalog-overlapping-properties.json"))
+        .arg("--rust")
+        .arg(root.path().join("catalog.rs"))
+        .output()
+        .await
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    // This compiled fixture must remain the exact current CLI output.
+    assert_eq!(
+        std::fs::read(root.path().join("catalog.rs")).unwrap(),
+        include_bytes!("fixtures/catalog-overlapping-properties/expected.rs")
+    );
+    let details = json!({"label": "label", "enabled": true, "count": 2});
+    for props in [
+        ForwardProps {
+            value: json!("b"),
+            details: details.clone(),
+            same: None,
+        }
+        .into_props(),
+        ReverseProps {
+            value: json!("b"),
+            details: details.clone(),
+            same: None,
+        }
+        .into_props(),
+        ParentProps {
+            value: json!("b"),
+            details: details.clone(),
+            same: None,
+        }
+        .into_props(),
+        ParentReverseProps {
+            value: json!("b"),
+            details: details.clone(),
+            same: None,
+        }
+        .into_props(),
+    ] {
+        assert_eq!(json!(props), json!({"value": "b", "details": details}));
+    }
+    // Equal repeated schemas keep their precise original type.
+    let same = ForwardProps {
+        value: json!("b"),
+        details,
+        same: Some("same".to_owned()),
+    };
+    assert_eq!(same.into_props()["same"], "same");
+}
+
+#[tokio::test]
+async fn catalog_component_allof_preserves_parent_and_nested_properties() {
+    use generated_component_allof::{EmptyProps, NestedProps, SiblingProps};
+    use omochi_ui::ComponentProps;
+    use serde_json::json;
+
+    let root = tempfile::tempdir().unwrap();
+    let source = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let output = command(root.path())
+        .args(["generate", "catalog", "--catalog"])
+        .arg(source.join("../../spec/fixtures/catalog-component-allof.json"))
+        .arg("--rust")
+        .arg(root.path().join("catalog.rs"))
+        .output()
+        .await
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    // Compile the exact current CLI output, then exercise its public conversion.
+    assert_eq!(
+        std::fs::read(root.path().join("catalog.rs")).unwrap(),
+        include_bytes!("fixtures/catalog-component-allof/expected.rs")
+    );
+    let sibling = SiblingProps {
+        label: "label".into(),
+        count: 2.0,
+        note: None,
+    };
+    let nested = NestedProps {
+        label: "label".into(),
+        count: 2.0,
+        is_valid: true,
+        note: None,
+        accessibility: None,
+        checks: None,
+        validation_errors: None,
+    };
+    assert_eq!(
+        json!(sibling.into_props()),
+        json!({"label": "label", "count": 2.0})
+    );
+    assert_eq!(
+        json!(nested.clone().into_props()),
+        json!({"label": "label", "count": 2.0, "isValid": true})
+    );
+    assert_eq!(
+        json!(
+            EmptyProps {
+                label: "label".into()
+            }
+            .into_props()
+        ),
+        json!({"label": "label"})
+    );
+    assert_eq!(
+        json!(
+            NestedProps {
+                note: Some("note".into()),
+                accessibility: Some(json!({"label": "accessible"})),
+                checks: Some(vec![]),
+                validation_errors: Some(vec!["error".into()]),
+                ..nested
+            }
+            .into_props()
+        ),
+        json!({
+            "label": "label", "count": 2.0, "isValid": true, "note": "note",
+            "accessibility": {"label": "accessible"}, "checks": [], "validationErrors": ["error"]
+        })
+    );
+}
+
+#[allow(dead_code, unused_imports)]
+#[path = "fixtures/catalog-builder-key/expected.rs"]
+#[rustfmt::skip]
+mod generated_builder_key;
+
+#[tokio::test]
+async fn catalog_rust_preserves_builder_reserved_key_through_ui() {
+    use generated_builder_key::{OptionalProps, RequiredOnlyProps, ShortcutProps};
+    use omochi_ui::Ui;
+    use serde_json::json;
+
+    let root = tempfile::tempdir().unwrap();
+    let source = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let output = command(root.path())
+        .args(["generate", "catalog", "--catalog"])
+        .arg(source.join("../../spec/fixtures/catalog-builder-key.json"))
+        .arg("--rust")
+        .arg(root.path().join("catalog.rs"))
+        .output()
+        .await
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        std::fs::read(root.path().join("catalog.rs")).unwrap(),
+        include_bytes!("fixtures/catalog-builder-key/expected.rs")
+    );
+    let mut ui = Ui::new("main", generated_builder_key::CATALOG_ID);
+    ui.component(
+        "shortcut",
+        ShortcutProps {
+            key: "Enter".into(),
+        },
+    )
+    .unwrap();
+    ui.component("optional", OptionalProps { key: None })
+        .unwrap();
+    ui.component(
+        "supplied",
+        OptionalProps {
+            key: Some("Escape".into()),
+        },
+    )
+    .unwrap();
+    ui.component(
+        "required",
+        RequiredOnlyProps {
+            key: json!({"arbitrary": true}),
+        },
+    )
+    .unwrap();
+    assert_eq!(
+        json!(ui.build().root.slots[0].nodes),
+        json!([
+            {"component": "Shortcut", "key": "shortcut", "props": {"key": "Enter"}},
+            {"component": "Optional", "key": "optional", "props": {}},
+            {"component": "Optional", "key": "supplied", "props": {"key": "Escape"}},
+            {"component": "RequiredOnly", "key": "required", "props": {"key": {"arbitrary": true}}},
+        ])
+    );
+}
+
+#[allow(dead_code, unused_imports)]
+#[path = "fixtures/catalog-nested-key/expected.rs"]
+#[rustfmt::skip]
+mod generated_nested_key;
+
+#[tokio::test]
+async fn catalog_rust_preserves_nested_key_through_ui() {
+    use omochi_ui::Ui;
+    use serde_json::json;
+
+    let root = tempfile::tempdir().unwrap();
+    let source = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let output = command(root.path())
+        .args(["generate", "catalog", "--catalog"])
+        .arg(source.join("../../spec/fixtures/catalog-nested-key.json"))
+        .arg("--rust")
+        .arg(root.path().join("catalog.rs"))
+        .output()
+        .await
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        std::fs::read(root.path().join("catalog.rs")).unwrap(),
+        include_bytes!("fixtures/catalog-nested-key/expected.rs")
+    );
+    let mut ui = Ui::new("main", generated_nested_key::CATALOG_ID);
+    ui.component(
+        "shortcut",
+        generated_nested_key::ShortcutProps {
+            details: json!({"key": "Enter"}),
+        },
+    )
+    .unwrap();
+    assert_eq!(
+        json!(ui.build().root.slots[0].nodes),
+        json!([{"component": "Shortcut", "key": "shortcut", "props": {"details": {"key": "Enter"}}}])
+    );
+}
+
+#[tokio::test]
+async fn catalog_rust_fields_serialize_with_the_original_property_names() {
+    use generated_property_names::NamedProps;
+    use omochi_ui::ComponentProps;
+    use serde_json::json;
+
+    let root = tempfile::tempdir().unwrap();
+    let source = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let schema: serde_json::Value = serde_json::from_slice(include_bytes!(
+        "../../../spec/fixtures/catalog-property-names.json"
+    ))
+    .unwrap();
+    let output = command(root.path())
+        .args(["generate", "catalog", "--catalog"])
+        .arg(source.join("../../spec/fixtures/catalog-property-names.json"))
+        .arg("--rust")
+        .arg(root.path().join("catalog.rs"))
+        .output()
+        .await
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    // Compile the exact current CLI output, then check its public conversion.
+    assert_eq!(
+        std::fs::read(root.path().join("catalog.rs")).unwrap(),
+        include_bytes!("fixtures/catalog-property-names/expected.rs")
+    );
+    let props = NamedProps {
+        source_url: "source".into(),
+        data_key: "data".into(),
+        r#type: "type".into(),
+        r#match: "match".into(),
+        self_: "self".into(),
+        crate_: "crate".into(),
+        super_: "super".into(),
+        r#gen: "gen".into(),
+        optional_url: None,
+    };
+    let expected = json!({
+        "sourceURL": "source", "data_key": "data", "type": "type", "match": "match",
+        "self": "self", "crate": "crate", "super": "super", "gen": "gen"
+    });
+    assert_eq!(json!(props.clone().into_props()), expected);
+    for key in schema["components"]["Named"]["required"]
+        .as_array()
+        .unwrap()
+    {
+        assert!(expected.get(key.as_str().unwrap()).is_some());
+    }
+    let mut expected_optional = expected.as_object().unwrap().clone();
+    expected_optional.insert("optionalURL".into(), json!("optional"));
+    assert_eq!(
+        NamedProps {
+            optional_url: Some("optional".into()),
+            ..props
+        }
+        .into_props(),
+        expected_optional
+    );
+}
+
+#[tokio::test]
+async fn catalog_enum_identifiers_compile_and_preserve_punctuation_and_collisions() {
+    use generated_enum_identifiers::*;
+    use omochi_ui::ComponentProps;
+    use serde_json::json;
+
+    let root = tempfile::tempdir().unwrap();
+    let source = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let output = command(root.path())
+        .args(["generate", "catalog", "--catalog"])
+        .arg(source.join("../../spec/fixtures/catalog-enum-identifiers.json"))
+        .arg("--rust")
+        .arg(root.path().join("catalog.rs"))
+        .output()
+        .await
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        std::fs::read(root.path().join("catalog.rs")).unwrap(),
+        include_bytes!("fixtures/catalog-enum-identifiers/expected.rs")
+    );
+
+    for (mode_, expected) in [(PanelMode3::A, "a!"), (PanelMode3::B, "b?")] {
+        assert_eq!(
+            json!(
+                PanelProps {
+                    mode: PanelMode::Plain,
+                    mode_,
+                    mode2: PanelMode2::Compact,
+                    tone_: PanelTone::Warm,
+                }
+                .into_props()
+            ),
+            json!({"mode": "plain", "mode!": expected, "mode2": "compact", "tone?": "warm"})
+        );
+    }
+    assert_eq!(
+        json!(SelfProps { _1: SelfValue::One }.into_props()),
+        json!({"_1": "one"})
+    );
+    assert_eq!(
+        json!(
+            _1Props {
+                _2: Value2::Number,
+                _3type: Type::Keyword,
+                self_: SelfValue2::Reserved,
+            }
+            .into_props()
+        ),
+        json!({"_2": "number", "_3type": "keyword", "self": "reserved"})
+    );
+}
+
+#[tokio::test]
+async fn catalog_enum_type_names_compile_without_collisions_and_preserve_wire_values() {
+    use generated_enum_names::*;
+    use omochi_ui::ComponentProps;
+    use serde_json::json;
+
+    let root = tempfile::tempdir().unwrap();
+    let source = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let output = command(root.path())
+        .args(["generate", "catalog", "--catalog"])
+        .arg(source.join("../../spec/fixtures/catalog-enum-names.json"))
+        .arg("--rust")
+        .arg(root.path().join("catalog.rs"))
+        .output()
+        .await
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        std::fs::read(root.path().join("catalog.rs")).unwrap(),
+        include_bytes!("fixtures/catalog-enum-names/expected.rs")
+    );
+
+    for (props, expected) in [
+        (
+            PanelProps {
+                props: PanelProps3::Primary,
+                props2: PanelProps2::Compact,
+                tone_props: PanelToneProps2::Warm,
+            },
+            json!({"props": "primary", "props2": "compact", "toneProps": "warm"}),
+        ),
+        (
+            PanelProps {
+                props: PanelProps3::Secondary,
+                props2: PanelProps2::Expanded,
+                tone_props: PanelToneProps2::Cool,
+            },
+            json!({"props": "secondary", "props2": "expanded", "toneProps": "cool"}),
+        ),
+    ] {
+        assert_eq!(json!(props.into_props()), expected);
+    }
+    assert_eq!(json!(PanelToneProps {}.into_props()), json!({}));
+    for (tone_size, expected) in [
+        (CardToneSize::Large, "large"),
+        (CardToneSize::Small, "small"),
+    ] {
+        assert_eq!(
+            json!(CardProps { tone_size }.into_props()),
+            json!({"toneSize": expected})
+        );
+    }
+    for (size, expected) in [
+        (CardToneSize2::Wide, "wide"),
+        (CardToneSize2::Narrow, "narrow"),
+    ] {
+        assert_eq!(
+            json!(CardToneProps { size }.into_props()),
+            json!({"size": expected})
+        );
+    }
+    for (object, expected) in [
+        (JsonObject2::Literal, "literal"),
+        (JsonObject2::Bound, "bound"),
+    ] {
+        assert_eq!(
+            json!(JsonProps { object }.into_props()),
+            json!({"object": expected})
+        );
+    }
+}
+
+#[tokio::test]
+async fn catalog_scalar_enums_compile_and_serialize_with_their_json_types() {
+    use generated_scalar_catalog::{ScalarProps, ScalarTone};
+    use omochi_ui::ComponentProps;
+    use serde_json::json;
+
+    let root = tempfile::tempdir().unwrap();
+    let source = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let output = command(root.path())
+        .args(["generate", "catalog", "--catalog"])
+        .arg(source.join("../../spec/fixtures/catalog-enums.json"))
+        .arg("--rust")
+        .arg(root.path().join("catalog.rs"))
+        .output()
+        .await
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    // The compiled module must be exactly what the current CLI generates.
+    assert_eq!(
+        std::fs::read(root.path().join("catalog.rs")).unwrap(),
+        include_bytes!("fixtures/catalog-enums/expected.rs")
+    );
+
+    for (tone, raw) in [
+        (ScalarTone::Info, "info"),
+        (ScalarTone::FooBar, "foo-bar"),
+        (ScalarTone::FooBar2, "fooBar"),
+        (ScalarTone::Value, "1"),
+        (ScalarTone::Value2, "2"),
+        (ScalarTone::SelfValue, "self"),
+        (ScalarTone::X, "x-"),
+        (ScalarTone::Value3, "\u{1}"),
+    ] {
+        assert_eq!(serde_json::to_value(tone).unwrap(), json!(raw));
+    }
+    for mixed in [
+        json!(true),
+        json!(false),
+        json!(1),
+        json!(2),
+        json!(null),
+        json!("true"),
+        json!(1.5),
+    ] {
+        for enabled in [true, false] {
+            for count in [1, 2] {
+                let props = ScalarProps {
+                    enabled,
+                    count: count.into(),
+                    ratio: serde_json::Number::from_f64(1.5).unwrap(),
+                    empty: (),
+                    mixed: mixed.clone(),
+                    tone: ScalarTone::Info,
+                    flags: vec![true, false],
+                    counts: vec![vec![1.into(), 2.into()]],
+                    choices: vec![json!(true), json!(false), json!(1), json!(2)],
+                    nullable: json!(null),
+                    optional: None,
+                };
+                assert_eq!(
+                    json!(props.clone().into_props()),
+                    json!({
+                        "enabled": enabled, "count": count, "ratio": 1.5, "empty": null,
+                        "mixed": mixed, "tone": "info", "flags": [true, false],
+                        "counts": [[1, 2]], "choices": [true, false, 1, 2], "nullable": null
+                    })
+                );
+                assert_eq!(
+                    json!(
+                        ScalarProps {
+                            optional: Some(false),
+                            ..props
+                        }
+                        .into_props()
+                    )["optional"],
+                    json!(false)
+                );
+            }
+        }
+    }
+}
+
 #[tokio::test]
 async fn catalog_generation_runs_without_bun_or_state_and_check_detects_stale_output() {
     let root = tempfile::tempdir().unwrap();

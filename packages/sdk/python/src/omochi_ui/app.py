@@ -269,6 +269,19 @@ class Runtime(Generic[StateType, UIType]):
         if message.get("type") == "invoke":
             if not isinstance(message.get("action"), str): raise ProtocolError("invoke must contain string action")
             return await self.invoke(message["action"], message.get("input"))
+        if "error" in message:
+            error = message["error"]
+            valid = (
+                message.get("version") == "v0.9" and "action" not in message
+                and isinstance(error, dict) and "code" in error
+                and isinstance(error.get("surfaceId"), str)
+                and isinstance(error.get("message"), str)
+            )
+            if valid and error["code"] == "VALIDATION_FAILED":
+                valid = isinstance(error.get("path"), str) and set(error) == {"code", "surfaceId", "path", "message"}
+            if not valid: raise ProtocolError("invalid client error report")
+            # Client reports describe renderer failures; they do not invoke an action.
+            return []
         payload = message.get("action", message)
         name = payload.get("name") if isinstance(payload, dict) else None
         if not isinstance(name, str): raise ProtocolError("action must contain string name")

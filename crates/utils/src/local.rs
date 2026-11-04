@@ -7,7 +7,7 @@ use omochi_ui::{A2uiSnapshot, UnixSocketServerOptions};
 use serde_json::Value;
 use std::{
     fs,
-    os::unix::fs::{FileTypeExt, MetadataExt, PermissionsExt},
+    os::unix::fs::{FileTypeExt, MetadataExt, OpenOptionsExt, PermissionsExt},
     path::{Path, PathBuf},
     sync::Arc,
     time::Duration,
@@ -25,6 +25,29 @@ use tokio_util::{
 struct State {
     snapshot: A2uiSnapshot,
     events: fanout::Sender,
+}
+struct ServiceLock(fs::File);
+impl ServiceLock {
+    fn acquire(root: &Path, service_id: &str) -> Result<Self> {
+        let file = fs::OpenOptions::new()
+            .create(true)
+            .truncate(false)
+            .read(true)
+            .write(true)
+            .mode(0o600)
+            .open(root.join(format!(".{service_id}.lock~")))?;
+        file.try_lock_exclusive()
+            .context("another omochi service owns this service id")?;
+        Ok(Self(file))
+    }
+}
+impl Drop for ServiceLock {
+    fn drop(&mut self) {
+        // A concurrent fork can inherit this open file description until exec,
+        // even with CLOEXEC. Closing our fd alone would leave its flock held.
+        // Release explicitly after publication cleanup, then close our fd.
+        let _ = FileExt::unlock(&self.0);
+    }
 }
 struct OwnedFiles {
     directory: PathBuf,
@@ -46,6 +69,18 @@ impl Drop for OwnedFiles {
         }
     }
 }
+// Drop in this order even when the supervisor is aborted: stop listening, retract
+// this publication, then release the shared lifetime lock. Never unlink its inode.
+struct Publication {
+    listener: UnixListener,
+    _files: OwnedFiles,
+    _lock: ServiceLock,
+}
+impl Publication {
+    async fn accept(&self) -> std::io::Result<(UnixStream, tokio::net::unix::SocketAddr)> {
+        self.listener.accept().await
+    }
+}
 fn private(path: &Path) -> Result<()> {
     if !path.exists() {
         fs::create_dir_all(path)?;
@@ -62,8 +97,7 @@ pub struct LocalTransport {
     input: mpsc::Receiver<queue::Entry<Value>>,
     stop: CancellationToken,
     task: Option<JoinHandle<()>>,
-    files: Option<OwnedFiles>,
-    _lock: fs::File,
+    socket: PathBuf,
 }
 impl LocalTransport {
     pub async fn bind(options: UnixSocketServerOptions) -> Result<Self> {
@@ -74,14 +108,7 @@ impl LocalTransport {
             .runtime_dir
             .unwrap_or_else(omochi_ui::omochi_runtime_root);
         private(&root)?;
-        let lock = fs::OpenOptions::new()
-            .create(true)
-            .truncate(false)
-            .read(true)
-            .write(true)
-            .open(root.join(format!(".utils-{}.lock", options.service_id)))?;
-        lock.try_lock_exclusive()
-            .context("another utility owns this service id")?;
+        let lock = ServiceLock::acquire(&root, &options.service_id)?;
         let directory = root.join(&options.service_id);
         private(&directory)?;
         let socket = directory.join("a2ui.sock");
@@ -127,6 +154,11 @@ impl LocalTransport {
         let stop = CancellationToken::new();
         let shared = state.clone();
         let cancellation = stop.clone();
+        let publication = Publication {
+            listener,
+            _files: files,
+            _lock: lock,
+        };
         let task = tokio::spawn(async move {
             let clients = Arc::new(Semaphore::new(16));
             let mut tasks = JoinSet::new();
@@ -134,7 +166,7 @@ impl LocalTransport {
                 tokio::select! {
                     _ = cancellation.cancelled() => break,
                     _ = tasks.join_next(), if !tasks.is_empty() => {},
-                    result = listener.accept() => {
+                    result = publication.accept() => {
                         let Ok((stream, _)) = result else { break; };
                         let Ok(permit) = clients.clone().try_acquire_owned() else { continue; };
                         let state = shared.clone(); let input = sender.clone(); let stop = cancellation.clone();
@@ -147,18 +179,18 @@ impl LocalTransport {
             }
             tasks.abort_all();
             while tasks.join_next().await.is_some() {}
+            drop(publication);
         });
         Ok(Self {
             state,
             input,
             stop,
             task: Some(task),
-            files: Some(files),
-            _lock: lock,
+            socket,
         })
     }
     pub fn socket_path(&self) -> &Path {
-        &self.files.as_ref().unwrap().socket
+        &self.socket
     }
     pub async fn send(&mut self, message: &Value) -> Result<()> {
         let mut state = self.state.lock().await;
@@ -171,10 +203,11 @@ impl LocalTransport {
     }
     pub async fn close(&mut self) {
         self.stop.cancel();
-        if let Some(task) = self.task.take() {
+        // Keep the handle until completion so cancelling close can be retried.
+        if let Some(task) = self.task.as_mut() {
             let _ = task.await;
         }
-        self.files.take();
+        self.task.take();
         self.input.close();
     }
 }
@@ -229,7 +262,159 @@ async fn connection(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use omochi_ui::UnixSocketServerTransport;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    fn private_root() -> tempfile::TempDir {
+        let root = tempfile::tempdir().unwrap();
+        fs::set_permissions(root.path(), fs::Permissions::from_mode(0o700)).unwrap();
+        root
+    }
+
+    #[test]
+    fn releasing_ownership_does_not_wait_for_inherited_file_descriptions() {
+        let root = private_root();
+        let owner = ServiceLock::acquire(root.path(), "shared").unwrap();
+        // dup and fork both retain the same open file description. Keep that
+        // reference alive deterministically, as a child would before exec closes
+        // its CLOEXEC descriptors, without relying on subprocess scheduling.
+        let inherited = owner.0.try_clone().unwrap();
+        assert!(ServiceLock::acquire(root.path(), "shared").is_err());
+        drop(owner);
+        let successor = ServiceLock::acquire(root.path(), "shared").unwrap();
+        drop(inherited);
+        assert!(ServiceLock::acquire(root.path(), "shared").is_err());
+        drop(successor);
+        ServiceLock::acquire(root.path(), "shared").unwrap();
+    }
+
+    #[tokio::test]
+    async fn sdk_and_utility_share_the_persistent_lock_and_allow_successors_after_close() {
+        let root = private_root();
+        let options = UnixSocketServerOptions::new("shared").with_runtime_dir(root.path());
+        let lock_path = root.path().join(".shared.lock~");
+        let mut utility = LocalTransport::bind(options.clone()).await.unwrap();
+        let lock_metadata = fs::metadata(&lock_path).unwrap();
+        assert_eq!(lock_metadata.mode() & 0o777, 0o600);
+        let inode = (lock_metadata.dev(), lock_metadata.ino());
+        assert!(
+            UnixSocketServerTransport::bind(options.clone())
+                .await
+                .is_err()
+        );
+        assert!(LocalTransport::bind(options.clone()).await.is_err());
+        utility.close().await;
+
+        let mut sdk = UnixSocketServerTransport::bind(options.clone())
+            .await
+            .unwrap();
+        utility.close().await;
+        drop(utility);
+        assert!(LocalTransport::bind(options.clone()).await.is_err());
+        UnixStream::connect(sdk.socket_path()).await.unwrap();
+        assert!(root.path().join("shared/manifest.json").exists());
+        sdk.close().await;
+
+        let mut successor = LocalTransport::bind(options).await.unwrap();
+        drop(sdk);
+        UnixStream::connect(successor.socket_path()).await.unwrap();
+        successor.close().await;
+        let metadata = fs::metadata(lock_path).unwrap();
+        assert_eq!((metadata.dev(), metadata.ino()), inode);
+    }
+
+    #[tokio::test]
+    async fn shared_lock_excludes_sdk_and_utility_before_a_socket_exists() {
+        let root = private_root();
+        let lock = ServiceLock::acquire(root.path(), "shared").unwrap();
+        let options = UnixSocketServerOptions::new("shared").with_runtime_dir(root.path());
+        assert!(LocalTransport::bind(options.clone()).await.is_err());
+        assert!(
+            UnixSocketServerTransport::bind(options.clone())
+                .await
+                .is_err()
+        );
+        assert!(!root.path().join("shared").exists());
+        drop(lock);
+        let mut transport = LocalTransport::bind(options).await.unwrap();
+        transport.close().await;
+    }
+
+    #[tokio::test]
+    async fn cancelled_close_keeps_ownership_until_listener_and_files_are_cleaned() {
+        use std::{future::Future, task::Context};
+        let root = private_root();
+        let options = UnixSocketServerOptions::new("shared").with_runtime_dir(root.path());
+        let mut transport = LocalTransport::bind(options.clone()).await.unwrap();
+        let mut closing = Box::pin(transport.close());
+        assert!(
+            closing
+                .as_mut()
+                .poll(&mut Context::from_waker(std::task::Waker::noop()))
+                .is_pending()
+        );
+        drop(closing);
+        // The current-thread supervisor has not processed cancellation yet.
+        assert!(LocalTransport::bind(options.clone()).await.is_err());
+        assert!(
+            UnixSocketServerTransport::bind(options.clone())
+                .await
+                .is_err()
+        );
+        assert!(root.path().join("shared/manifest.json").exists());
+        transport.close().await;
+        assert!(!root.path().join("shared").exists());
+        let mut successor = LocalTransport::bind(options).await.unwrap();
+        drop(transport);
+        UnixStream::connect(successor.socket_path()).await.unwrap();
+        successor.close().await;
+    }
+
+    #[tokio::test]
+    async fn aborted_supervisor_retracts_publication_before_releasing_ownership() {
+        let root = private_root();
+        let options = UnixSocketServerOptions::new("shared").with_runtime_dir(root.path());
+        let mut transport = LocalTransport::bind(options.clone()).await.unwrap();
+        let task = transport.task.take().unwrap();
+        task.abort();
+        drop(transport);
+        assert!(LocalTransport::bind(options.clone()).await.is_err());
+        assert!(task.await.unwrap_err().is_cancelled());
+        assert!(!root.path().join("shared").exists());
+        let mut successor = UnixSocketServerTransport::bind(options).await.unwrap();
+        successor.close().await;
+    }
+
+    /// Driven by tests/sdk/socket_ownership.py using stdin/stdout barriers.
+    #[tokio::test]
+    #[ignore]
+    async fn ownership_process_fixture() {
+        use std::io::Write;
+        let root = std::env::var("OMOCHI_OWNER_ROOT").expect("fixture runtime root");
+        let announce = |message| {
+            println!("OWNER {message}");
+            std::io::stdout().flush().unwrap();
+        };
+        let command = || {
+            let mut line = String::new();
+            assert_ne!(std::io::stdin().read_line(&mut line).unwrap(), 0);
+        };
+        announce("WAITING");
+        command();
+        let Ok(mut transport) =
+            LocalTransport::bind(UnixSocketServerOptions::new("demo").with_runtime_dir(root)).await
+        else {
+            announce("REJECTED");
+            return;
+        };
+        announce("READY");
+        command();
+        transport.close().await;
+        announce("CLOSED");
+        command();
+        transport.close().await;
+    }
+
     #[tokio::test]
     async fn a_slow_reader_is_disconnected_after_exceeding_the_byte_budget() {
         let root = tempfile::tempdir().unwrap();

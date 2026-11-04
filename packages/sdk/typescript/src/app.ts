@@ -1,4 +1,5 @@
 import { Schema } from "./schema.js";
+import { A2uiClientErrorSchema } from "@a2ui/web_core/v0_9";
 import { encodeInput, type InputExpr } from "./expression.js";
 import { resourceHello } from "@omochi-ui/core";
 import { ResourceRegistry } from "./resources.js";
@@ -129,6 +130,12 @@ export class Runtime<State, Components extends ComponentMap = BasicComponentMap>
   async handle(message: JsonObject): Promise<A2UIMessage[]> {
     if (message.type === "getSurface") { if (typeof message.surface !== "string") throw new ProtocolError("getSurface must contain string surface"); return this.surface(message.surface); }
     if (message.type === "invoke") { if (typeof message.action !== "string") throw new ProtocolError("invoke must contain string action"); return this.invoke(message.action, message.input ?? null); }
+    if ("error" in message) {
+      const error = objectValue(message.error);
+      if (message.version !== "v0.9" || "action" in message || !error || !("code" in error) || !A2uiClientErrorSchema.safeParse(error).success) throw new ProtocolError("invalid client error report");
+      // Client reports describe renderer failures; they do not invoke an action.
+      return [];
+    }
     const payload = objectValue(message.action) ?? message;
     if (typeof payload.name !== "string") throw new ProtocolError("action must contain string name");
     const context = objectValue(payload.context) ?? {};
@@ -140,7 +147,8 @@ export class Runtime<State, Components extends ComponentMap = BasicComponentMap>
     const controller = new AbortController();
     const running = typeof task === "function" ? task(controller.signal) : task;
     this.tasks.add(running); this.taskControllers.add(controller);
-    void running.finally(() => { this.tasks.delete(running); this.taskControllers.delete(controller); });
+    const cleanup = () => { this.tasks.delete(running); this.taskControllers.delete(controller); };
+    void running.then(cleanup, cleanup);
   }
   async shutdown(): Promise<void> { if (this.closed) return; this.closed = true; for (const controller of this.taskControllers) controller.abort(); await Promise.allSettled(this.tasks); this.resources.close(); this.closedResolve(); }
   waitClosed(): Promise<void> { return this.closedPromise; }

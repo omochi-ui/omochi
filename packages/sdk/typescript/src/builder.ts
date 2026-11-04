@@ -5,6 +5,7 @@ import type {
   DynamicString, IconProps, ImageProps, LayoutProps, ListProps, SliderProps, TextFieldProps, TextProps, VideoProps,
 } from "./catalog.js";
 import { BASIC_CATALOG } from "./catalog.js";
+import { setOwn } from "./json.js";
 import { DeclarationError } from "./errors.js";
 import type { ActionCall, Declaration, JsonObject, JsonValue, LocalDeclaration, LocalValueExpression, NodeIR, SlotIR } from "./types.js";
 
@@ -38,8 +39,8 @@ export class UI<Components extends ComponentMap = BasicComponentMap> {
   }
 
   local<T extends JsonValue>(key: string, initial: T, options: { resetKey?: JsonValue } = {}): Local<Widen<T>> {
-    if (!key || key in this.locals) throw new DeclarationError(`local key must be unique and non-empty: ${JSON.stringify(key)}`);
-    this.locals[key] = { initial: clone(initial), ...(Object.hasOwn(options, "resetKey") ? { resetKey: clone(options.resetKey!) } : {}) };
+    if (!key || Object.hasOwn(this.locals, key)) throw new DeclarationError(`local key must be unique and non-empty: ${JSON.stringify(key)}`);
+    setOwn(this.locals, key, { initial: clone(initial), ...(Object.hasOwn(options, "resetKey") ? { resetKey: clone(options.resetKey!) } : {}) });
     return new Local<Widen<T>>(key, this.bindings);
   }
 
@@ -128,7 +129,8 @@ export class UI<Components extends ComponentMap = BasicComponentMap> {
     if (bind && !this.bindings.has(bind)) throw new DeclarationError("bind must be a reference returned by local.bind()");
     if (!bind) {
       this.uncontrolledInputNames.add(name);
-      if (!(name in (this.data.inputs as JsonObject))) (this.data.inputs as JsonObject)[name] = value as never;
+      const inputs = this.data.inputs as JsonObject;
+      if (!Object.hasOwn(inputs, name)) setOwn(inputs, name, value);
     }
     this.append(component, { ...props, value: { path } }, key ?? `input:${name}`);
   }

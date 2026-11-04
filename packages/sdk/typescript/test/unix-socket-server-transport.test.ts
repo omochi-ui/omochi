@@ -1,14 +1,28 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { access, mkdtemp, readFile, rm, mkdir } from "node:fs/promises";
 import { createConnection, Socket, type Server } from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { createInterface } from "node:readline";
+import { fileURLToPath } from "node:url";
 import { test } from "@omochi-ui/core/testing";
 
 import { schema, App } from "../src/index.js";
 import { UnixSocketServerTransport } from "../src/node/index.js";
 import type { JsonObject } from "../src/index.js";
+
+for (const runtime of ["node", "bun"]) {
+  test(`isolates a disconnect during Unix snapshot replay in ${runtime}`, () => {
+    const result = spawnSync(runtime, [
+      "--unhandled-rejections=strict",
+      fileURLToPath(new URL("./fixtures/unix-socket-disconnect.mjs", import.meta.url)),
+    ], { encoding: "utf8", timeout: 10_000 });
+    assert.ifError(result.error);
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.stdout.trim(), "disconnect isolated");
+  });
+}
 
 async function runtimeDir(t: import("@omochi-ui/core/testing").TestContext): Promise<string> {
   const directory = await mkdtemp(path.join(tmpdir(), "omochi-unix-"));
@@ -194,4 +208,50 @@ test("close after a manifest-write failure cleans up the successfully bound sock
   assert.ok(!process.listeners("exit").includes(cleanupState(transport).exitCleanup));
   await assert.rejects(access(path.join(root, "failed")));
   await transport.close();
+});
+
+test("ownership excludes contenders before bind and until cleanup finishes", async (t) => {
+  const root = await runtimeDir(t);
+  const first = new UnixSocketServerTransport({ serviceId: "demo", runtimeDir: root });
+  const state = first as unknown as { listen(directory: string): Promise<void>; server: Server; exitCleanup(): void };
+  const listen = state.listen.bind(first);
+  let arrived!: () => void;
+  const paused = new Promise<void>((resolve) => { arrived = resolve; });
+  let resume!: () => void;
+  const barrier = new Promise<void>((resolve) => { resume = resolve; });
+  state.listen = async (directory) => { arrived(); await barrier; await listen(directory); };
+  t.after(() => first.close());
+  await paused;
+  const rejectContender = async () => {
+    const contender = new UnixSocketServerTransport({ serviceId: "demo", runtimeDir: root });
+    await assert.rejects(contender.ready, /already owns/);
+    await contender.close();
+  };
+  await rejectContender(); // Owner has no listening socket yet.
+  resume();
+  await first.ready;
+  await rejectContender();
+  const close = state.server.close.bind(state.server);
+  let finishClose!: () => void;
+  let closing!: () => void;
+  const cleanupPaused = new Promise<void>((resolve) => { closing = resolve; });
+  state.server.close = ((callback: () => void) => {
+    finishClose = () => { close(callback); };
+    closing();
+    return state.server;
+  }) as Server["close"];
+  const stopped = first.close();
+  await cleanupPaused; // Directory has gone, but listener shutdown still owns the lock.
+  await rejectContender();
+  finishClose();
+  await stopped;
+  const successor = new UnixSocketServerTransport({ serviceId: "demo", runtimeDir: root });
+  t.after(() => successor.close());
+  await successor.ready;
+  await first.close();
+  state.exitCleanup(); // An obsolete cleanup callback cannot retract the successor.
+  await access(successor.socketPath!);
+  const client = connectClient(successor.socketPath!);
+  await new Promise<void>((resolve, reject) => { client.socket.once("connect", resolve); client.socket.once("error", reject); });
+  client.socket.destroy();
 });

@@ -1,0 +1,10 @@
+{
+  "$defs": {
+    "entry": {
+      "$ref": "#/$defs/value"
+    },
+    "value": {
+      "type": "string"
+    }
+  }
+}

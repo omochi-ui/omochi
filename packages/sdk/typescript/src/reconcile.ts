@@ -1,3 +1,4 @@
+import { setOwn } from "./json.js";
 import { CapabilityError } from "./errors.js";
 import type { A2UIMessage, Declaration, JsonObject, JsonValue, NodeIR } from "./types.js";
 
@@ -21,16 +22,16 @@ function flatten(surfaceId: string, root: NodeIR): Map<string, JsonObject> {
     let target: JsonObject | JsonValue[] = object;
     for (const [index, part] of parts.slice(0, -1).entries()) {
       const nextPart = parts[index + 1]!;
-      const existing: JsonValue | undefined = Array.isArray(target) ? target[Number(part)] : target[part];
+      const existing: JsonValue | undefined = Object.hasOwn(target, part) ? (Array.isArray(target) ? target[Number(part)] : target[part]) : undefined;
       const next: JsonObject | JsonValue[] = existing !== null && typeof existing === "object"
         ? existing : /^\d+$/.test(nextPart) ? [] : {};
       if (Array.isArray(target)) target[Number(part)] = next;
-      else target[part] = next;
+      else setOwn(target, part, next);
       target = next;
     }
     const last = parts.at(-1)!;
     if (Array.isArray(target)) target[Number(last)] = value;
-    else target[last] = value;
+    else setOwn(target, last, value);
   };
   const visit = (node: NodeIR): string => {
     const id = componentId(surfaceId, node.key);
@@ -67,8 +68,8 @@ function dataDiff(before: JsonValue, after: JsonValue, path = ""): DataChange[] 
     return keys.flatMap((key) => {
       const escaped = key.replaceAll("~", "~0").replaceAll("/", "~1");
       const childPath = `${path}/${escaped}`;
-      if (!(key in right)) return [{ path: childPath, present: false }];
-      if (!(key in left)) return [{ path: childPath, present: true, value: clone(right[key]!) }];
+      if (!Object.hasOwn(right, key)) return [{ path: childPath, present: false }];
+      if (!Object.hasOwn(left, key)) return [{ path: childPath, present: true, value: clone(right[key]!) }];
       return dataDiff(left[key]!, right[key]!, childPath);
     });
   }
@@ -114,8 +115,8 @@ export class Reconciler {
       }
       const localKeys = [...new Set([...Object.keys(previous.locals), ...Object.keys(declaration.locals)])].sort();
       for (const key of localKeys) {
-        const before = previous.locals[key];
-        const after = declaration.locals[key];
+        const before = Object.hasOwn(previous.locals, key) ? previous.locals[key] : undefined;
+        const after = Object.hasOwn(declaration.locals, key) ? declaration.locals[key] : undefined;
         const path = `/$local/${key.replaceAll("~", "~0").replaceAll("/", "~1")}`;
         if (!after) messages.push({ version: "v0.9", updateDataModel: { surfaceId, path } });
         else if (!before || !equal(before.resetKey, after.resetKey)) messages.push({ version: "v0.9", updateDataModel: { surfaceId, path, value: clone(after.initial) } });

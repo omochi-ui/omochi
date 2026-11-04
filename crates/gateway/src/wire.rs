@@ -14,9 +14,55 @@ use std::{path::PathBuf, sync::Arc, time::Duration};
 use tokio::{
     io::{AsyncRead, AsyncWrite},
     net::UnixListener,
-    sync::{Semaphore, mpsc},
+    sync::{OwnedSemaphorePermit, Semaphore, mpsc},
     task::{JoinHandle, JoinSet},
 };
+
+// Headers are bounded separately so long-lived subscriptions cannot starve
+// control or resources, and clients cannot create unbounded pending reads.
+const MAX_PENDING_STREAMS: usize = 64;
+const MAX_RESOURCE_STREAMS: usize = 64;
+const MAX_LOCAL_HUBS: usize = 8;
+pub(crate) const MAX_REMOTE_STREAMS: u32 =
+    (1 + crate::MAX_SERVICES + MAX_RESOURCE_STREAMS + MAX_PENDING_STREAMS) as u32;
+
+#[derive(Clone)]
+pub(crate) struct StreamLimits {
+    pending: Arc<Semaphore>,
+    control: Arc<Semaphore>,
+    service: Arc<Semaphore>,
+    resource: Arc<Semaphore>,
+}
+impl StreamLimits {
+    pub(crate) fn new(hubs: usize) -> Self {
+        Self {
+            pending: Arc::new(Semaphore::new(MAX_PENDING_STREAMS)),
+            control: Arc::new(Semaphore::new(hubs)),
+            service: Arc::new(Semaphore::new(hubs * crate::MAX_SERVICES)),
+            resource: Arc::new(Semaphore::new(MAX_RESOURCE_STREAMS)),
+        }
+    }
+    pub(crate) fn admit(&self) -> Result<StreamAdmission> {
+        Ok(StreamAdmission {
+            limits: self.clone(),
+            _pending: self.pending.clone().try_acquire_owned()?,
+        })
+    }
+}
+pub(crate) struct StreamAdmission {
+    limits: StreamLimits,
+    _pending: OwnedSemaphorePermit,
+}
+impl StreamAdmission {
+    fn classify(self, open: &OpenStream) -> Result<OwnedSemaphorePermit> {
+        let slots = match open {
+            OpenStream::Control { .. } => &self.limits.control,
+            OpenStream::Service { .. } => &self.limits.service,
+            OpenStream::Resource { .. } => &self.limits.resource,
+        };
+        Ok(slots.clone().try_acquire_owned()?)
+    }
+}
 
 struct OwnedSocket {
     path: PathBuf,
@@ -51,7 +97,7 @@ impl Gateway {
         R: AsyncRead + Unpin + Send,
         W: AsyncWrite + Unpin + Send,
     {
-        self.serve_stream_from(reader, writer, node_id, name, CommandOrigin::Local)
+        self.serve_stream_from(reader, writer, node_id, name, CommandOrigin::Local, None)
             .await
     }
     pub(crate) async fn serve_stream_from<R, W>(
@@ -61,6 +107,7 @@ impl Gateway {
         node_id: &str,
         name: &str,
         origin: CommandOrigin,
+        admission: Option<StreamAdmission>,
     ) -> Result<()>
     where
         R: AsyncRead + Unpin + Send,
@@ -70,6 +117,9 @@ impl Gateway {
             tokio::time::timeout(Duration::from_secs(5), read_frame(&mut reader))
                 .await??
                 .context("missing stream header")?;
+        let _permit = admission
+            .map(|admission| admission.classify(&open))
+            .transpose()?;
         match open {
             OpenStream::Control { protocol } => {
                 if protocol != VERSION {
@@ -194,7 +244,7 @@ impl Gateway {
         let gateway = self.clone();
         Ok(tokio::spawn(async move {
             let _owned_socket = owned_socket;
-            let limit = Arc::new(Semaphore::new(64));
+            let limits = StreamLimits::new(MAX_LOCAL_HUBS);
             let mut tasks = JoinSet::new();
             let result = loop {
                 tokio::select! {
@@ -202,9 +252,9 @@ impl Gateway {
                     Some(_) = tasks.join_next(), if !tasks.is_empty() => {},
                     accepted = listener.accept() => {
                         let (socket, _) = match accepted { Ok(value) => value, Err(error) => break Err(error.into()) };
-                        let Ok(permit) = limit.clone().try_acquire_owned() else { continue };
+                        let Ok(admission) = limits.admit() else { continue };
                         let child = gateway.clone(); let node = node_id.clone(); let name = name.clone();
-                        tasks.spawn(async move { let _permit = permit; let (reader, writer) = socket.into_split(); child.serve_stream(reader, writer, &node, &name).await });
+                        tasks.spawn(async move { let (reader, writer) = socket.into_split(); child.serve_stream_from(reader, writer, &node, &name, CommandOrigin::Local, Some(admission)).await });
                     }
                 }
             };
@@ -219,6 +269,42 @@ impl Gateway {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn stream_budgets_are_independent_bounded_and_released() {
+        let limits = StreamLimits::new(1);
+        let service = OpenStream::Service {
+            service: "app".into(),
+            generation: 1,
+        };
+        let resource = OpenStream::Resource {
+            service: "app".into(),
+            generation: 1,
+        };
+        let control = OpenStream::Control { protocol: VERSION };
+        let mut subscriptions = (0..crate::MAX_SERVICES)
+            .map(|_| limits.admit().unwrap().classify(&service).unwrap())
+            .collect::<Vec<_>>();
+        assert!(limits.admit().unwrap().classify(&service).is_err());
+        let requests = (0..MAX_RESOURCE_STREAMS)
+            .map(|_| limits.admit().unwrap().classify(&resource).unwrap())
+            .collect::<Vec<_>>();
+        assert!(limits.admit().unwrap().classify(&resource).is_err());
+        let controller = limits.admit().unwrap().classify(&control).unwrap();
+        assert!(limits.admit().unwrap().classify(&control).is_err());
+        // Successful/failed classification returns the header reservation.
+        let mut pending = (0..MAX_PENDING_STREAMS)
+            .map(|_| limits.admit().unwrap())
+            .collect::<Vec<_>>();
+        assert!(limits.admit().is_err());
+        drop(pending.pop());
+        drop(subscriptions.pop());
+        let replacement = limits.admit().unwrap().classify(&service).unwrap();
+        drop((pending, subscriptions, requests, controller, replacement));
+        for open in [service, resource, control] {
+            assert!(limits.admit().unwrap().classify(&open).is_ok());
+        }
+    }
+
     #[tokio::test]
     async fn unix_gateway_handshake_ping_and_owned_socket_cleanup() {
         use std::os::unix::fs::PermissionsExt;

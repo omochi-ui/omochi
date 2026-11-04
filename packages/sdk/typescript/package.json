@@ -25,8 +25,9 @@
   ],
   "dependencies": {
     "@a2ui/web_core": "0.15.0",
-    "ws": "^8.18.0",
-    "@omochi-ui/core": "workspace:*"
+    "@deepseek-ai/node-addon-system": "0.1.2",
+    "@omochi-ui/core": "workspace:*",
+    "ws": "^8.18.0"
   },
   "devDependencies": {
     "typescript": "~6.0.3",

@@ -1,7 +1,8 @@
 use crate::resources::{ResourceRegistry, hello, is_resource};
 use std::collections::BTreeSet;
 use std::fs;
-use std::os::unix::fs::PermissionsExt;
+use std::os::fd::AsRawFd;
+use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -9,8 +10,8 @@ use async_trait::async_trait;
 use serde_json::{Map, Value};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{UnixListener, UnixStream};
-use tokio::sync::{Mutex, mpsc};
-use tokio::task::JoinHandle;
+use tokio::sync::{Mutex, mpsc, oneshot};
+use tokio::task::{JoinHandle, JoinSet};
 
 use crate::snapshot::A2uiSnapshot;
 use crate::transport::Transport;
@@ -110,15 +111,13 @@ impl UnixSocketServerOptions {
 
 struct Shared {
     resources: std::sync::RwLock<Option<ResourceRegistry>>,
-    clients: Mutex<Vec<mpsc::UnboundedSender<String>>>,
-    snapshot: Mutex<A2uiSnapshot>,
+    publication: Mutex<Publication>,
 }
 
-impl Shared {
-    async fn broadcast(&self, line: String) {
-        let mut clients = self.clients.lock().await;
-        clients.retain(|client| client.send(line.clone()).is_ok());
-    }
+#[derive(Default)]
+struct Publication {
+    snapshot: A2uiSnapshot,
+    clients: Vec<mpsc::UnboundedSender<String>>,
 }
 
 /// Publishes one application on a unix domain socket and advertises it for discovery.
@@ -133,10 +132,12 @@ pub struct UnixSocketServerTransport {
     shared: Arc<Shared>,
     inbound: mpsc::UnboundedReceiver<Value>,
     accept: JoinHandle<()>,
+    shutdown: Option<oneshot::Sender<()>>,
     capabilities: BTreeSet<String>,
     directory: PathBuf,
     socket_path: PathBuf,
     closed: bool,
+    service_lock: Option<ServiceLock>,
 }
 
 impl UnixSocketServerTransport {
@@ -147,13 +148,19 @@ impl UnixSocketServerTransport {
             .take()
             .unwrap_or_else(omochi_runtime_root);
         let directory = root.join(&options.service_id);
+        fs::create_dir_all(&root)?;
+        fs::set_permissions(&root, fs::Permissions::from_mode(0o700))?;
+        let service_lock = lock_service(&root, &options.service_id)?;
         fs::create_dir_all(&directory)?;
         // create_dir_all's mode is masked by umask and leaves an existing directory untouched.
         fs::set_permissions(&root, fs::Permissions::from_mode(0o700))?;
         fs::set_permissions(&directory, fs::Permissions::from_mode(0o700))?;
 
         match Self::listen(&directory, options).await {
-            Ok(transport) => Ok(transport),
+            Ok(mut transport) => {
+                transport.service_lock = Some(service_lock);
+                Ok(transport)
+            }
             Err(error) => {
                 // Leave no empty directory behind for a discovery pass to walk into.
                 // remove_dir refuses a non-empty directory, so a live service is safe.
@@ -179,21 +186,8 @@ impl UnixSocketServerTransport {
 
         let shared = Arc::new(Shared {
             resources: std::sync::RwLock::new(None),
-            clients: Mutex::new(Vec::new()),
-            snapshot: Mutex::new(A2uiSnapshot::new()),
+            publication: Mutex::new(Publication::default()),
         });
-        let (sender, inbound) = mpsc::unbounded_channel();
-        let accept_shared = Arc::clone(&shared);
-        let accept = tokio::spawn(async move {
-            while let Ok((stream, _)) = listener.accept().await {
-                let connection_shared = Arc::clone(&accept_shared);
-                let connection_sender = sender.clone();
-                tokio::spawn(async move {
-                    serve_connection(stream, connection_shared, connection_sender).await;
-                });
-            }
-        });
-
         // Advertise only once the socket accepts connections, so a readable manifest is
         // always connectable.
         write_manifest(
@@ -202,14 +196,44 @@ impl UnixSocketServerTransport {
             options.icon.as_deref(),
         )?;
 
+        let (sender, inbound) = mpsc::unbounded_channel();
+        let (shutdown, mut stopping) = oneshot::channel();
+        let accept_shared = Arc::clone(&shared);
+        let accept = tokio::spawn(async move {
+            let mut connections = JoinSet::new();
+            loop {
+                tokio::select! {
+                    biased;
+                    _ = &mut stopping => break,
+                    // Reap finished connections without keeping their task allocations.
+                    _ = connections.join_next(), if !connections.is_empty() => {},
+                    accepted = listener.accept() => {
+                        let Ok((stream, _)) = accepted else { break };
+                        connections.spawn(serve_connection(
+                            stream,
+                            Arc::clone(&accept_shared),
+                            sender.clone(),
+                        ));
+                    }
+                }
+            }
+            drop(listener);
+            // Each connection owns both socket halves, so joining their cancellation
+            // also waits for every reader and writer to release its resources.
+            connections.shutdown().await;
+            accept_shared.publication.lock().await.clients.clear();
+        });
+
         Ok(Self {
             shared,
             inbound,
             accept,
+            shutdown: Some(shutdown),
             capabilities: options.capabilities,
             directory: directory.to_path_buf(),
             socket_path,
             closed: false,
+            service_lock: None,
         })
     }
 
@@ -221,24 +245,33 @@ impl UnixSocketServerTransport {
         &self.directory
     }
 
-    /// Retracts the advertisement, stops accepting, and removes the service directory.
+    /// Retracts the advertisement and waits for all connections to stop before removing
+    /// the service directory.
     pub async fn close(&mut self) {
         if self.closed {
             return;
         }
-        self.closed = true;
         let _ = fs::remove_file(self.directory.join("manifest.json"));
-        self.accept.abort();
-        self.shared.clients.lock().await.clear();
+        if let Some(shutdown) = self.shutdown.take() {
+            let _ = shutdown.send(());
+        }
+        // Borrow the handle so a cancelled close() can be awaited again.
+        let _ = (&mut self.accept).await;
         let _ = fs::remove_dir_all(&self.directory);
         self.inbound.close();
+        self.closed = true;
+        self.service_lock.take();
     }
 }
 
 impl Drop for UnixSocketServerTransport {
     fn drop(&mut self) {
         // Last-resort cleanup for a transport dropped without close().
-        self.accept.abort();
+        // The supervisor owns every connection and completes their cancellation even
+        // when the caller cannot await close().
+        if let Some(shutdown) = self.shutdown.take() {
+            let _ = shutdown.send(());
+        }
         if !self.closed {
             let _ = fs::remove_dir_all(&self.directory);
         }
@@ -255,12 +288,16 @@ impl Transport for UnixSocketServerTransport {
     }
 
     async fn send(&mut self, message: &Value) -> Result<()> {
+        let line = format!("{}\n", serde_json::to_string(message)?);
+        // Snapshot updates and live fanout share the same boundary as subscription:
+        // a new client receives each update either in replay or live, exactly once.
+        let mut publication = self.shared.publication.lock().await;
         if !is_resource(message) {
-            self.shared.snapshot.lock().await.apply(message)?;
+            publication.snapshot.apply(message)?;
         }
-        self.shared
-            .broadcast(format!("{}\n", serde_json::to_string(message)?))
-            .await;
+        publication
+            .clients
+            .retain(|client| client.send(line.clone()).is_ok());
         Ok(())
     }
 
@@ -269,19 +306,61 @@ impl Transport for UnixSocketServerTransport {
     }
 }
 
+struct ServiceLock(fs::File);
+
+impl Drop for ServiceLock {
+    fn drop(&mut self) {
+        // A concurrent fork can keep this open file description alive until exec,
+        // despite CLOEXEC. Release ownership before closing our descriptor so a
+        // successor does not depend on an unrelated child's scheduling.
+        unsafe { libc::flock(self.0.as_raw_fd(), libc::LOCK_UN) };
+    }
+}
+
+/// Keep this inode forever: unlinking a locked file would allow a second owner.
+/// `~` cannot occur in service ids, and service cleanup never touches the lock file.
+fn lock_service(root: &Path, service_id: &str) -> Result<ServiceLock> {
+    let file = fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .mode(0o600)
+        .open(root.join(format!(".{service_id}.lock~")))?;
+    // flock locks open file descriptions, so distinct transports in one process also
+    // contend, and the kernel releases ownership if the process crashes.
+    if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } != 0 {
+        let error = std::io::Error::last_os_error();
+        if error.kind() == std::io::ErrorKind::WouldBlock {
+            return Err(Error::Transport(format!(
+                "another omochi service already owns {}",
+                root.join(service_id).display()
+            )));
+        }
+        return Err(error.into());
+    }
+    Ok(ServiceLock(file))
+}
+
 /// Takes ownership of the socket path, removing one left behind by a crash.
 ///
 /// A path that still accepts connections means another instance owns this service id;
-/// that probe is also the mutual-exclusion primitive.
+/// the caller holds the lifetime lock through probing, binding and cleanup.
 async fn claim_socket_path(socket_path: &Path) -> Result<()> {
     if !socket_path.exists() {
         return Ok(());
     }
-    if UnixStream::connect(socket_path).await.is_ok() {
-        return Err(Error::Transport(format!(
-            "another omochi service already owns {}",
-            socket_path.display()
-        )));
+    match UnixStream::connect(socket_path).await {
+        Ok(_) => {
+            return Err(Error::Transport(format!(
+                "another omochi service already owns {}",
+                socket_path.display()
+            )));
+        }
+        Err(error)
+            if matches!(
+                error.kind(),
+                std::io::ErrorKind::NotFound | std::io::ErrorKind::ConnectionRefused
+            ) => {}
+        Err(error) => return Err(error.into()),
     }
     fs::remove_file(socket_path)?;
     Ok(())
@@ -315,48 +394,64 @@ async fn serve_connection(
     if shared.resources.read().unwrap().is_some() {
         let _ = sender.send(format!("{}\n", hello()));
     }
-    for message in shared.snapshot.lock().await.messages() {
-        let Ok(encoded) = serde_json::to_string(&message) else {
-            continue;
-        };
-        if sender.send(format!("{encoded}\n")).is_err() {
-            return;
+    {
+        // Queue replay and register for live updates without allowing publication
+        // between them. Socket writes happen only after releasing this lock.
+        let mut publication = shared.publication.lock().await;
+        for message in publication.snapshot.messages() {
+            let Ok(encoded) = serde_json::to_string(&message) else {
+                continue;
+            };
+            if sender.send(format!("{encoded}\n")).is_err() {
+                return;
+            }
         }
+        publication.clients.push(sender.clone());
     }
-    shared.clients.lock().await.push(sender.clone());
 
-    let writing = tokio::spawn(async move {
+    let writing = async move {
         while let Some(line) = outbound.recv().await {
             if writer.write_all(line.as_bytes()).await.is_err() {
                 return;
             }
         }
-    });
+    };
 
-    let mut lines = BufReader::new(reader).lines();
-    while let Ok(Some(line)) = lines.next_line().await {
-        if line.trim().is_empty() {
-            continue;
-        }
-        let Ok(value) = serde_json::from_str::<Value>(&line) else {
-            break;
-        };
-        if is_resource(&value) {
-            if value["kind"] == "request" {
-                if let Some(resources) = shared.resources.read().unwrap().as_ref() {
-                    let _ = sender.send(format!("{}\n", resources.respond(&value)));
-                }
+    let reading = async {
+        let mut lines = BufReader::new(reader).lines();
+        while let Ok(Some(line)) = lines.next_line().await {
+            if line.trim().is_empty() {
+                continue;
             }
-            continue;
+            let Ok(value) = serde_json::from_str::<Value>(&line) else {
+                break;
+            };
+            if is_resource(&value) {
+                if value["kind"] == "request" {
+                    if let Some(resources) = shared.resources.read().unwrap().as_ref() {
+                        let _ = sender.send(format!("{}\n", resources.respond(&value)));
+                    }
+                }
+                continue;
+            }
+            // "{error}" is a valid client message but carries no action for the Runtime to
+            // invoke; dropping it keeps a client-side report from tearing the application down.
+            if value.get("action").is_none() {
+                continue;
+            }
+            if inbound.send(value).is_err() {
+                break;
+            }
         }
-        // "{error}" is a valid client message but carries no action for the Runtime to
-        // invoke; dropping it keeps a client-side report from tearing the application down.
-        if value.get("action").is_none() {
-            continue;
-        }
-        if inbound.send(value).is_err() {
-            break;
-        }
+    };
+    // Neither half may outlive its connection task, including when cancelled during
+    // shutdown or while a slow client has blocked the writer.
+    tokio::select! {
+        _ = writing => {},
+        _ = reading => {},
     }
-    writing.abort();
 }
+
+#[cfg(test)]
+#[path = "../tests/unix_server/publication.rs"]
+mod publication_tests;

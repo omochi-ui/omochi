@@ -1,0 +1,140 @@
+{
+  "catalogId": "urn:test:catalog-adjacent-constraints",
+  "title": "AdjacentConstraints",
+  "components": {
+    "Adjacent": {
+      "type": "object",
+      "properties": {
+        "choice": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "enum": [
+            "allowed"
+          ]
+        },
+        "details": {
+          "type": "object",
+          "properties": {
+            "label": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "label"
+          ],
+          "allOf": [
+            {
+              "type": "object",
+              "properties": {
+                "count": {
+                  "type": "number"
+                }
+              },
+              "required": [
+                "count"
+              ]
+            }
+          ]
+        },
+        "typed": {
+          "type": "string",
+          "enum": [
+            "allowed",
+            2
+          ]
+        },
+        "both": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "boolean"
+            }
+          ]
+        },
+        "items": {
+          "type": "array",
+          "items": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "enum": [
+              "allowed"
+            ]
+          }
+        },
+        "objects": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "label": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "label"
+            ],
+            "allOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "count": {
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "count"
+                ]
+              }
+            ]
+          }
+        },
+        "array": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "allOf": [
+            {
+              "items": {
+                "enum": [
+                  "allowed"
+                ]
+              }
+            }
+          ]
+        }
+      },
+      "required": [
+        "choice",
+        "details",
+        "typed",
+        "both",
+        "items",
+        "objects",
+        "array"
+      ]
+    }
+  }
+}

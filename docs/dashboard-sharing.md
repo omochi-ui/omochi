@@ -51,8 +51,12 @@ unresponsive hub processes.
 ## Browser identity and recovery
 
 Invitation material is removed from history before UI/transport imports. Private
-invitation secrets are not saved. Identity is committed to IndexedDB before
-enrollment; pending connections keep the same identity after a lost reply.
+invitation secrets are not saved. Links opened in an already running tab are
+also captured and cleared immediately. Switching waits for current acceptance
+or local save recovery, confirms discarding unsaved edits, and closes the previous
+connection before opening the next. Owner and identity invitations still require
+explicit acceptance; reopening the pending invitation does not restart it.
+Identity is committed to IndexedDB before enrollment; pending connections keep the same identity after a lost reply.
 **Retry existing access** checks authorization without redeeming another invite.
 **Retry connection save** retries only the local transaction after a save failure.
 

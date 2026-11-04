@@ -1,10 +1,16 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "@omochi-ui/core/testing";
+import { parseClientFrame } from "@omochi-ui/core";
 
-import { schema, App, DeclarationError, type JsonObject } from "../src/index.js";
+import { schema, App, CallbackTransport, DeclarationError, ProtocolError, type JsonObject } from "../src/index.js";
 
 const fixture = JSON.parse(readFileSync(new URL("../../../../spec/fixtures/basic.json", import.meta.url), "utf8")) as { initialMessages: JsonObject[]; action: JsonObject; afterActionMessages: JsonObject[] };
+const clientErrors = JSON.parse(readFileSync(new URL("../../../../spec/fixtures/client-errors.json", import.meta.url), "utf8")) as { reports: JsonObject[]; invalid: JsonObject[] };
+
+function messagesTransport(messages: JsonObject[], sent: JsonObject[] = []) {
+  return new CallbackTransport(async message => { sent.push(message); }, async function* () { yield* messages; });
+}
 
 function makeRuntime() {
   const state = { temperature: 50, result: null as string | null };
@@ -27,6 +33,38 @@ test("matches the shared State/Surface/Action fixture", async () => {
   assert.deepEqual(runtime.render(), fixture.initialMessages);
   assert.deepEqual(await runtime.handle(fixture.action), fixture.afterActionMessages);
   assert.equal(state.temperature, 75);
+});
+
+test("client error reports allow subsequent actions through the receive loop", async () => {
+  for (const report of clientErrors.reports) {
+    assert.equal(parseClientFrame(JSON.stringify(report), false).ok, true);
+    const { runtime, state } = makeRuntime();
+    assert.deepEqual(await runtime.handle(report), []);
+    const sent: JsonObject[] = [];
+    await runtime.start(messagesTransport([report, fixture.action], sent));
+    assert.equal(state.temperature, 75);
+    assert.deepEqual(sent.slice(1), [...fixture.initialMessages, ...fixture.afterActionMessages]);
+  }
+});
+
+test("malformed client reports and unknown messages still stop the receive loop", async () => {
+  for (const message of clientErrors.invalid) {
+    const { runtime, state } = makeRuntime();
+    await assert.rejects(runtime.handle(message), ProtocolError);
+    await assert.rejects(runtime.start(messagesTransport([message, fixture.action])), ProtocolError);
+    assert.equal(state.temperature, 50);
+  }
+});
+
+test("client reports do not mask subsequent handler failures", async () => {
+  for (const failure of [new Error("handler failed"), new ProtocolError("handler failed")]) {
+    const app = new App({});
+    let calls = 0;
+    app.action("fail", schema.literal(null), () => { calls++; throw failure; });
+    const action = { type: "invoke", action: "fail" };
+    await assert.rejects(app.build().start(messagesTransport([...clientErrors.reports, action, action])), error => error === failure);
+    assert.equal(calls, 1);
+  }
 });
 
 test("invokes a typed action without a Surface", async () => {

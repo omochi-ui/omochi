@@ -1,6 +1,7 @@
 //! Remote admission and dispatch. Endpoint authentication alone is never authorization.
 use crate::Gateway;
 use crate::dispatch::{AuthorizationEpoch, CommandOrigin};
+use crate::wire::{MAX_REMOTE_STREAMS, StreamLimits};
 use anyhow::{Result, bail};
 use omochi_protocol::{ALPN, PAIR_ALPN};
 use omochi_transport::{
@@ -124,7 +125,10 @@ impl Gateway {
         origin: CommandOrigin,
     ) -> Result<()> {
         let mut streams = JoinSet::new();
-        let slots = Arc::new(Semaphore::new(64));
+        // Raise QUIC credit only after ordinary gateway authorization. Pairing and
+        // unauthenticated connections keep the transport's existing defaults.
+        connection.set_max_concurrent_bi_streams(MAX_REMOTE_STREAMS.into());
+        let limits = StreamLimits::new(1);
         let mut poll = tokio::time::interval(Duration::from_millis(100));
         let result = async { loop {
             tokio::select! {
@@ -136,10 +140,10 @@ impl Gateway {
                 stream = connection.accept_bi() => {
                     let (mut writer, mut reader) = stream?;
                     if !authorized(store, connection).await? { bail!("authorization revoked") }
-                    let Ok(permit) = slots.clone().try_acquire_owned() else { let _ = writer.reset(2u32.into()); let _ = reader.stop(2u32.into()); continue };
+                    let Ok(admission) = limits.admit() else { let _ = writer.reset(2u32.into()); let _ = reader.stop(2u32.into()); continue };
                     let gateway = self.clone(); let node = node.to_owned(); let name = name.to_owned();
                     let origin = origin.clone();
-                    streams.spawn(async move { let _permit = permit; gateway.serve_stream_from(reader, writer, &node, &name, origin).await });
+                    streams.spawn(async move { gateway.serve_stream_from(reader, writer, &node, &name, origin, Some(admission)).await });
                 }
             }
         } }.await;

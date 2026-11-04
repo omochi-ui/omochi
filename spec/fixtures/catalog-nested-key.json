@@ -1,0 +1,24 @@
+{
+  "catalogId": "urn:test:catalog-nested-key",
+  "title": "NestedKeyCatalog",
+  "components": {
+    "Shortcut": {
+      "properties": {
+        "details": {
+          "type": "object",
+          "properties": {
+            "key": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "key"
+          ]
+        }
+      },
+      "required": [
+        "details"
+      ]
+    }
+  }
+}

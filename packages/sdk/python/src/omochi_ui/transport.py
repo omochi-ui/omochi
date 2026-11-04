@@ -8,11 +8,17 @@ from collections.abc import AsyncIterator, Awaitable, Callable
 from typing import Any
 
 
+from .receive_queue import ReceiveQueue, ReceiveQueueOverflowError
 from .resources import is_resource
 
 
+# Matches the native stdio LinesCodec limit: UTF-8 bytes before the LF delimiter.
+MAX_FRAME_BYTES = 4 * 1024 * 1024
+
+
 async def resource_messages(transport, source):
-    queue = asyncio.Queue()
+    queue = ReceiveQueue()
+    source = aiter(source)
     async def pump():
         try:
             async for message in source:
@@ -20,17 +26,20 @@ async def resource_messages(transport, source):
                     if message.get("kind") == "request":
                         await transport.send(transport.resources.respond(message))
                 else:
-                    await queue.put(message)
+                    queue.put_nowait(message)
         except Exception as error:
-            await queue.put(error)
+            queue.finish(error, discard=isinstance(error, ReceiveQueueOverflowError))
         finally:
-            await queue.put(None)
+            queue.finish()
+            close = getattr(source, "aclose", None)
+            if close is not None:
+                await close()
     task = asyncio.create_task(pump())
     try:
         while (message := await queue.get()) is not None:
-            if isinstance(message, Exception): raise message
             yield message
     finally:
+        queue.finish(discard=True)
         task.cancel()
         await asyncio.gather(task, return_exceptions=True)
 
@@ -68,14 +77,17 @@ class StdioTransport(Transport):
             yield message
 
     async def _receive(self) -> AsyncIterator[dict[str, Any]]:
-        reader = asyncio.StreamReader()
+        reader = asyncio.StreamReader(limit=MAX_FRAME_BYTES)
         protocol = asyncio.StreamReaderProtocol(reader)
         loop = asyncio.get_running_loop()
-        await loop.connect_read_pipe(lambda: protocol, sys.stdin)
-        while line := await reader.readline():
-            text = line.decode()
-            if text.strip():
-                yield json.loads(text)
+        pipe, _ = await loop.connect_read_pipe(lambda: protocol, sys.stdin)
+        try:
+            while line := await reader.readline():
+                text = line.decode()
+                if text.strip():
+                    yield json.loads(text)
+        finally:
+            pipe.close()
 
 
 class CallbackTransport(Transport):

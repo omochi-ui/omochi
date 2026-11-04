@@ -1,0 +1,100 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "catalogId": "urn:test:catalog-symbolic-siblings",
+  "title": "SymbolicSiblings",
+  "$defs": {
+    "dynamic": {
+      "$ref": "https://a2ui.org/specification/v0_9/common_types.json#/$defs/DynamicString"
+    },
+    "restricted": {
+      "$ref": "https://a2ui.org/specification/v0_9/common_types.json#/$defs/DynamicString",
+      "type": "string",
+      "enum": [
+        "allowed"
+      ]
+    }
+  },
+  "components": {
+    "Symbolic": {
+      "type": "object",
+      "properties": {
+        "label": {
+          "$ref": "https://a2ui.org/specification/v0_9/common_types.json#/$defs/DynamicString",
+          "type": "string",
+          "enum": [
+            "allowed"
+          ]
+        },
+        "plain": {
+          "$ref": "https://a2ui.org/specification/v0_9/common_types.json#/$defs/DynamicString",
+          "description": "An unconstrained dynamic string"
+        },
+        "typed": {
+          "$ref": "https://a2ui.org/specification/v0_9/common_types.json#/$defs/DynamicString",
+          "type": "string"
+        },
+        "binding": {
+          "$ref": "https://a2ui.org/specification/v0_9/common_types.json#/$defs/DataBinding",
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "enum": [
+                "/allowed"
+              ]
+            }
+          },
+          "required": [
+            "path"
+          ]
+        },
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "https://a2ui.org/specification/v0_9/common_types.json#/$defs/DynamicString",
+            "type": "string",
+            "enum": [
+              "allowed"
+            ]
+          }
+        },
+        "alias": {
+          "$ref": "#/$defs/dynamic",
+          "type": "string",
+          "enum": [
+            "allowed"
+          ]
+        },
+        "nested": {
+          "type": "array",
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/restricted"
+            }
+          }
+        },
+        "list": {
+          "$ref": "https://a2ui.org/specification/v0_9/common_types.json#/$defs/DynamicStringList",
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "allowed"
+            ]
+          }
+        }
+      },
+      "required": [
+        "label",
+        "plain",
+        "typed",
+        "binding",
+        "items",
+        "alias",
+        "nested",
+        "list"
+      ]
+    }
+  }
+}

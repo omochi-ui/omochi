@@ -201,6 +201,7 @@ impl<S: Send + Sync + 'static> Runtime<S> {
     pub async fn shutdown(&mut self) {
         self.tasks.abort_all();
         while self.tasks.join_next().await.is_some() {}
+        self.resources.close();
         self.closed = true;
     }
     pub async fn declaration(&self, surface_id: &str) -> Result<Declaration> {
@@ -320,6 +321,23 @@ impl<S: Send + Sync + 'static> Runtime<S> {
                 )
                 .await;
         }
+        if let Some(error) = object.get("error") {
+            let valid = object.get("version").and_then(Value::as_str) == Some("v0.9")
+                && !object.contains_key("action")
+                && error.as_object().is_some_and(|error| {
+                    error.contains_key("code")
+                        && error.get("surfaceId").is_some_and(Value::is_string)
+                        && error.get("message").is_some_and(Value::is_string)
+                        && (error.get("code").and_then(Value::as_str) != Some("VALIDATION_FAILED")
+                            || (error.len() == 4
+                                && error.get("path").is_some_and(Value::is_string)))
+                });
+            if !valid {
+                return Err(Error::Protocol("invalid client error report".into()));
+            }
+            // Client reports describe renderer failures; they do not invoke an action.
+            return Ok(Vec::new());
+        }
         let payload = object
             .get("action")
             .and_then(Value::as_object)
@@ -370,7 +388,6 @@ impl<S: Send + Sync + 'static> Runtime<S> {
         }
         .await;
         self.shutdown().await;
-        self.resources.close();
         result
     }
     pub async fn start(&mut self) -> Result<()> {

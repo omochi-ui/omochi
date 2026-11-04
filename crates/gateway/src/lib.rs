@@ -1,12 +1,17 @@
 //! One shared SDK connection per discovered service, independent of hub transports.
 mod dispatch;
 pub mod remote;
+#[cfg(test)]
+mod stream_capacity_tests;
 pub mod wire;
 use anyhow::{Context, Result, bail};
 use dispatch::CommandOrigin;
 use futures_util::{SinkExt, StreamExt};
 use omochi_local_discovery::{DiscoveredService, scan};
-use omochi_protocol::{MAX_FRAME_BYTES, session::Service};
+use omochi_protocol::{
+    MAX_FRAME_BYTES,
+    session::{Control, Service},
+};
 use omochi_ui::A2uiSnapshot;
 use serde_json::Value;
 use std::{
@@ -31,6 +36,21 @@ use tokio_util::{
 const MAX_SERVICES: usize = 256;
 const MAX_SNAPSHOT_BYTES: usize = 16 * 1024 * 1024;
 static REQUEST_ID: AtomicU64 = AtomicU64::new(1);
+type DiscoveryTasks = BTreeMap<String, (DiscoveredService, CancellationToken, JoinHandle<()>)>;
+
+fn roster_entry_budget(spec: &DiscoveredService) -> usize {
+    // Use the wire serializer for escaping and UTF-8, reserving every possible
+    // generation digit so reconnects cannot outgrow the discovery reservation.
+    serde_json::to_vec(&Service {
+        id: spec.id.clone(),
+        name: spec.manifest.name.clone(),
+        generation: u64::MAX,
+        icon: spec.manifest.icon.clone(),
+    })
+    .expect("service metadata is serializable")
+    .len()
+        + 1 // Reserve a comma even for the first entry.
+}
 struct StreamState {
     snapshot: A2uiSnapshot,
     events: omochi_protocol::fanout::Sender,
@@ -185,10 +205,7 @@ impl Gateway {
     pub fn discover(&self, root: PathBuf) -> JoinHandle<Result<()>> {
         let gateway = self.clone();
         tokio::spawn(async move {
-            let mut tasks: BTreeMap<
-                String,
-                (DiscoveredService, CancellationToken, JoinHandle<()>),
-            > = BTreeMap::new();
+            let mut tasks = DiscoveryTasks::new();
             let changed = Arc::new(tokio::sync::Notify::new());
             let signal = changed.clone();
             let watched_root = root.clone();
@@ -215,30 +232,7 @@ impl Gateway {
                 let path = root.clone();
                 let found = omochi_transport::blocking::run(move || scan(&path)).await?;
                 let Ok(found) = found else { continue };
-                let removed: Vec<_> = tasks
-                    .iter()
-                    .filter(|(id, (previous, _, _))| found.get(*id) != Some(previous))
-                    .map(|(id, _)| id.clone())
-                    .collect();
-                for id in removed {
-                    if let Some((_, stop, task)) = tasks.remove(&id) {
-                        stop.cancel();
-                        let _ = task.await;
-                    }
-                }
-                for (id, service) in found.into_iter().take(MAX_SERVICES) {
-                    if tasks.contains_key(&id) {
-                        continue;
-                    }
-                    let stop = gateway.stop.child_token();
-                    let child_stop = stop.clone();
-                    let child = gateway.clone();
-                    let spec = service.clone();
-                    let task = tokio::spawn(async move {
-                        child.connect_loop(spec, child_stop).await;
-                    });
-                    tasks.insert(id, (service, stop, task));
-                }
+                gateway.reconcile_discovery(&mut tasks, found).await;
             }
             drop(watcher);
             for (_, (_, stop, task)) in tasks {
@@ -247,6 +241,56 @@ impl Gateway {
             }
             Ok(())
         })
+    }
+    async fn reconcile_discovery(
+        &self,
+        tasks: &mut DiscoveryTasks,
+        found: BTreeMap<String, DiscoveredService>,
+    ) {
+        // Protect unchanged services from oversized additions or metadata updates.
+        // Changed existing IDs still have priority over newcomers when they fit.
+        let mut candidates: Vec<_> = found.into_iter().collect();
+        candidates.sort_by_key(|(id, service)| match tasks.get(id) {
+            Some((previous, _, _)) if previous == service => 0,
+            Some(_) => 1,
+            None => 2,
+        });
+        let mut available = MAX_FRAME_BYTES
+            - serde_json::to_vec(&Control::Services { services: vec![] })
+                .expect("service roster is serializable")
+                .len();
+        let mut found = BTreeMap::new();
+        for (id, service) in candidates {
+            let bytes = roster_entry_budget(&service);
+            if found.len() < MAX_SERVICES && bytes <= available {
+                available -= bytes;
+                found.insert(id, service);
+            }
+        }
+        let removed: Vec<_> = tasks
+            .iter()
+            .filter(|(id, (previous, _, _))| found.get(*id) != Some(previous))
+            .map(|(id, _)| id.clone())
+            .collect();
+        for id in removed {
+            if let Some((_, stop, task)) = tasks.remove(&id) {
+                stop.cancel();
+                let _ = task.await;
+            }
+        }
+        for (id, service) in found {
+            if tasks.contains_key(&id) {
+                continue;
+            }
+            let stop = self.stop.child_token();
+            let child_stop = stop.clone();
+            let child = self.clone();
+            let spec = service.clone();
+            let task = tokio::spawn(async move {
+                child.connect_loop(spec, child_stop).await;
+            });
+            tasks.insert(id, (service, stop, task));
+        }
     }
     async fn connect_loop(&self, spec: DiscoveredService, stop: CancellationToken) {
         let mut delay = 100;
@@ -362,6 +406,277 @@ mod tests {
     use serde_json::json;
     use std::os::unix::fs::PermissionsExt;
     use tokio::net::UnixListener;
+
+    #[test]
+    fn roster_budget_covers_json_escaping_unicode_and_generation_growth() {
+        let spec = DiscoveredService {
+            id: "app".into(),
+            manifest: omochi_local_discovery::Manifest {
+                name: "\0\n\"\\🍡日本語".into(),
+                socket: "a2ui.sock".into(),
+                icon: Some("🍡\"\\".into()),
+            },
+            socket_path: PathBuf::new(),
+        };
+        let envelope = serde_json::to_vec(&Control::Services { services: vec![] })
+            .unwrap()
+            .len();
+        for generation in [1, 9, 10, 99, 100, u64::MAX] {
+            let service = Service {
+                id: spec.id.clone(),
+                name: spec.manifest.name.clone(),
+                generation,
+                icon: spec.manifest.icon.clone(),
+            };
+            for count in [1, MAX_SERVICES] {
+                let bytes = serde_json::to_vec(&Control::Services {
+                    services: vec![service.clone(); count],
+                })
+                .unwrap()
+                .len();
+                let reserved = envelope + count * roster_entry_budget(&spec);
+                assert!(bytes < reserved);
+                if generation == u64::MAX {
+                    assert_eq!(bytes + 1, reserved);
+                }
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn large_valid_manifests_keep_control_alive_and_release_roster_capacity() {
+        use omochi_protocol::{OpenStream, VERSION, read_frame, write_frame};
+        async fn connected(gateway: &Gateway, tasks: &DiscoveryTasks) -> Vec<Service> {
+            let mut changes = gateway.changes();
+            tokio::time::timeout(Duration::from_secs(5), async {
+                loop {
+                    let services = gateway.list().await;
+                    if services.len() == tasks.len()
+                        && services.iter().all(|service| {
+                            let spec = &tasks[&service.id].0;
+                            service.name == spec.manifest.name && service.icon == spec.manifest.icon
+                        })
+                    {
+                        return services;
+                    }
+                    let _ = changes.recv().await;
+                }
+            })
+            .await
+            .unwrap()
+        }
+        async fn roster_and_ping(client: &mut tokio::io::DuplexStream, expected: &[Service]) {
+            tokio::time::timeout(Duration::from_secs(5), async {
+                loop {
+                    let frame = read_frame::<_, Control>(client).await.unwrap().unwrap();
+                    assert!(serde_json::to_vec(&frame).unwrap().len() <= MAX_FRAME_BYTES);
+                    if let Control::Services { services } = frame {
+                        if services == expected {
+                            break;
+                        }
+                    }
+                }
+                write_frame(client, &Control::Ping { id: 42 })
+                    .await
+                    .unwrap();
+                loop {
+                    match read_frame::<_, Control>(client).await.unwrap().unwrap() {
+                        Control::Pong { id: 42 } => break,
+                        Control::Services { services } => assert_eq!(services, expected),
+                        frame => panic!("unexpected frame: {frame:?}"),
+                    }
+                }
+            })
+            .await
+            .unwrap();
+        }
+        let root = tempfile::tempdir().unwrap();
+        std::fs::set_permissions(root.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
+        let icon = format!("data:image/png;base64,{}", "A".repeat(65_499));
+        let mut sdk_tasks = Vec::new();
+        for index in 0..65 {
+            let id = format!("z{index:03}");
+            let directory = root.path().join(&id);
+            std::fs::create_dir(&directory).unwrap();
+            std::fs::write(
+                directory.join("manifest.json"),
+                json!({"name":id, "socket":"a2ui.sock", "icon":icon}).to_string(),
+            )
+            .unwrap();
+            let listener = UnixListener::bind(directory.join("a2ui.sock")).unwrap();
+            sdk_tasks.push(tokio::spawn(async move {
+                let mut sockets = Vec::new();
+                loop {
+                    sockets.push(listener.accept().await.unwrap().0);
+                }
+            }));
+        }
+        let mut found = scan(root.path()).unwrap();
+        assert_eq!(found.len(), 65);
+        let gateway = Gateway::new();
+        // Exercise the 19-to-20 digit generation transition during admission.
+        gateway
+            .next_generation
+            .store(9_999_999_999_999_999_990, Ordering::Relaxed);
+        let mut tasks = DiscoveryTasks::new();
+        gateway.reconcile_discovery(&mut tasks, found.clone()).await;
+        assert_eq!(tasks.len(), 63);
+        let original = connected(&gateway, &tasks).await;
+        let (mut client, server) = tokio::io::duplex(64 * 1024);
+        let child = gateway.clone();
+        let control = tokio::spawn(async move {
+            let (reader, writer) = tokio::io::split(server);
+            child
+                .serve_stream(reader, writer, &"a".repeat(64), "test")
+                .await
+        });
+        write_frame(&mut client, &OpenStream::Control { protocol: VERSION })
+            .await
+            .unwrap();
+        roster_and_ping(&mut client, &original).await;
+
+        // This valid metadata update cannot fit; only that service loses its slot.
+        let manifest = &mut found.get_mut("z000").unwrap().manifest;
+        manifest.name = "\0\"\\🍡".repeat(4500);
+        let bytes = serde_json::to_vec(manifest).unwrap();
+        assert!(bytes.len() < 128 * 1024);
+        std::fs::write(root.path().join("z000/manifest.json"), bytes).unwrap();
+        found = scan(root.path()).unwrap();
+        assert_eq!(found.len(), 65);
+        gateway.reconcile_discovery(&mut tasks, found.clone()).await;
+        assert!(!tasks.contains_key("z000"));
+        assert!(tasks.contains_key("z063"));
+        let updated = connected(&gateway, &tasks).await;
+        for service in original.iter().filter(|service| service.id != "z000") {
+            assert!(updated.contains(service));
+        }
+        roster_and_ping(&mut client, &updated).await;
+
+        // A smaller replacement remains pending until an existing slot is freed.
+        found.get_mut("z000").unwrap().manifest.name = "Updated".into();
+        gateway.reconcile_discovery(&mut tasks, found.clone()).await;
+        assert!(!tasks.contains_key("z000"));
+        found.remove("z001");
+        gateway.reconcile_discovery(&mut tasks, found.clone()).await;
+        assert!(tasks.contains_key("z000"));
+        let replaced = connected(&gateway, &tasks).await;
+        roster_and_ping(&mut client, &replaced).await;
+
+        // Shrinking metadata also releases bytes and admits the last waiting ID.
+        found.get_mut("z002").unwrap().manifest.icon = None;
+        gateway.reconcile_discovery(&mut tasks, found).await;
+        assert_eq!(tasks.len(), 64);
+        assert!(tasks.contains_key("z064"));
+        let shrunk = connected(&gateway, &tasks).await;
+        roster_and_ping(&mut client, &shrunk).await;
+        gateway.shutdown();
+        control.await.unwrap().unwrap();
+        for (_, (_, _, task)) in tasks {
+            task.await.unwrap();
+        }
+        for task in sdk_tasks {
+            task.abort();
+            let _ = task.await;
+        }
+    }
+
+    #[tokio::test]
+    async fn discovery_caps_total_services_preserves_slots_and_admits_after_removal() {
+        async fn connected(gateway: &Gateway) -> BTreeMap<String, Service> {
+            let mut changes = gateway.changes();
+            tokio::time::timeout(Duration::from_secs(5), async {
+                loop {
+                    let services = gateway.list().await;
+                    assert!(services.len() <= MAX_SERVICES);
+                    if services.len() == MAX_SERVICES {
+                        return services.into_iter().map(|s| (s.id.clone(), s)).collect();
+                    }
+                    let _ = changes.recv().await;
+                }
+            })
+            .await
+            .unwrap()
+        }
+
+        let root = tempfile::tempdir().unwrap();
+        let socket_path = root.path().join("sdk.sock");
+        let listener = UnixListener::bind(&socket_path).unwrap();
+        // Keep every accepted SDK connection alive until gateway shutdown.
+        let sdk = tokio::spawn(async move {
+            let mut sockets = Vec::new();
+            loop {
+                sockets.push(listener.accept().await.unwrap().0);
+            }
+        });
+        let service = |id: String| DiscoveredService {
+            manifest: omochi_local_discovery::Manifest {
+                name: id.clone(),
+                socket: "sdk.sock".into(),
+                icon: None,
+            },
+            id,
+            socket_path: socket_path.clone(),
+        };
+        let mut found: BTreeMap<_, _> = (0..MAX_SERVICES)
+            .map(|i| {
+                let id = format!("z{i:03}");
+                (id.clone(), service(id))
+            })
+            .collect();
+        let gateway = Gateway::new();
+        let mut tasks = DiscoveryTasks::new();
+        gateway.reconcile_discovery(&mut tasks, found.clone()).await;
+        let original = connected(&gateway).await;
+
+        // An earlier-sorting newcomer used to raise the total to 257 because the
+        // scan's first 256 entries were added without counting retained tasks.
+        found.insert("a000".into(), service("a000".into()));
+        gateway.reconcile_discovery(&mut tasks, found.clone()).await;
+        // Reconciliation completion is the barrier proving no new task was admitted.
+        assert_eq!(tasks.len(), MAX_SERVICES);
+        assert!(!tasks.contains_key("a000"));
+        for current in gateway.list().await {
+            assert_eq!(current.generation, original[&current.id].generation);
+        }
+
+        // A changed existing manifest must reconnect in its reserved slot, even
+        // while an earlier-sorting newcomer waits for capacity.
+        found.get_mut("z255").unwrap().manifest.name = "Updated".into();
+        gateway.reconcile_discovery(&mut tasks, found.clone()).await;
+        assert_eq!(tasks.len(), MAX_SERVICES);
+        assert!(!tasks.contains_key("a000"));
+        let updated = connected(&gateway).await;
+        assert_eq!(updated["z255"].name, "Updated");
+        assert_ne!(updated["z255"].generation, original["z255"].generation);
+        for (id, current) in &updated {
+            if id != "z255" {
+                assert_eq!(current.generation, original[id].generation);
+            }
+        }
+
+        found.remove("z000");
+        gateway.reconcile_discovery(&mut tasks, found).await;
+        assert_eq!(tasks.len(), MAX_SERVICES);
+        assert!(tasks.contains_key("a000"));
+        assert!(!tasks.contains_key("z000"));
+        let replaced = connected(&gateway).await;
+        assert!(replaced.contains_key("a000"));
+        assert!(!replaced.contains_key("z000"));
+        for (id, current) in &replaced {
+            if id != "a000" {
+                assert_eq!(current.generation, updated[id].generation);
+            }
+        }
+
+        gateway.shutdown();
+        for (_, (_, _, task)) in tasks {
+            task.await.unwrap();
+        }
+        assert!(gateway.list().await.is_empty());
+        sdk.abort();
+        let _ = sdk.await;
+    }
+
     #[tokio::test]
     async fn blocked_sdk_write_drains_before_barrier_and_revoked_queued_work_is_skipped() {
         use crate::dispatch::AuthorizationEpoch;

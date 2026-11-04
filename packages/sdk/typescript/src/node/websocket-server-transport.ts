@@ -1,10 +1,11 @@
-import { isResourceFrame, ResourceError, resourceHello, serveResources, type ResourceFrame } from "@omochi-ui/core";
+import { isResourceFrame, ResourceError, resourceHello, resourceOriginAllowed, serveResources, type ResourceFrame } from "@omochi-ui/core";
 import { ResourceRegistry } from "../resources.js";
 import { createServer, type Server } from "node:http";
 
 import { A2uiClientMessageSchema } from "@a2ui/web_core/v0_9";
 import { WebSocket, WebSocketServer } from "ws";
 
+import { ReceiveQueue, ReceiveQueueOverflowError } from "../receive-queue.js";
 import type { Transport } from "../transport.js";
 import type { A2UIMessage, JsonObject } from "../types.js";
 import { A2uiSnapshot } from "./snapshot.js";
@@ -46,7 +47,7 @@ export class WebSocketServerTransport implements Transport {
   private readonly webSocketServer = new WebSocketServer({ noServer: true });
   private readonly clients = new Set<WebSocket>();
   private readonly snapshot = new A2uiSnapshot();
-  private readonly received: JsonObject[] = [];
+  private readonly received = new ReceiveQueue<JsonObject>();
   private readonly waiting: PendingReceive[] = [];
   private closed = false;
   private receiveError: unknown = null;
@@ -72,9 +73,20 @@ export class WebSocketServerTransport implements Transport {
     });
 
     this.httpServer.on("upgrade", (request, socket, head) => {
-      const pathname = new URL(request.url ?? "/", "http://localhost").pathname;
-      if (pathname !== this.path) {
+      let pathname: string;
+      try {
+        pathname = new URL(request.url ?? "/", "http://localhost").pathname;
+      } catch {
+        socket.end("HTTP/1.1 400 Bad Request\r\nConnection: close\r\nContent-Length: 0\r\n\r\n");
+        return;
+      }
+      if (this.closed || pathname !== this.path) {
         socket.destroy();
+        return;
+      }
+      // WebSocket upgrades bypass CORS; enforce the HTTP resource policy here too.
+      if (!resourceOriginAllowed(request)) {
+        socket.end("HTTP/1.1 403 Forbidden\r\nConnection: close\r\nContent-Length: 0\r\n\r\n");
         return;
       }
       this.webSocketServer.handleUpgrade(request, socket, head, (webSocket) => {
@@ -130,26 +142,38 @@ export class WebSocketServerTransport implements Transport {
   close(): Promise<void> {
     if (this.closePromise) return this.closePromise;
     this.closed = true;
+    this.received.clear();
     this.flushReceivers();
-    for (const client of this.clients) closeSocket(client, 1001, "server shutting down");
-    this.closePromise = Promise.all([
-      new Promise<void>((resolve) => this.webSocketServer.close(() => resolve())),
-      new Promise<void>((resolve) => {
-        if (!this.httpServer.listening) {
-          resolve();
-          return;
-        }
-        this.httpServer.close(() => resolve());
-      }),
-    ]).then(() => undefined);
+    this.closePromise = (async () => {
+      // A pending listen can still succeed even while server.listening is false.
+      await this.ready.catch(() => {});
+      for (const client of this.clients) closeSocket(client, 1001, "server shutting down");
+      await Promise.all([
+        new Promise<void>((resolve) => this.webSocketServer.close(() => resolve())),
+        new Promise<void>((resolve) => {
+          if (!this.httpServer.listening) {
+            resolve();
+            return;
+          }
+          this.httpServer.close(() => resolve());
+        }),
+      ]);
+    })();
     return this.closePromise;
   }
 
   private accept(socket: WebSocket): void {
+    if (this.closed) { socket.terminate(); return; }
     this.clients.add(socket);
+    socket.on("close", () => this.clients.delete(socket));
+    socket.on("error", () => {
+      // Isolate connection errors even when the peer never acknowledges a close.
+      socket.terminate();
+    });
     if (this.resources) socket.send(JSON.stringify(resourceHello()));
     for (const message of this.snapshot.messages()) socket.send(JSON.stringify(message));
     socket.on("message", (data, isBinary) => {
+      if (this.closed) return;
       if (isBinary) {
         closeSocket(socket, 1003, "expected a text JSON message");
         return;
@@ -161,22 +185,41 @@ export class WebSocketServerTransport implements Transport {
           return;
         }
         const parsed = A2uiClientMessageSchema.safeParse(value);
-        if (!parsed.success || parsed.data.version !== "v0.9" || !("action" in parsed.data)) {
+        if (!parsed.success || parsed.data.version !== "v0.9") {
           throw new Error(parsed.success ? `unsupported version: ${parsed.data.version}` : "expected an A2UI v0.9 client message");
         }
-        this.enqueue(value as JsonObject);
+        const message = value as JsonObject;
+        if ("error" in message) {
+          // The schema can omit a missing generic code or strip an extra action.
+          if ("action" in message || !("error" in parsed.data) || !("code" in parsed.data.error)) {
+            throw new Error("invalid client error report");
+          }
+          // Valid client error reports carry no action; keep the connection open.
+          return;
+        }
+        this.enqueue(message);
       } catch (error) {
+        if (error instanceof ReceiveQueueOverflowError) {
+          this.failReceive(error);
+          return;
+        }
         const detail = error instanceof Error ? error.message : String(error);
         closeSocket(socket, 1007, `invalid JSON: ${detail}`);
       }
     });
-    socket.on("close", () => this.clients.delete(socket));
   }
 
   private enqueue(message: JsonObject): void {
     const waiter = this.waiting.shift();
     if (waiter) waiter.resolve({ value: message, done: false });
     else this.received.push(message);
+  }
+
+  private failReceive(error: ReceiveQueueOverflowError): void {
+    this.receiveError = error;
+    // Abort immediately: queued actions must not run after an action was lost.
+    for (const client of this.clients) client.terminate();
+    void this.close().catch(() => {});
   }
 
   private nextMessage(): Promise<IteratorResult<JsonObject>> {

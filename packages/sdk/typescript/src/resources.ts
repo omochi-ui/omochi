@@ -1,3 +1,4 @@
+import { ReceiveQueue, ReceiveQueueOverflowError } from './receive-queue.js';
 import { randomBytes } from 'node:crypto';
 import { mkdtempSync, openSync, readSync, writeSync, closeSync, unlinkSync, rmdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -65,14 +66,63 @@ export class ResourceRegistry {
 }
 /** Keep reading while an action executes, serving resource RPC independently. */
 export async function* resourceMessages<T>(input: AsyncIterable<T>, send: (frame: ResourceFrame) => Promise<void>, registry?: ResourceRegistry): AsyncIterable<T> {
-  const queue: T[] = []; let done = false; let stopped = false; let failure: unknown; let wake: (() => void) | undefined;
+  const queue = new ReceiveQueue<T>();
+  let done = false;
+  let stopped = false;
+  let failure: unknown;
+  let wake: (() => void) | undefined;
+  const source = input[Symbol.asyncIterator]();
+  let sourceClosed = false;
+  const closeSource = async () => {
+    if (sourceClosed) return;
+    sourceClosed = true;
+    try { await source.return?.(); } catch { /* Cleanup must not mask the receive or handler failure. */ }
+  };
   const pump = (async () => {
-    try { for await (const value of input) {
-      if (stopped) break;
-      if (registry && isResourceFrame(value)) { if (value.kind === 'request') await send(registry.respond(value)); }
-      else { queue.push(value); wake?.(); }
-    } } catch (error) { failure = error; } finally { done = true; wake?.(); }
+    try {
+      while (!stopped) {
+        const result = await source.next();
+        if (result.done) { sourceClosed = true; break; }
+        if (stopped) break;
+        const value = result.value;
+        if (registry && isResourceFrame(value)) {
+          if (value.kind === 'request') await send(registry.respond(value));
+        } else {
+          try {
+            queue.push(value);
+          } catch (error) {
+            if (error instanceof ReceiveQueueOverflowError) {
+              // Discard queued actions as soon as the receive limit is exceeded.
+              failure = error;
+              queue.clear();
+              done = true;
+              wake?.();
+            }
+            throw error;
+          }
+          wake?.();
+        }
+      }
+    } catch (error) {
+      failure ??= error;
+    } finally {
+      void closeSource();
+      done = true;
+      wake?.();
+    }
   })();
-  try { while (!done || queue.length) { if (queue.length) yield queue.shift()!; else await new Promise<void>(resolve => { wake = resolve; }); } if (failure) throw failure; }
-  finally { stopped = true; void pump; }
+  try {
+    while (!done || queue.length) {
+      if (queue.length) yield queue.shift()!;
+      else await new Promise<void>(resolve => { wake = resolve; });
+    }
+    if (failure) throw failure;
+  } finally {
+    stopped = true;
+    queue.clear();
+    // Request cleanup even if next() is blocked. Neither it nor return() is
+    // guaranteed to settle, and outer transport cleanup may be needed to unblock it.
+    void closeSource();
+    void pump;
+  }
 }

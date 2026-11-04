@@ -1,0 +1,9 @@
+{
+  "catalogId": "urn:test:catalog-component-names",
+  "components": {
+    "Card2": {"properties": {"label": {"type": "string"}}, "required": ["label"]},
+    "Self": {"properties": {"label": {"type": "string"}}, "required": ["label"]},
+    "_Badge": {"properties": {"label": {"type": "string"}}, "required": ["label"]},
+    "class": {"properties": {"label": {"type": "string"}}, "required": ["label"]}
+  }
+}

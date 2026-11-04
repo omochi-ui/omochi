@@ -2,7 +2,7 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use omochi_ui::{Transport, UnixSocketServerOptions, UnixSocketServerTransport};
+use omochi_ui::{ResourceRegistry, Transport, UnixSocketServerOptions, UnixSocketServerTransport};
 use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::UnixStream;
@@ -47,6 +47,122 @@ async fn read_messages(stream: &mut BufReader<UnixStream>, count: usize) -> Vec<
         }
     }
     messages
+}
+
+async fn ready_resource_client(
+    root: &TempRoot,
+) -> (UnixSocketServerTransport, BufReader<UnixStream>, String) {
+    let mut transport = UnixSocketServerTransport::bind(
+        UnixSocketServerOptions::new("demo").with_runtime_dir(root.path()),
+    )
+    .await
+    .unwrap();
+    let resources = ResourceRegistry::default();
+    let uri = resources.bytes(b"media", "video/mp4").unwrap();
+    transport.set_resources(resources);
+    transport
+        .send(&json!({ "version": "v0.9", "createSurface": { "surfaceId": "main", "catalogId": "test" } }))
+        .await
+        .unwrap();
+    let mut client = BufReader::new(UnixStream::connect(transport.socket_path()).await.unwrap());
+    let replay = read_messages(&mut client, 2).await;
+    assert_eq!(
+        replay[0],
+        json!({ "omochi": "resources/1", "kind": "hello" })
+    );
+    assert_eq!(replay[1]["createSurface"]["surfaceId"], "main");
+    let request = format!(
+        "{}\n",
+        json!({ "omochi": "resources/1", "kind": "request", "id": "read", "op": "stat", "resource": uri.rsplit('/').next().unwrap() })
+    );
+    client
+        .get_mut()
+        .write_all(request.as_bytes())
+        .await
+        .unwrap();
+    assert_eq!(read_messages(&mut client, 1).await[0]["status"], 200);
+    (transport, client, request)
+}
+
+async fn assert_eof(client: &mut BufReader<UnixStream>) {
+    let mut line = String::new();
+    assert_eq!(
+        tokio::time::timeout(Duration::from_secs(5), client.read_line(&mut line))
+            .await
+            .expect("shutdown must close the client socket")
+            .unwrap(),
+        0,
+        "shutdown must not leave a resource response or replay writer alive: {line}"
+    );
+}
+
+#[tokio::test]
+async fn close_stops_connections_and_resource_responses() {
+    let root = TempRoot::new("close");
+    let (mut transport, mut client, request) = ready_resource_client(&root).await;
+    transport.close().await;
+    // A peer may observe the close on either its write or its read.
+    let _ = client.get_mut().write_all(request.as_bytes()).await;
+    assert_eof(&mut client).await;
+    assert!(transport.receive().await.unwrap().is_none());
+    transport.close().await;
+    assert!(!root.path().join("demo").exists());
+}
+
+#[tokio::test]
+async fn drop_stops_connections_and_resource_responses() {
+    let root = TempRoot::new("drop");
+    let (transport, mut client, request) = ready_resource_client(&root).await;
+    drop(transport);
+    assert_eof(&mut client).await;
+    let _ = client.get_mut().write_all(request.as_bytes()).await;
+    assert_eof(&mut client).await;
+    assert!(!root.path().join("demo").exists());
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn close_can_resume_after_its_future_is_cancelled() {
+    let root = TempRoot::new("cancel-close");
+    let (mut transport, mut client, request) = ready_resource_client(&root).await;
+    let mut closing = Box::pin(transport.close());
+    // Poll sends shutdown, but the supervisor cannot run until this task yields.
+    assert!(futures::poll!(&mut closing).is_pending());
+    drop(closing);
+    transport.close().await;
+    let _ = client.get_mut().write_all(request.as_bytes()).await;
+    assert_eof(&mut client).await;
+    assert!(!root.path().join("demo").exists());
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn shutdown_rejects_a_connection_queued_before_accept_runs() {
+    for use_drop in [false, true] {
+        let root = TempRoot::new("queued");
+        let mut transport = UnixSocketServerTransport::bind(
+            UnixSocketServerOptions::new("demo").with_runtime_dir(root.path()),
+        )
+        .await
+        .unwrap();
+        transport.set_resources(ResourceRegistry::default());
+        // No await between bind and connect: the spawned accept task has not run on
+        // this single-threaded runtime, but the kernel has queued this connection.
+        let queued = std::os::unix::net::UnixStream::connect(transport.socket_path()).unwrap();
+        queued.set_nonblocking(true).unwrap();
+        let mut client = BufReader::new(UnixStream::from_std(queued).unwrap());
+        if use_drop {
+            drop(transport);
+        } else {
+            transport.close().await;
+        }
+        let mut line = String::new();
+        let read = tokio::time::timeout(Duration::from_secs(5), client.read_line(&mut line))
+            .await
+            .expect("a queued connection must not survive shutdown");
+        match read {
+            Ok(bytes) => assert_eq!(bytes, 0, "must not accept and announce after shutdown"),
+            Err(error) => assert_eq!(error.kind(), std::io::ErrorKind::ConnectionReset),
+        }
+    }
 }
 
 #[tokio::test]
@@ -202,5 +318,37 @@ async fn drops_client_messages_that_carry_no_action() {
     // The client error is dropped, so the Runtime sees the action next.
     let received = transport.receive().await.unwrap().unwrap();
     assert_eq!(received["action"]["name"], json!("run"));
+    transport.close().await;
+}
+
+/// Driven by tests/sdk/socket_ownership.py, never run without its stdin barriers.
+#[tokio::test]
+#[ignore]
+async fn ownership_process_fixture() {
+    use std::io::Write;
+    let root = std::env::var("OMOCHI_OWNER_ROOT").expect("fixture runtime root");
+    let announce = |message| {
+        println!("OWNER {message}");
+        std::io::stdout().flush().unwrap();
+    };
+    let command = || {
+        let mut line = String::new();
+        assert_ne!(std::io::stdin().read_line(&mut line).unwrap(), 0);
+    };
+    announce("WAITING");
+    command();
+    let Ok(mut transport) = UnixSocketServerTransport::bind(
+        UnixSocketServerOptions::new("demo").with_runtime_dir(root),
+    )
+    .await
+    else {
+        announce("REJECTED");
+        return;
+    };
+    announce("READY");
+    command();
+    transport.close().await;
+    announce("CLOSED");
+    command();
     transport.close().await;
 }

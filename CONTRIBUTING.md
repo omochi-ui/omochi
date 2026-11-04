@@ -28,7 +28,9 @@ set `OMOCHI_HUB` to use another address.
 | JavaScript/TypeScript workspace | `bun run test` (builds all packages, then runs tests) |
 | CLI after building dependencies | `bun run test:server-rust` |
 | Python SDK | `bun run test:python` |
+| Generated Python catalog types | Build the native CLI, install `mypy` and `pyright`, then run `python scripts/test-catalog-types.py` |
 | Rust SDK | `bun run test:rust` |
+| Unix publisher ownership (Node, Bun, Python, Rust SDK, native utilities) | `bun run test:sdk-ownership` |
 | Preview frontend | `bun run --filter @omochi-ui/dev-server lint` |
 | Dashboard frontend | `bun run --filter @omochi-ui/hub-ui lint` |
 | Rust formatting | `cargo fmt --manifest-path packages/sdk/rust/Cargo.toml --check` |

@@ -1,0 +1,22 @@
+{
+  "catalogId": "urn:test:catalog-required-only",
+  "title": "Required Only",
+  "components": {
+    "Direct": {
+      "properties": {"label": {"type": "string"}},
+      "required": ["label", "metadata", "component", "id"]
+    },
+    "Nested": {
+      "required": ["label", "parentData"],
+      "allOf": [{
+        "required": ["nestedData", "component", "id"],
+        "allOf": [{
+          "properties": {"label": {"type": "string"}, "note": {"type": "string"}}
+        }]
+      }]
+    },
+    "Only": {
+      "required": ["payload", "component", "id"]
+    }
+  }
+}

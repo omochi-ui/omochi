@@ -1,0 +1,22 @@
+{
+  "catalogId": "urn:test:catalog-python-keys",
+  "title": "Python Keys Catalog",
+  "components": {
+    "Named": {
+      "type": "object",
+      "properties": {
+        "class": {"type": "string"},
+        "async": {"type": "boolean"},
+        "data-label": {"type": "string"},
+        "1st": {"type": "integer"},
+        "": {"type": "string"},
+        "__private": {"type": "string"},
+        "K": {"type": "string"},
+        "quote\"line\n": {"type": "string"},
+        "None": {"type": "string"},
+        "optional key": {"type": "string"}
+      },
+      "required": ["class", "async", "data-label", "1st", "", "__private", "K", "quote\"line\n"]
+    }
+  }
+}

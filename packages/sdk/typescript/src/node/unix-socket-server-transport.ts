@@ -8,12 +8,14 @@ import { createInterface } from "node:readline";
 
 import { A2uiClientMessageSchema } from "@a2ui/web_core/v0_9";
 
+import { ReceiveQueue, ReceiveQueueOverflowError } from "../receive-queue.js";
 import type { Transport } from "../transport.js";
 import type { A2UIMessage, JsonObject } from "../types.js";
 import {
   assertSocketPathFits,
   claimSocketPath,
   ensureServiceDirectory,
+  lockService,
   omochiRuntimeRoot,
   removeServiceDirectory,
   removeServiceDirectorySync,
@@ -63,9 +65,10 @@ export class UnixSocketServerTransport implements Transport {
   private readonly server: Server = createServer();
   private readonly clients = new Set<Socket>();
   private readonly snapshot = new A2uiSnapshot();
-  private readonly received: JsonObject[] = [];
+  private readonly received = new ReceiveQueue<JsonObject>();
   private readonly waiting: PendingReceive[] = [];
   private readonly exitCleanup: () => void;
+  private releaseService: (() => void) | null = null;
   private resolvedDirectory: string | null = null;
   private closed = false;
   private receiveError: unknown = null;
@@ -80,6 +83,9 @@ export class UnixSocketServerTransport implements Transport {
     this.server.on("connection", (socket) => this.accept(socket));
     this.exitCleanup = () => {
       if (this.resolvedDirectory) removeServiceDirectorySync(this.resolvedDirectory);
+      this.resolvedDirectory = null;
+      this.releaseService?.();
+      this.releaseService = null;
     };
     process.once("exit", this.exitCleanup);
     this.ready = this.publish().catch((error: unknown) => {
@@ -118,6 +124,7 @@ export class UnixSocketServerTransport implements Transport {
   close(): Promise<void> {
     if (this.closePromise) return this.closePromise;
     this.closed = true;
+    this.received.clear();
     this.flushReceivers();
     this.closePromise = (async () => {
       // Startup may still be binding or writing its manifest when close is called.
@@ -133,19 +140,29 @@ export class UnixSocketServerTransport implements Transport {
           await new Promise<void>((resolve) => this.server.close(() => resolve()));
         }
       }
+      this.resolvedDirectory = null;
+      this.releaseService?.();
+      this.releaseService = null;
       process.off("exit", this.exitCleanup);
     })();
     return this.closePromise;
   }
 
   private async publish(): Promise<void> {
-    const directory = await ensureServiceDirectory(this.root, this.serviceId);
+    this.releaseService = await lockService(this.root, this.serviceId);
+    const directory = path.join(this.root, this.serviceId);
     try {
+      await ensureServiceDirectory(this.root, this.serviceId);
       await this.listen(directory);
     } catch (error) {
       // Leave no empty directory behind for a discovery pass to walk into. `rmdir`
       // refuses a non-empty directory, so a live service's files are never touched.
       await rmdir(directory).catch(() => undefined);
+      if (!this.resolvedDirectory) {
+        this.releaseService?.();
+        this.releaseService = null;
+        process.off("exit", this.exitCleanup);
+      }
       throw error;
     }
   }
@@ -178,13 +195,21 @@ export class UnixSocketServerTransport implements Transport {
   private accept(socket: Socket): void {
     if (this.closed) { socket.destroy(); return; }
     this.clients.add(socket);
-    if (this.resources) socket.write(`${JSON.stringify(resourceHello())}\n`);
+    const lines = createInterface({ input: socket, crlfDelay: Infinity });
+    const disconnect = () => {
+      this.clients.delete(socket);
+      lines.close();
+      socket.destroy();
+    };
+    // readline re-emits input errors; handling only the socket leaves a fatal error.
+    lines.on("error", disconnect);
+    socket.on("error", disconnect);
+    socket.on("close", disconnect);
     socket.setNoDelay(true);
-    socket.on("error", () => this.clients.delete(socket));
-    socket.on("close", () => this.clients.delete(socket));
+    if (this.resources) socket.write(`${JSON.stringify(resourceHello())}\n`);
     for (const message of this.snapshot.messages()) socket.write(`${JSON.stringify(message)}\n`);
-    createInterface({ input: socket, crlfDelay: Infinity }).on("line", (line) => {
-      if (!line.trim()) return;
+    lines.on("line", (line) => {
+      if (this.closed || !line.trim()) return;
       try {
         const value: unknown = JSON.parse(line);
         if (this.resources && isResourceFrame(value)) {
@@ -199,8 +224,9 @@ export class UnixSocketServerTransport implements Transport {
         // invoke; dropping it keeps a client-side report from tearing the application down.
         if (!("action" in parsed.data)) return;
         this.enqueue(value as JsonObject);
-      } catch {
-        socket.destroy();
+      } catch (error) {
+        if (error instanceof ReceiveQueueOverflowError) this.failReceive(error);
+        disconnect();
       }
     });
   }
@@ -209,6 +235,13 @@ export class UnixSocketServerTransport implements Transport {
     const waiter = this.waiting.shift();
     if (waiter) waiter.resolve({ value: message, done: false });
     else this.received.push(message);
+  }
+
+  private failReceive(error: ReceiveQueueOverflowError): void {
+    this.receiveError = error;
+    // Abort immediately: queued actions must not run after an action was lost.
+    for (const client of this.clients) client.destroy();
+    void this.close().catch(() => {});
   }
 
   private nextMessage(): Promise<IteratorResult<JsonObject>> {

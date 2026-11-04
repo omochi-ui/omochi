@@ -32,3 +32,11 @@ Validate with `bun run --filter @omochi-ui/hub-ui test`,
 `bun run --filter @omochi-ui/hub-ui build:hosted`.
 After building native binaries, `bun packages/hub-ui/test/browser.mjs` checks the live
 dashboard, including detection, switching, persistence, editor state, and narrow layouts.
+
+Gateway registration stays attached to its original hub, owner grant and browser
+identity across disconnects. Reconnect with that authority to check the job or
+retry saving; enrollment is never replayed automatically. Dismissing an invitation
+releases the browser prompt without cancelling work already started on the hub.
+`bun tests/browser/gateway-reconnect.mjs` checks this lifecycle with real React
+components and Chromium, controlled session replies and poll timers. Screenshots
+are saved in `/tmp/omochi-gateway-reconnect` (or `SCREENSHOT_DIR`).

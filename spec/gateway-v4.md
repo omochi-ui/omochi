@@ -61,6 +61,14 @@ every 10 seconds after the preceding exchange; the gateway returns matching
 `pong`. A blocked write or missing matching pong for 10 seconds ends the session.
 `bye` carries a `reason`. Control loss retracts the associated services.
 
+Discovery reserves space for the complete serialized roster within one 4 MiB
+frame, including JSON escaping, UTF-8 and the maximum generation width. Unchanged
+admitted manifests retain capacity first, followed by changed admitted manifests
+and then new IDs (lexical ID order within each group). Manifests that exceed the
+remaining byte or service-count capacity are omitted and reconsidered on later
+scans. An oversized metadata update retracts only that service; unchanged services
+remain connected. Removal or smaller metadata can release capacity for waiting IDs.
+
 A service stream emits `snapshotStart`, zero or more `message` frames carrying an
 A2UI `message`, then `snapshotEnd`, followed by incremental `message` frames.
 The reverse direction carries A2UI client actions/errors. Hub browser surface IDs
@@ -72,6 +80,18 @@ separate from snapshot state. The browser boundary preserves resource GET/HEAD,
 ETag and byte-range semantics; remote resources require a live authorized peer.
 
 ## Limits and lifecycle
+
+Stream admission reserves separate budgets for control, service subscriptions,
+resource requests and headers awaiting classification. An authorized remote
+connection permits one control stream, 256 service streams, 64 resource streams
+and 64 pending headers. Its QUIC bidirectional-stream credit covers all 385;
+raising this credit happens only after gateway role authorization. The Unix
+listener shares budgets across clients: eight control streams, 2048 service
+streams (eight complete hub rosters), 64 resource streams and 64 pending headers.
+Subscriptions cannot consume the resource or control reservations. Exhausting a
+budget rejects that stream, while existing streams continue. Header reads still
+expire after five seconds, and resource concurrency and request timeouts remain
+bounded separately from long-lived subscriptions.
 
 Snapshots have a 16 MiB encoded-data limit. Every materialized gateway replay
 message must also fit the 4 MiB frame including its envelope; individually valid
@@ -111,4 +131,10 @@ Status is `pairing`, `registered`, `failed`, `outcomeUnknown` or `savePending`.
 Jobs belong to their initiating owner grant and authenticated browser identity.
 Completed results expire after five minutes. Accepted enrollment proofs stay in
 hub memory for local save retry without redeeming the invitation again, until
-saved, revoked or shutdown. Trust revocation invalidates stale writes.
+saved, definitively rejected, revoked or shutdown. Name and role conflicts are
+checked before enrollment and again under the store lock at save time. A conflict
+introduced during enrollment ends the job as `failed`, allowing its initiating
+owner to start again with a different name or invitation; the invitation must
+still be valid. Transient storage errors or an unknown commit outcome remain
+`savePending` and retain the proof for local retry. Trust revocation invalidates
+stale writes.

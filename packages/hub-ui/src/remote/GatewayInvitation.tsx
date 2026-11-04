@@ -9,14 +9,21 @@ interface Job {
   status: string;
   gatewayId: string;
 }
+interface ScopedJob extends Job {
+  scope: string;
+  hubName: string;
+}
 export function GatewayInvitation({
   takeInvitation,
   session,
+  ownerScope,
   hubName,
   ownsProfile,
 }: {
   takeInvitation(): string | null;
   session: RemoteHubSession | null;
+  /** Hub ID, owner grant ID and authenticated browser identity; stable across reconnects. */
+  ownerScope: string | null;
   hubName: string;
   ownsProfile: boolean;
 }) {
@@ -24,7 +31,7 @@ export function GatewayInvitation({
   const [invite, setInvite] = useState<Invitation | null>(null),
     [name, setName] = useState(''),
     [message, setMessage] = useState<TranslationMessage | null>(null),
-    [job, setJob] = useState<Job | null>(null),
+    [job, setJob] = useState<ScopedJob | null>(null),
     [busy, setBusy] = useState(false);
   const pending = useRef<Invitation | null>(null),
     channel = useRef<BroadcastChannel | null>(null);
@@ -32,7 +39,8 @@ export function GatewayInvitation({
   owner.current = ownsProfile;
   const [sendAttempt, setSendAttempt] = useState(0);
   const [now, setNow] = useState(Date.now());
-  const jobSession = useRef<RemoteHubSession | null>(null);
+  const operation = useRef(0);
+  useEffect(() => () => { operation.current++; }, []);
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(timer);
@@ -100,7 +108,7 @@ export function GatewayInvitation({
     };
   }, [takeInvitation, i18n]);
   useEffect(() => {
-    if (!invite || ownsProfile || !channel.current) return;
+    if (!invite || job || ownsProfile || !channel.current) return;
     const bc = channel.current,
       id = crypto.randomUUID();
     let received = false;
@@ -128,44 +136,59 @@ export function GatewayInvitation({
       clearTimeout(timer);
       bc.removeEventListener('message', reply);
     };
-  }, [invite, ownsProfile, sendAttempt]);
+  }, [invite, job, ownsProfile, sendAttempt]);
   useEffect(() => {
-    if (!job || job.status !== 'pairing' || !session || session !== jobSession.current) return;
+    if (!job || job.status !== 'pairing' || !session || ownerScope !== job.scope) return;
     let stopped = false;
+    const attempt = operation.current;
+    let timer: ReturnType<typeof setTimeout>;
     const poll = async () => {
       try {
         const next = (await session.control({ method: 'gatewayPairStatus', id: job.id })) as Job;
-        if (!stopped) setJob(next);
+        if (!stopped && operation.current === attempt) {
+          setJob({ ...next, scope: job.scope, hubName: job.hubName });
+          setMessage(null);
+        }
       } catch {
-        if (!stopped)
+        if (!stopped && operation.current === attempt) {
           setMessage({ key: 'gateway.statusError' });
+          timer = setTimeout(() => { void poll(); }, 1000);
+        }
       }
     };
-    const timer = setInterval(() => {
-      void poll();
-    }, 1000);
+    // Each response schedules the next render/poll; requests never overlap.
+    timer = setTimeout(() => { void poll(); }, 1000);
     return () => {
       stopped = true;
-      clearInterval(timer);
+      clearTimeout(timer);
     };
-  }, [job, session]);
+  }, [job, session, ownerScope]);
   const submit = async () => {
-    if (!session || !invite || busy) return;
+    if (!session || !ownerScope || !invite || busy || (job && job.scope !== ownerScope)) return;
+    if (job && job.status !== 'savePending' && job.status !== 'failed') return;
+    const attempt = ++operation.current;
+    const started: ScopedJob = job?.status === 'savePending' ? job : {
+      id: '', status: 'starting', gatewayId: invite.gatewayId, scope: ownerScope, hubName,
+    };
+    setJob(started);
     setBusy(true);
     setMessage(null);
-    jobSession.current = session;
     try {
-      setJob(
-        (await session.control(
-          job?.status === 'savePending'
-            ? { method: 'gatewayPairRetrySave', id: job.id }
-            : { method: 'gatewayPairStart', invitation: invite.invitation, name },
-        )) as Job,
-      );
+      const result = (await session.control(
+        started.status === 'savePending'
+          ? { method: 'gatewayPairRetrySave', id: started.id }
+          : { method: 'gatewayPairStart', invitation: invite.invitation, name },
+      )) as Job;
+      // Dismissal or a new invitation invalidates old results. A reconnect may
+      // retain the result, but always under the original authority and hub name.
+      if (operation.current === attempt) setJob({ ...result, scope: started.scope, hubName: started.hubName });
     } catch {
-      setMessage({ key: 'gateway.startError' });
+      if (operation.current === attempt) {
+        setJob({ ...started, status: started.status === 'savePending' ? 'savePending' : 'outcomeUnknown' });
+        setMessage(started.status === 'savePending' ? { key: 'gateway.statusError' } : null);
+      }
     } finally {
-      setBusy(false);
+      if (operation.current === attempt) setBusy(false);
     }
   };
   if (!invite) return message ? <p role="status">{t(message.key, { ...message.values })}</p> : null;
@@ -177,8 +200,8 @@ export function GatewayInvitation({
       </p>
       <p>{t('gateway.expires', { date: new Date(invite.expires * 1000).toLocaleString(i18n.resolvedLanguage) })}</p>
       <p>
-        {session
-          ? t('gateway.hub', { name: hubName })
+        {job || session
+          ? t('gateway.hub', { name: job?.hubName ?? hubName })
           : t('gateway.connectHelp')}
       </p>
       <label>
@@ -186,7 +209,7 @@ export function GatewayInvitation({
         <input
           value={name}
           maxLength={256}
-          disabled={busy || job?.status === 'pairing'}
+          disabled={busy || (!!job && job.status !== 'failed')}
           onChange={(event) => setName(event.target.value)}
         />
       </label>
@@ -201,19 +224,22 @@ export function GatewayInvitation({
                 ? t('gateway.unknown')
                 : job?.status === 'failed'
                   ? t('gateway.failed')
-                  : job?.status === 'pairing'
+                  : job?.status === 'pairing' || job?.status === 'starting'
                     ? t('gateway.registering')
                     : message && t(message.key, { ...message.values })}
       </p>
+      {job && job.scope !== ownerScope && <p role="status">{t('gateway.reconnect', { name: job.hubName })}</p>}
+      {job && message && <p role="status">{t(message.key, { ...message.values })}</p>}
+      {job && !['registered', 'failed'].includes(job.status) && <p>{t('gateway.dismissHelp')}</p>}
       <Button
         disabled={
           !session ||
-          (job && session !== jobSession.current) ||
+          !ownerScope ||
+          (job && ownerScope !== job.scope) ||
           (invite.expires * 1000 <= now && job?.status !== 'savePending') ||
           !name.trim() ||
           busy ||
-          job?.status === 'pairing' ||
-          job?.status === 'registered'
+          (!!job && job.status !== 'savePending' && job.status !== 'failed')
         }
         onClick={() => {
           void submit();
@@ -222,12 +248,13 @@ export function GatewayInvitation({
         {job?.status === 'savePending' ? t('gateway.retrySave') : t('gateway.confirm')}
       </Button>
       <a className="hub-button" href={invite.invitation}>Open in Omochi app</a>
-      {!ownsProfile && (
+      {!ownsProfile && !job && (
         <Button onClick={() => setSendAttempt((v) => v + 1)}>{t('gateway.send')}</Button>
       )}
       <Button
-        disabled={busy || job?.status === 'pairing'}
         onClick={() => {
+          operation.current++;
+          setBusy(false);
           pending.current = null;
           setInvite(null);
           setJob(null);
