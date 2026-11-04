@@ -34,15 +34,21 @@ function decodeJson(bytes: Uint8Array): unknown {
   catch { return invalid(); }
 }
 
+function decodeBase64urlJson(encoded: string): unknown {
+  if (!/^[A-Za-z0-9_-]+$/.test(encoded) || encoded.length % 4 === 1) return invalid();
+  let binary: string;
+  try { binary = atob(encoded.replace(/-/g, '+').replace(/_/g, '/')); } catch { return invalid(); }
+  // Reject noncanonical trailing bits as well as padding and alternative alphabets.
+  if (btoa(binary).replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_') !== encoded) return invalid();
+  return decodeJson(Uint8Array.from(binary, byte => byte.charCodeAt(0)));
+}
+
 /** Secret-bearing return value: retain only in owner-private memory. IP hints are ignored. */
 export function parseInvitation(text: string): Readonly<BrowserInvitation> {
   if (typeof text !== 'string') return invalid();
   text = text.trim();
   if (text.length > 16384 || !text.startsWith(prefix)) return invalid();
-  const hex = text.slice(prefix.length);
-  if (!hex || hex.length % 2 || !/^[0-9a-fA-F]+$/.test(hex)) return invalid();
-  const bytes = Uint8Array.from(hex.match(/../g)!, byte => parseInt(byte, 16));
-  const invite = object(decodeJson(bytes), ['version', 'address', 'secret', 'expires']);
+  const invite = object(decodeBase64urlJson(text.slice(prefix.length)), ['version', 'address', 'secret', 'expires']);
   const address = object(invite.address, ['id', 'addrs']);
   if (invite.version !== 4 || typeof invite.secret !== 'string' || !/^[0-9a-fA-F]{64}$/.test(invite.secret) ||
       typeof address.id !== 'string' || !isValidNodeId(address.id) || !Array.isArray(address.addrs) ||
@@ -63,14 +69,7 @@ export function parseInvitation(text: string): Readonly<BrowserInvitation> {
 /** Validate the navigation wrapper without treating it as another authority. */
 export function parseConnectFragment(fragment: string): string {
   if (typeof fragment !== 'string' || fragment.length > 32768 || !fragment.startsWith('#connect:')) return invalid();
-  const encoded = fragment.slice(9);
-  if (!/^[A-Za-z0-9_-]+$/.test(encoded) || encoded.length % 4 === 1) return invalid();
-  let binary: string;
-  try { binary = atob(encoded.replace(/-/g, '+').replace(/_/g, '/')); } catch { return invalid(); }
-  if (binary.length > 24576) return invalid();
-  // Reject noncanonical trailing bits as well as padding and alternative alphabets.
-  if (btoa(binary).replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_') !== encoded) return invalid();
-  const wrapper = object(decodeJson(Uint8Array.from(binary, byte => byte.charCodeAt(0))), ['version', 'invitation']);
+  const wrapper = object(decodeBase64urlJson(fragment.slice(9)), ['version', 'invitation']);
   if (wrapper.version !== 1 || typeof wrapper.invitation !== 'string') return invalid();
   parseInvitation(wrapper.invitation);
   return wrapper.invitation;

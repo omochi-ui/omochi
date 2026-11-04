@@ -9,7 +9,7 @@ import { defaultPreferences, openProfileDatabase, readProfile, transaction, type
 const id = 'c'.repeat(64), a = 'a'.repeat(64), b = 'b'.repeat(64);
 const identity: IdentityRecord = { id: 'default', endpointId: id, secretHex: '0'.repeat(64), createdAt: 1 };
 function invite(nodeId = a, relays = ['https://relay.example/'], expires = Math.floor(Date.now() / 1000) + 180): string {
-  return `omochi://invite/${Buffer.from(JSON.stringify({ version: 4, address: { id: nodeId, addrs: relays.map(Relay => ({ Relay })) }, secret: 'd'.repeat(64), expires })).toString('hex')}`;
+  return `omochi://invite/${Buffer.from(JSON.stringify({ version: 4, address: { id: nodeId, addrs: relays.map(Relay => ({ Relay })) }, secret: 'd'.repeat(64), expires })).toString('base64url')}`;
 }
 function pending<T>(signal: AbortSignal): Promise<T> {
   return new Promise((_, reject) => {

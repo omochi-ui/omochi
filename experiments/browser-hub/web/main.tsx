@@ -6,6 +6,7 @@ import { resourceCatalog } from '../../../packages/renderer/src/resources';
 import { BrowserImages } from '../../../packages/renderer/src/images';
 import { createActionMessage } from '../../../packages/renderer/src/client';
 import '../../../packages/renderer/src/styles.css';
+import { parseInvitation } from '../../browser-dashboard/hub/src/bootstrap';
 import init, { BrowserEndpoint } from './pkg/omochi_browser_hub_spike.js';
 
 const root = createRoot(document.getElementById('root')!);
@@ -94,9 +95,7 @@ class Client {
         record('unauthorizedRejectionReason', await deadline(rejected.closed(), 5000));
         record('unauthorizedRejected');
       } finally { rejected.close(); }
-      const invite = JSON.parse(new TextDecoder().decode(Uint8Array.from(
-        target.invitation.slice('omochi://invite/'.length).match(/../g), (v: string) => parseInt(v, 16),
-      )));
+      const invite = parseInvitation(target.invitation);
       const pairing = await deadline(this.endpoint.connect(target.gatewayId, target.relay, 'omochi/pair/1'));
       const stream = await pairing.open();
       await send(stream, { version: 4, secret: invite.secret, name: 'Chromium browser hub spike' });

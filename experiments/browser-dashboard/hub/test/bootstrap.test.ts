@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from '@omochi-ui/core/testing';
 import { captureConnectFragment, parseConnectFragment, parseInvitation, validRelayUrl } from '../src/bootstrap.js';
 
-const native = (value: unknown) => `omochi://invite/${Buffer.from(JSON.stringify(value)).toString('hex')}`;
+const native = (value: unknown) => `omochi://invite/${Buffer.from(JSON.stringify(value)).toString('base64url')}`;
 const invitation = (extra = {}) => native({ version: 4, address: { id: 'a'.repeat(64), addrs: [{ Ip: '127.0.0.1:1' }, { Relay: 'https://relay.example/' }] }, secret: 'AB'.repeat(32), expires: Math.floor(Date.now() / 1000) + 180, ...extra });
 const wrapper = (value: unknown) => `#connect:${Buffer.from(JSON.stringify(value)).toString('base64url')}`;
 
@@ -33,6 +33,20 @@ test('native invitation expiry, secrets, bounds, nested fields and relay policy 
   ]) assert.throws(() => parseInvitation(invitation(extra)), { code: 'InvalidInvitation' });
   for (const relay of ['https://user:pass@r/', 'https://@r/', 'https:r', 'https://r/?x', 'https://r/#', 'https://r/?', 'wss://r/', 'https://r/' + 'x'.repeat(2048), ' https://r/']) assert.equal(validRelayUrl(relay), false);
   for (const text of ['omochi://invite/zz', 'omochi://invite/0', invitation() + 'a'.repeat(16384)]) assert.throws(() => parseInvitation(text), { code: 'InvalidInvitation' });
+});
+
+test('native invitations use canonical unpadded base64url and reject legacy hex', () => {
+  const text = invitation({ expires: 4102444800 });
+  const payload = text.slice('omochi://invite/'.length);
+  assert.equal(parseInvitation(text).expires, 4102444800);
+  // Change unused trailing bits without changing the decoded JSON bytes.
+  const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
+  const noncanonical = payload.slice(0, -1) + alphabet[alphabet.indexOf(payload.at(-1)!) + 1];
+  assert.equal(Buffer.from(noncanonical, 'base64url').toString(), Buffer.from(payload, 'base64url').toString());
+  for (const encoded of [Buffer.from(payload, 'base64url').toString('hex'), payload + '=', noncanonical,
+    Buffer.from([255]).toString('base64url'), 'a', 'AB', payload + '+', payload + '/']) {
+    assert.throws(() => parseInvitation(`omochi://invite/${encoded}`), { code: 'InvalidInvitation' });
+  }
 });
 
 test('capture removes bearer fragments from browser history even when malformed', t => {

@@ -232,6 +232,7 @@ fn image_cases() -> Vec<(&'static str, Vec<u8>)> {
 }
 struct Source {
     gateway: Gateway,
+    endpoint: Endpoint,
     store: Store,
     listener: JoinHandle<()>,
     discovery: JoinHandle<Result<()>>,
@@ -456,7 +457,7 @@ async fn source(
     let faults = (protocol_faults && index == 0).then(faults::Faults::new);
     let listener = if let Some(faults) = &faults {
         faults::listen(
-            endpoint,
+            endpoint.clone(),
             store.clone(),
             gateway.clone(),
             format!("Fixture {index}"),
@@ -464,11 +465,12 @@ async fn source(
         )
     } else {
         gateway
-            .listen_remote_async(endpoint, store.clone(), format!("Fixture {index}"))
+            .listen_remote_async(endpoint.clone(), store.clone(), format!("Fixture {index}"))
             .await?
     };
     Ok(Source {
         gateway,
+        endpoint,
         store,
         listener,
         discovery,
@@ -645,19 +647,7 @@ async fn run() -> Result<()> {
             Some("invite") => {
                 let index = command["gateway"].as_u64().context("gateway index")? as usize;
                 let source = sources.get(index).context("gateway index")?;
-                let now = std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)?
-                    .as_secs();
-                let invitation = format!(
-                    "omochi://invite/{}",
-                    serde_json::to_vec(&json!({
-                        "version":4,"address":{"id":source.id,"addrs":[{"Relay":source.relay}]},
-                        "secret":source.store.invite(now, 180)?,"expires":now+180,
-                    }))?
-                    .iter()
-                    .map(|byte| format!("{byte:02x}"))
-                    .collect::<String>()
-                );
+                let invitation = Invite::issue(&source.store, &source.endpoint)?.encode()?;
                 output(json!({"kind":"invitation","gateway":index,"invitation":invitation}))?;
             }
             Some("forget") => {
