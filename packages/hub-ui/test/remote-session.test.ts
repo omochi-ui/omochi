@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { test, waitFor } from '@omochi-ui/core/testing';
+import { test, waitFor, type TestContext } from '@omochi-ui/core/testing';
 import { BASIC_CATALOG_ID, SessionFault, type RenderEvent } from '@omochi-ui/core/browser';
 import { createA2uiSession } from '@omochi-ui/renderer';
 import type { BrowserTransport, Stream, Connection, Endpoint, ReceivedFrame } from '@omochi-ui/hub-transport';
@@ -10,6 +10,16 @@ import type { Dashboard } from '../src/contracts.js';
 
 const hubId = 'a'.repeat(64), grantId = '11111111-1111-4111-8111-111111111111', surface = `${hubId}~app/main`;
 const board = (): Dashboard => ({ id: 'b', revision: 1, name: 'Shared', panels: [{ id: 'panel', title: 'View', x: 0, y: 0, w: 4, h: 4, reference: { nodeId: hubId, serviceId: 'app', surfaceId: 'main' } }] });
+function captureHeartbeats(t: TestContext) {
+  const callbacks: Array<() => void> = [], original = globalThis.setInterval;
+  globalThis.setInterval = ((callback: () => void) => {
+    callbacks.push(callback);
+    return original(() => {}, 2147483647);
+  }) as typeof setInterval;
+  t.after(() => { globalThis.setInterval = original; });
+  return callbacks;
+}
+const drainTasks = () => new Promise<void>(resolve => setImmediate(resolve));
 class FakeStream implements Stream {
   readonly sent: Record<string, unknown>[] = [];
   private readonly queue: ReceivedFrame[] = [];
@@ -51,21 +61,26 @@ class FakeConnection implements Connection {
   closed() { return this.end; }
   async close() { this.finish({ code: '2', reason: '' }); await Promise.all(this.streams.map(s => s.cancel())); }
 }
-function setup(interact = false, editLayout = false) {
+function setup(interact = false, editLayout = false, owner = false) {
   const create = { version: 'v0.9', createSurface: { surfaceId: surface, catalogId: BASIC_CATALOG_ID } };
   const connection = new FakeConnection({ board: board(), permissions: { interact, editLayout } }, [create]);
+  if (owner) connection.control.onSend = value => {
+    if (value.version !== 1) return;
+    connection.control.push({ kind: 'ownerWelcome', services: [] });
+    connection.control.push({ kind: 'snapshotEnd', sequence: '1' });
+  };
   const connections = [connection]; let opened = 0, active = 0;
   const transport: BrowserTransport = {
     async generateIdentity() { return { secretHex: '0'.repeat(64), endpointId: 'b'.repeat(64) }; },
     async identityFromSecret(secretHex) { return { secretHex, endpointId: 'b'.repeat(64) }; },
     async openEndpoint() {
-      active++; let closed = false;
-      const endpoint: Endpoint = { async connect() { const conn = connections[opened++]; if (!conn) throw new SessionFault('NetworkUnavailable'); return conn; }, async close() { if (!closed) { active--; closed = true; } await Promise.all(connections.map(c => c.close())); } }; return endpoint;
+      active++; let closed = false, connected: FakeConnection | undefined;
+      const endpoint: Endpoint = { async connect() { connected = connections[opened++]; if (!connected) throw new SessionFault('NetworkUnavailable'); return connected; }, async close() { if (!closed) { active--; closed = true; } await connected?.close(); } }; return endpoint;
     },
   };
   let view: SharedView | null = null;
   const repo = new SharedBoardRepository();
-  const source = new RemoteHubSession({ source: { hubId, grantId, relayUrls: ['https://relay.example/'] }, secretHex: '0'.repeat(64), onView(value) { view = value; repo.publish(value); } }, transport);
+  const source = new RemoteHubSession({ source: { hubId, grantId, relayUrls: ['https://relay.example/'] }, secretHex: '0'.repeat(64), owner, onView(value) { view = value; repo.publish(value); } }, transport);
   repo.bind(source);
   return { source, connection, connections, repo, get view() { return view; }, get active() { return active; } };
 }
@@ -98,6 +113,91 @@ test('permitted operations use captured leases, preserve conflicts and assemble 
   f.connection.response = () => {};
   const cancel = new AbortController(), pending = f.source.image('lease1', 'uri', cancel.signal); cancel.abort();
   await assert.rejects(pending); assert.equal(f.connection.streams.at(-1)!.dead, true);
+});
+
+test('a saturated session skips heartbeat ticks without cancelling actions and resumes after capacity is released', async t => {
+  const heartbeats = captureHeartbeats(t), f = setup(true, true);
+  t.after(() => f.source.stop());
+  const events: RenderEvent[] = [];
+  f.source.attachRenderer(event => { events.push(event); return { ok: true }; });
+  await f.source.start(); await waitFor(() => !!f.view);
+  const held: FakeStream[] = [];
+  f.connection.response = (_request, stream) => { held.push(stream); };
+  const message = { version: 'v0.9' as const, action: { surfaceId: surface, name: 'click', context: {}, sourceComponentId: 'button', timestamp: new Date(0).toISOString() } };
+  const errors: unknown[] = []; let completed = 0;
+  const actions = Array.from({ length: 6 }, () => f.source.action('lease1', message).then(() => { completed++; }, error => { errors.push(error); }));
+  await waitFor(() => held.length === 6);
+  await assert.rejects(f.source.action('lease1', message), { code: 'CapacityExceeded' });
+  heartbeats[0]!(); await drainTasks();
+  assert.equal(f.connection.requests.length, 6);
+  assert.equal(f.connection.control.dead, false);
+  assert.equal(completed, 0); assert.deepEqual(errors, []);
+  assert.equal(events.some(event => event.kind === 'remove'), false);
+  assert(held.every(stream => !stream.dead));
+  for (const stream of held) stream.push({ kind: 'ok' });
+  await Promise.all(actions);
+  assert.equal(completed, 6); assert.deepEqual(errors, []);
+  f.connection.response = (_request, stream) => stream.push({ kind: 'ok' });
+  heartbeats[0]!(); await drainTasks();
+  assert.equal(f.connection.requests.at(-1)!.op, 'ping');
+  assert.equal(f.connection.streams.at(-1)!.dead, true);
+  assert.equal(f.connection.control.dead, false);
+});
+
+test('heartbeat ticks do not overlap and a failed in-flight ping closes the connection', async t => {
+  const heartbeats = captureHeartbeats(t), f = setup();
+  t.after(() => f.source.stop());
+  f.source.attachRenderer(() => ({ ok: true }));
+  await f.source.start(); await waitFor(() => !!f.view);
+  f.connection.response = () => {};
+  heartbeats[0]!(); await drainTasks();
+  heartbeats[0]!(); await drainTasks();
+  assert.deepEqual(f.connection.requests, [{ op: 'ping' }]);
+  assert.equal(f.connection.control.dead, false);
+  await f.connection.streams.at(-1)!.cancel();
+  await waitFor(() => f.connection.control.dead);
+});
+
+test('owner heartbeats refresh services and discard replies and timer callbacks from retired connections', async t => {
+  const heartbeats = captureHeartbeats(t), f = setup(true, true, true);
+  t.after(() => f.source.stop());
+  const serviceLists: string[][] = []; let commits = 0, removals = 0;
+  f.source.subscribe(event => { if (event.kind === 'services') serviceLists.push(event.services.map(service => service.name)); });
+  f.source.attachRenderer(event => { if (event.kind === 'commit') commits++; if (event.kind === 'remove') removals++; return { ok: true }; });
+  await f.source.start(); await waitFor(() => !!f.view);
+  const services = [{ id: `${hubId}~app`, name: 'Fresh', status: 'connected', node: { id: hubId, name: 'Hub', local: false } }];
+  f.connection.response = (_request, stream) => stream.push({ kind: 'ok', services });
+  heartbeats[0]!(); await drainTasks();
+  assert.deepEqual(serviceLists.at(-1), ['Fresh']);
+
+  let release!: () => void, cancelling = false;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  t.after(() => release());
+  f.connection.response = (_request, stream) => {
+    const cancel = stream.cancel.bind(stream);
+    stream.cancel = async () => { cancelling = true; await gate; await cancel(); };
+    stream.push({ kind: 'ok', services: [{ ...services[0], name: 'Stale' }] });
+  };
+  heartbeats[0]!(); await waitFor(() => cancelling);
+  await f.connection.control.cancel(); await waitFor(() => removals > 0);
+  release(); await waitFor(() => f.active === 0); await drainTasks();
+  assert.equal(serviceLists.some(list => list.includes('Stale')), false);
+
+  const replacement = new FakeConnection({ board: board(), permissions: { interact: true, editLayout: true } });
+  replacement.control.onSend = value => {
+    if (value.version !== 1) return;
+    replacement.control.push({ kind: 'ownerWelcome', services });
+    replacement.control.push({ kind: 'snapshotEnd', sequence: '1' });
+  };
+  replacement.response = (_request, stream) => stream.push({ kind: 'ok', services });
+  f.connections.push(replacement);
+  await f.source.retry(); await waitFor(() => commits === 2);
+  heartbeats[0]!(); await drainTasks();
+  assert.equal(replacement.requests.length, 0);
+  assert.equal(replacement.control.dead, false);
+  heartbeats[1]!(); await drainTasks();
+  assert.deepEqual(replacement.requests, [{ op: 'ping' }]);
+  assert.deepEqual(serviceLists.at(-1), ['Fresh']);
 });
 
 test('the installed renderer consumes hub snapshots and same-ID recreation expires the previous image lease', async t => {

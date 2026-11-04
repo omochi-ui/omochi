@@ -42,6 +42,7 @@ function ownerServices(value: unknown) {
   return services.map(service => { if (!service.node) throw new SessionFault('ProtocolError'); return { ...service, node: service.node }; });
 }
 const operationSignal = (signal: AbortSignal) => AbortSignal.any([signal, AbortSignal.timeout(10000)]);
+const maxPendingOperations = 6;
 export class RemoteHubSession implements LiveSession {
   readonly imagePolicy = 'hub' as const;
   private readonly options: RemoteSessionOptions;
@@ -116,9 +117,19 @@ export class RemoteHubSession implements LiveSession {
         if (this.options.publicSecret && (view.permissions.interact || view.permissions.editLayout)) throw new SessionFault('ProtocolError');
         const admitted = new Set(view.board.panels.map(panel => `${panel.reference.nodeId}~${panel.reference.serviceId}/${panel.reference.surfaceId}`));
         const attempt = ++this.epoch;
+        const scope = this.scope.signal;
+        const isCurrent = () => this.connection === connection && !scope.aborted && !this.lifetime.signal.aborted;
+        let heartbeatPending = false;
         let ready = false, previousSequence = 0n, bytes = 0;
         let messages: A2uiMessage[] = [];
-        heartbeat = setInterval(() => { void this.rpc({ op: 'ping' }, this.lifetime.signal, false).then(reply => { if (this.options.owner) { const services = ownerServices(reply.services); this.emit({ kind: 'services', services }); } }).catch(() => { void connection.close(); }); }, 10000);
+        heartbeat = setInterval(() => {
+          // Local saturation is not a failed heartbeat. Retry on the next tick.
+          if (!isCurrent() || heartbeatPending || this.pending >= maxPendingOperations) return;
+          heartbeatPending = true;
+          void this.rpc({ op: 'ping' }, scope, false).then(reply => {
+            if (isCurrent() && this.options.owner) { const services = ownerServices(reply.services); this.emit({ kind: 'services', services }); }
+          }).catch(() => { if (isCurrent()) void connection.close(); }).finally(() => { heartbeatPending = false; });
+        }, 10000);
         while (!this.lifetime.signal.aborted) {
           const frame = await receive(stream, ready ? this.lifetime.signal : operationSignal(this.lifetime.signal));
           if (typeof frame.sequence !== 'string' || !/^[1-9]\d{0,19}$/.test(frame.sequence)) throw new SessionFault('ProtocolError');
@@ -174,7 +185,7 @@ export class RemoteHubSession implements LiveSession {
   private async rpc(input: unknown, signal: AbortSignal, requireReady = true): Promise<Record<string, unknown>> {
     const connection = this.connection;
     if (!connection || (requireReady && !this.view) || this.lifetime.signal.aborted) throw new SessionFault('SourceUnavailable');
-    if (this.pending >= 6) throw new SessionFault('CapacityExceeded');
+    if (this.pending >= maxPendingOperations) throw new SessionFault('CapacityExceeded');
     this.pending++;
     const combined = operationSignal(AbortSignal.any([signal, this.lifetime.signal, this.scope.signal]));
     let stream: Stream | undefined;
@@ -200,7 +211,7 @@ export class RemoteHubSession implements LiveSession {
     if (reply.kind !== 'board') throw new SessionFault('ProtocolError'); return dashboard(reply.board);
   }
   async image(lease: string, uri: string, signal: AbortSignal): Promise<Response> {
-    if (!this.view || !this.leases.has(lease) || this.pending >= 6) throw new SessionFault('ScopeExpired');
+    if (!this.view || !this.leases.has(lease) || this.pending >= maxPendingOperations) throw new SessionFault('ScopeExpired');
     const connection = this.connection; if (!connection) throw new SessionFault('SourceUnavailable');
     const combined = AbortSignal.any([signal, this.lifetime.signal, this.scope.signal, this.leases.get(lease)!.signal, AbortSignal.timeout(25000)]);
     this.pending++; let stream: Stream | undefined;
