@@ -273,6 +273,97 @@ service = "worker"
 #[rustfmt::skip]
 mod generated_catalog;
 
+#[allow(dead_code, unused_imports)]
+#[path = "fixtures/catalog-enums/expected.rs"]
+#[rustfmt::skip]
+mod generated_scalar_catalog;
+
+#[tokio::test]
+async fn catalog_scalar_enums_compile_and_serialize_with_their_json_types() {
+    use generated_scalar_catalog::{ScalarProps, ScalarTone};
+    use omochi_ui::ComponentProps;
+    use serde_json::json;
+
+    let root = tempfile::tempdir().unwrap();
+    let source = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let output = command(root.path())
+        .args(["generate", "catalog", "--catalog"])
+        .arg(source.join("../../spec/fixtures/catalog-enums.json"))
+        .arg("--rust")
+        .arg(root.path().join("catalog.rs"))
+        .output()
+        .await
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    // The compiled module must be exactly what the current CLI generates.
+    assert_eq!(
+        std::fs::read(root.path().join("catalog.rs")).unwrap(),
+        include_bytes!("fixtures/catalog-enums/expected.rs")
+    );
+
+    for (tone, raw) in [
+        (ScalarTone::Info, "info"),
+        (ScalarTone::FooBar, "foo-bar"),
+        (ScalarTone::FooBar2, "fooBar"),
+        (ScalarTone::Value, "1"),
+        (ScalarTone::Value2, "2"),
+        (ScalarTone::SelfValue, "self"),
+        (ScalarTone::X, "x-"),
+        (ScalarTone::Value3, "\u{1}"),
+    ] {
+        assert_eq!(serde_json::to_value(tone).unwrap(), json!(raw));
+    }
+    for mixed in [
+        json!(true),
+        json!(false),
+        json!(1),
+        json!(2),
+        json!(null),
+        json!("true"),
+        json!(1.5),
+    ] {
+        for enabled in [true, false] {
+            for count in [1, 2] {
+                let props = ScalarProps {
+                    enabled,
+                    count: count.into(),
+                    ratio: serde_json::Number::from_f64(1.5).unwrap(),
+                    empty: (),
+                    mixed: mixed.clone(),
+                    tone: ScalarTone::Info,
+                    flags: vec![true, false],
+                    counts: vec![vec![1.into(), 2.into()]],
+                    choices: vec![json!(true), json!(false), json!(1), json!(2)],
+                    nullable: json!(null),
+                    optional: None,
+                };
+                assert_eq!(
+                    json!(props.clone().into_props()),
+                    json!({
+                        "enabled": enabled, "count": count, "ratio": 1.5, "empty": null,
+                        "mixed": mixed, "tone": "info", "flags": [true, false],
+                        "counts": [[1, 2]], "choices": [true, false, 1, 2], "nullable": null
+                    })
+                );
+                assert_eq!(
+                    json!(
+                        ScalarProps {
+                            optional: Some(false),
+                            ..props
+                        }
+                        .into_props()
+                    )["optional"],
+                    json!(false)
+                );
+            }
+        }
+    }
+}
+
 #[tokio::test]
 async fn catalog_generation_runs_without_bun_or_state_and_check_detects_stale_output() {
     let root = tempfile::tempdir().unwrap();

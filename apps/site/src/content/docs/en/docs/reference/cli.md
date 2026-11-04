@@ -282,6 +282,16 @@ At least one output flag is required. Generation resolves local schemas only;
 it does not fetch schemas over the network. Reuse the same invocation with
 `--check` in CI.
 
+Enums support JSON scalar values (strings, booleans, numbers and null), including
+inside arrays and unions. Empty enums and object or array enum members are rejected
+before any output is written. TypeScript uses literal unions; Python uses
+`Literal` with `True`, `False` and `None`, widening floating-point members to `float`.
+Rust keeps named enums for string properties, and uses `bool`, `serde_json::Number`
+or `()` for homogeneous non-string enums and `Value` for mixed enums. Nested string
+enums use `String`. These wider types preserve JSON values but do not restrict
+values to the declared enum members. Rust string variant names that collide after
+sanitization receive numeric suffixes.
+
 ## Ports and storage
 
 | Resource | Default |

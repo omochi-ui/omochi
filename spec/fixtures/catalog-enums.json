@@ -1,0 +1,23 @@
+{
+  "catalogId": "urn:test:catalog-enums",
+  "title": "Scalar Catalog",
+  "components": {
+    "Scalar": {
+      "type": "object",
+      "properties": {
+        "enabled": {"enum": [true, false]},
+        "count": {"enum": [1, 2]},
+        "ratio": {"enum": [1.5, 2.5]},
+        "empty": {"enum": [null]},
+        "mixed": {"enum": [true, false, 1, 2, null, "true", 1.5]},
+        "tone": {"enum": ["info", "foo-bar", "fooBar", "1", "2", "self", "x-", "\u0001"]},
+        "flags": {"type": "array", "items": {"enum": [true, false]}},
+        "counts": {"type": "array", "items": {"type": "array", "items": {"enum": [1, 2]}}},
+        "choices": {"type": "array", "items": {"anyOf": [{"enum": [true, false]}, {"enum": [1, 2]}]}},
+        "nullable": {"oneOf": [{"enum": [null]}, {"enum": ["text"]}]},
+        "optional": {"enum": [true, false]}
+      },
+      "required": ["enabled", "count", "ratio", "empty", "mixed", "tone", "flags", "counts", "choices", "nullable"]
+    }
+  }
+}

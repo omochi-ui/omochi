@@ -145,6 +145,34 @@ fn resolve(
         .collect::<Result<Map<_, _>>>()
         .map(Value::Object)
 }
+fn validate_enums(schema: &Value) -> Result<()> {
+    if let Some(values) = schema.get("enum") {
+        let values = values
+            .as_array()
+            .context("unsupported enum: expected a non-empty array of JSON scalar values")?;
+        if values.is_empty() || values.iter().any(|v| v.is_array() || v.is_object()) {
+            bail!("unsupported enum: expected a non-empty array of JSON scalar values");
+        }
+    }
+    for key in ["items", "additionalProperties"] {
+        if let Some(child) = schema.get(key) {
+            validate_enums(child)?;
+        }
+    }
+    if let Some(properties) = schema["properties"].as_object() {
+        for child in properties.values() {
+            validate_enums(child)?;
+        }
+    }
+    for key in ["allOf", "anyOf", "oneOf"] {
+        if let Some(children) = schema[key].as_array() {
+            for child in children {
+                validate_enums(child)?;
+            }
+        }
+    }
+    Ok(())
+}
 fn ty(schema: &Value, lang: Language) -> Result<String> {
     use Language::*;
     if let Some(reference) = schema["$ref"].as_str() {
@@ -200,11 +228,40 @@ fn ty(schema: &Value, lang: Language) -> Result<String> {
         });
     }
     if let Some(values) = schema["enum"].as_array() {
-        let values: Vec<_> = values.iter().map(Value::to_string).collect();
         return Ok(match lang {
-            Ts => values.join(" | "),
-            Py => format!("Literal[{}]", values.join(", ")),
-            Rs => "String".into(),
+            Ts => values
+                .iter()
+                .map(Value::to_string)
+                .collect::<Vec<_>>()
+                .join(" | "),
+            Py => {
+                // Python Literal supports integers, but not floating-point values.
+                let literals = values
+                    .iter()
+                    .filter(|v| !v.is_f64())
+                    .map(|v| match v {
+                        Value::Bool(true) => "True".into(),
+                        Value::Bool(false) => "False".into(),
+                        Value::Null => "None".into(),
+                        _ => v.to_string(),
+                    })
+                    .collect::<Vec<_>>();
+                let mut kinds = Vec::new();
+                if !literals.is_empty() {
+                    kinds.push(format!("Literal[{}]", literals.join(", ")));
+                }
+                if values.iter().any(Value::is_f64) {
+                    kinds.push("float".into());
+                }
+                kinds.join(" | ")
+            }
+            // Nested enums and non-string property enums use types that preserve
+            // JSON values; serde's renamed unit variants only serialize strings.
+            Rs if values.iter().all(Value::is_string) => "String".into(),
+            Rs if values.iter().all(Value::is_boolean) => "bool".into(),
+            Rs if values.iter().all(Value::is_number) => "serde_json::Number".into(),
+            Rs if values.iter().all(Value::is_null) => "()".into(),
+            Rs => "Value".into(),
         });
     }
     let primitives = match schema["type"].as_str() {
@@ -327,27 +384,36 @@ fn render(m: &Model, lang: Language) -> Result<String> {
     for c in &m.components {
         let mut props = Vec::new();
         for p in &c.properties {
+            validate_enums(&p.schema)?;
             let mut kind = ty(&p.schema, lang)?;
             if lang == Rs
                 && let Some(values) = p.schema["enum"].as_array()
+                && values.iter().all(Value::is_string)
             {
                 kind = format!(
                     "{}{}",
                     identifier(&c.name),
                     identifier(&upper_first(&p.name))
                 );
+                let mut used = BTreeSet::new();
                 let variants = values
                     .iter()
                     .map(|v| {
-                        let raw = v
-                            .as_str()
-                            .map(str::to_owned)
-                            .unwrap_or_else(|| v.to_string());
-                        let mut variant = identifier(&upper_first(&raw));
-                        if variant.is_empty() {
-                            variant = "Value".into();
+                        let raw = v.as_str().unwrap();
+                        let mut base = identifier(&upper_first(raw));
+                        base.retain(|c| c.is_ascii_alphanumeric() || c == '_');
+                        if base.is_empty() || base == "_" {
+                            base = "Value".into();
+                        } else if base == "Self" {
+                            base = "SelfValue".into();
                         }
-                        format!("    #[serde(rename = {})]\n    {variant},", quote(&raw))
+                        let mut variant = base.clone();
+                        let mut suffix = 2;
+                        while !used.insert(variant.clone()) {
+                            variant = format!("{base}{suffix}");
+                            suffix += 1;
+                        }
+                        format!("    #[serde(rename = {raw:?})]\n    {variant},")
                     })
                     .collect::<Vec<_>>()
                     .join("\n");
@@ -550,6 +616,41 @@ mod tests {
                 .is_err()
             );
             assert_eq!(std::fs::read_to_string(output).unwrap(), "existing");
+        }
+    }
+
+    #[test]
+    fn rejects_non_scalar_and_empty_enums_before_writing_any_language() {
+        let temp = tempfile::tempdir().unwrap();
+        for invalid in [json!([]), json!([{}]), json!([[1]]), json!(true)] {
+            for schema in [
+                json!({"enum": invalid}),
+                json!({"type": "array", "items": {"enum": invalid}}),
+                json!({"anyOf": [{"enum": invalid}, {"type": "string"}]}),
+                json!({"type": "object", "properties": {"nested": {"enum": invalid}}}),
+            ] {
+                let input = temp.path().join("input.json");
+                std::fs::write(
+                    &input,
+                    json!({"components": {"Bad": {"properties": {"value": schema}}}}).to_string(),
+                )
+                .unwrap();
+                for lang in [Language::Ts, Language::Py, Language::Rs] {
+                    let output = temp.path().join("output");
+                    std::fs::write(&output, "existing").unwrap();
+                    let error = generate(Options {
+                        catalog: input.clone(),
+                        name: None,
+                        check: false,
+                        typescript: (lang == Language::Ts).then(|| output.clone()),
+                        python: (lang == Language::Py).then(|| output.clone()),
+                        rust: (lang == Language::Rs).then(|| output.clone()),
+                    })
+                    .unwrap_err();
+                    assert!(error.to_string().contains("unsupported enum"), "{error}");
+                    assert_eq!(std::fs::read_to_string(output).unwrap(), "existing");
+                }
+            }
         }
     }
 }
