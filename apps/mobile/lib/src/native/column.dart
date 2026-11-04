@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:genui/genui.dart';
 
+import 'relative_weights.dart';
+
 /// Keeps flex allocation finite even when a Column is measured by another
 /// Column's scrollable content. Intrinsic sizing cannot measure scroll views.
 class _ColumnViewport extends InheritedWidget {
@@ -222,12 +224,13 @@ class _RenderColumn extends RenderBox
     );
 
     var used = config.spacing * math.max(0, children.length - 1);
-    var totalWeight = 0.0;
+    final weights = RelativeWeights(
+      children.map((child) => (child.parentData! as _ColumnData).weight),
+    );
     var width = 0.0;
     // Measure only non-flex children, using real layout rather than intrinsics.
     for (final child in children) {
       final data = child.parentData! as _ColumnData;
-      totalWeight += data.weight;
       if (data.weight > 0) continue;
       // A stretch Row passes its maximum height as a tight constraint to
       // its children, including through wrappers. Give it a viewport instead
@@ -247,7 +250,7 @@ class _RenderColumn extends RenderBox
     for (final child in children) {
       final data = child.parentData! as _ColumnData;
       if (data.weight == 0) continue;
-      final allocation = budget * data.weight / totalWeight;
+      final allocation = budget * weights.fraction(data.weight);
       child.layout(
         childConstraints(min: data.tight ? allocation : 0, max: allocation),
         parentUsesSize: true,

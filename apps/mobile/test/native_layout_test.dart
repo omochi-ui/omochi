@@ -89,6 +89,50 @@ List<Json> modalComponents() => [
 
 void main() {
   for (final axis in ['Column', 'Row']) {
+    for (final (first, second) in [(1.0, 1.0), (1.0, 0.8)]) {
+      testWidgets('$axis preserves proportions across finite weight scales '
+          '($first, $second)', (tester) async {
+        final fixture = LayoutFixture();
+        List<Json> components(double scale) => [
+          {
+            'id': 'root',
+            'component': axis,
+            'children': ['header', 'zero', 'negative', 'one', 'two'],
+          },
+          textComponent('header', 'H'),
+          {...textComponent('zero', 'Zero'), 'weight': 0},
+          {...textComponent('negative', 'Negative'), 'weight': -1},
+          {...textComponent('one', 'One'), 'weight': first * scale},
+          {...textComponent('two', 'Two'), 'weight': second * scale},
+        ];
+        await fixture.mount(tester, components(1));
+        double extent(String id) {
+          final size = tester.getSize(component(id));
+          expect(size.isFinite, isTrue);
+          return axis == 'Column' ? size.height : size.width;
+        }
+
+        final budget =
+            (axis == 'Column' ? 300 : 320) -
+            extent('header') -
+            extent('zero') -
+            extent('negative') -
+            (axis == 'Column' ? 8 : 16) * 4;
+        final baseline = [extent('one'), extent('two')];
+        expect(baseline[0], closeTo(budget * first / (first + second), .01));
+        expect(baseline[1], closeTo(budget * second / (first + second), .01));
+        // 1e307 overflows budget * weight; 1e308 also overflows the sum.
+        for (final scale in [1e307, 1e308, 1e-307]) {
+          update(fixture.client, components(scale));
+          await tester.pumpAndSettle();
+          expect(tester.takeException(), isNull);
+          expect(extent('one'), closeTo(baseline[0], .01));
+          expect(extent('two'), closeTo(baseline[1], .01));
+        }
+        await fixture.close(tester);
+      });
+    }
+
     for (final weights in <List<num>>[
       [1, 2],
       [1.0, 2.0],

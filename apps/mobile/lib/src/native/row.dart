@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:genui/genui.dart';
 
+import 'relative_weights.dart';
+
 /// Flutter's Flexible accepts integer flex, but A2UI weights are real numbers.
 /// Allocate widths directly so fractional weights retain their ratios.
 final nativeRow = CatalogItem(
@@ -147,14 +149,15 @@ class _RenderRow extends RenderBox
     );
 
     var used = config.spacing * math.max(0, children.length - 1);
-    var totalWeight = 0.0;
+    final weights = RelativeWeights(
+      children.map((child) => (child.parentData! as _RowData).weight),
+    );
     var height = 0.0;
     for (final child in children) {
       final data = child.parentData! as _RowData;
       // As with a shrink-wrapped Flutter Row, loose flex children may use
       // natural width when the parent does not bound the horizontal axis.
       if (data.weight > 0 && constraints.hasBoundedWidth) {
-        totalWeight += data.weight;
         continue;
       }
       assert(
@@ -166,11 +169,11 @@ class _RenderRow extends RenderBox
       height = math.max(height, child.size.height);
     }
     final budget = math.max(0.0, constraints.maxWidth - used);
-    if (totalWeight > 0) {
+    if (weights.hasWeight && constraints.hasBoundedWidth) {
       for (final child in children) {
         final data = child.parentData! as _RowData;
         if (data.weight == 0) continue;
-        final allocation = budget * (data.weight / totalWeight);
+        final allocation = budget * weights.fraction(data.weight);
         child.layout(
           childConstraints(min: data.tight ? allocation : 0, max: allocation),
           parentUsesSize: true,
