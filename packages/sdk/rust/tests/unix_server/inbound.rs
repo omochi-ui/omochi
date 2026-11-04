@@ -153,7 +153,7 @@ async fn byte_overflow_closes_all_clients_and_listener_before_receive_resumes() 
         assert_eq!(transport.inbound.state.lock().unwrap().entries.len(), 3);
         // All clients share the application's pending budget.
         send(&mut clients[1], &large).await;
-        while !transport.accept.is_finished() {
+        while !transport.accept.as_ref().unwrap().is_finished() {
             tokio::task::yield_now().await;
         }
         for client in &mut clients {

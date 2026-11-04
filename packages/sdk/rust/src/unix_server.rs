@@ -279,13 +279,15 @@ struct Publication {
 pub struct UnixSocketServerTransport {
     shared: Arc<Shared>,
     inbound: Arc<InboundQueue>,
-    accept: JoinHandle<()>,
+    accept: Option<JoinHandle<()>>,
     shutdown: Option<oneshot::Sender<()>>,
+    finished: oneshot::Receiver<()>,
     capabilities: BTreeSet<String>,
     directory: PathBuf,
     socket_path: PathBuf,
     closed: bool,
-    service_lock: Option<ServiceLock>,
+    #[cfg(test)]
+    service_publication: std::sync::Weak<ServicePublication>,
 }
 
 impl UnixSocketServerTransport {
@@ -299,26 +301,26 @@ impl UnixSocketServerTransport {
         fs::create_dir_all(&root)?;
         fs::set_permissions(&root, fs::Permissions::from_mode(0o700))?;
         let service_lock = lock_service(&root, &options.service_id)?;
-        fs::create_dir_all(&directory)?;
+        let (finished, completion) = oneshot::channel();
+        let publication = ServicePublication {
+            directory,
+            owns_socket: false,
+            _service_lock: service_lock,
+            _finished: PublicationFinished(Some(finished)),
+        };
+        fs::create_dir_all(&publication.directory)?;
         // create_dir_all's mode is masked by umask and leaves an existing directory untouched.
         fs::set_permissions(&root, fs::Permissions::from_mode(0o700))?;
-        fs::set_permissions(&directory, fs::Permissions::from_mode(0o700))?;
-
-        match Self::listen(&directory, options).await {
-            Ok(mut transport) => {
-                transport.service_lock = Some(service_lock);
-                Ok(transport)
-            }
-            Err(error) => {
-                // Leave no empty directory behind for a discovery pass to walk into.
-                // remove_dir refuses a non-empty directory, so a live service is safe.
-                let _ = fs::remove_dir(&directory);
-                Err(error)
-            }
-        }
+        fs::set_permissions(&publication.directory, fs::Permissions::from_mode(0o700))?;
+        Self::listen(publication, completion, options).await
     }
 
-    async fn listen(directory: &Path, options: UnixSocketServerOptions) -> Result<Self> {
+    async fn listen(
+        mut publication: ServicePublication,
+        finished: oneshot::Receiver<()>,
+        options: UnixSocketServerOptions,
+    ) -> Result<Self> {
+        let directory = publication.directory.clone();
         let socket_path = directory.join(SOCKET_FILE_NAME);
         if socket_path.as_os_str().len() > MAX_SOCKET_PATH_BYTES {
             return Err(Error::Transport(format!(
@@ -329,6 +331,11 @@ impl UnixSocketServerTransport {
         claim_socket_path(&socket_path).await?;
 
         let listener = UnixListener::bind(&socket_path)?;
+        publication.owns_socket = true;
+        let listener = ServiceListener {
+            listener,
+            publication: Arc::new(publication),
+        };
         // Linux enforces unix socket permissions on connect, and bind applies the umask.
         fs::set_permissions(&socket_path, fs::Permissions::from_mode(0o600))?;
 
@@ -339,7 +346,7 @@ impl UnixSocketServerTransport {
         // Advertise only once the socket accepts connections, so a readable manifest is
         // always connectable.
         write_manifest(
-            directory,
+            &directory,
             options.name.as_deref().unwrap_or(&options.service_id),
             options.icon.as_deref(),
         )?;
@@ -347,49 +354,52 @@ impl UnixSocketServerTransport {
         let inbound = Arc::new(InboundQueue::new());
         let sender = Arc::clone(&inbound);
         let mut failed = inbound.failed.subscribe();
-        let failed_directory = directory.to_owned();
         let (shutdown, mut stopping) = oneshot::channel();
         let accept_shared = Arc::clone(&shared);
+        #[cfg(test)]
+        let service_publication = Arc::downgrade(&listener.publication);
         let accept = tokio::spawn(async move {
             let mut connections = JoinSet::new();
             loop {
                 tokio::select! {
                     biased;
                     _ = &mut stopping => break,
-                    _ = failed.changed() => {
-                        let _ = fs::remove_file(failed_directory.join("manifest.json"));
-                        break;
-                    },
+                    _ = failed.changed() => break,
                     // Reap finished connections without keeping their task allocations.
                     _ = connections.join_next(), if !connections.is_empty() => {},
-                    accepted = listener.accept() => {
+                    accepted = listener.listener.accept() => {
                         let Ok((stream, _)) = accepted else { break };
                         connections.spawn(serve_connection(
-                            stream,
+                            ServiceConnection {
+                                stream,
+                                _publication: Arc::clone(&listener.publication),
+                            },
                             Arc::clone(&accept_shared),
                             sender.clone(),
                         ));
                     }
                 }
             }
-            drop(listener);
             // Each connection owns both socket halves, so joining their cancellation
             // also waits for every reader and writer to release its resources.
             connections.shutdown().await;
             accept_shared.publication.lock().await.clients.clear();
             sender.close();
+            drop(listener);
         });
 
         Ok(Self {
             shared,
             inbound,
-            accept,
+            accept: Some(accept),
             shutdown: Some(shutdown),
+            finished,
             capabilities: options.capabilities,
             directory: directory.to_path_buf(),
             socket_path,
             closed: false,
-            service_lock: None,
+            #[cfg(test)]
+            service_publication,
         })
     }
 
@@ -401,22 +411,25 @@ impl UnixSocketServerTransport {
         &self.directory
     }
 
-    /// Retracts the advertisement and waits for all connections to stop before removing
-    /// the service directory.
+    /// Waits for listener and connection shutdown, publication cleanup, and release
+    /// of the service's ownership lock.
     pub async fn close(&mut self) {
         if self.closed {
             return;
         }
         self.inbound.close();
-        let _ = fs::remove_file(self.directory.join("manifest.json"));
         if let Some(shutdown) = self.shutdown.take() {
             let _ = shutdown.send(());
         }
         // Borrow the handle so a cancelled close() can be awaited again.
-        let _ = (&mut self.accept).await;
-        let _ = fs::remove_dir_all(&self.directory);
+        if let Some(accept) = self.accept.as_mut() {
+            let _ = accept.await;
+        }
+        self.accept.take();
+        // A panicked/aborted supervisor aborts its JoinSet without joining it.
+        // Wait for the final socket's guard to finish cleanup and unlock as well.
+        let _ = (&mut self.finished).await;
         self.closed = true;
-        self.service_lock.take();
     }
 }
 
@@ -427,9 +440,6 @@ impl Drop for UnixSocketServerTransport {
         // when the caller cannot await close().
         if let Some(shutdown) = self.shutdown.take() {
             let _ = shutdown.send(());
-        }
-        if !self.closed {
-            let _ = fs::remove_dir_all(&self.directory);
         }
     }
 }
@@ -462,6 +472,51 @@ impl Transport for UnixSocketServerTransport {
     async fn stop_receiving(&mut self) {
         self.close().await;
     }
+}
+
+// Publication cleanup and ownership travel together. Accepted connections retain
+// this guard too: aborting or panicking the supervisor only requests their task
+// cancellation, and cannot release the lock before their sockets actually drop.
+struct ServicePublication {
+    directory: PathBuf,
+    owns_socket: bool,
+    _service_lock: ServiceLock,
+    // Notify only after service_lock has explicitly unlocked and closed.
+    _finished: PublicationFinished,
+}
+
+struct PublicationFinished(Option<oneshot::Sender<()>>);
+
+impl Drop for PublicationFinished {
+    fn drop(&mut self) {
+        if let Some(finished) = self.0.take() {
+            let _ = finished.send(());
+        }
+    }
+}
+
+impl Drop for ServicePublication {
+    fn drop(&mut self) {
+        if self.owns_socket {
+            let _ = fs::remove_dir_all(&self.directory);
+        } else {
+            // A failed probe must leave an older publisher's files untouched.
+            let _ = fs::remove_dir(&self.directory);
+        }
+        // service_lock drops after cleanup, including on failed/cancelled bind.
+    }
+}
+
+// Fields drop in declaration order, including cancellation before first poll.
+// Close each socket before releasing its reference to the publication guard.
+struct ServiceListener {
+    listener: UnixListener,
+    publication: Arc<ServicePublication>,
+}
+
+struct ServiceConnection {
+    stream: UnixStream,
+    _publication: Arc<ServicePublication>,
 }
 
 struct ServiceLock(fs::File);
@@ -569,8 +624,14 @@ fn is_client_message(value: &Value) -> bool {
     })
 }
 
-async fn serve_connection(stream: UnixStream, shared: Arc<Shared>, inbound: Arc<InboundQueue>) {
-    let (reader, mut writer) = stream.into_split();
+async fn serve_connection(
+    mut connection: ServiceConnection,
+    shared: Arc<Shared>,
+    inbound: Arc<InboundQueue>,
+) {
+    // Borrow the halves so the connection keeps both the stream and publication
+    // alive until all reader/writer futures have been dropped.
+    let (reader, mut writer) = connection.stream.split();
     let (sender, mut outbound, mut cancelled) = ClientSender::new();
     let announce_resources = shared.resources.read().unwrap().is_some();
     let snapshot = {
