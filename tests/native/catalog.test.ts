@@ -4,7 +4,7 @@ import { copyFile, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { delimiter, join, resolve } from "node:path";
 
-for (const fixture of ["catalog-arrays", "catalog-enums", "catalog-property-names", "catalog-python-keys", "catalog-allof", "catalog-required", "catalog-intersections", "catalog-component-allof"]) {
+for (const fixture of ["catalog-arrays", "catalog-enums", "catalog-property-names", "catalog-python-keys", "catalog-allof", "catalog-required", "catalog-intersections", "catalog-component-allof", "catalog-overlapping-properties"]) {
   test(`native ${fixture} bindings preserve JSON types`, {
     skip: !process.env.OMOCHI_NATIVE_TEST,
   }, async (t) => {
@@ -52,7 +52,7 @@ for (const fixture of ["catalog-arrays", "catalog-enums", "catalog-property-name
         new Response(python.stdout).text(), new Response(python.stderr).text(), python.exited,
       ]);
       expect(pythonStatus, pythonOut + pythonError).toBe(0);
-      if (fixture === "catalog-component-allof") {
+      if (fixture === "catalog-component-allof" || fixture === "catalog-overlapping-properties") {
         const typescript = Bun.spawn([process.execPath, join(root, "usage.ts")], {
           stdout: "pipe", stderr: "pipe",
         });
@@ -60,15 +60,17 @@ for (const fixture of ["catalog-arrays", "catalog-enums", "catalog-property-name
           new Response(typescript.stdout).text(), new Response(typescript.stderr).text(), typescript.exited,
         ]);
         expect(tsStatus, tsError).toBe(0);
-        const expected = [
-          { label: "label", count: 2 },
-          { label: "label", count: 2, isValid: true },
-          { label: "label" },
-          {
-            label: "label", count: 2, isValid: true, note: "note",
-            accessibility: { label: "accessible" }, checks: [], validationErrors: ["error"],
-          },
-        ];
+        const expected = fixture === "catalog-overlapping-properties"
+          ? Array.from({ length: 4 }, () => ({ value: "b", details: { label: "label", enabled: true, count: 2 } }))
+          : [
+            { label: "label", count: 2 },
+            { label: "label", count: 2, isValid: true },
+            { label: "label" },
+            {
+              label: "label", count: 2, isValid: true, note: "note",
+              accessibility: { label: "accessible" }, checks: [], validationErrors: ["error"],
+            },
+          ];
         expect(JSON.parse(tsOut)).toEqual(expected);
         expect(JSON.parse(pythonOut)).toEqual(expected);
       }

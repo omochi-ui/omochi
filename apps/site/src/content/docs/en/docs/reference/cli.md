@@ -297,8 +297,12 @@ for keywords such as `class` or keys such as `data-label` that cannot be class f
 Use dictionaries with these keys; required and optional fields retain their meaning.
 
 Component bindings collect properties and required fields from the component itself
-and every nested `allOf` layer, including common mixins. Fields inside conditional
-branches are not added as unconditional component properties.
+and every nested `allOf` layer, including common mixins. Repeated property names
+combine their schemas as `allOf`, so TypeScript requires every layer's constraints
+regardless of their order. Identical schemas are deduplicated. Python uses the
+approximations below; Rust uses `Value` for multiple distinct layers. Required
+fields are combined across layers. Fields inside conditional branches are not
+added as unconditional component properties.
 
 Python has no intersection type operator for property-level `allOf`. If all
 remaining layers generate the same Python type, that type is used (including

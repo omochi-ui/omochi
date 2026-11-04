@@ -1,0 +1,176 @@
+{
+  "catalogId": "urn:test:catalog-overlapping-properties",
+  "title": "Overlapping Properties",
+  "$defs": {
+    "First": {
+      "properties": {
+        "value": {
+          "enum": [
+            "a",
+            "b"
+          ]
+        },
+        "details": {
+          "type": "object",
+          "properties": {
+            "label": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "label"
+          ]
+        },
+        "same": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "value"
+      ]
+    },
+    "Second": {
+      "properties": {
+        "value": {
+          "enum": [
+            "b",
+            "c"
+          ]
+        },
+        "details": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "enabled"
+          ]
+        },
+        "same": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "details"
+      ]
+    },
+    "Third": {
+      "properties": {
+        "details": {
+          "type": "object",
+          "properties": {
+            "count": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "count"
+          ]
+        },
+        "same": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  "components": {
+    "Forward": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/First"
+        },
+        {
+          "$ref": "#/$defs/Second"
+        },
+        {
+          "$ref": "#/$defs/Third"
+        }
+      ]
+    },
+    "Reverse": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/Third"
+        },
+        {
+          "$ref": "#/$defs/Second"
+        },
+        {
+          "$ref": "#/$defs/First"
+        }
+      ]
+    },
+    "Parent": {
+      "properties": {
+        "value": {
+          "enum": [
+            "a",
+            "b"
+          ]
+        },
+        "details": {
+          "type": "object",
+          "properties": {
+            "label": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "label"
+          ]
+        },
+        "same": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "value"
+      ],
+      "allOf": [
+        {
+          "$ref": "#/$defs/Second"
+        },
+        {
+          "$ref": "#/$defs/Third"
+        }
+      ]
+    },
+    "ParentReverse": {
+      "properties": {
+        "value": {
+          "enum": [
+            "b",
+            "c"
+          ]
+        },
+        "details": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "enabled"
+          ]
+        },
+        "same": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "details"
+      ],
+      "allOf": [
+        {
+          "$ref": "#/$defs/First"
+        },
+        {
+          "$ref": "#/$defs/Third"
+        }
+      ]
+    }
+  }
+}

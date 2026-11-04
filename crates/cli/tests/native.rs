@@ -288,6 +288,75 @@ mod generated_property_names;
 #[rustfmt::skip]
 mod generated_component_allof;
 
+#[allow(dead_code, unused_imports)]
+#[path = "fixtures/catalog-overlapping-properties/expected.rs"]
+#[rustfmt::skip]
+mod generated_overlapping_properties;
+
+#[tokio::test]
+async fn catalog_overlapping_properties_preserves_composed_values_in_every_order() {
+    use generated_overlapping_properties::*;
+    use omochi_ui::ComponentProps;
+    use serde_json::json;
+
+    let root = tempfile::tempdir().unwrap();
+    let source = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let output = command(root.path())
+        .args(["generate", "catalog", "--catalog"])
+        .arg(source.join("../../spec/fixtures/catalog-overlapping-properties.json"))
+        .arg("--rust")
+        .arg(root.path().join("catalog.rs"))
+        .output()
+        .await
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    // This compiled fixture must remain the exact current CLI output.
+    assert_eq!(
+        std::fs::read(root.path().join("catalog.rs")).unwrap(),
+        include_bytes!("fixtures/catalog-overlapping-properties/expected.rs")
+    );
+    let details = json!({"label": "label", "enabled": true, "count": 2});
+    for props in [
+        ForwardProps {
+            value: json!("b"),
+            details: details.clone(),
+            same: None,
+        }
+        .into_props(),
+        ReverseProps {
+            value: json!("b"),
+            details: details.clone(),
+            same: None,
+        }
+        .into_props(),
+        ParentProps {
+            value: json!("b"),
+            details: details.clone(),
+            same: None,
+        }
+        .into_props(),
+        ParentReverseProps {
+            value: json!("b"),
+            details: details.clone(),
+            same: None,
+        }
+        .into_props(),
+    ] {
+        assert_eq!(json!(props), json!({"value": "b", "details": details}));
+    }
+    // Equal repeated schemas keep their precise original type.
+    let same = ForwardProps {
+        value: json!("b"),
+        details,
+        same: Some("same".to_owned()),
+    };
+    assert_eq!(same.into_props()["same"], "same");
+}
+
 #[tokio::test]
 async fn catalog_component_allof_preserves_parent_and_nested_properties() {
     use generated_component_allof::{EmptyProps, NestedProps, SiblingProps};

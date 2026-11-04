@@ -397,6 +397,26 @@ fn ty(schema: &Value, lang: Language) -> Result<String> {
     }
     bail!("unsupported schema fragment: {schema}")
 }
+fn add_component_property(properties: &mut Map<String, Value>, name: &str, schema: Value) {
+    let Some(previous) = properties.get_mut(name) else {
+        properties.insert(name.into(), schema);
+        return;
+    };
+    if *previous == schema {
+        return;
+    }
+    // Repeated properties constrain the same value. Keep every schema rather
+    // than letting the traversal order select one layer's constraints.
+    if previous.as_object().is_some_and(|object| object.len() == 1)
+        && let Some(layers) = previous.get_mut("allOf").and_then(Value::as_array_mut)
+    {
+        if !layers.contains(&schema) {
+            layers.push(schema);
+        }
+    } else {
+        *previous = json!({"allOf": [std::mem::take(previous), schema]});
+    }
+}
 fn collect_component_properties(
     schema: &Value,
     properties: &mut Map<String, Value>,
@@ -404,12 +424,21 @@ fn collect_component_properties(
 ) -> Result<()> {
     if let Some(reference) = schema["$ref"].as_str() {
         if reference.ends_with("/ComponentCommon") {
-            properties.insert("accessibility".into(), json!({"$ref":"https://a2ui.org/specification/v0_9/common_types.json#/$defs/AccessibilityAttributes"}));
+            add_component_property(
+                properties,
+                "accessibility",
+                json!({"$ref":"https://a2ui.org/specification/v0_9/common_types.json#/$defs/AccessibilityAttributes"}),
+            );
         } else if reference.ends_with("/Checkable") {
-            properties.insert("checks".into(), json!({"type":"array","items":{"$ref":"https://a2ui.org/specification/v0_9/common_types.json#/$defs/CheckRule"}}));
-            properties.insert("isValid".into(), json!({"type":"boolean"}));
-            properties.insert(
-                "validationErrors".into(),
+            add_component_property(
+                properties,
+                "checks",
+                json!({"type":"array","items":{"$ref":"https://a2ui.org/specification/v0_9/common_types.json#/$defs/CheckRule"}}),
+            );
+            add_component_property(properties, "isValid", json!({"type":"boolean"}));
+            add_component_property(
+                properties,
+                "validationErrors",
                 json!({"type":"array","items":{"type":"string"}}),
             );
         } else {
@@ -419,7 +448,7 @@ fn collect_component_properties(
     if let Some(props) = schema["properties"].as_object() {
         for (key, value) in props {
             if key != "component" && key != "id" {
-                properties.insert(key.clone(), value.clone());
+                add_component_property(properties, key, value.clone());
             }
         }
     }
@@ -683,6 +712,42 @@ mod tests {
     use super::*;
     fn fixture() -> PathBuf {
         Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/catalog")
+    }
+    #[test]
+    fn overlapping_properties_preserve_every_constraint_and_deduplicate_identical_schemas() {
+        let first = json!({"enum": ["a", "b"]});
+        let second = json!({"enum": ["b", "c"]});
+        for layers in [vec![&first, &second], vec![&second, &first]] {
+            let schema = json!({"properties": {"value": layers[0]}, "allOf": [
+                {"properties": {"value": layers[1]}, "required": ["value"]},
+                {"properties": {"value": layers[0]}}
+            ]});
+            let m = model(json!({"components": {"Overlap": schema}}), None, "".into()).unwrap();
+            let prop = &m.components[0].properties[0];
+            assert_eq!(prop.schema, json!({"allOf": layers}));
+            assert!(prop.required);
+            assert_eq!(ty(&prop.schema, Language::Py).unwrap(), "Any");
+            assert_eq!(ty(&prop.schema, Language::Rs).unwrap(), "Value");
+        }
+        let common = json!({"$ref": "https://a2ui.org/specification/v0_9/common_types.json#/$defs/Checkable"});
+        let narrow = json!({"properties": {"isValid": {"enum": [true]}}});
+        for layers in [json!([common, narrow]), json!([narrow, common])] {
+            let mut properties = Map::new();
+            collect_component_properties(
+                &json!({"allOf": layers}),
+                &mut properties,
+                &mut BTreeSet::new(),
+            )
+            .unwrap();
+            let constraints = properties["isValid"]["allOf"].as_array().unwrap();
+            assert!(constraints.contains(&json!({"type": "boolean"})));
+            assert!(constraints.contains(&json!({"enum": [true]})));
+        }
+        let mut properties = Map::new();
+        for _ in 0..3 {
+            add_component_property(&mut properties, "value", first.clone());
+        }
+        assert_eq!(properties["value"], first);
     }
     #[test]
     fn python_allof_uses_evaluable_approximations_without_changing_other_languages() {
