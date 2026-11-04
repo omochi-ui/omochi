@@ -110,15 +110,13 @@ impl UnixSocketServerOptions {
 
 struct Shared {
     resources: std::sync::RwLock<Option<ResourceRegistry>>,
-    clients: Mutex<Vec<mpsc::UnboundedSender<String>>>,
-    snapshot: Mutex<A2uiSnapshot>,
+    publication: Mutex<Publication>,
 }
 
-impl Shared {
-    async fn broadcast(&self, line: String) {
-        let mut clients = self.clients.lock().await;
-        clients.retain(|client| client.send(line.clone()).is_ok());
-    }
+#[derive(Default)]
+struct Publication {
+    snapshot: A2uiSnapshot,
+    clients: Vec<mpsc::UnboundedSender<String>>,
 }
 
 /// Publishes one application on a unix domain socket and advertises it for discovery.
@@ -180,8 +178,7 @@ impl UnixSocketServerTransport {
 
         let shared = Arc::new(Shared {
             resources: std::sync::RwLock::new(None),
-            clients: Mutex::new(Vec::new()),
-            snapshot: Mutex::new(A2uiSnapshot::new()),
+            publication: Mutex::new(Publication::default()),
         });
         // Advertise only once the socket accepts connections, so a readable manifest is
         // always connectable.
@@ -216,7 +213,7 @@ impl UnixSocketServerTransport {
             // Each connection owns both socket halves, so joining their cancellation
             // also waits for every reader and writer to release its resources.
             connections.shutdown().await;
-            accept_shared.clients.lock().await.clear();
+            accept_shared.publication.lock().await.clients.clear();
         });
 
         Ok(Self {
@@ -281,12 +278,16 @@ impl Transport for UnixSocketServerTransport {
     }
 
     async fn send(&mut self, message: &Value) -> Result<()> {
+        let line = format!("{}\n", serde_json::to_string(message)?);
+        // Snapshot updates and live fanout share the same boundary as subscription:
+        // a new client receives each update either in replay or live, exactly once.
+        let mut publication = self.shared.publication.lock().await;
         if !is_resource(message) {
-            self.shared.snapshot.lock().await.apply(message)?;
+            publication.snapshot.apply(message)?;
         }
-        self.shared
-            .broadcast(format!("{}\n", serde_json::to_string(message)?))
-            .await;
+        publication
+            .clients
+            .retain(|client| client.send(line.clone()).is_ok());
         Ok(())
     }
 
@@ -341,15 +342,20 @@ async fn serve_connection(
     if shared.resources.read().unwrap().is_some() {
         let _ = sender.send(format!("{}\n", hello()));
     }
-    for message in shared.snapshot.lock().await.messages() {
-        let Ok(encoded) = serde_json::to_string(&message) else {
-            continue;
-        };
-        if sender.send(format!("{encoded}\n")).is_err() {
-            return;
+    {
+        // Queue replay and register for live updates without allowing publication
+        // between them. Socket writes happen only after releasing this lock.
+        let mut publication = shared.publication.lock().await;
+        for message in publication.snapshot.messages() {
+            let Ok(encoded) = serde_json::to_string(&message) else {
+                continue;
+            };
+            if sender.send(format!("{encoded}\n")).is_err() {
+                return;
+            }
         }
+        publication.clients.push(sender.clone());
     }
-    shared.clients.lock().await.push(sender.clone());
 
     let writing = async move {
         while let Some(line) = outbound.recv().await {
@@ -393,3 +399,7 @@ async fn serve_connection(
         _ = reading => {},
     }
 }
+
+#[cfg(test)]
+#[path = "../tests/unix_server/publication.rs"]
+mod publication_tests;
