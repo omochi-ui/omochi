@@ -1051,6 +1051,7 @@ fn render(m: &Model, lang: Language) -> Result<String> {
             )
         }
         Rs => {
+            let id = format!("{:?}", m.id);
             let enums = enums.join("\n\n");
             let separator = if enums.is_empty() { "" } else { "\n\n" };
             format!(
@@ -1102,6 +1103,51 @@ pub fn generate(options: Options) -> Result<()> {
 mod tests {
     use super::*;
     #[test]
+    fn rust_catalog_id_literals_compile_and_preserve_the_original_value() {
+        let temp = tempfile::tempdir().unwrap();
+        let source = temp.path().join("catalog.rs");
+        let executable = temp.path().join("catalog");
+        for key in ["catalogId", "$id"] {
+            for id in [
+                "urn:example:\0",
+                "urn:example:\u{8}",
+                "urn:example:\u{c}",
+                "urn:example:\"\\\n\r\t\u{1}\u{1f}\u{2028}\u{2029}日本語",
+            ] {
+                let model = model(json!({key: id, "components": {}}), None, "hash".into()).unwrap();
+                let generated = render(&model, Language::Rs).unwrap();
+                let declaration = generated
+                    .lines()
+                    .find(|line| line.starts_with("pub const CATALOG_ID: &str = "))
+                    .unwrap();
+                // Compile the actual generated declaration without requiring
+                // the unused SDK imports from this empty catalog.
+                std::fs::write(
+                    &source,
+                    format!(
+                        "{declaration}\nfn main() {{\n    use std::io::Write;\n    std::io::stdout().write_all(CATALOG_ID.as_bytes()).unwrap();\n}}\n"
+                    ),
+                )
+                .unwrap();
+                let output = std::process::Command::new("rustc")
+                    .arg(&source)
+                    .arg("-o")
+                    .arg(&executable)
+                    .output()
+                    .unwrap();
+                assert!(
+                    output.status.success(),
+                    "catalog ID {id:?}: {}",
+                    String::from_utf8_lossy(&output.stderr)
+                );
+                let output = std::process::Command::new(&executable).output().unwrap();
+                assert!(output.status.success());
+                assert_eq!(output.stdout, id.as_bytes());
+            }
+        }
+    }
+
+    #[test]
     fn catalog_ids_cannot_end_generated_header_comments() {
         for key in ["catalogId", "$id"] {
             for (terminator, escaped) in [
@@ -1128,7 +1174,7 @@ mod tests {
                     let declaration = match lang {
                         Language::Ts => format!("{{ id: {literal}, name:"),
                         Language::Py => format!("Catalog(id={literal}, name="),
-                        Language::Rs => format!("pub const CATALOG_ID: &str = {literal};"),
+                        Language::Rs => format!("pub const CATALOG_ID: &str = {id:?};"),
                     };
                     assert!(output.contains(&declaration));
                 }
