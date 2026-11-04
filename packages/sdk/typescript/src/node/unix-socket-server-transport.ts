@@ -4,7 +4,6 @@ import { chmod, rmdir } from "node:fs/promises";
 import { createServer, type Server, type Socket } from "node:net";
 import path from "node:path";
 import process from "node:process";
-import { createInterface } from "node:readline";
 
 import { A2uiClientMessageSchema } from "@a2ui/web_core/v0_9";
 
@@ -24,6 +23,7 @@ import {
 } from "./service-directory.js";
 import { A2uiSnapshot } from "./snapshot.js";
 import { encodeReplay, OutboundWriter } from "./outbound-writer.js";
+import { JsonlFramer } from "./jsonl-framer.js";
 
 export interface UnixSocketServerTransportOptions {
   /** Discovery id and directory name; must match `[A-Za-z0-9._-]{1,64}`. */
@@ -202,29 +202,28 @@ export class UnixSocketServerTransport implements Transport {
   private accept(socket: Socket): void {
     if (this.closed) { socket.destroy(); return; }
     this.clients.add(socket);
-    const lines = createInterface({ input: socket, crlfDelay: Infinity });
+    const lines = new JsonlFramer((line) => receiveLine(line));
     const disconnect = () => {
       this.clients.delete(socket);
       this.outbound.get(socket)?.close();
       lines.close();
+      socket.off("data", receiveChunk);
+      socket.off("end", endInput);
       socket.destroy();
     };
-    // readline re-emits input errors; handling only the socket leaves a fatal error.
-    lines.on("error", disconnect);
     socket.on("error", disconnect);
     socket.on("close", disconnect);
     socket.setNoDelay(true);
     const outbound = new OutboundWriter((text, complete) => { socket.write(text, complete); }, disconnect);
     this.outbound.set(socket, outbound);
-    outbound.start(encodeReplay(this.snapshot.messages(), this.resources ? resourceHello() : undefined, "\n"));
-    lines.on("line", (line) => {
-      // readline may already have split more lines from the offending peer's chunk.
-      if (this.closed || socket.destroyed || !line.trim()) return;
+    const receiveLine = (line: string): boolean => {
+      if (this.closed || socket.destroyed) return false;
+      if (!line.trim()) return true;
       try {
         const value: unknown = JSON.parse(line);
         if (this.resources && isResourceFrame(value)) {
           if (value.kind === "request") outbound.send(`${JSON.stringify(this.resources.respond(value))}\n`);
-          return;
+          return true;
         }
         const parsed = A2uiClientMessageSchema.safeParse(value);
         if (!parsed.success || parsed.data.version !== "v0.9") {
@@ -237,17 +236,30 @@ export class UnixSocketServerTransport implements Transport {
             throw new Error("invalid client error report");
           }
           // Valid client error reports carry no action; keep the connection open.
-          return;
+          return true;
         }
         // Preserve metadata/extensions, but do not dispatch legacy Runtime commands
         // from an otherwise valid A2UI envelope.
         delete message.type;
         this.enqueue(message);
+        return true;
       } catch (error) {
         if (error instanceof ReceiveQueueOverflowError) this.failReceive(error);
         disconnect();
+        return false;
       }
-    });
+    };
+    const receiveChunk = (chunk: Buffer) => {
+      try { lines.write(chunk); }
+      catch { disconnect(); }
+    };
+    const endInput = () => {
+      try { lines.end(); }
+      catch { disconnect(); }
+    };
+    socket.on("data", receiveChunk);
+    socket.on("end", endInput);
+    outbound.start(encodeReplay(this.snapshot.messages(), this.resources ? resourceHello() : undefined, "\n"));
   }
 
   private enqueue(message: JsonObject): void {

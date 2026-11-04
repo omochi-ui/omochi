@@ -13,6 +13,15 @@ import { UnixSocketServerTransport } from "../src/node/index.js";
 import type { JsonObject } from "../src/index.js";
 
 for (const runtime of ["node", "bun"]) {
+  test(`bounds Unix frame bytes before parsing in ${runtime}`, { timeout: 20_000 }, () => {
+    const result = spawnSync(runtime, [
+      "--unhandled-rejections=strict",
+      fileURLToPath(new URL("./fixtures/unix-socket-frame-limits.mjs", import.meta.url)),
+    ], { encoding: "utf8", timeout: 15_000 });
+    assert.ifError(result.error);
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.stdout.trim(), "frame limits isolated");
+  });
   test(`isolates malformed Unix client frames in ${runtime}`, () => {
     const result = spawnSync(runtime, [
       "--unhandled-rejections=strict",
