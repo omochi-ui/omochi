@@ -1,0 +1,27 @@
+{
+  "catalogId": "urn:test:catalog-enum-identifiers",
+  "title": "Enum Identifiers",
+  "components": {
+    "Panel": {
+      "properties": {
+        "mode": {"enum": ["plain", "other"]},
+        "mode!": {"enum": ["a!", "b?"]},
+        "mode2": {"enum": ["compact", "wide"]},
+        "tone?": {"enum": ["warm", "cool"]}
+      },
+      "required": ["mode", "mode!", "mode2", "tone?"]
+    },
+    "Self": {
+      "properties": {"_1": {"enum": ["one", "two"]}},
+      "required": ["_1"]
+    },
+    "_1": {
+      "properties": {
+        "_2": {"enum": ["number", "other"]},
+        "_3type": {"enum": ["keyword", "other"]},
+        "self": {"enum": ["reserved", "other"]}
+      },
+      "required": ["_2", "_3type", "self"]
+    }
+  }
+}

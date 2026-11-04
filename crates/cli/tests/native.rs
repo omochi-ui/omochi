@@ -284,6 +284,11 @@ mod generated_scalar_catalog;
 mod generated_enum_names;
 
 #[allow(dead_code, unused_imports)]
+#[path = "fixtures/catalog-enum-identifiers/expected.rs"]
+#[rustfmt::skip]
+mod generated_enum_identifiers;
+
+#[allow(dead_code, unused_imports)]
 #[path = "fixtures/catalog-property-names/expected.rs"]
 #[rustfmt::skip]
 mod generated_property_names;
@@ -774,6 +779,63 @@ async fn catalog_rust_fields_serialize_with_the_original_property_names() {
         }
         .into_props(),
         expected_optional
+    );
+}
+
+#[tokio::test]
+async fn catalog_enum_identifiers_compile_and_preserve_punctuation_and_collisions() {
+    use generated_enum_identifiers::*;
+    use omochi_ui::ComponentProps;
+    use serde_json::json;
+
+    let root = tempfile::tempdir().unwrap();
+    let source = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let output = command(root.path())
+        .args(["generate", "catalog", "--catalog"])
+        .arg(source.join("../../spec/fixtures/catalog-enum-identifiers.json"))
+        .arg("--rust")
+        .arg(root.path().join("catalog.rs"))
+        .output()
+        .await
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        std::fs::read(root.path().join("catalog.rs")).unwrap(),
+        include_bytes!("fixtures/catalog-enum-identifiers/expected.rs")
+    );
+
+    for (mode_, expected) in [(PanelMode3::A, "a!"), (PanelMode3::B, "b?")] {
+        assert_eq!(
+            json!(
+                PanelProps {
+                    mode: PanelMode::Plain,
+                    mode_,
+                    mode2: PanelMode2::Compact,
+                    tone_: PanelTone::Warm,
+                }
+                .into_props()
+            ),
+            json!({"mode": "plain", "mode!": expected, "mode2": "compact", "tone?": "warm"})
+        );
+    }
+    assert_eq!(
+        json!(SelfProps { _1: SelfValue::One }.into_props()),
+        json!({"_1": "one"})
+    );
+    assert_eq!(
+        json!(
+            _1Props {
+                _2: Value2::Number,
+                _3type: Type::Keyword,
+                self_: SelfValue2::Reserved,
+            }
+            .into_props()
+        ),
+        json!({"_2": "number", "_3type": "keyword", "self": "reserved"})
     );
 }
 

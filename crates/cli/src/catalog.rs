@@ -763,11 +763,19 @@ fn model(catalog: Value, name: Option<&str>, hash: String) -> Result<Model> {
     })
 }
 fn rust_enum_name(component: &Component, property: &Property) -> String {
-    format!(
-        "{}{}",
-        identifier(&component.name),
-        identifier(&upper_first(&property.name))
-    )
+    let mut suffix = identifier(&upper_first(&property.name));
+    suffix.retain(|c| c.is_ascii_alphanumeric() || c == '_');
+    if suffix.is_empty() || suffix == "_" {
+        suffix = "Value".into();
+    }
+    // Normalize before reserving preferred names so punctuation and numeric
+    // prefixes cannot bypass collision allocation or produce invalid types.
+    let name = format!("{}{}", identifier(&component.name), upper_first(&suffix));
+    if name == "Self" {
+        "SelfValue".into()
+    } else {
+        name
+    }
 }
 fn render(m: &Model, lang: Language) -> Result<String> {
     use Language::*;
@@ -1727,6 +1735,22 @@ mod tests {
                     assert_eq!(std::fs::read_to_string(output).unwrap(), "existing");
                 }
             }
+        }
+    }
+
+    #[test]
+    fn rejects_unrepresentable_rust_enum_property_names() {
+        for name in ["123", "日本語"] {
+            let catalog = model(
+                json!({"components": {"Panel": {"properties": {
+                    name: {"enum": ["a", "b"]}
+                }}}}),
+                None,
+                String::new(),
+            )
+            .unwrap();
+            let error = render(&catalog, Language::Rs).unwrap_err();
+            assert!(format!("{error:#}").contains("cannot be represented"));
         }
     }
 
