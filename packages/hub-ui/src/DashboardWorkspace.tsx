@@ -34,6 +34,7 @@ export function DashboardWorkspace({ environment, connectionUi, renderSharing }:
   const [search, setSearch] = useState('');
   const [pickerService, setPickerService] = useState<string | null>(null);
   const [sourceError, setSourceError] = useState<Error | null>(null);
+  const [importError, setImportError] = useState<'invalidFile' | 'readError' | null>(null);
   const [importPreview, setImportPreview] = useState<ReturnType<typeof parseBoard> | null>(null);
   const importDialog = useRef<HTMLDialogElement>(null);
   const importFile = useRef<HTMLInputElement>(null);
@@ -113,10 +114,10 @@ export function DashboardWorkspace({ environment, connectionUi, renderSharing }:
   const rememberFocus = () => { returnFocus.current = document.activeElement as HTMLElement; };
   const startEdit = (value: Dashboard) => {
     if (!canEdit) return;
-    begin(value); setError(null);
+    begin(value); setError(null); setImportError(null);
     requestAnimationFrame(() => { if (!document.querySelector('dialog[open]')) document.querySelector<HTMLInputElement>('.dashboard-name')?.focus(); });
   };
-  const clearDraft = () => { setDraft(null); setPicker(false); setUndo(null); setAdjust(null); setValidated(false); setError(null); };
+  const clearDraft = () => { setDraft(null); setPicker(false); setUndo(null); setAdjust(null); setValidated(false); setError(null); setImportError(null); };
   const pendingLeave = useRef<((allowed: boolean) => void) | null>(null);
   const requestLeave = async (): Promise<boolean> => {
     if (busy || pendingLeave.current) return false;
@@ -136,7 +137,7 @@ export function DashboardWorkspace({ environment, connectionUi, renderSharing }:
   const closePicker = () => { pickerDialog.current?.close(); setPicker(false); restoreFocus(); };
   const openPicker = () => { returnFocus.current = document.getElementById('add-view') ?? document.activeElement as HTMLElement; setSearch(''); setPickerService(null); setPicker(true); };
   const run = async (operation: () => Promise<void>) => {
-    setBusy(true); setError(null);
+    setBusy(true); setError(null); setImportError(null);
     try { await operation(); }
     catch (reason) { setError(reason instanceof Error ? reason : new BoardFault('StorageUnavailable')); }
     finally { setBusy(false); }
@@ -170,11 +171,16 @@ export function DashboardWorkspace({ environment, connectionUi, renderSharing }:
   const readImport = async (file: File | undefined) => {
     if (!file) return;
     rememberFocus();
-    await run(async () => {
+    setBusy(true); setImportError(null);
+    try {
       if (file.size > BOARD_FILE_LIMIT) throw new BoardFault('InvalidBoard');
       setImportPreview(parseBoard(new Uint8Array(await file.arrayBuffer())));
-    });
-    if (importFile.current) importFile.current.value = '';
+    } catch (reason) {
+      setImportError(reason instanceof BoardFault && reason.code === 'InvalidBoard' ? 'invalidFile' : 'readError');
+    } finally {
+      setBusy(false);
+      if (importFile.current) importFile.current.value = '';
+    }
   };
   const importCopy = () => {
     if (!importPreview) return;
@@ -282,7 +288,7 @@ export function DashboardWorkspace({ environment, connectionUi, renderSharing }:
       <Button hidden={!!shared} className="new-dashboard with-icon" disabled={loading || busy} onClick={() => discardThen(() => startEdit(emptyDashboard(t('workspace.untitled'))))}><Icon name="plus" /> {t('workspace.create')}</Button>
       <Button hidden={!!shared} className="new-dashboard" disabled={loading || busy || editing} onClick={() => { rememberFocus(); importFile.current?.click(); }}>{t('workspace.import')}</Button>
       <input ref={importFile} id="import-board-file" type="file" accept="application/json,.json" hidden onChange={event => { void readImport(event.target.files?.[0]); }} />
-      <div className="sidebar-footer"><span className={`signal ${connected ? 'online' : ''}`} />{connected ? t('workspace.hubConnected') : t('workspace.reconnecting')}<small>{t('workspace.apps', { count: available })}</small></div>
+      <div className="sidebar-footer"><span className={`signal ${connected ? 'online' : ''}`} />{connected ? direct ? t('workspace.gatewayConnected') : t('workspace.hubConnected') : t('workspace.connectionStatus', { target: direct ? t('workspace.gateways') : t('workspace.hub'), status: connectionStatus })}<small>{t('workspace.apps', { count: available })}</small></div>
     </aside>
     <main id="workspace" tabIndex={-1} className="workspace">
       <div className="workspace-status"><LanguageSwitcher /><div className="connection-status" role="status">{connected ? direct ? t('workspace.gatewayConnected') : t('workspace.connected') : t('workspace.connectionStatus', { target: direct ? t('workspace.gateways') : t('workspace.hub'), status: connectionStatus })}<span>{t('workspace.apps', { count: available })}</span></div>
@@ -305,8 +311,9 @@ export function DashboardWorkspace({ environment, connectionUi, renderSharing }:
       </header>
       {shared && <p className="notice" role="status">{canInteract ? t('workspace.interact') : t('workspace.readonly')} {shared.editLayout ? t('workspace.sharedEdit') : ''}</p>}
       <div className="announcement" role="status">{message && t(message.key, { ...message.values })}</div>
-      {error && <div className="notice error" role="alert"><span>{draft ? t('workspace.saveError') : t('workspace.loadError')} <small>{localizedError(error, t)}</small></span>{draft && <Button disabled={busy} onClick={save}>{t('workspace.retrySave')}</Button>}<Button disabled={busy} onClick={() => discardThen(() => { void reload(); })}>{draft ? t('workspace.reload') : t('common.retry')}</Button></div>}
-      {session.error && <div className="notice" role="status" data-error-code={session.errorCode ?? undefined}>{shared ? session.errorCode === 'NotAuthorized' ? t('workspace.shareUnavailable') : t('workspace.shareInterrupted') : direct ? t('workspace.gatewayUnavailable') : t('workspace.hubInterrupted')} <small>{session.errorCode ? t(`sessionError.${session.errorCode}`) : session.error}</small></div>}
+      {importError && <div className="notice error import-error" role="alert"><span>{t(`import.${importError}`)}</span><Button disabled={busy || editing} onClick={() => { rememberFocus(); importFile.current?.click(); }}>{t('import.chooseFile')}</Button></div>}
+      {error && <div className="notice error" role="alert"><span>{draft ? t('workspace.saveError') : t('workspace.loadError')} <small>{draft && error instanceof BoardFault && error.code === 'InvalidBoard' ? t('workspace.invalidChanges') : localizedError(error, t)}</small></span>{draft && <Button disabled={busy} onClick={save}>{t('workspace.retrySave')}</Button>}<Button disabled={busy} onClick={() => discardThen(() => { void reload(); })}>{draft ? t('workspace.reload') : t('common.retry')}</Button></div>}
+      {session.error && <div className="notice" role="status" data-error-code={session.errorCode ?? undefined}>{session.errorCode ? t(`sessionError.${session.errorCode}`) : <>{shared ? t('workspace.shareInterrupted') : direct ? t('workspace.gatewayUnavailable') : t('workspace.hubInterrupted')} <small>{session.error}</small></>}</div>}
       {sourceError && <div className="notice" role="alert">{localizedError(sourceError, t)}</div>}
       {undo && editing && <div className="notice"><span>{t('workspace.removed')}</span><Button onClick={() => { setDraft(d => d ? { ...d, panels: undo } : d); setUndo(null); setMessage({ key: 'workspace.restored' }); focusMain(); }}>{t('workspace.undo')}</Button></div>}
       {narrow && editing && <div className="notice">{t('workspace.mobileHelp')}</div>}

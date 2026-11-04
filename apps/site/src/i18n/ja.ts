@@ -23,9 +23,9 @@ export const ja = {
     },
     "workbench": {
       "label": "コードとダッシュボードの紹介",
-      "preview": "ブラウザに届くSurface",
+      "preview": "ブラウザに届くビュー",
       "example": "UIの表示例",
-      "description": "クリックがPythonのアクションにつながる。",
+      "description": "ボタンからPythonの処理を実行。",
       "connection": "プログラム → A2UI → ブラウザ",
       "eyebrow": "プログラムから、作業場へ",
       "counter": "Count: 0",
@@ -34,8 +34,8 @@ export const ja = {
     "how": {
       "title": "処理のすぐそばに、UIを。",
       "description": "アプリのある場所でビューを宣言。共通のレンダラーが、ブラウザへの表示を引き受けます。",
-      "declareTitle": "Surfaceを宣言",
-      "declareDescription": "Python・TypeScript・Rustで、テキストや入力、ボタンを記述。",
+      "declareTitle": "ビューを宣言",
+      "declareDescription": "ビューはSDKではSurfaceと呼びます。Python・TypeScript・Rustで、テキストや入力、ボタンを記述。",
       "actionTitle": "Actionで処理へつなぐ",
       "actionDescription": "既存の関数を呼び出し、状態を更新。長い処理の途中経過も表示できます。",
       "renderTitle": "ブラウザで使う",
@@ -45,8 +45,8 @@ export const ja = {
     "dashboard": {
       "title": "ひとつのスクリプトから。",
       "continuation": "いつもの作業場へ。",
-      "description": "起動中のアプリのSurfaceをダッシュボードに集める。コマンドのボタンも、ログも、エージェントの作業報告も。",
-      "alt": "アプリのSurfaceとナビゲーションを表示するOmochiダッシュボード",
+      "description": "起動中のアプリのビューをダッシュボードに集める。コマンドのボタンも、ログも、エージェントの作業報告も。",
+      "alt": "アプリのビューとナビゲーションを表示するOmochiダッシュボード",
       "caption": "Omochiダッシュボード · 実際のアプリ画面",
       "eyebrow": "02 / ツールの集まる場所"
     },
@@ -56,7 +56,7 @@ export const ja = {
       "utilsTitle": "ツールに操作画面を",
       "utilsDescription": "ボタン、プロセス、ログ、ヘルスチェック。",
       "mcpTitle": "エージェントに画面を",
-      "mcpDescription": "Surfaceの公開と承認UIをエージェントに。",
+      "mcpDescription": "ビューの公開と承認UIをエージェントに。",
       "eyebrow": "03 / ここから、はじめる"
     },
     "closing": {

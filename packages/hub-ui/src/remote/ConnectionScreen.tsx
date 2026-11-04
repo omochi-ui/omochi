@@ -10,6 +10,7 @@ import type { BrowserTransport } from '@omochi-ui/hub-transport';
 import { SessionFault } from '@omochi-ui/core/browser';
 import App from '../App.js';
 import { Button } from '../Button.js';
+import { ConfirmationDialog, restoreDialogFocus } from '../dialogs.js';
 import { RemoteHubSession, type SharedView } from './session.js';
 import { SharedBoardRepository } from './boards.js';
 import { openHubProfile, resetHubProfile, type HubProfile, type ShareRecord } from './profile.js';
@@ -26,6 +27,8 @@ function Connections({ transport, takeLink, bootstrapError, takeGateway = noGate
   const [error, setError] = useState<SessionFault | null>(bootstrapError), [busy, setBusy] = useState(false), [attempt, setAttempt] = useState(0), [confirmReset, setConfirmReset] = useState(false);
   const [live, setLive] = useState<{ source: RemoteHubSession; boards: BoardRepository; owner: boolean; name: string; id: string } | null>(null), [view, setView] = useState<SharedView | null>(null);
   const [proof, setProof] = useState<{ source: SavedShare; view: SharedView } | null>(null);
+  const [forgetRecord, setForgetRecord] = useState<ShareRecord | null>(null);
+  const forgetTrigger = useRef<HTMLElement | null>(null), connectionsHeading = useRef<HTMLHeadingElement>(null);
   useEffect(() => { if (!live) document.title = `${t('connection.title')} · omochi`; }, [live, t]);
   const state = useRef<{ source: RemoteHubSession | null; profile: HubProfile | null }>({ source: null, profile: null });
   const operation = useRef(new AbortController());
@@ -74,14 +77,26 @@ function Connections({ transport, takeLink, bootstrapError, takeGateway = noGate
     {(link?.mode === 'invite' || link?.mode === 'owner') && !proof && <section><h2>{link.mode === 'owner' ? t('owner.register') : t('connection.acceptTitle')}</h2>{link.mode === 'owner' && <p>{t('connection.ownerHelp')}</p>}{link.mode !== 'owner' && <p>{t('connection.inviteHelp')}</p>}<Button className="primary" disabled={busy || !profile} onClick={() => { void run(async () => { if (!profile) return; if (!(await disconnect())) return; const accepted = await acceptInvitation(transport, profile, link, operation.current.signal); await saveProof(accepted); }); }}>{t('connection.accept')}</Button></section>}
     {proof && <section><p role="status">{t('connection.saveFailed')}</p><Button disabled={busy} onClick={() => { void run(() => saveProof(proof)); }}>{t('connection.retrySave')}</Button></section>}
     {link?.mode === 'public' && <p>{t('connection.publicHelp')}</p>}
-    {profile && !link && !proof && <><h2>{t('connection.yours')}</h2>{!records.length && <p>{t('connection.empty')}</p>}{records.map(record => <article className="notice" key={record.id}><span>{record.name}{record.owner && t('connection.ownerSuffix')}<small>{record.state === 'pending' ? t('connection.pending') : record.owner ? t('connection.ownerAccess') : t('connection.shareAccess')}</small></span><Button disabled={busy} onClick={() => { void run(async () => { if (record.state === 'pending') await saveProof(await recoverShare(transport, profile, record, operation.current.signal)); else await connect(record, profile.identity.secretHex); }); }}>{record.state === 'pending' ? t('connection.retryAccess') : t('connection.connect')}</Button><Button disabled={busy} onClick={() => { void run(async () => { await profile.forget(record.id); setRecords(await profile.shares()); }); }}>{t('connection.forget')}</Button></article>)}</>}
+    {profile && !link && !proof && <><h2 ref={connectionsHeading} tabIndex={-1}>{t('connection.yours')}</h2>{!records.length && <p>{t('connection.empty')}</p>}{records.map(record => <article className="notice" key={record.id}><span>{record.name}{record.owner && t('connection.ownerSuffix')}<small>{record.state === 'pending' ? t('connection.pending') : record.owner ? t('connection.ownerAccess') : t('connection.shareAccess')}</small></span><Button disabled={busy} onClick={() => { void run(async () => { if (record.state === 'pending') await saveProof(await recoverShare(transport, profile, record, operation.current.signal)); else await connect(record, profile.identity.secretHex); }); }}>{record.state === 'pending' ? t('connection.retryAccess') : t('connection.connect')}</Button><Button disabled={busy} onClick={event => { forgetTrigger.current = event.currentTarget; setForgetRecord(record); }}>{t('connection.forget')}</Button></article>)}</>}
     {live && <Button disabled={busy} onClick={() => { void run(async () => { if (!(await disconnect())) return; cache(PUBLIC_CONTEXT, ''); setLink(null); if (profile) setRecords(await profile.shares()); else setAttempt(v => v + 1); }); }}>{t('connection.disconnect')}</Button>}
     {live && <Button disabled={busy} onClick={() => { void live.source.retry(); }}>{t('connection.retry')}</Button>}
     {error && !profile && !live && <Button disabled={busy} onClick={() => { setError(null); setAttempt(value => value + 1); }}>{t('connection.retryOpen')}</Button>}
     {!live && <Button disabled={busy} className="danger" onClick={() => setConfirmReset(true)}>{t('connection.reset')}</Button>}
     {confirmReset && <section role="group" aria-label={t('connection.resetLabel')}><p>{t('connection.resetHelp')}</p><Button className="danger" disabled={busy} onClick={() => { void run(async () => { if (!(await disconnect())) return; await profile?.close(); state.current.profile = null; setProfile(null); await resetHubProfile(); setProof(null); setRecords([]); setConfirmReset(false); setAttempt(v => v + 1); }); }}>{t('connection.resetConfirm')}</Button><Button disabled={busy} onClick={() => setConfirmReset(false)}>{t('connection.resetCancel')}</Button></section>}
   </section>;
-  return <><GatewayInvitation takeInvitation={takeGateway} session={live?.owner ? live.source : null} hubName={live ? `${live.name} (${live.id.split("/")[0]})` : ""} ownsProfile={!!profile} />{live ? <App key={live.id} environment={{ session: live.source, boards: live.boards, authority: live.owner ? { kind: 'owner' } : { kind: 'share', permissions: view?.permissions ?? { interact: false, editLayout: false } } }} connectionUi={controls} renderSharing={live.owner ? board => <ShareSettings boardId={board.id} repository={new OwnerSharingRepository(live.source)} /> : undefined} /> : <main className="workspace"><LanguageSwitcher /><h1>{t('connection.title')}</h1>{controls}</main>}</>;
+  return <><GatewayInvitation takeInvitation={takeGateway} session={live?.owner ? live.source : null} hubName={live ? `${live.name} (${live.id.split("/")[0]})` : ""} ownsProfile={!!profile} />{live ? <App key={live.id} environment={{ session: live.source, boards: live.boards, authority: live.owner ? { kind: 'owner' } : { kind: 'share', permissions: view?.permissions ?? { interact: false, editLayout: false } } }} connectionUi={controls} renderSharing={live.owner ? board => <ShareSettings boardId={board.id} repository={new OwnerSharingRepository(live.source)} /> : undefined} /> : <main className="workspace"><LanguageSwitcher /><h1>{t('connection.title')}</h1>{controls}</main>}
+    {forgetRecord && <ConfirmationDialog returnTo={forgetTrigger.current} onClose={() => setForgetRecord(null)} confirmation={{
+      title: t('connection.forgetTitle', { name: forgetRecord.name }),
+      body: t('connection.forgetHelp'),
+      action: t('connection.forgetConfirm'),
+      run: () => { void run(async () => {
+        if (!profile) throw new SessionFault('InvalidState');
+        await profile.forget(forgetRecord.id);
+        if (cache(SELECTED) === forgetRecord.id) cache(SELECTED, '');
+        setRecords(await profile.shares());
+      }).finally(() => restoreDialogFocus(connectionsHeading.current)); },
+    }} />}
+  </>;
 }
 
 export function ConnectionScreen(props: Parameters<typeof Connections>[0]) {

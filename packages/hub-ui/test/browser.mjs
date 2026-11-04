@@ -73,6 +73,9 @@ try {
   const input = async (selector, value) => {
     await evaluate(`(() => { const el = document.querySelector(${JSON.stringify(selector)}); Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(el, ${JSON.stringify(value)}); el.dispatchEvent(new Event('input', { bubbles: true })); })()`);
   };
+  const importText = async contents => {
+    await evaluate(`(() => { const files = new DataTransfer(); files.items.add(new File([${JSON.stringify(contents)}], 'board.json', { type: 'application/json' })); const input = document.querySelector('#import-board-file'); input.files = files.files; input.dispatchEvent(new Event('change', { bubbles: true })); })()`);
+  };
   const language = async value => {
     await evaluate(`(() => { const select = document.querySelector('.language-switcher select'); select.value = ${JSON.stringify(value)}; select.dispatchEvent(new Event('change', { bubbles: true })); })()`);
     await until(() => evaluate(`document.documentElement.lang === ${JSON.stringify(value)}`), `language ${value}`);
@@ -97,6 +100,21 @@ try {
   assert.equal(await evaluate('document.documentElement.lang'), 'en');
   await screenshot('dashboard.png');
   if (process.env.CAPTURE_ONLY) { console.log(`Baseline: ${output}`); } else {
+    // File recovery stays separate from dashboard loading and editing errors.
+    await importText('{invalid');
+    await until(() => evaluate("document.querySelector('.import-error')?.textContent.includes('Choose an omochi export file')"), 'invalid import recovery');
+    assert.equal((await text()).includes('Could not load or update dashboards'), false);
+    assert.equal(await evaluate("document.querySelector('.import-error button').textContent"), 'Choose another file');
+    await language('ja');
+    assert.ok((await text()).includes('omochiで書き出した1 MiB以下のファイルを選んでください。'));
+    await screenshot('import-error-ja.png');
+    await importText(' '.repeat(1024 * 1024 + 1));
+    await until(() => evaluate("document.querySelector('.import-error')?.textContent.includes('1 MiB') && document.querySelector('#import-board-file').value === ''"), 'oversized import recovery');
+    await language('en');
+    await importText(JSON.stringify({ format: 'omochi.board', version: 1, board: { name: 'Import preview', panels: [] }, sources: [] }));
+    await until(() => evaluate("!!document.querySelector('dialog[open] #import-title') && !document.querySelector('.import-error')"), 'valid file clears import error');
+    await click('Cancel import');
+    assert.equal((await (await fetch(`${url}api/dashboards`)).json()).length, 1, 'preview cancellation does not create a dashboard');
     await click('Board view');
     assert.equal(await evaluate("getComputedStyle(document.querySelector('.sidebar')).display"), 'none');
     assert.equal(await evaluate("new URL(location.href).searchParams.get('view')"), 'board');
@@ -123,6 +141,14 @@ try {
     await input('[aria-label="Dashboard name"]', ''); await click('Save dashboard');
     await until(() => evaluate("document.activeElement.id === 'dashboard-name' && document.activeElement.getAttribute('aria-invalid') === 'true'"), 'name validation');
     await input('[aria-label="Dashboard name"]', 'Daily overview');
+    await evaluate(`(() => { const original = window.fetch; window.fetch = (...args) => {
+      if (args[1]?.method === 'PUT') { window.fetch = original; return Promise.resolve(new Response('{}', { status: 400 })); }
+      return original(...args);
+    }; })()`);
+    await click('Save dashboard');
+    await until(async () => (await text()).includes('Reload the saved dashboard and try again.'), 'invalid edit recovery');
+    assert.equal((await text()).includes('1 MiB'), false, 'editing errors do not show import instructions');
+    assert.equal(await evaluate("document.querySelector('.dashboard-name').value"), 'Daily overview');
     await input('[aria-label="Dashboard name"]', '未保存の名前');
     await language('ja');
     assert.equal(await evaluate("document.querySelector('.dashboard-name').value"), '未保存の名前');

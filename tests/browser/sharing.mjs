@@ -29,6 +29,14 @@ async function language(page, value) {
   await until(async () => await page.evaluate(`document.documentElement.lang===${JSON.stringify(value)}`), `language ${value}`);
 }
 async function live(page, count = 2) { await until(async () => await page.evaluate(`document.querySelectorAll('[data-surface]').length===${count}&&document.querySelector('.connection-status')?.textContent.includes('Hub connected')`), 'live shared panels'); }
+async function savedConnections(page) {
+  return page.evaluate(`(async()=>{
+    const request=indexedDB.open('omochi.hub-client.v1',1);
+    const db=await new Promise((resolve,reject)=>{request.onsuccess=()=>resolve(request.result);request.onerror=()=>reject()});
+    try { return await new Promise((resolve,reject)=>{const tx=db.transaction('shares','readonly');const read=tx.objectStore('shares').getAll();tx.oncomplete=()=>resolve(read.result);tx.onabort=()=>reject()}); }
+    finally { db.close(); }
+  })()`);
+}
 async function createLink(mode, interact = false, edit = false) {
   await click(browser, 'Share dashboard');
   await until(async () => await browser.evaluate('!!document.querySelector(\'select[aria-label="Access type"]\')&&!document.querySelector(\'select[aria-label="Access type"]\').disabled'), 'share dialog');
@@ -74,7 +82,7 @@ try {
   passed('public viewing does not create an enrolled browser profile', await viewer.evaluate(`(async()=>!(await indexedDB.databases()).some(db=>db.name==='omochi.hub-client.v1'))()`));
   await viewer.evaluate("void (window.savedSurface=document.querySelector('.omochi-surface'))");
   await language(viewer, 'ja');
-  passed('hosted Japanese switching preserves the live surface and readonly permissions', await viewer.evaluate("window.savedSurface===document.querySelector('.omochi-surface')&&document.body.textContent.includes('閲覧専用のダッシュボードです。')&&document.querySelector('[data-panel-id=\"p0\"] input[type=\"text\"]').matches(':disabled')"));
+  passed('hosted Japanese switching preserves the live surface and readonly permissions', await viewer.evaluate("window.savedSurface===document.querySelector('.omochi-surface')&&document.body.textContent.includes('アプリは操作できません。')&&document.querySelector('[data-panel-id=\"p0\"] input[type=\"text\"]').matches(':disabled')"));
   const japaneseScreenshot = await viewer.command('Page.captureScreenshot', { format: 'png', captureBeyondViewport: true });
   await writeFile(path.join(output, 'shared-ja.png'), Buffer.from(japaneseScreenshot.data, 'base64'));
   await viewer.command('Page.reload');
@@ -107,6 +115,35 @@ try {
   passed('failed acceptance save exposes local-only recovery without rendering live data', await recipient.evaluate('document.querySelectorAll("[data-surface]").length===0&&window.__enrollCalls===1'));
   await recipient.evaluate('window.__failShareSave=false');await click(recipient,'Retry connection save');await live(recipient);
   passed('save retry does not redeem another invitation',await recipient.evaluate('window.__enrollCalls===1'));
+  const savedBeforeForget = await savedConnections(recipient);
+  assert.equal(savedBeforeForget.length, 1);
+  await click(recipient, 'Forget local connection…');
+  await until(async()=>await recipient.evaluate(`!!document.querySelector('dialog[open] #confirm-title')`), 'forget confirmation');
+  passed('forget confirmation names its target and explains that access is not revoked', await recipient.evaluate(`document.querySelector('dialog[open] #confirm-title').textContent.includes(${JSON.stringify(savedBeforeForget[0].name)})&&document.querySelector('dialog[open]').textContent.includes('hub access remain')`));
+  assert.deepEqual(await savedConnections(recipient), savedBeforeForget);
+  await click(recipient, 'Cancel');
+  await until(async()=>await recipient.evaluate(`document.activeElement?.textContent==='Forget local connection…'`), 'forget cancellation restores focus');
+  assert.deepEqual(await savedConnections(recipient), savedBeforeForget);
+  await click(recipient, 'Forget local connection…');
+  await until(async()=>await recipient.evaluate(`!!document.querySelector('dialog[open] #confirm-title')`), 'forget confirmation before Escape');
+  await recipient.command('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 });
+  await recipient.command('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 });
+  await until(async()=>await recipient.evaluate(`!document.querySelector('dialog[open]')&&document.activeElement?.textContent==='Forget local connection…'`), 'forget escape restores focus');
+  assert.deepEqual(await savedConnections(recipient), savedBeforeForget);
+  passed('cancel and Escape preserve the saved connection');
+  await language(recipient, 'ja');
+  await click(recipient, '保存済みの接続を削除…');
+  await until(async()=>await recipient.evaluate(`!!document.querySelector('dialog[open] #confirm-title')`), 'Japanese forget confirmation');
+  const forgetScreenshot = await recipient.command('Page.captureScreenshot', { format: 'png', captureBeyondViewport: true });
+  await writeFile(path.join(output, 'forget-connection-ja.png'), Buffer.from(forgetScreenshot.data, 'base64'));
+  await click(recipient, '接続情報を削除');
+  await until(async()=>!(await savedConnections(recipient)).length, 'confirmed local deletion');
+  await until(async()=>await recipient.evaluate(`document.activeElement?.textContent==='保存済みのハブ接続'`), 'focus after deleting the last connection');
+  await language(recipient, 'en'); await live(recipient);
+  const remainingGrants = await (await fetch(`${ready.ownerUrl}api/shares`)).json();
+  passed('confirmed forget deletes only local connection data and keeps the live grant', remainingGrants.some(grant=>grant.id===invite.id&&grant.peer===invitedBrowserId));
+  await navigate(recipient, invite.url); await click(recipient, 'Accept invitation'); await live(recipient);
+  passed('the original invitation restores a forgotten connection with the same identity', (await savedConnections(recipient)).length===1&&await recipient.evaluate(`document.querySelector('[data-browser-id]').dataset.browserId===${JSON.stringify(invitedBrowserId)}`));
   const other = await browser.tab();await navigate(other,invite.url);
   await until(async()=>await other.evaluate(`!!document.querySelector('[data-error-code="OwnerBusy"]')`),'competing identity owner');await other.close();
   passed('a second identity tab reports active ownership without opening another endpoint');
@@ -170,6 +207,13 @@ try {
   passed('local identity reset preserves the hub-owned board',(await board()).name==='Edited by recipient');
 
   await recipient.close();
+  const layoutInvite = await createLink('invite', false, true);
+  recipient = await browser.tab(); await navigate(recipient, layoutInvite.url);
+  await click(recipient, 'Accept invitation'); await live(recipient, 1);
+  passed('layout editing without app interaction is described without claiming the dashboard is readonly', await recipient.evaluate(`document.body.textContent.includes('App controls are disabled.')&&document.body.textContent.includes('You can edit names, positions and sizes.')&&!document.body.textContent.includes('Readonly dashboard')&&!!${button('Edit dashboard')}&&document.querySelector('[data-panel-id="p0"] input[type="text"]').matches(':disabled')`));
+  await language(recipient, 'ja');
+  passed('Japanese distinguishes layout editing from app interaction', await recipient.evaluate(`document.body.textContent.includes('アプリは操作できません。')&&document.body.textContent.includes('名前・位置・サイズを編集できます。')&&!document.body.textContent.includes('閲覧専用のダッシュボード')`));
+  await language(recipient, 'en'); await recipient.close();
   const registrationResponse=await fetch(`${ready.ownerUrl}api/owners`,{method:'POST'});
   assert.equal(registrationResponse.status,200);
   const registration=await registrationResponse.json();
@@ -193,6 +237,8 @@ try {
   assert.equal((await fetch(`${ready.ownerUrl}api/owners/${ownerPayload.grantId}`,{method:'DELETE'})).status,200);
   await until(async()=>await recipient.evaluate("!document.querySelector('.connection-status')?.textContent.includes('Hub connected')"),'owner revocation');
   passed('local owner revocation tears down the remote owner connection');
+  await until(async()=>await recipient.evaluate(`!!document.querySelector('[data-error-code="NotAuthorized"]')`), 'revoked owner authorization result after reconnect');
+  passed('revoked owner access shows recovery instructions without claiming automatic reconnection', await recipient.evaluate(`document.querySelector('.sidebar-footer').textContent.includes('Disconnected')&&!document.body.textContent.includes('Reconnecting automatically')&&document.querySelector('[data-error-code="NotAuthorized"]').textContent.includes('Ask the owner to check your access')`));
 
   passed('no static host app-data/API fallback', !host.requests.some(r => !r.audit && /^\/dashboard\/(?:api|images|resources|events|services|ws)(?:\/|$)/.test(r.path)));
   passed('no unhandled browser exceptions', exceptions === 0);

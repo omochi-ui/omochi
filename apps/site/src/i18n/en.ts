@@ -21,13 +21,13 @@ export const en = {
       "description": "Turn the code you already have into a tool you can see, touch, and share. State and actions stay in your language. Omochi brings them to the browser.",
       "cta": "Build your first UI",
       "more": "See how it works",
-      "note": "Local tools. Browser surfaces. Apache 2.0."
+      "note": "Local tools. Browser views. Apache 2.0."
     },
     "workbench": {
       "label": "Code and dashboard preview",
-      "preview": "A surface in your browser",
-      "example": "EXAMPLE SURFACE",
-      "description": "A click invokes your Python action.",
+      "preview": "A view in your browser",
+      "example": "EXAMPLE VIEW",
+      "description": "Run Python code with a button.",
       "connection": "Program → A2UI → Browser",
       "eyebrow": "FROM A PROGRAM TO A WORKSPACE",
       "counter": "Count: 0",
@@ -36,8 +36,8 @@ export const en = {
     "how": {
       "title": "Keep the logic close.",
       "description": "Define a view where your application already lives. The shared renderer takes care of showing it.",
-      "declareTitle": "Declare a surface",
-      "declareDescription": "Describe text, inputs, and controls in Python, TypeScript, or Rust.",
+      "declareTitle": "Declare a view",
+      "declareDescription": "A view is called a Surface in the SDK. Describe text, inputs, and controls in Python, TypeScript, or Rust.",
       "actionTitle": "Connect an action",
       "actionDescription": "Use your existing functions. Publish state updates, including progress during a long task.",
       "renderTitle": "Let the browser render",
@@ -47,8 +47,8 @@ export const en = {
     "dashboard": {
       "title": "One script is a start.",
       "continuation": "A workspace is next.",
-      "description": "Bring surfaces from running applications into a dashboard. Add a command button, follow a log, or give an agent a place to show its work.",
-      "alt": "Omochi dashboard showing application surfaces and dashboard navigation",
+      "description": "Bring views from running applications into a dashboard. Add a command button, follow a log, or give an agent a place to show its work.",
+      "alt": "Omochi dashboard showing application views and dashboard navigation",
       "caption": "The Omochi dashboard · actual application screenshot",
       "eyebrow": "02 / A PLACE FOR YOUR TOOLS"
     },
@@ -57,8 +57,8 @@ export const en = {
       "sdkDescription": "State, actions, and views in three languages.",
       "utilsTitle": "A handle for your tools",
       "utilsDescription": "Buttons, processes, logs, and health checks.",
-      "mcpTitle": "A surface for your agent",
-      "mcpDescription": "Let agents publish surfaces and request approval.",
+      "mcpTitle": "A view for your agent",
+      "mcpDescription": "Let agents publish views and request approval.",
       "eyebrow": "03 / FIND YOUR STARTING POINT"
     },
     "closing": {
