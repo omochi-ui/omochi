@@ -11,6 +11,10 @@ from typing import Any
 from .resources import is_resource
 
 
+# Matches the native stdio LinesCodec limit: UTF-8 bytes before the LF delimiter.
+MAX_FRAME_BYTES = 4 * 1024 * 1024
+
+
 async def resource_messages(transport, source):
     queue = asyncio.Queue()
     async def pump():
@@ -68,14 +72,17 @@ class StdioTransport(Transport):
             yield message
 
     async def _receive(self) -> AsyncIterator[dict[str, Any]]:
-        reader = asyncio.StreamReader()
+        reader = asyncio.StreamReader(limit=MAX_FRAME_BYTES)
         protocol = asyncio.StreamReaderProtocol(reader)
         loop = asyncio.get_running_loop()
-        await loop.connect_read_pipe(lambda: protocol, sys.stdin)
-        while line := await reader.readline():
-            text = line.decode()
-            if text.strip():
-                yield json.loads(text)
+        pipe, _ = await loop.connect_read_pipe(lambda: protocol, sys.stdin)
+        try:
+            while line := await reader.readline():
+                text = line.decode()
+                if text.strip():
+                    yield json.loads(text)
+        finally:
+            pipe.close()
 
 
 class CallbackTransport(Transport):

@@ -17,7 +17,7 @@ from typing import Any
 
 from .resources import is_resource, hello
 from .snapshot import A2uiSnapshot
-from .transport import Transport
+from .transport import MAX_FRAME_BYTES, Transport
 
 # Mirrors the id constraint the hub applies, so "<service_id>/<surface_id>" stays splittable.
 SERVICE_ID_PATTERN = re.compile(r"^[A-Za-z0-9._-]{1,64}$")
@@ -153,7 +153,7 @@ class UnixSocketServerTransport(Transport):
             if _is_socket_in_use(path):
                 raise RuntimeError(f"another omochi service already owns {path}")
             path.unlink()
-        self._server = await asyncio.start_unix_server(self._accept, path=str(path))
+        self._server = await asyncio.start_unix_server(self._accept, path=str(path), limit=MAX_FRAME_BYTES)
         self._directory = directory
         # Linux enforces unix socket permissions on connect, and bind applies the umask.
         path.chmod(stat.S_IRUSR | stat.S_IWUSR)
@@ -250,7 +250,7 @@ class UnixSocketServerTransport(Transport):
                 # the application down.
                 if isinstance(message, dict) and "action" in message:
                     self._queue.put_nowait(message)
-        except (ConnectionError, OSError):
+        except (ConnectionError, OSError, ValueError):
             pass
         finally:
             self._writers.discard(writer)

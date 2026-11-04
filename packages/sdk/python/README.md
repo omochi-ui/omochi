@@ -44,6 +44,12 @@ Each renderer keeps its own draft inputs. Input annotations generate validation;
 actions receive concrete values when the user clicks. `app.start()` speaks JSONL
 on stdio; connect it with `omochi-ui dev -- python app.py` to open a browser UI.
 
+Stdio and Unix socket transports accept JSONL input up to 4 MiB of UTF-8 bytes
+per line, excluding the LF delimiter (a preceding CR counts toward the limit).
+An oversized line ends stdio reception with `ValueError`, or closes only the
+offending Unix socket connection. A final line without LF is accepted at EOF
+within the same limit.
+
 Use dataclasses for structured inputs, `type=` for TypedDict/container locals,
 and `with ui.scope(key):` to give repeated components stable keys. Typed field
 projections and explicit schemas are available when stronger checking is needed.
