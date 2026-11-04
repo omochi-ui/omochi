@@ -11,6 +11,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from omochi_ui import schema, Expr, InputSchema, ActionContext, UI, App, ResourceRegistry, UnixSocketServerTransport
+from omochi_ui.unix_server import validate_service_id
 
 
 def counter_app() -> App:
@@ -283,11 +284,31 @@ class UnixSocketServerTransportTests(unittest.TestCase):
 
         asyncio.run(scenario())
 
-    def test_rejects_a_service_id_that_would_escape_the_runtime_directory(self) -> None:
-        with tempfile.TemporaryDirectory() as root:
-            for service_id in (".", "..", "a/b", "", "x" * 65):
+    def test_validates_the_entire_service_id(self) -> None:
+        for service_id in ("demo", "Demo_1.2-3", "x" * 64):
+            with self.subTest(service_id=service_id):
+                self.assertEqual(validate_service_id(service_id), service_id)
+        for service_id in ("demo\n", "demo\r\n", "x" * 65):
+            with self.subTest(service_id=service_id):
                 with self.assertRaises(ValueError):
-                    UnixSocketServerTransport(service_id, runtime_dir=root)
+                    validate_service_id(service_id)
+
+    def test_rejects_invalid_service_ids_before_publication(self) -> None:
+        async def scenario() -> None:
+            for service_id in (".", "..", "a/b", "", "x" * 65, "demo\n", "demo\r\n"):
+                with self.subTest(service_id=service_id), tempfile.TemporaryDirectory() as root:
+                    runtime_dir = Path(root) / "runtime"
+                    transport = None
+                    try:
+                        with self.assertRaises(ValueError):
+                            transport = UnixSocketServerTransport(service_id, runtime_dir=runtime_dir)
+                            await transport.start()
+                        self.assertFalse(runtime_dir.exists())
+                    finally:
+                        if transport is not None:
+                            await transport.close()
+
+        asyncio.run(scenario())
 
     def test_sdk_import_does_not_require_unix_fcntl(self) -> None:
         subprocess.run([sys.executable, "-c", """

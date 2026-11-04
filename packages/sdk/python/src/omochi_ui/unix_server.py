@@ -56,7 +56,7 @@ def _is_client_message(message: Any) -> bool:
 
 def validate_service_id(service_id: str) -> str:
     # "." and ".." match the character class but would collapse or escape the service directory.
-    if service_id in (".", "..") or not SERVICE_ID_PATTERN.match(service_id):
+    if service_id in (".", "..") or not SERVICE_ID_PATTERN.fullmatch(service_id):
         raise ValueError(f"service_id must match {SERVICE_ID_PATTERN.pattern} and cannot be '.' or '..': {service_id!r}")
     return service_id
 
