@@ -16,6 +16,7 @@ pub struct Options {
     pub name: Option<String>,
     #[arg(long)]
     pub typescript: Option<PathBuf>,
+    /// Write Python bindings that preserve original JSON keys, including keywords.
     #[arg(long)]
     pub python: Option<PathBuf>,
     /// Write Rust bindings that preserve the original JSON property names.
@@ -47,6 +48,51 @@ struct Model {
 }
 fn quote(s: &str) -> String {
     serde_json::to_string(s).unwrap()
+}
+fn python_class_field(name: &str) -> bool {
+    // Keep ordinary fields readable, but avoid keywords, name mangling and
+    // Unicode identifier normalization changing the original JSON keys.
+    name.starts_with(|c: char| c.is_ascii_alphabetic() || c == '_')
+        && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+        && !name.starts_with("__")
+        && !matches!(
+            name,
+            "False"
+                | "None"
+                | "True"
+                | "and"
+                | "as"
+                | "assert"
+                | "async"
+                | "await"
+                | "break"
+                | "class"
+                | "continue"
+                | "def"
+                | "del"
+                | "elif"
+                | "else"
+                | "except"
+                | "finally"
+                | "for"
+                | "from"
+                | "global"
+                | "if"
+                | "import"
+                | "in"
+                | "is"
+                | "lambda"
+                | "nonlocal"
+                | "not"
+                | "or"
+                | "pass"
+                | "raise"
+                | "return"
+                | "try"
+                | "while"
+                | "with"
+                | "yield"
+        )
 }
 fn identifier(s: &str) -> String {
     let re = regex::Regex::new(r"[^A-Za-z0-9]+(.)").unwrap();
@@ -400,6 +446,8 @@ fn render(m: &Model, lang: Language) -> Result<String> {
     let mut bodies = Vec::new();
     let mut enums = Vec::new();
     for c in &m.components {
+        let functional_typed_dict =
+            lang == Py && c.properties.iter().any(|p| !python_class_field(&p.name));
         let mut props = Vec::new();
         let mut rust_fields = BTreeSet::new();
         for p in &c.properties {
@@ -447,13 +495,18 @@ fn render(m: &Model, lang: Language) -> Result<String> {
                     if p.required { "" } else { "?" }
                 ),
                 Py => format!(
-                    "    {}: {}",
-                    p.name,
+                    "    {}: {}{}",
+                    if functional_typed_dict {
+                        quote(&p.name)
+                    } else {
+                        p.name.clone()
+                    },
                     if p.required {
                         format!("Required[{kind}]")
                     } else {
                         kind
-                    }
+                    },
+                    if functional_typed_dict { "," } else { "" }
                 ),
                 Rs => {
                     let field =
@@ -486,6 +539,7 @@ fn render(m: &Model, lang: Language) -> Result<String> {
         let props = props.join("\n");
         bodies.push(match lang {
             Ts => format!("export interface {}Props {{\n{props}\n}}", c.name),
+            Py if functional_typed_dict => format!("{}Props = TypedDict({}, {{\n{props}\n}}, total=False)", c.name, quote(&format!("{}Props", c.name))),
             Py => format!("class {}Props(TypedDict, total=False):\n{}", c.name, if props.is_empty() { "    pass" } else { &props }),
             Rs => format!("#[derive(Clone, Debug, Serialize)]\npub struct {}Props {{\n{props}\n}}\nimpl ComponentProps for {}Props {{\n    const NAME: &'static str = {};\n    fn into_props(self) -> JsonObject {{ serde_json::to_value(self).unwrap().as_object().unwrap().clone() }}\n}}", c.name, c.name, quote(&c.name)),
         });

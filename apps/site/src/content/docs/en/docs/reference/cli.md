@@ -292,6 +292,10 @@ enums use `String`. These wider types preserve JSON values but do not restrict
 values to the declared enum members. Rust string variant names that collide after
 sanitization receive numeric suffixes.
 
+Python preserves original property names, using functional `TypedDict` declarations
+for keywords such as `class` or keys such as `data-label` that cannot be class fields.
+Use dictionaries with these keys; required and optional fields retain their meaning.
+
 Rust fields use snake case and explicitly preserve the catalog's original JSON
 property names, including acronyms and underscores. Rust keywords use raw
 identifiers (for example, `r#type`); `self`, `super` and `crate` receive a trailing

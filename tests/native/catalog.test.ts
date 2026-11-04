@@ -4,7 +4,7 @@ import { copyFile, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
-for (const fixture of ["catalog-arrays", "catalog-enums", "catalog-property-names"]) {
+for (const fixture of ["catalog-arrays", "catalog-enums", "catalog-property-names", "catalog-python-keys"]) {
   test(`native ${fixture} bindings preserve JSON types`, {
     skip: !process.env.OMOCHI_NATIVE_TEST,
   }, async (t) => {
@@ -51,7 +51,7 @@ for (const fixture of ["catalog-arrays", "catalog-enums", "catalog-property-name
         new Response(python.stdout).text(), new Response(python.stderr).text(), python.exited,
       ]);
       expect(pythonStatus, pythonOut + pythonError).toBe(0);
-      if (fixture === "catalog-property-names") {
+      if (fixture === "catalog-property-names" || fixture === "catalog-python-keys") {
         const typescript = Bun.spawn([process.execPath, join(root, "usage.ts")], {
           stdout: "pipe", stderr: "pipe",
         });
@@ -59,11 +59,16 @@ for (const fixture of ["catalog-arrays", "catalog-enums", "catalog-property-name
           new Response(typescript.stdout).text(), new Response(typescript.stderr).text(), typescript.exited,
         ]);
         expect(tsStatus, tsError).toBe(0);
-        const expected = {
+        const expected = fixture === "catalog-python-keys" ? {
+          class: "button", async: true, "data-label": "label", "1st": 1,
+          "": "empty", __private: "private", "K": "kelvin", 'quote"line\n': "escaped",
+        } : {
           sourceURL: "source", data_key: "data", type: "type", match: "match",
           self: "self", crate: "crate", super: "super", gen: "gen",
         };
-        const expectedProps = [expected, { ...expected, optionalURL: "optional" }];
+        const expectedProps = [expected, fixture === "catalog-python-keys"
+          ? { ...expected, None: "none", "optional key": "optional" }
+          : { ...expected, optionalURL: "optional" }];
         expect(JSON.parse(tsOut)).toEqual(expectedProps);
         expect(JSON.parse(pythonOut)).toEqual(expectedProps);
       }
