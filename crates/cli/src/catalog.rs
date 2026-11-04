@@ -337,6 +337,24 @@ fn normalize_conjunction(mut schema: Value, inherited_type: Option<&str>) -> Val
         return schema;
     }
     let kind = known_type(&schema).or(inherited_type).map(str::to_owned);
+    if let Some(reference) = schema["$ref"].as_str() {
+        let mut target = json!({"$ref": reference});
+        let mut siblings = schema.as_object().unwrap().clone();
+        siblings.remove("$ref");
+        let siblings = Value::Object(siblings);
+        if annotations_only(&siblings) {
+            // A symbolic reference is already a complete layer. In particular,
+            // do not copy an inherited type onto it on repeated normalization.
+            return schema;
+        }
+        // Symbolic common types are not fetched, but their adjacent assertions
+        // constrain the same value just like the siblings of a resolved ref.
+        intersect_schemas(
+            &mut target,
+            normalize_conjunction(siblings, kind.as_deref()),
+        );
+        return target;
+    }
     let compact_enum = enum_matches_type(&schema);
     let Some(object) = schema.as_object_mut() else {
         return schema;
@@ -1336,6 +1354,54 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn symbolic_reference_siblings_keep_constraints_and_normalize_idempotently() {
+        let document: Value = serde_json::from_str(include_str!(
+            "../../../spec/fixtures/catalog-symbolic-siblings.json"
+        ))
+        .unwrap();
+        let resolved = resolve(
+            &document,
+            &document,
+            Path::new("input.json"),
+            &BTreeSet::new(),
+            0,
+        )
+        .unwrap();
+        let properties = &resolved["components"]["Symbolic"]["properties"];
+        for schema in properties.as_object().unwrap().values() {
+            let normalized = normalize_conjunction(schema.clone(), None);
+            assert_eq!(normalize_conjunction(normalized.clone(), None), normalized);
+            for lang in [Language::Ts, Language::Py, Language::Rs] {
+                assert_eq!(ty(schema, lang).unwrap(), ty(&normalized, lang).unwrap());
+            }
+        }
+        for name in ["label", "alias"] {
+            assert_eq!(
+                ty(&properties[name], Language::Ts).unwrap(),
+                r#"DynamicString & "allowed""#
+            );
+            assert_eq!(ty(&properties[name], Language::Py).unwrap(), "Any");
+            assert_eq!(ty(&properties[name], Language::Rs).unwrap(), "Value");
+        }
+        assert_eq!(
+            ty(&properties["binding"], Language::Ts).unwrap(),
+            r#"DataBinding & { "path": "/allowed" }"#
+        );
+        assert_eq!(
+            ty(&properties["nested"], Language::Ts).unwrap(),
+            r#"((DynamicString & "allowed")[])[]"#
+        );
+        assert_eq!(
+            ty(&properties["nested"], Language::Rs).unwrap(),
+            "Vec<Vec<Value>>"
+        );
+        assert_eq!(
+            ty(&properties["plain"], Language::Ts).unwrap(),
+            "DynamicString"
+        );
     }
 
     #[test]
