@@ -4,6 +4,11 @@ An action's `context.input` is JSON with embedded A2UI v0.9 path references and
 function calls. The renderer evaluates expressions at click time and sends only
 concrete JSON. SDK schema validation runs before the handler.
 
+When `context` contains an `input` property, its value is the handler input,
+including explicit JSON `null`. Only an absent `context.input` falls back to the
+legacy action-level `input` property; if both are absent, the handler input is
+`null`.
+
 ## Object composition (capability `omochi.mergeObjects/1`)
 
 The omochi renderer registers this synchronous function in its catalog:
@@ -81,4 +86,5 @@ null is not an object and is rejected. Use an empty object to represent no keys.
 
 `fixtures/action-input.json` contains the cross-SDK merge encoding and resolved
 value, an internally tagged newtype merge, a merge with ordinary function
-arguments, and the existing handler validation cases.
+arguments, handler input precedence messages, and the existing handler validation
+cases.

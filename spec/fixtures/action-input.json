@@ -1,4 +1,26 @@
 {
+  "messages": [
+    {
+      "name": "explicit null takes precedence over legacy input",
+      "message": {"version": "v0.9", "action": {"name": "run", "surfaceId": "main", "sourceComponentId": "run", "timestamp": "2026-08-12T00:00:00.000Z", "context": {"input": null}, "input": "legacy"}},
+      "input": null
+    },
+    {
+      "name": "context input takes precedence over legacy input",
+      "message": {"version": "v0.9", "action": {"name": "run", "surfaceId": "main", "sourceComponentId": "run", "timestamp": "2026-08-12T00:00:00.000Z", "context": {"input": "context"}, "input": "legacy"}},
+      "input": "context"
+    },
+    {
+      "name": "absent context input falls back to legacy input",
+      "message": {"version": "v0.9", "action": {"name": "run", "surfaceId": "main", "sourceComponentId": "run", "timestamp": "2026-08-12T00:00:00.000Z", "context": {}, "input": "legacy"}},
+      "input": "legacy"
+    },
+    {
+      "name": "absent inputs default to null",
+      "message": {"version": "v0.9", "action": {"name": "run", "surfaceId": "main", "sourceComponentId": "run", "timestamp": "2026-08-12T00:00:00.000Z", "context": {}}},
+      "input": null
+    }
+  ],
   "valid": [
     {
       "temperature": 75

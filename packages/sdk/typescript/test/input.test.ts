@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "@omochi-ui/core/testing";
+import { A2uiClientMessageSchema } from "@a2ui/web_core/v0_9";
 import { App, schema, ProtocolError, DeclarationError, type Expr, type JsonValue, type ModelBinding } from "../src/index.js";
 
 const input = schema.object({ temperature: schema.number(), note: schema.optional(schema.string()) });
@@ -57,6 +58,32 @@ test("shared action input validation fixture", async () => {
   const fixture = await Bun.file(new URL("../../../../spec/fixtures/action-input.json", import.meta.url)).json();
   for (const value of fixture.valid) assert.deepEqual(input.parse(value), value);
   for (const value of fixture.invalid) assert.throws(() => input.parse(value), ProtocolError);
+});
+
+test("shared action messages preserve input precedence", async () => {
+  const fixture = await Bun.file(new URL("../../../../spec/fixtures/action-input.json", import.meta.url)).json();
+  for (const { name, message, input } of fixture.messages) {
+    assert.equal(A2uiClientMessageSchema.safeParse(message).success, true, name);
+    const calls: (string | null)[] = [];
+    const app = new App({});
+    app.action("run", schema.nullable(schema.string()), value => { calls.push(value); });
+    assert.deepEqual(await app.build().handle(message), [], name);
+    assert.deepEqual(calls, [input], name);
+  }
+});
+
+test("action input presence follows own JSON properties", async () => {
+  const calls: (string | null)[] = [];
+  const app = new App({});
+  app.action("run", schema.nullable(schema.string()), value => { calls.push(value); });
+  const runtime = app.build();
+  // Undefined and inherited properties are absent from JSON messages.
+  for (const context of [{ input: undefined }, Object.create({ input: "inherited" })]) {
+    const message = JSON.parse(JSON.stringify({ action: { name: "run", context, input: "legacy" } }));
+    await runtime.handle(message);
+  }
+  await runtime.handle({ action: { name: "run", context: Object.create({ input: "inherited" }), input: "legacy" } });
+  assert.deepEqual(calls, ["legacy", "legacy", "legacy"]);
 });
 
 test("optional members stay optional through nullable and union", () => {
