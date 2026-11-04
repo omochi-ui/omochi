@@ -72,7 +72,9 @@ export function createServicesEndpoints(options: ServicesEndpointsOptions): Serv
   return {
     isAllowedOrigin,
     handleRequest(request, response) {
-      const pathname = new URL(request.url ?? '/', 'http://localhost').pathname
+      let pathname: string
+      try { pathname = new URL(request.url ?? '/', 'http://localhost').pathname }
+      catch { response.writeHead(400).end(); return true }
       if (pathname !== '/services' && pathname !== '/events') return false
       if (request.method !== 'GET' && request.method !== 'HEAD') {
         response.writeHead(405).end('Method not allowed')

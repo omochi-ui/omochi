@@ -71,16 +71,20 @@ export function resourceOriginAllowed(request: IncomingMessage, allowed?: (origi
 }
 export function serveResources(request: IncomingMessage, response: ServerResponse, fetch: ResourceFetch,
   allowed?: (origin: string | undefined) => boolean): boolean {
-  const path = new URL(request.url ?? '/', 'http://localhost').pathname
+  let path: string
+  try { path = new URL(request.url ?? '/', 'http://localhost').pathname }
+  catch { response.writeHead(400).end(); return true }
   if (!path.startsWith('/resources/')) return false
   if (!resourceOriginAllowed(request, allowed)) { response.writeHead(403).end(); return true }
   if (request.method !== 'GET' && request.method !== 'HEAD') { response.writeHead(405, { Allow: 'GET, HEAD' }).end(); return true }
   const match = /^\/resources\/([^/]+)\/([a-f0-9]{32})$/.exec(path)
   if (!match) { response.writeHead(404).end(); return true }
+  let route: string
+  try { route = decodeURIComponent(match[1]!) }
+  catch { response.writeHead(400).end(); return true }
   const controller = new AbortController()
   response.once('close', () => controller.abort())
   void (async () => {
-    const route = decodeURIComponent(match[1]!)
     const resource = match[2]!
     const metadata = await fetch(route, { op: 'stat', resource }, controller.signal)
     const size = Number(metadata.size), mime = metadata.mime, etag = metadata.etag

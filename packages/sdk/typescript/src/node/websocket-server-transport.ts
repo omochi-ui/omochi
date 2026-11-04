@@ -72,7 +72,13 @@ export class WebSocketServerTransport implements Transport {
     });
 
     this.httpServer.on("upgrade", (request, socket, head) => {
-      const pathname = new URL(request.url ?? "/", "http://localhost").pathname;
+      let pathname: string;
+      try {
+        pathname = new URL(request.url ?? "/", "http://localhost").pathname;
+      } catch {
+        socket.end("HTTP/1.1 400 Bad Request\r\nConnection: close\r\nContent-Length: 0\r\n\r\n");
+        return;
+      }
       if (this.closed || pathname !== this.path) {
         socket.destroy();
         return;
