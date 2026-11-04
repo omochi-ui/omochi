@@ -6,7 +6,10 @@ use anyhow::{Context, Result, bail};
 use dispatch::CommandOrigin;
 use futures_util::{SinkExt, StreamExt};
 use omochi_local_discovery::{DiscoveredService, scan};
-use omochi_protocol::{MAX_FRAME_BYTES, session::Service};
+use omochi_protocol::{
+    MAX_FRAME_BYTES,
+    session::{Control, Service},
+};
 use omochi_ui::A2uiSnapshot;
 use serde_json::Value;
 use std::{
@@ -32,6 +35,20 @@ const MAX_SERVICES: usize = 256;
 const MAX_SNAPSHOT_BYTES: usize = 16 * 1024 * 1024;
 static REQUEST_ID: AtomicU64 = AtomicU64::new(1);
 type DiscoveryTasks = BTreeMap<String, (DiscoveredService, CancellationToken, JoinHandle<()>)>;
+
+fn roster_entry_budget(spec: &DiscoveredService) -> usize {
+    // Use the wire serializer for escaping and UTF-8, reserving every possible
+    // generation digit so reconnects cannot outgrow the discovery reservation.
+    serde_json::to_vec(&Service {
+        id: spec.id.clone(),
+        name: spec.manifest.name.clone(),
+        generation: u64::MAX,
+        icon: spec.manifest.icon.clone(),
+    })
+    .expect("service metadata is serializable")
+    .len()
+        + 1 // Reserve a comma even for the first entry.
+}
 struct StreamState {
     snapshot: A2uiSnapshot,
     events: omochi_protocol::fanout::Sender,
@@ -226,22 +243,28 @@ impl Gateway {
     async fn reconcile_discovery(
         &self,
         tasks: &mut DiscoveryTasks,
-        mut found: BTreeMap<String, DiscoveredService>,
+        found: BTreeMap<String, DiscoveredService>,
     ) {
-        // Existing IDs keep their slots, including manifests that need reconnecting.
-        // Limit the complete selection, not just the additions in this scan.
-        let retained = tasks.keys().filter(|id| found.contains_key(*id)).count();
-        let mut available = MAX_SERVICES.saturating_sub(retained);
-        found.retain(|id, _| {
-            if tasks.contains_key(id) {
-                true
-            } else if available > 0 {
-                available -= 1;
-                true
-            } else {
-                false
-            }
+        // Protect unchanged services from oversized additions or metadata updates.
+        // Changed existing IDs still have priority over newcomers when they fit.
+        let mut candidates: Vec<_> = found.into_iter().collect();
+        candidates.sort_by_key(|(id, service)| match tasks.get(id) {
+            Some((previous, _, _)) if previous == service => 0,
+            Some(_) => 1,
+            None => 2,
         });
+        let mut available = MAX_FRAME_BYTES
+            - serde_json::to_vec(&Control::Services { services: vec![] })
+                .expect("service roster is serializable")
+                .len();
+        let mut found = BTreeMap::new();
+        for (id, service) in candidates {
+            let bytes = roster_entry_budget(&service);
+            if found.len() < MAX_SERVICES && bytes <= available {
+                available -= bytes;
+                found.insert(id, service);
+            }
+        }
         let removed: Vec<_> = tasks
             .iter()
             .filter(|(id, (previous, _, _))| found.get(*id) != Some(previous))
@@ -381,6 +404,179 @@ mod tests {
     use serde_json::json;
     use std::os::unix::fs::PermissionsExt;
     use tokio::net::UnixListener;
+
+    #[test]
+    fn roster_budget_covers_json_escaping_unicode_and_generation_growth() {
+        let spec = DiscoveredService {
+            id: "app".into(),
+            manifest: omochi_local_discovery::Manifest {
+                name: "\0\n\"\\🍡日本語".into(),
+                socket: "a2ui.sock".into(),
+                icon: Some("🍡\"\\".into()),
+            },
+            socket_path: PathBuf::new(),
+        };
+        let envelope = serde_json::to_vec(&Control::Services { services: vec![] })
+            .unwrap()
+            .len();
+        for generation in [1, 9, 10, 99, 100, u64::MAX] {
+            let service = Service {
+                id: spec.id.clone(),
+                name: spec.manifest.name.clone(),
+                generation,
+                icon: spec.manifest.icon.clone(),
+            };
+            for count in [1, MAX_SERVICES] {
+                let bytes = serde_json::to_vec(&Control::Services {
+                    services: vec![service.clone(); count],
+                })
+                .unwrap()
+                .len();
+                let reserved = envelope + count * roster_entry_budget(&spec);
+                assert!(bytes < reserved);
+                if generation == u64::MAX {
+                    assert_eq!(bytes + 1, reserved);
+                }
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn large_valid_manifests_keep_control_alive_and_release_roster_capacity() {
+        use omochi_protocol::{OpenStream, VERSION, read_frame, write_frame};
+        async fn connected(gateway: &Gateway, tasks: &DiscoveryTasks) -> Vec<Service> {
+            let mut changes = gateway.changes();
+            tokio::time::timeout(Duration::from_secs(5), async {
+                loop {
+                    let services = gateway.list().await;
+                    if services.len() == tasks.len()
+                        && services.iter().all(|service| {
+                            let spec = &tasks[&service.id].0;
+                            service.name == spec.manifest.name && service.icon == spec.manifest.icon
+                        })
+                    {
+                        return services;
+                    }
+                    let _ = changes.recv().await;
+                }
+            })
+            .await
+            .unwrap()
+        }
+        async fn roster_and_ping(client: &mut tokio::io::DuplexStream, expected: &[Service]) {
+            tokio::time::timeout(Duration::from_secs(5), async {
+                loop {
+                    let frame = read_frame::<_, Control>(client).await.unwrap().unwrap();
+                    assert!(serde_json::to_vec(&frame).unwrap().len() <= MAX_FRAME_BYTES);
+                    if let Control::Services { services } = frame {
+                        if services == expected {
+                            break;
+                        }
+                    }
+                }
+                write_frame(client, &Control::Ping { id: 42 })
+                    .await
+                    .unwrap();
+                loop {
+                    match read_frame::<_, Control>(client).await.unwrap().unwrap() {
+                        Control::Pong { id: 42 } => break,
+                        Control::Services { services } => assert_eq!(services, expected),
+                        frame => panic!("unexpected frame: {frame:?}"),
+                    }
+                }
+            })
+            .await
+            .unwrap();
+        }
+        let root = tempfile::tempdir().unwrap();
+        std::fs::set_permissions(root.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
+        let icon = format!("data:image/png;base64,{}", "A".repeat(65_499));
+        let mut sdk_tasks = Vec::new();
+        for index in 0..65 {
+            let id = format!("z{index:03}");
+            let directory = root.path().join(&id);
+            std::fs::create_dir(&directory).unwrap();
+            std::fs::write(
+                directory.join("manifest.json"),
+                json!({"name":id, "socket":"a2ui.sock", "icon":icon}).to_string(),
+            )
+            .unwrap();
+            let listener = UnixListener::bind(directory.join("a2ui.sock")).unwrap();
+            sdk_tasks.push(tokio::spawn(async move {
+                let mut sockets = Vec::new();
+                loop {
+                    sockets.push(listener.accept().await.unwrap().0);
+                }
+            }));
+        }
+        let mut found = scan(root.path()).unwrap();
+        assert_eq!(found.len(), 65);
+        let gateway = Gateway::new();
+        // Exercise the 19-to-20 digit generation transition during admission.
+        gateway
+            .next_generation
+            .store(9_999_999_999_999_999_990, Ordering::Relaxed);
+        let mut tasks = DiscoveryTasks::new();
+        gateway.reconcile_discovery(&mut tasks, found.clone()).await;
+        assert_eq!(tasks.len(), 63);
+        let original = connected(&gateway, &tasks).await;
+        let (mut client, server) = tokio::io::duplex(64 * 1024);
+        let child = gateway.clone();
+        let control = tokio::spawn(async move {
+            let (reader, writer) = tokio::io::split(server);
+            child
+                .serve_stream(reader, writer, &"a".repeat(64), "test")
+                .await
+        });
+        write_frame(&mut client, &OpenStream::Control { protocol: VERSION })
+            .await
+            .unwrap();
+        roster_and_ping(&mut client, &original).await;
+
+        // This valid metadata update cannot fit; only that service loses its slot.
+        let manifest = &mut found.get_mut("z000").unwrap().manifest;
+        manifest.name = "\0\"\\🍡".repeat(4500);
+        let bytes = serde_json::to_vec(manifest).unwrap();
+        assert!(bytes.len() < 128 * 1024);
+        std::fs::write(root.path().join("z000/manifest.json"), bytes).unwrap();
+        found = scan(root.path()).unwrap();
+        assert_eq!(found.len(), 65);
+        gateway.reconcile_discovery(&mut tasks, found.clone()).await;
+        assert!(!tasks.contains_key("z000"));
+        assert!(tasks.contains_key("z063"));
+        let updated = connected(&gateway, &tasks).await;
+        for service in original.iter().filter(|service| service.id != "z000") {
+            assert!(updated.contains(service));
+        }
+        roster_and_ping(&mut client, &updated).await;
+
+        // A smaller replacement remains pending until an existing slot is freed.
+        found.get_mut("z000").unwrap().manifest.name = "Updated".into();
+        gateway.reconcile_discovery(&mut tasks, found.clone()).await;
+        assert!(!tasks.contains_key("z000"));
+        found.remove("z001");
+        gateway.reconcile_discovery(&mut tasks, found.clone()).await;
+        assert!(tasks.contains_key("z000"));
+        let replaced = connected(&gateway, &tasks).await;
+        roster_and_ping(&mut client, &replaced).await;
+
+        // Shrinking metadata also releases bytes and admits the last waiting ID.
+        found.get_mut("z002").unwrap().manifest.icon = None;
+        gateway.reconcile_discovery(&mut tasks, found).await;
+        assert_eq!(tasks.len(), 64);
+        assert!(tasks.contains_key("z064"));
+        let shrunk = connected(&gateway, &tasks).await;
+        roster_and_ping(&mut client, &shrunk).await;
+        gateway.shutdown();
+        control.await.unwrap().unwrap();
+        for (_, (_, _, task)) in tasks {
+            task.await.unwrap();
+        }
+        for task in sdk_tasks {
+            task.abort();
+            let _ = task.await;
+        }
+    }
 
     #[tokio::test]
     async fn discovery_caps_total_services_preserves_slots_and_admits_after_removal() {

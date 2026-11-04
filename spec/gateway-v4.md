@@ -61,6 +61,14 @@ every 10 seconds after the preceding exchange; the gateway returns matching
 `pong`. A blocked write or missing matching pong for 10 seconds ends the session.
 `bye` carries a `reason`. Control loss retracts the associated services.
 
+Discovery reserves space for the complete serialized roster within one 4 MiB
+frame, including JSON escaping, UTF-8 and the maximum generation width. Unchanged
+admitted manifests retain capacity first, followed by changed admitted manifests
+and then new IDs (lexical ID order within each group). Manifests that exceed the
+remaining byte or service-count capacity are omitted and reconsidered on later
+scans. An oversized metadata update retracts only that service; unchanged services
+remain connected. Removal or smaller metadata can release capacity for waiting IDs.
+
 A service stream emits `snapshotStart`, zero or more `message` frames carrying an
 A2UI `message`, then `snapshotEnd`, followed by incremental `message` frames.
 The reverse direction carries A2UI client actions/errors. Hub browser surface IDs
