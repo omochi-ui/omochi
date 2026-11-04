@@ -264,3 +264,16 @@ test("ownership excludes contenders before bind and until cleanup finishes", asy
   await new Promise<void>((resolve, reject) => { client.socket.once("connect", resolve); client.socket.once("error", reject); });
   client.socket.destroy();
 });
+
+for (const runtime of ["node", "bun"]) {
+  test(`bounds unix slow-reader bytes while healthy replay and resources progress in ${runtime}`, { timeout: 35_000 }, () => {
+    const result = spawnSync(runtime, [
+      "--unhandled-rejections=strict",
+      fileURLToPath(new URL("./fixtures/server-slow-reader.mjs", import.meta.url)),
+      "unix",
+    ], { encoding: "utf8", timeout: 30_000 });
+    assert.ifError(result.error);
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.stdout.trim(), "slow reader isolated");
+  });
+}

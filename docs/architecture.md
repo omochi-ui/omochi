@@ -46,6 +46,17 @@ SDK manifests and Unix JSONL remain language-independent. Private, owned runtime
 directories are the local trust boundary; discovery validates IDs and paths before
 using any manifest. A gateway shares one connection per SDK service.
 
+SDK Unix publishers and the TypeScript WebSocket publisher allow 16 MiB of
+outstanding encoded UTF-8 data per client (including Unix line delimiters). The
+budget covers queued updates/resource replies and the active socket write until
+completion; an overflowing client is disconnected independently of other clients.
+Reconnect starts a fresh snapshot. Bootstrap sends the resource hello and captured
+snapshot before live updates and resource replies, encoding one replay frame at a
+time so the complete snapshot can exceed the budget. Each frame must fit together
+with queued live data; if that combined budget is exhausted, the client disconnects
+instead of reordering or dropping messages. This is a wire-data bound, not an RSS
+limit on retained application snapshot state.
+
 Remote connectivity is opt-in. Invitations are imported on the hub PC and register
 a gateway's full iroh EndpointId. Registered peers reconnect independently by ID;
 addresses and LAN discovery never grant authorization. Session generations reject

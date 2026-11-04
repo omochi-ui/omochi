@@ -227,3 +227,16 @@ test("only upgrades the configured path and closes active clients on shutdown", 
   await transport.close();
   assert.equal(await closed, 1001);
 });
+
+for (const runtime of ["node", "bun"]) {
+  test(`bounds websocket slow-reader bytes while healthy replay and resources progress in ${runtime}`, { timeout: 35_000 }, () => {
+    const result = spawnSync(runtime, [
+      "--unhandled-rejections=strict",
+      fileURLToPath(new URL("./fixtures/server-slow-reader.mjs", import.meta.url)),
+      "websocket",
+    ], { encoding: "utf8", timeout: 30_000 });
+    assert.ifError(result.error);
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.stdout.trim(), "slow reader isolated");
+  });
+}

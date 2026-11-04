@@ -35,6 +35,13 @@ try {
   const disconnected = new Promise(resolve => {
     transport.server.once("connection", socket => {
       socket.on("error", error => { failure = error; });
+      // The bounded writer handles write failures through their callback and may
+      // destroy the socket before Node/Bun emits a separate error event.
+      const write = socket.write.bind(socket);
+      socket.write = (chunk, complete) => write(chunk, error => {
+        if (error) failure = error;
+        complete?.(error);
+      });
       socket.once("close", () => resolve(socket));
     });
   });

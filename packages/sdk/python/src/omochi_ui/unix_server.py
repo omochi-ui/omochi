@@ -10,6 +10,7 @@ import shutil
 import socket as socket_module
 import stat
 import tempfile
+from collections import deque
 from collections.abc import AsyncIterator
 from contextlib import suppress
 from pathlib import Path
@@ -27,6 +28,85 @@ SERVICE_ID_PATTERN = re.compile(r"^[A-Za-z0-9._-]{1,64}$")
 _MAX_SOCKET_PATH_BYTES = 100
 
 _SOCKET_FILE_NAME = "a2ui.sock"
+
+# Includes each frame's UTF-8 encoding and trailing LF, through drain completion.
+_MAX_PENDING_BYTES = 16 * 1024 * 1024
+
+
+def _encode_frame(message: dict[str, Any]) -> bytes:
+    return (json.dumps(message, separators=(",", ":"), ensure_ascii=False) + "\n").encode()
+
+
+class _OutboundPeer:
+    def __init__(self, writer: asyncio.StreamWriter):
+        self.writer = writer
+        # drain() normally resumes below a nonzero low watermark. Resume only
+        # when empty, so releasing a frame never leaves uncharged buffered bytes.
+        writer.transport.set_write_buffer_limits(high=0, low=0)
+        self.pending_bytes = 0
+        self.closed = False
+        self._frames: deque[bytes] = deque()
+        self._ready = asyncio.Event()
+        self.task: asyncio.Task[None] | None = None
+
+    def _reserve(self, frame: bytes) -> bool:
+        if self.closed:
+            return False
+        if len(frame) > _MAX_PENDING_BYTES - self.pending_bytes:
+            self.abort()
+            return False
+        self.pending_bytes += len(frame)
+        return True
+
+    def enqueue(self, frame: bytes) -> None:
+        if self._reserve(frame):
+            self._frames.append(frame)
+            self._ready.set()
+
+    def abort(self) -> None:
+        if self.closed:
+            return
+        self.closed = True
+        self._frames.clear()
+        self.pending_bytes = 0
+        self._ready.set()
+        self.writer.transport.abort()
+        if self.task is not None and self.task is not asyncio.current_task():
+            self.task.cancel()
+
+    async def _write(self, frame: bytes) -> None:
+        self.writer.write(frame)
+        await self.writer.drain()
+        if not self.closed:
+            self.pending_bytes -= len(frame)
+
+    async def _replay(self, bootstrap: list[dict[str, Any]]) -> None:
+        # Replay is captured before joining broadcasts, but encoded one frame at
+        # a time so a healthy peer can replay snapshots larger than the budget.
+        for message in bootstrap:
+            frame = _encode_frame(message)
+            # Live frames cannot pass replay. If they leave insufficient room
+            # for the next replay frame, disconnect instead of exceeding the
+            # bound or deadlocking while waiting for that live queue to drain.
+            if not self._reserve(frame):
+                return
+            await self._write(frame)
+            del frame
+
+    async def pump(self, bootstrap: list[dict[str, Any]]) -> None:
+        try:
+            await self._replay(bootstrap)
+            bootstrap.clear()
+            while not self.closed:
+                await self._ready.wait()
+                while self._frames and not self.closed:
+                    await self._write(self._frames.popleft())
+                self._ready.clear()
+        except (ConnectionError, OSError):
+            pass
+        finally:
+            bootstrap.clear()
+            self.abort()
 
 
 def _is_client_message(message: Any) -> bool:
@@ -116,7 +196,8 @@ class UnixSocketServerTransport(Transport):
         self._root = Path(runtime_dir) if runtime_dir is not None else omochi_runtime_root()
         self.capabilities = capabilities or set()
         self._snapshot = A2uiSnapshot()
-        self._writers: set[asyncio.StreamWriter] = set()
+        self._clients: set[_OutboundPeer] = set()
+        self._client_tasks: set[asyncio.Task[Any]] = set()
         self._queue = ReceiveQueue()
         self._server: asyncio.AbstractServer | None = None
         self._directory: Path | None = None
@@ -194,9 +275,9 @@ class UnixSocketServerTransport(Transport):
         await self.start()
         if not is_resource(message):
             self._snapshot.apply(message)
-        line = json.dumps(message, separators=(",", ":"), ensure_ascii=False) + "\n"
-        for writer in list(self._writers):
-            self._write(writer, line)
+        frame = _encode_frame(message)
+        for client in list(self._clients):
+            client.enqueue(frame)
 
     async def receive(self) -> AsyncIterator[dict[str, Any]]:
         await self.start()
@@ -221,15 +302,20 @@ class UnixSocketServerTransport(Transport):
             # Retract the advertisement before tearing the socket down.
             if self._directory is not None:
                 shutil.rmtree(self._directory, ignore_errors=True)
-            for writer in list(self._writers):
-                writer.close()
-            self._writers.clear()
+            clients = list(self._clients)
+            for client in clients:
+                client.abort()
+            self._clients.clear()
             server = self._server
             self._server = None
             try:
                 if server is not None:
                     server.close()
                     await server.wait_closed()
+                tasks = self._client_tasks | {client.task for client in clients if client.task is not None}
+                tasks.discard(asyncio.current_task())
+                if tasks:
+                    await asyncio.gather(*tasks, return_exceptions=True)
             finally:
                 self._directory = None
                 self._release_lock()
@@ -244,27 +330,21 @@ class UnixSocketServerTransport(Transport):
         temporary.chmod(stat.S_IRUSR | stat.S_IWUSR)
         temporary.replace(directory / "manifest.json")
 
-    @staticmethod
-    def _write(writer: asyncio.StreamWriter, line: str) -> None:
-        if writer.is_closing():
-            return
-        try:
-            writer.write(line.encode())
-        except OSError:
-            pass
-
     async def _accept(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
         if self._closed:
             writer.close()
             return
-        self._writers.add(writer)
+        task = asyncio.current_task()
+        assert task is not None
+        self._client_tasks.add(task)
+        client = _OutboundPeer(writer)
+        bootstrap = ([hello()] if self.resources else []) + self._snapshot.messages()
+        self._clients.add(client)
+        client.task = asyncio.create_task(client.pump(bootstrap))
         try:
-            if self.resources:
-                self._write(writer, json.dumps(hello()) + "\n")
-            for message in self._snapshot.messages():
-                self._write(writer, json.dumps(message, separators=(",", ":"), ensure_ascii=False) + "\n")
-            await writer.drain()
-            while not self._closed and (line := await reader.readline()):
+            while not self._closed and not client.closed and (line := await reader.readline()):
+                if client.closed:
+                    break
                 text = line.decode().strip()
                 if not text:
                     continue
@@ -274,8 +354,7 @@ class UnixSocketServerTransport(Transport):
                     break
                 if self.resources and is_resource(message):
                     if message.get("kind") == "request":
-                        self._write(writer, json.dumps(self.resources.respond(message)) + "\n")
-                        await writer.drain()
+                        client.enqueue(_encode_frame(self.resources.respond(message)))
                     continue
                 if not _is_client_message(message):
                     break
@@ -289,14 +368,16 @@ class UnixSocketServerTransport(Transport):
             # No queued action may execute after an action was lost. Abort peers
             # immediately so their resource RPCs observe a disconnect as well.
             self._queue.finish(error, discard=True)
-            for client in self._writers:
-                client.transport.abort()
+            for peer in self._clients:
+                peer.abort()
             await self.close()
         except (ConnectionError, OSError, ValueError):
             pass
         finally:
-            self._writers.discard(writer)
-            writer.close()
+            self._clients.discard(client)
+            client.abort()
+            await asyncio.gather(client.task, return_exceptions=True)
+            self._client_tasks.discard(task)
 
     def _release_lock(self) -> None:
         if self._lock_fd is not None:

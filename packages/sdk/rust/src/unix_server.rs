@@ -10,10 +10,10 @@ use async_trait::async_trait;
 use serde_json::{Map, Value};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{UnixListener, UnixStream};
-use tokio::sync::{Mutex, mpsc, oneshot};
+use tokio::sync::{Mutex, OwnedSemaphorePermit, Semaphore, mpsc, oneshot, watch};
 use tokio::task::{JoinHandle, JoinSet};
 
-use crate::snapshot::A2uiSnapshot;
+use crate::snapshot::{A2uiSnapshot, SnapshotCursor};
 use crate::transport::Transport;
 use crate::{Error, Result};
 
@@ -21,6 +21,70 @@ const SOCKET_FILE_NAME: &str = "a2ui.sock";
 
 /// Linux caps `sun_path` at 108 bytes and macOS at 104; leave room for the null terminator.
 const MAX_SOCKET_PATH_BYTES: usize = 100;
+
+/// Encoded UTF-8 bytes, including newlines, queued or being written per client.
+const MAX_OUTBOUND_BYTES: usize = 16 * 1024 * 1024;
+
+struct OutboundFrame {
+    line: String,
+    // Removing a frame from the queue must not release its budget before write_all.
+    _permit: OwnedSemaphorePermit,
+}
+
+#[derive(Clone)]
+struct ClientSender {
+    queue: mpsc::UnboundedSender<OutboundFrame>,
+    budget: Arc<Semaphore>,
+    cancelled: watch::Sender<()>,
+}
+
+impl ClientSender {
+    fn new() -> (
+        Self,
+        mpsc::UnboundedReceiver<OutboundFrame>,
+        watch::Receiver<()>,
+    ) {
+        let (queue, receiver) = mpsc::unbounded_channel();
+        let (cancelled, cancellation) = watch::channel(());
+        (
+            Self {
+                queue,
+                budget: Arc::new(Semaphore::new(MAX_OUTBOUND_BYTES)),
+                cancelled,
+            },
+            receiver,
+            cancellation,
+        )
+    }
+
+    fn reserve(&self, bytes: usize) -> Option<OwnedSemaphorePermit> {
+        if self.queue.is_closed() {
+            return None;
+        }
+        if bytes <= MAX_OUTBOUND_BYTES {
+            if let Ok(permit) = self.budget.clone().try_acquire_many_owned(bytes as u32) {
+                return Some(permit);
+            }
+        }
+        // Dropping a sender alone cannot interrupt a blocked socket write. Signal
+        // the connection directly and permanently reject any subsequent frames.
+        self.budget.close();
+        self.cancelled.send_replace(());
+        None
+    }
+
+    fn send(&self, line: &str) -> bool {
+        let Some(permit) = self.reserve(line.len()) else {
+            return false;
+        };
+        self.queue
+            .send(OutboundFrame {
+                line: line.to_owned(),
+                _permit: permit,
+            })
+            .is_ok()
+    }
+}
 
 /// Mirrors the id constraint the hub applies, so `<serviceId>/<surfaceId>` stays splittable.
 pub fn validate_service_id(service_id: &str) -> Result<()> {
@@ -117,7 +181,7 @@ struct Shared {
 #[derive(Default)]
 struct Publication {
     snapshot: A2uiSnapshot,
-    clients: Vec<mpsc::UnboundedSender<String>>,
+    clients: Vec<ClientSender>,
 }
 
 /// Publishes one application on a unix domain socket and advertises it for discovery.
@@ -295,9 +359,7 @@ impl Transport for UnixSocketServerTransport {
         if !is_resource(message) {
             publication.snapshot.apply(message)?;
         }
-        publication
-            .clients
-            .retain(|client| client.send(line.clone()).is_ok());
+        publication.clients.retain(|client| client.send(&line));
         Ok(())
     }
 
@@ -421,28 +483,37 @@ async fn serve_connection(
     inbound: mpsc::UnboundedSender<Value>,
 ) {
     let (reader, mut writer) = stream.into_split();
-    let (sender, mut outbound) = mpsc::unbounded_channel::<String>();
-    if shared.resources.read().unwrap().is_some() {
-        let _ = sender.send(format!("{}\n", hello()));
-    }
-    {
-        // Queue replay and register for live updates without allowing publication
-        // between them. Socket writes happen only after releasing this lock.
+    let (sender, mut outbound, mut cancelled) = ClientSender::new();
+    let announce_resources = shared.resources.read().unwrap().is_some();
+    let snapshot = {
+        // Capture replay and register for live updates atomically. Encode and write
+        // one replay frame at a time so healthy snapshots may exceed the budget.
         let mut publication = shared.publication.lock().await;
-        for message in publication.snapshot.messages() {
-            let Ok(encoded) = serde_json::to_string(&message) else {
-                continue;
+        let snapshot = publication.snapshot.clone();
+        publication.clients.push(sender.clone());
+        snapshot
+    };
+
+    let writing = async {
+        let mut cursor = SnapshotCursor::default();
+        let mut announcement = announce_resources.then(hello);
+        while let Some(message) = announcement
+            .take()
+            .or_else(|| snapshot.next_message(&mut cursor))
+        {
+            let line = format!("{message}\n");
+            let Some(_permit) = sender.reserve(line.len()) else {
+                return;
             };
-            if sender.send(format!("{encoded}\n")).is_err() {
+            if writer.write_all(line.as_bytes()).await.is_err() {
                 return;
             }
         }
-        publication.clients.push(sender.clone());
-    }
-
-    let writing = async move {
-        while let Some(line) = outbound.recv().await {
-            if writer.write_all(line.as_bytes()).await.is_err() {
+        // Release the captured snapshot once replay completes, even for clients
+        // that remain connected indefinitely.
+        drop(snapshot);
+        while let Some(frame) = outbound.recv().await {
+            if writer.write_all(frame.line.as_bytes()).await.is_err() {
                 return;
             }
         }
@@ -460,7 +531,9 @@ async fn serve_connection(
             if is_resource(&value) {
                 if value["kind"] == "request" {
                     if let Some(resources) = shared.resources.read().unwrap().as_ref() {
-                        let _ = sender.send(format!("{}\n", resources.respond(&value)));
+                        if !sender.send(&format!("{}\n", resources.respond(&value))) {
+                            break;
+                        }
                     }
                 }
                 continue;
@@ -482,11 +555,23 @@ async fn serve_connection(
     // Neither half may outlive its connection task, including when cancelled during
     // shutdown or while a slow client has blocked the writer.
     tokio::select! {
+        biased;
+        _ = cancelled.changed() => {},
         _ = writing => {},
         _ = reading => {},
     }
+    shared
+        .publication
+        .lock()
+        .await
+        .clients
+        .retain(|client| !client.queue.same_channel(&sender.queue));
 }
 
 #[cfg(test)]
 #[path = "../tests/unix_server/publication.rs"]
 mod publication_tests;
+
+#[cfg(test)]
+#[path = "../tests/unix_server/outbound.rs"]
+mod outbound_tests;

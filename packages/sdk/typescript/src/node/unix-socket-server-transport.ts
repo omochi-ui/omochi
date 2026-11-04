@@ -23,6 +23,7 @@ import {
   writeServiceManifest,
 } from "./service-directory.js";
 import { A2uiSnapshot } from "./snapshot.js";
+import { encodeReplay, OutboundWriter } from "./outbound-writer.js";
 
 export interface UnixSocketServerTransportOptions {
   /** Discovery id and directory name; must match `[A-Za-z0-9._-]{1,64}`. */
@@ -64,6 +65,7 @@ export class UnixSocketServerTransport implements Transport {
   private readonly root: string;
   private readonly server: Server = createServer();
   private readonly clients = new Set<Socket>();
+  private readonly outbound = new WeakMap<Socket, OutboundWriter>();
   private readonly snapshot = new A2uiSnapshot();
   private readonly received = new ReceiveQueue<JsonObject>();
   private readonly waiting: PendingReceive[] = [];
@@ -108,7 +110,7 @@ export class UnixSocketServerTransport implements Transport {
     if (!isResourceFrame(message)) this.snapshot.apply(message);
     const encoded = `${JSON.stringify(message)}\n`;
     for (const client of this.clients) {
-      if (client.writable) client.write(encoded);
+      this.outbound.get(client)?.send(encoded);
     }
   }
 
@@ -136,7 +138,10 @@ export class UnixSocketServerTransport implements Transport {
         // Retract the advertisement before tearing the socket down.
         if (directory) await removeServiceDirectory(directory);
       } finally {
-        for (const client of this.clients) client.destroy();
+        for (const client of this.clients) {
+          this.outbound.get(client)?.close();
+          client.destroy();
+        }
         this.clients.clear();
         if (this.server.listening) {
           await new Promise<void>((resolve) => this.server.close(() => resolve()));
@@ -200,6 +205,7 @@ export class UnixSocketServerTransport implements Transport {
     const lines = createInterface({ input: socket, crlfDelay: Infinity });
     const disconnect = () => {
       this.clients.delete(socket);
+      this.outbound.get(socket)?.close();
       lines.close();
       socket.destroy();
     };
@@ -208,15 +214,16 @@ export class UnixSocketServerTransport implements Transport {
     socket.on("error", disconnect);
     socket.on("close", disconnect);
     socket.setNoDelay(true);
-    if (this.resources) socket.write(`${JSON.stringify(resourceHello())}\n`);
-    for (const message of this.snapshot.messages()) socket.write(`${JSON.stringify(message)}\n`);
+    const outbound = new OutboundWriter((text, complete) => { socket.write(text, complete); }, disconnect);
+    this.outbound.set(socket, outbound);
+    outbound.start(encodeReplay(this.snapshot.messages(), this.resources ? resourceHello() : undefined, "\n"));
     lines.on("line", (line) => {
       // readline may already have split more lines from the offending peer's chunk.
       if (this.closed || socket.destroyed || !line.trim()) return;
       try {
         const value: unknown = JSON.parse(line);
         if (this.resources && isResourceFrame(value)) {
-          if (value.kind === "request") socket.write(`${JSON.stringify(this.resources.respond(value))}\n`);
+          if (value.kind === "request") outbound.send(`${JSON.stringify(this.resources.respond(value))}\n`);
           return;
         }
         const parsed = A2uiClientMessageSchema.safeParse(value);

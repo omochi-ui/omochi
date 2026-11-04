@@ -9,6 +9,7 @@ import { ReceiveQueue, ReceiveQueueOverflowError } from "../receive-queue.js";
 import type { Transport } from "../transport.js";
 import type { A2UIMessage, JsonObject } from "../types.js";
 import { A2uiSnapshot } from "./snapshot.js";
+import { encodeReplay, OutboundWriter } from "./outbound-writer.js";
 
 export interface WebSocketServerTransportOptions {
   port: number;
@@ -46,6 +47,7 @@ export class WebSocketServerTransport implements Transport {
   private readonly httpServer: Server;
   private readonly webSocketServer = new WebSocketServer({ noServer: true });
   private readonly clients = new Set<WebSocket>();
+  private readonly outbound = new WeakMap<WebSocket, OutboundWriter>();
   private readonly snapshot = new A2uiSnapshot();
   private readonly received = new ReceiveQueue<JsonObject>();
   private readonly waiting: PendingReceive[] = [];
@@ -126,7 +128,7 @@ export class WebSocketServerTransport implements Transport {
     if (!isResourceFrame(message)) this.snapshot.apply(message);
     const encoded = JSON.stringify(message);
     for (const client of this.clients) {
-      if (client.readyState === WebSocket.OPEN) client.send(encoded);
+      if (client.readyState === WebSocket.OPEN) this.outbound.get(client)?.send(encoded);
     }
   }
 
@@ -149,7 +151,10 @@ export class WebSocketServerTransport implements Transport {
     this.closePromise = (async () => {
       // A pending listen can still succeed even while server.listening is false.
       await this.ready.catch(() => {});
-      for (const client of this.clients) closeSocket(client, 1001, "server shutting down");
+      for (const client of this.clients) {
+        this.outbound.get(client)?.close();
+        closeSocket(client, 1001, "server shutting down");
+      }
       await Promise.all([
         new Promise<void>((resolve) => this.webSocketServer.close(() => resolve())),
         new Promise<void>((resolve) => {
@@ -167,15 +172,21 @@ export class WebSocketServerTransport implements Transport {
   private accept(socket: WebSocket): void {
     if (this.closed) { socket.terminate(); return; }
     this.clients.add(socket);
-    socket.on("close", () => this.clients.delete(socket));
-    socket.on("error", () => {
-      // Isolate connection errors even when the peer never acknowledges a close.
+    const disconnect = () => {
+      this.clients.delete(socket);
+      this.outbound.get(socket)?.close();
       socket.terminate();
+    };
+    socket.on("close", () => {
+      this.clients.delete(socket);
+      this.outbound.get(socket)?.close();
     });
-    if (this.resources) socket.send(JSON.stringify(resourceHello()));
-    for (const message of this.snapshot.messages()) socket.send(JSON.stringify(message));
+    socket.on("error", disconnect);
+    const outbound = new OutboundWriter((text, complete) => { socket.send(text, complete); }, disconnect);
+    this.outbound.set(socket, outbound);
+    outbound.start(encodeReplay(this.snapshot.messages(), this.resources ? resourceHello() : undefined, ""));
     socket.on("message", (data, isBinary) => {
-      if (this.closed) return;
+      if (this.closed || !this.clients.has(socket)) return;
       if (isBinary) {
         closeSocket(socket, 1003, "expected a text JSON message");
         return;
@@ -183,7 +194,7 @@ export class WebSocketServerTransport implements Transport {
       try {
         const value: unknown = JSON.parse(data.toString());
         if (this.resources && isResourceFrame(value)) {
-          if (value.kind === "request") socket.send(JSON.stringify(this.resources.respond(value)));
+          if (value.kind === "request") outbound.send(JSON.stringify(this.resources.respond(value)));
           return;
         }
         const parsed = A2uiClientMessageSchema.safeParse(value);
