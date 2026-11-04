@@ -959,9 +959,19 @@ fn render(m: &Model, lang: Language) -> Result<String> {
             )
         }
         Py => {
-            let overloads = m.components.iter().map(|c| format!("    @overload\n    def component(self, /, component: Literal[{}], *, key: str, **props: Unpack[{}Props]) -> None: ...", quote(&c.name), c.name)).collect::<Vec<_>>().join("\n");
+            // Catalog builders deliberately replace the built-in component set.
+            // Keep that narrowing explicit without weakening call-site checks.
+            let override_comment = "    # This catalog replaces UI.component's built-in signatures.\n    # Only the intentional override mismatch is suppressed; calls stay typed.\n";
+            let component = match m.components.as_slice() {
+                [] => "    def component(self, /, component: Never, *, key: str, **props: Any) -> None:  # type: ignore[override]  # pyright: ignore[reportIncompatibleMethodOverride]\n        self._append(component, props, key)".to_owned(),
+                [c] => format!("    def component(self, /, component: Literal[{}], *, key: str, **props: Unpack[{}Props]) -> None:  # type: ignore[override]  # pyright: ignore[reportIncompatibleMethodOverride]\n        self._append(component, dict(props), key)", quote(&c.name), c.name),
+                components => {
+                    let overloads = components.iter().enumerate().map(|(i, c)| format!("    @overload{}\n    def component(self, /, component: Literal[{}], *, key: str, **props: Unpack[{}Props]) -> None: ...", if i == 0 { "  # type: ignore[override]" } else { "" }, quote(&c.name), c.name)).collect::<Vec<_>>().join("\n");
+                    format!("{overloads}\n    def component(self, /, component: str, *, key: str, **props: Any) -> None:  # pyright: ignore[reportIncompatibleMethodOverride]\n        self._append(component, props, key)")
+                }
+            };
             format!(
-                "{header}from typing import Any, Literal, Required, TypedDict, Unpack, overload\nfrom omochi_ui import Catalog, UI\nfrom omochi_ui.catalog import DataBinding, DynamicBoolean, DynamicNumber, DynamicString, DynamicStringList, FunctionCall\n\n{body}\n\nclass {name}UI(UI):\n{overloads}\n    def component(self, /, component: str, *, key: str, **props: Any) -> None:\n        super().component(component, key=key, **props)\n\n{constant} = Catalog(id={id}, name={}, ui_type={name}UI)\n",
+                "{header}from typing import Any, Literal, Never, Required, TypedDict, Unpack, overload\nfrom omochi_ui import Catalog, UI\nfrom omochi_ui.catalog import DataBinding, DynamicBoolean, DynamicNumber, DynamicString, DynamicStringList, FunctionCall\n\n{body}\n\nclass {name}UI(UI):\n{override_comment}{component}\n\n{constant} = Catalog(id={id}, name={}, ui_type={name}UI)\n",
                 quote(name)
             )
         }

@@ -43,6 +43,11 @@ jobs:
             packages/sdk/rust -> target
             examples/rust -> target
       - run: bun run test
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.11'
+      - run: python -m pip install mypy pyright
+      - run: python scripts/test-catalog-types.py
       - run: bun run check:dashboard-app
       - run: bun run --bun --filter '*' lint
 
