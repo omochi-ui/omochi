@@ -4,13 +4,14 @@ import { copyFile, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { delimiter, join, resolve } from "node:path";
 
-for (const fixture of ["catalog-arrays", "catalog-enums", "catalog-property-names", "catalog-python-keys", "catalog-allof"]) {
+for (const fixture of ["catalog-arrays", "catalog-enums", "catalog-property-names", "catalog-python-keys", "catalog-allof", "catalog-required"]) {
   test(`native ${fixture} bindings preserve JSON types`, {
     skip: !process.env.OMOCHI_NATIVE_TEST,
   }, async (t) => {
     const root = await mkdtemp(join(tmpdir(), "omochi-catalog-"));
     t.after(() => rm(root, { recursive: true, force: true }));
     const workspace = resolve(import.meta.dir, "../..");
+    const pythonBindings = fixture !== "catalog-arrays" && fixture !== "catalog-required";
     const profile = process.env.OMOCHI_NATIVE_PROFILE ?? "debug";
     if (profile !== "debug" && profile !== "release") throw new Error("invalid native profile");
     const generate = Bun.spawn([
@@ -19,7 +20,7 @@ for (const fixture of ["catalog-arrays", "catalog-enums", "catalog-property-name
         ? join(workspace, `spec/fixtures/${fixture}.json`)
         : join(import.meta.dir, "fixtures/catalog-arrays.json"),
       "--typescript", join(root, "catalog.ts"),
-      ...(fixture !== "catalog-arrays" ? ["--python", join(root, "catalog.py")] : []),
+      ...(pythonBindings ? ["--python", join(root, "catalog.py")] : []),
     ], { stdout: "pipe", stderr: "pipe" });
     const generationError = await new Response(generate.stderr).text();
     expect(await generate.exited, generationError).toBe(0);
@@ -41,7 +42,7 @@ for (const fixture of ["catalog-arrays", "catalog-enums", "catalog-property-name
       new Response(compile.stdout).text(), new Response(compile.stderr).text(), compile.exited,
     ]);
     expect(status, stdout + stderr).toBe(0);
-    if (fixture !== "catalog-arrays") {
+    if (pythonBindings) {
       await copyFile(join(import.meta.dir, `fixtures/${fixture}.py`), join(root, "usage.py"));
       const python = Bun.spawn(["python3", "-B", join(root, "usage.py")], {
         env: { ...process.env, PYTHONPATH: join(workspace, "packages/sdk/python/src") },

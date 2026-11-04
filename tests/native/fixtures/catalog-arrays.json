@@ -10,7 +10,7 @@
         "flags": {"type": "array", "items": {"oneOf": [{"type": "boolean"}, {"type": "number"}]}},
         "nested": {"type": "array", "items": {"type": "array", "items": {"anyOf": [{"type": "string", "enum": ["a", "b"]}, {"type": "number"}]}}},
         "children": {"type": "array", "items": {"$ref": "https://a2ui.org/specification/v0_9/common_types.json#/$defs/ChildList"}},
-        "records": {"type": "array", "items": {"allOf": [{"type": "object", "properties": {"left": {"type": "string"}}}, {"type": "object", "properties": {"right": {"type": "number"}}}]}}
+        "records": {"type": "array", "items": {"allOf": [{"type": "object", "properties": {"left": {"type": "string"}}, "required": ["left"]}, {"type": "object", "properties": {"right": {"type": "number"}}, "required": ["right"]}]}}
       },
       "required": ["choices", "mixed", "flags", "nested", "children", "records"]
     }

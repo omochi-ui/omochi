@@ -365,7 +365,17 @@ fn ty(schema: &Value, lang: Language) -> Result<String> {
                 "{{ {} }}",
                 props
                     .iter()
-                    .map(|(k, v)| Ok(format!("{}: {}", quote(k), ty(v, lang)?)))
+                    .map(|(k, v)| {
+                        let required = schema["required"]
+                            .as_array()
+                            .is_some_and(|keys| keys.iter().any(|key| key.as_str() == Some(k)));
+                        Ok(format!(
+                            "{}{}: {}",
+                            quote(k),
+                            if required { "" } else { "?" },
+                            ty(v, lang)?
+                        ))
+                    })
                     .collect::<Result<Vec<_>>>()?
                     .join("; ")
             ),
@@ -658,8 +668,8 @@ mod tests {
     #[test]
     fn python_allof_uses_evaluable_approximations_without_changing_other_languages() {
         let objects = json!({"allOf": [
-            {"type": "object", "properties": {"label": {"type": "string"}}},
-            {"type": "object", "properties": {"enabled": {"type": "boolean"}}}
+            {"type": "object", "properties": {"label": {"type": "string"}}, "required": ["label"]},
+            {"type": "object", "properties": {"enabled": {"type": "boolean"}}, "required": ["enabled"]}
         ]});
         assert_eq!(ty(&objects, Language::Py).unwrap(), "dict[str, Any]");
         assert_eq!(
