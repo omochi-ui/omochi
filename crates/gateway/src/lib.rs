@@ -31,6 +31,7 @@ use tokio_util::{
 const MAX_SERVICES: usize = 256;
 const MAX_SNAPSHOT_BYTES: usize = 16 * 1024 * 1024;
 static REQUEST_ID: AtomicU64 = AtomicU64::new(1);
+type DiscoveryTasks = BTreeMap<String, (DiscoveredService, CancellationToken, JoinHandle<()>)>;
 struct StreamState {
     snapshot: A2uiSnapshot,
     events: omochi_protocol::fanout::Sender,
@@ -185,10 +186,7 @@ impl Gateway {
     pub fn discover(&self, root: PathBuf) -> JoinHandle<Result<()>> {
         let gateway = self.clone();
         tokio::spawn(async move {
-            let mut tasks: BTreeMap<
-                String,
-                (DiscoveredService, CancellationToken, JoinHandle<()>),
-            > = BTreeMap::new();
+            let mut tasks = DiscoveryTasks::new();
             let changed = Arc::new(tokio::sync::Notify::new());
             let signal = changed.clone();
             let watched_root = root.clone();
@@ -215,30 +213,7 @@ impl Gateway {
                 let path = root.clone();
                 let found = omochi_transport::blocking::run(move || scan(&path)).await?;
                 let Ok(found) = found else { continue };
-                let removed: Vec<_> = tasks
-                    .iter()
-                    .filter(|(id, (previous, _, _))| found.get(*id) != Some(previous))
-                    .map(|(id, _)| id.clone())
-                    .collect();
-                for id in removed {
-                    if let Some((_, stop, task)) = tasks.remove(&id) {
-                        stop.cancel();
-                        let _ = task.await;
-                    }
-                }
-                for (id, service) in found.into_iter().take(MAX_SERVICES) {
-                    if tasks.contains_key(&id) {
-                        continue;
-                    }
-                    let stop = gateway.stop.child_token();
-                    let child_stop = stop.clone();
-                    let child = gateway.clone();
-                    let spec = service.clone();
-                    let task = tokio::spawn(async move {
-                        child.connect_loop(spec, child_stop).await;
-                    });
-                    tasks.insert(id, (service, stop, task));
-                }
+                gateway.reconcile_discovery(&mut tasks, found).await;
             }
             drop(watcher);
             for (_, (_, stop, task)) in tasks {
@@ -247,6 +222,50 @@ impl Gateway {
             }
             Ok(())
         })
+    }
+    async fn reconcile_discovery(
+        &self,
+        tasks: &mut DiscoveryTasks,
+        mut found: BTreeMap<String, DiscoveredService>,
+    ) {
+        // Existing IDs keep their slots, including manifests that need reconnecting.
+        // Limit the complete selection, not just the additions in this scan.
+        let retained = tasks.keys().filter(|id| found.contains_key(*id)).count();
+        let mut available = MAX_SERVICES.saturating_sub(retained);
+        found.retain(|id, _| {
+            if tasks.contains_key(id) {
+                true
+            } else if available > 0 {
+                available -= 1;
+                true
+            } else {
+                false
+            }
+        });
+        let removed: Vec<_> = tasks
+            .iter()
+            .filter(|(id, (previous, _, _))| found.get(*id) != Some(previous))
+            .map(|(id, _)| id.clone())
+            .collect();
+        for id in removed {
+            if let Some((_, stop, task)) = tasks.remove(&id) {
+                stop.cancel();
+                let _ = task.await;
+            }
+        }
+        for (id, service) in found {
+            if tasks.contains_key(&id) {
+                continue;
+            }
+            let stop = self.stop.child_token();
+            let child_stop = stop.clone();
+            let child = self.clone();
+            let spec = service.clone();
+            let task = tokio::spawn(async move {
+                child.connect_loop(spec, child_stop).await;
+            });
+            tasks.insert(id, (service, stop, task));
+        }
     }
     async fn connect_loop(&self, spec: DiscoveredService, stop: CancellationToken) {
         let mut delay = 100;
@@ -362,6 +381,104 @@ mod tests {
     use serde_json::json;
     use std::os::unix::fs::PermissionsExt;
     use tokio::net::UnixListener;
+
+    #[tokio::test]
+    async fn discovery_caps_total_services_preserves_slots_and_admits_after_removal() {
+        async fn connected(gateway: &Gateway) -> BTreeMap<String, Service> {
+            let mut changes = gateway.changes();
+            tokio::time::timeout(Duration::from_secs(5), async {
+                loop {
+                    let services = gateway.list().await;
+                    assert!(services.len() <= MAX_SERVICES);
+                    if services.len() == MAX_SERVICES {
+                        return services.into_iter().map(|s| (s.id.clone(), s)).collect();
+                    }
+                    let _ = changes.recv().await;
+                }
+            })
+            .await
+            .unwrap()
+        }
+
+        let root = tempfile::tempdir().unwrap();
+        let socket_path = root.path().join("sdk.sock");
+        let listener = UnixListener::bind(&socket_path).unwrap();
+        // Keep every accepted SDK connection alive until gateway shutdown.
+        let sdk = tokio::spawn(async move {
+            let mut sockets = Vec::new();
+            loop {
+                sockets.push(listener.accept().await.unwrap().0);
+            }
+        });
+        let service = |id: String| DiscoveredService {
+            manifest: omochi_local_discovery::Manifest {
+                name: id.clone(),
+                socket: "sdk.sock".into(),
+                icon: None,
+            },
+            id,
+            socket_path: socket_path.clone(),
+        };
+        let mut found: BTreeMap<_, _> = (0..MAX_SERVICES)
+            .map(|i| {
+                let id = format!("z{i:03}");
+                (id.clone(), service(id))
+            })
+            .collect();
+        let gateway = Gateway::new();
+        let mut tasks = DiscoveryTasks::new();
+        gateway.reconcile_discovery(&mut tasks, found.clone()).await;
+        let original = connected(&gateway).await;
+
+        // An earlier-sorting newcomer used to raise the total to 257 because the
+        // scan's first 256 entries were added without counting retained tasks.
+        found.insert("a000".into(), service("a000".into()));
+        gateway.reconcile_discovery(&mut tasks, found.clone()).await;
+        // Reconciliation completion is the barrier proving no new task was admitted.
+        assert_eq!(tasks.len(), MAX_SERVICES);
+        assert!(!tasks.contains_key("a000"));
+        for current in gateway.list().await {
+            assert_eq!(current.generation, original[&current.id].generation);
+        }
+
+        // A changed existing manifest must reconnect in its reserved slot, even
+        // while an earlier-sorting newcomer waits for capacity.
+        found.get_mut("z255").unwrap().manifest.name = "Updated".into();
+        gateway.reconcile_discovery(&mut tasks, found.clone()).await;
+        assert_eq!(tasks.len(), MAX_SERVICES);
+        assert!(!tasks.contains_key("a000"));
+        let updated = connected(&gateway).await;
+        assert_eq!(updated["z255"].name, "Updated");
+        assert_ne!(updated["z255"].generation, original["z255"].generation);
+        for (id, current) in &updated {
+            if id != "z255" {
+                assert_eq!(current.generation, original[id].generation);
+            }
+        }
+
+        found.remove("z000");
+        gateway.reconcile_discovery(&mut tasks, found).await;
+        assert_eq!(tasks.len(), MAX_SERVICES);
+        assert!(tasks.contains_key("a000"));
+        assert!(!tasks.contains_key("z000"));
+        let replaced = connected(&gateway).await;
+        assert!(replaced.contains_key("a000"));
+        assert!(!replaced.contains_key("z000"));
+        for (id, current) in &replaced {
+            if id != "a000" {
+                assert_eq!(current.generation, updated[id].generation);
+            }
+        }
+
+        gateway.shutdown();
+        for (_, (_, _, task)) in tasks {
+            task.await.unwrap();
+        }
+        assert!(gateway.list().await.is_empty());
+        sdk.abort();
+        let _ = sdk.await;
+    }
+
     #[tokio::test]
     async fn blocked_sdk_write_drains_before_barrier_and_revoked_queued_work_is_skipped() {
         use crate::dispatch::AuthorizationEpoch;
