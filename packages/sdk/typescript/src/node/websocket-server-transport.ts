@@ -73,7 +73,7 @@ export class WebSocketServerTransport implements Transport {
 
     this.httpServer.on("upgrade", (request, socket, head) => {
       const pathname = new URL(request.url ?? "/", "http://localhost").pathname;
-      if (pathname !== this.path) {
+      if (this.closed || pathname !== this.path) {
         socket.destroy();
         return;
       }
@@ -131,17 +131,21 @@ export class WebSocketServerTransport implements Transport {
     if (this.closePromise) return this.closePromise;
     this.closed = true;
     this.flushReceivers();
-    for (const client of this.clients) closeSocket(client, 1001, "server shutting down");
-    this.closePromise = Promise.all([
-      new Promise<void>((resolve) => this.webSocketServer.close(() => resolve())),
-      new Promise<void>((resolve) => {
-        if (!this.httpServer.listening) {
-          resolve();
-          return;
-        }
-        this.httpServer.close(() => resolve());
-      }),
-    ]).then(() => undefined);
+    this.closePromise = (async () => {
+      // A pending listen can still succeed even while server.listening is false.
+      await this.ready.catch(() => {});
+      for (const client of this.clients) closeSocket(client, 1001, "server shutting down");
+      await Promise.all([
+        new Promise<void>((resolve) => this.webSocketServer.close(() => resolve())),
+        new Promise<void>((resolve) => {
+          if (!this.httpServer.listening) {
+            resolve();
+            return;
+          }
+          this.httpServer.close(() => resolve());
+        }),
+      ]);
+    })();
     return this.closePromise;
   }
 

@@ -1,10 +1,27 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { createServer } from "node:net";
+import { fileURLToPath } from "node:url";
 import { test } from "@omochi-ui/core/testing";
 
 import { schema, App } from "../src/index.js";
 import { WebSocketServerTransport } from "../src/node/index.js";
 import type { JsonObject } from "../src/index.js";
+
+for (const runtime of ["bun", "node"]) {
+  for (const phase of ["starting", "ready", "bind-failure", "bind-failure-settled"]) {
+    test(`closes a ${phase} WebSocket server and exits in ${runtime}`, () => {
+      const result = spawnSync(runtime, [
+        "--unhandled-rejections=strict",
+        fileURLToPath(new URL("./fixtures/websocket-server-close.mjs", import.meta.url)),
+        phase,
+      ], { encoding: "utf8", timeout: 10_000 });
+      assert.ifError(result.error);
+      assert.equal(result.status, 0, result.stderr);
+      assert.equal(result.stdout.trim(), "closed");
+    });
+  }
+}
 
 function opened(socket: WebSocket): Promise<void> {
   return new Promise((resolve, reject) => {
