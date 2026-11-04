@@ -374,6 +374,9 @@ fn ty(schema: &Value, lang: Language) -> Result<String> {
 }
 fn ty_schema(schema: &Value, lang: Language) -> Result<String> {
     use Language::*;
+    if schema.as_object().is_some_and(Map::is_empty) {
+        return Ok(["unknown", "Any", "Value"][lang as usize].into());
+    }
     if let Some(reference) = schema["$ref"].as_str() {
         let name = reference.rsplit('/').next().unwrap();
         let mapped = match name {
@@ -641,6 +644,13 @@ fn model(catalog: Value, name: Option<&str>, hash: String) -> Result<Model> {
         let mut properties = Map::new();
         let mut required = BTreeSet::new();
         collect_component_properties(schema, &mut properties, &mut required)?;
+        // Required keys need not have a property schema. Fill them only after
+        // every allOf layer has had a chance to supply their value constraints.
+        for key in &required {
+            if key != "component" && key != "id" {
+                properties.entry(key.clone()).or_insert_with(|| json!({}));
+            }
+        }
         components.push(Component {
             name: component.clone(),
             properties: properties
@@ -1139,8 +1149,9 @@ mod tests {
         ] {
             assert_eq!(ty(&schema, Language::Py).unwrap(), expected, "{schema}");
         }
-        // Unconstrained layers remain outside the supported schema subset.
-        for schema in [json!({"allOf": [{}]}), json!({"allOf": [true]})] {
+        assert_eq!(ty(&json!({"allOf": [{}]}), Language::Py).unwrap(), "Any");
+        // Boolean schemas and unsupported constraints still fail explicitly.
+        for schema in [json!({"allOf": [true]}), json!({"minimum": 1})] {
             assert!(ty(&schema, Language::Py).is_err());
         }
     }

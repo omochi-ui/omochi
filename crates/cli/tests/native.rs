@@ -289,6 +289,59 @@ mod generated_property_names;
 mod generated_component_allof;
 
 #[allow(dead_code, unused_imports)]
+#[path = "fixtures/catalog-required-only/expected.rs"]
+#[rustfmt::skip]
+mod generated_required_only;
+
+#[tokio::test]
+async fn catalog_required_only_preserves_unconstrained_required_values() {
+    use generated_required_only::{DirectProps, NestedProps, OnlyProps};
+    use omochi_ui::ComponentProps;
+    use serde_json::json;
+
+    let root = tempfile::tempdir().unwrap();
+    let source = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let output = command(root.path())
+        .args(["generate", "catalog", "--catalog"])
+        .arg(source.join("../../spec/fixtures/catalog-required-only.json"))
+        .arg("--rust")
+        .arg(root.path().join("catalog.rs"))
+        .output()
+        .await
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        std::fs::read(root.path().join("catalog.rs")).unwrap(),
+        include_bytes!("fixtures/catalog-required-only/expected.rs")
+    );
+    let direct = DirectProps {
+        label: "label".into(),
+        metadata: json!({"enabled": true}),
+    };
+    let nested = NestedProps {
+        label: "label".into(),
+        note: None,
+        parent_data: json!(null),
+        nested_data: json!([1, "two"]),
+    };
+    let only = OnlyProps {
+        payload: json!(false),
+    };
+    assert_eq!(
+        json!([direct.into_props(), nested.into_props(), only.into_props()]),
+        json!([
+            {"label": "label", "metadata": {"enabled": true}},
+            {"label": "label", "parentData": null, "nestedData": [1, "two"]},
+            {"payload": false}
+        ])
+    );
+}
+
+#[allow(dead_code, unused_imports)]
 #[path = "fixtures/catalog-ref-siblings/expected.rs"]
 #[rustfmt::skip]
 mod generated_ref_siblings;
