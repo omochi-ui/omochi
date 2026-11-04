@@ -201,6 +201,7 @@ impl<S: Send + Sync + 'static> Runtime<S> {
     pub async fn shutdown(&mut self) {
         self.tasks.abort_all();
         while self.tasks.join_next().await.is_some() {}
+        self.resources.close();
         self.closed = true;
     }
     pub async fn declaration(&self, surface_id: &str) -> Result<Declaration> {
@@ -387,7 +388,6 @@ impl<S: Send + Sync + 'static> Runtime<S> {
         }
         .await;
         self.shutdown().await;
-        self.resources.close();
         result
     }
     pub async fn start(&mut self) -> Result<()> {
