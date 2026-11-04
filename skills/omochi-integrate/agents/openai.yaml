@@ -1,0 +1,4 @@
+interface:
+  display_name: "プログラムにomochiを統合する"
+  short_description: "Attach omochi UIs to Python, TypeScript, or Rust"
+  default_prompt: "Use $omochi-integrate to add an omochi UI to this program while preserving its existing behavior."

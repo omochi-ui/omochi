@@ -93,6 +93,27 @@ The [agent approval example](examples/agent-approval/README.md) provides a share
 Approve/Reject panel for Codex, Claude Code, Cursor, and OpenCode tool hooks,
 including optional rejection notes and an agent-free demo.
 
+## Agent skill
+
+Install the integration skill in the project where you want to add an omochi UI:
+
+```sh
+npx skills add omochi-ui/omochi --skill omochi-integrate
+```
+
+Then ask your agent to use `omochi-integrate` to attach a UI to your program
+(in Codex: `$omochi-integrate`). The skill covers Python, TypeScript, and Rust,
+including state, form input, actions, progress, and browser connections.
+Skill installation does not install the SDK or native CLI.
+
+The skill lives in [`skills/omochi-integrate/`](skills/omochi-integrate/SKILL.md),
+a standard [Skills CLI discovery location](https://github.com/vercel-labs/skills/blob/main/docs/creating-skills.md#skill-discovery).
+To inspect skills from a local checkout before publishing changes:
+
+```sh
+npx skills add . --list
+```
+
 ## Choose a command
 
 All commands below are invoked with `bun run omochi-ui` from this checkout.
