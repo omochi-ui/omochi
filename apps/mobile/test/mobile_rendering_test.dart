@@ -96,6 +96,97 @@ void main() {
     await tester.pumpWidget(const SizedBox());
   });
 
+  for (final failure in ['unsupported', 'depth']) {
+    testWidgets('action $failure failure is reported on its Surface', (
+      tester,
+    ) async {
+      final client = TestClient();
+      final hub = session(client);
+      final scope = TestScope('failure:$failure');
+      await openService(tester, hub, client, scope);
+      Object? value = true;
+      for (var i = 0; i < 102; i++) {
+        value = [value];
+      }
+      client.onMessage({
+        'version': 'v0.9',
+        'updateComponents': {
+          'surfaceId': counterId,
+          'components': [
+            buttonComponent(
+              'button',
+              'label',
+              'run',
+              context: {
+                'input': {
+                  'call': failure == 'unsupported'
+                      ? 'unknownActionFunction'
+                      : 'not',
+                  'args': {'value': value},
+                },
+              },
+            ),
+          ],
+        },
+      });
+      await tester.pumpAndSettle();
+      expect(hub.surfaceErrors, isEmpty);
+      await tester.tap(find.text('Run'));
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+      expect(scope.actions, isEmpty);
+      expect(hub.surfaceErrors.keys, [counterId]);
+      final detail = hub.surfaceErrors[counterId]!;
+      expect(
+        detail,
+        contains(
+          failure == 'unsupported'
+              ? 'Unsupported action input function: unknownActionFunction'
+              : 'maximum expression depth',
+        ),
+      );
+      expect(find.text(detail), findsOneWidget);
+      expect(
+        hub.log.where((entry) => entry.direction == 'ERROR'),
+        hasLength(1),
+      );
+      // Repeated failures are handled and deduplicated; a corrected action works.
+      await tester.tap(find.text('Run'));
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+      expect(scope.actions, isEmpty);
+      expect(
+        hub.log.where((entry) => entry.direction == 'ERROR'),
+        hasLength(1),
+      );
+      client.onMessage({
+        'version': 'v0.9',
+        'updateComponents': {
+          'surfaceId': counterId,
+          'components': [
+            buttonComponent(
+              'button',
+              'label',
+              'run',
+              context: {
+                'input': {
+                  'call': 'not',
+                  'args': {'value': false},
+                },
+              },
+            ),
+          ],
+        },
+      });
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Run'));
+      await tester.pumpAndSettle();
+      expect(scope.actions.single['action']['context']['input'], true);
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox());
+    });
+  }
+
   testWidgets('service screen expires callbacks when a Surface is replaced', (
     tester,
   ) async {

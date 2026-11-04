@@ -6,6 +6,7 @@ import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
 
 import '../action_input.dart';
 import '../messages.dart';
+import 'button.dart';
 import 'client_api.dart';
 import 'column.dart';
 import 'image_budget.dart';
@@ -18,6 +19,7 @@ Catalog nativeCatalog(
 }) => BasicCatalogItems.asCatalog().copyWith(
   newFunctions: [const ActionInputFunction()],
   newItems: [
+    nativeButton,
     nativeColumn,
     modals.catalogItem,
     CatalogItem(

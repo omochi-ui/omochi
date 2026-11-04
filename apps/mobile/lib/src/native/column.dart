@@ -21,6 +21,36 @@ final nativeColumn = CatalogItem(
   widgetBuilder: (item) {
     final data = item.data as Map;
 
+    bool needsBoundedHeight(String id) {
+      final pending = [id];
+      final visited = <String>{};
+      while (pending.isNotEmpty) {
+        final current = pending.removeLast();
+        if (!visited.add(current)) continue;
+        final component = item.getComponent(current);
+        if (component == null) continue;
+        final properties = component.properties;
+        switch (component.type) {
+          case 'Row':
+            if (properties['align'] == 'stretch') return true;
+            final children = properties['children'];
+            if (children is List) {
+              pending.addAll(children.cast<String>());
+            } else if (children is Map && children['componentId'] is String) {
+              pending.add(children['componentId'] as String);
+            }
+          case 'Card' || 'Button':
+            if (properties['child'] case final String child) pending.add(child);
+          case 'Modal':
+            if (properties['trigger'] case final String child) {
+              pending.add(child);
+            }
+          // Columns and scroll views establish their own height constraints.
+        }
+      }
+      return false;
+    }
+
     Widget child(String id, DataContext context, {Key? key}) {
       final component = item.getComponent(id);
       final explicit = component?.properties['weight'] as int?;
@@ -31,9 +61,7 @@ final nativeColumn = CatalogItem(
         key: key,
         weight: math.max(0, explicit ?? (implicit ? 1 : 0)),
         tight: explicit != null,
-        boundedHeight:
-            component?.type == 'Row' &&
-            component?.properties['align'] == 'stretch',
+        boundedHeight: needsBoundedHeight(id),
         child: item.buildChild(id, context),
       );
     }
@@ -197,8 +225,9 @@ class _RenderColumn extends RenderBox
       totalWeight += data.weight;
       if (data.weight > 0) continue;
       // A stretch Row passes its maximum height as a tight constraint to
-      // its children. Give it a viewport instead of infinity; other natural
-      // children remain unbounded so tall content can scroll.
+      // its children, including through wrappers. Give it a viewport instead
+      // of infinity; other natural children remain unbounded so tall content
+      // can scroll.
       child.layout(
         childConstraints(
           max: data.boundedHeight ? config.viewportHeight : double.infinity,
