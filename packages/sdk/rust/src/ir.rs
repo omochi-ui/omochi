@@ -43,6 +43,16 @@ pub struct Declaration {
 #[serde(rename_all = "camelCase")]
 pub struct LocalDeclaration {
     pub initial: Value,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_reset_key"
+    )]
     pub reset_key: Option<Value>,
+}
+
+fn deserialize_reset_key<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<Value>, D::Error> {
+    Value::deserialize(deserializer).map(Some)
 }

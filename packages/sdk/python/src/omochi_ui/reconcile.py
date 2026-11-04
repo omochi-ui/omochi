@@ -167,7 +167,11 @@ class Reconciler:
                 after = declaration.locals.get(key)
                 path = f"/$local/{key.replace('~', '~0').replace('/', '~1')}"
                 update = {"surfaceId": surface_id, "path": path}
-                if after is not None and (before is None or not _json_equal(before.get("resetKey"), after.get("resetKey"))):
+                if after is not None and (
+                    before is None
+                    or ("resetKey" in before) != ("resetKey" in after)
+                    or not _json_equal(before.get("resetKey"), after.get("resetKey"))
+                ):
                     update["value"] = deepcopy(after["initial"])
                 elif after is not None:
                     continue

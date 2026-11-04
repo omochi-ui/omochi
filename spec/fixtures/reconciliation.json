@@ -1,5 +1,35 @@
 {
-  "name": "JSON boolean and number reconciliation",
+  "name": "JSON type and local reset key reconciliation",
+  "localResetCases": [
+    {
+      "name": "omitted to null",
+      "before": {"initial": "old"},
+      "after": {"initial": "new", "resetKey": null},
+      "expectedMessages": [
+        {"version": "v0.9", "updateDataModel": {"surfaceId": "main", "path": "/$local/form", "value": "new"}}
+      ]
+    },
+    {
+      "name": "null to omitted",
+      "before": {"initial": "old", "resetKey": null},
+      "after": {"initial": "new"},
+      "expectedMessages": [
+        {"version": "v0.9", "updateDataModel": {"surfaceId": "main", "path": "/$local/form", "value": "new"}}
+      ]
+    },
+    {
+      "name": "unchanged null",
+      "before": {"initial": "old", "resetKey": null},
+      "after": {"initial": "new", "resetKey": null},
+      "expectedMessages": []
+    },
+    {
+      "name": "unchanged omitted",
+      "before": {"initial": "old"},
+      "after": {"initial": "new"},
+      "expectedMessages": []
+    }
+  ],
   "cases": [
     {
       "name": "false to zero",
