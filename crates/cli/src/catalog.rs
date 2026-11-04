@@ -213,113 +213,120 @@ fn resolve(
         .collect::<Result<Map<_, _>>>()
         .map(Value::Object)
 }
-// A local $ref and its siblings are conjunctive in JSON Schema 2020-12.
-// Do not overlay keyword maps: enum, required, properties and items can all
-// carry independent constraints on the same instance.
-fn compose_reference(mut target: Value, mut siblings: Value) -> Value {
-    fn annotations_only(schema: &Value) -> bool {
-        schema.as_object().is_some_and(|object| {
-            object.keys().all(|key| {
-                matches!(
-                    key.as_str(),
-                    "title"
-                        | "description"
-                        | "default"
-                        | "examples"
-                        | "deprecated"
-                        | "readOnly"
-                        | "writeOnly"
-                        | "$comment"
-                        | "$defs"
-                        | "$schema"
-                        | "$id"
-                )
-            })
+fn annotations_only(schema: &Value) -> bool {
+    schema.as_object().is_some_and(|object| {
+        object.keys().all(|key| {
+            matches!(
+                key.as_str(),
+                "title"
+                    | "description"
+                    | "default"
+                    | "examples"
+                    | "deprecated"
+                    | "readOnly"
+                    | "writeOnly"
+                    | "$comment"
+                    | "$defs"
+                    | "$schema"
+                    | "$id"
+            )
         })
+    })
+}
+fn known_type(schema: &Value) -> Option<&str> {
+    if schema.get("if").is_some() || schema.get("then").is_some() {
+        return None;
     }
-    fn known_type(schema: &Value) -> Option<&str> {
-        if schema.get("if").is_some() || schema.get("then").is_some() {
-            return None;
-        }
-        if let Some(kind) = schema["type"].as_str() {
-            return Some(kind);
-        }
-        if let Some(layers) = schema["allOf"].as_array() {
-            return layers.iter().find_map(known_type);
-        }
-        for keyword in ["anyOf", "oneOf"] {
-            if let Some(layers) = schema[keyword].as_array() {
-                let first = layers.first().and_then(known_type)?;
-                return layers
-                    .iter()
-                    .all(|layer| known_type(layer) == Some(first))
-                    .then_some(first);
-            }
-        }
-        None
+    if let Some(kind) = schema["type"].as_str() {
+        return Some(kind);
     }
-    fn normalize(mut schema: Value, inherited_type: Option<&str>) -> Value {
-        if schema.get("if").is_some() || schema.get("then").is_some() {
-            return schema;
+    if let Some(layers) = schema["allOf"].as_array() {
+        return layers.iter().find_map(known_type);
+    }
+    for keyword in ["anyOf", "oneOf"] {
+        if let Some(layers) = schema[keyword].as_array() {
+            let first = layers.first().and_then(known_type)?;
+            return layers
+                .iter()
+                .all(|layer| known_type(layer) == Some(first))
+                .then_some(first);
         }
-        let kind = known_type(&schema).or(inherited_type).map(str::to_owned);
-        let Some(object) = schema.as_object_mut() else {
-            return schema;
-        };
-        let mut constraints = Vec::new();
-        // Keep adjacent applicators and scalar assertions independent as well:
-        // ty's single-schema dispatch must not choose anyOf over a sibling enum.
-        for keyword in ["allOf", "anyOf", "oneOf", "enum"] {
-            if let Some(value) = object.remove(keyword) {
-                if keyword == "allOf" {
-                    if let Some(layers) = value.as_array() {
-                        constraints.extend(
-                            layers
-                                .iter()
-                                .cloned()
-                                .map(|layer| normalize(layer, kind.as_deref())),
-                        );
-                    } else {
-                        constraints.push(json!({keyword: value}));
-                    }
-                } else {
-                    let value = if keyword != "enum" {
-                        match value.as_array() {
-                            Some(layers) => Value::Array(
-                                layers
-                                    .iter()
-                                    .cloned()
-                                    .map(|layer| normalize(layer, kind.as_deref()))
-                                    .collect(),
-                            ),
-                            None => value,
-                        }
-                    } else {
-                        value
-                    };
-                    constraints.push(json!({keyword: value}));
+    }
+    None
+}
+fn normalize_conjunction(mut schema: Value, inherited_type: Option<&str>) -> Value {
+    if schema.get("if").is_some() || schema.get("then").is_some() {
+        return schema;
+    }
+    let kind = known_type(&schema).or(inherited_type).map(str::to_owned);
+    let compact_enum = enum_matches_type(&schema);
+    let Some(object) = schema.as_object_mut() else {
+        return schema;
+    };
+    let mut constraints = Vec::new();
+    // Keep adjacent applicators and scalar assertions independent: each
+    // keyword constrains the same instance, including without a local $ref.
+    for keyword in ["allOf", "anyOf", "oneOf", "enum"] {
+        if keyword == "enum" && compact_enum {
+            continue;
+        }
+        if let Some(value) = object.remove(keyword) {
+            let value = if keyword != "enum" {
+                match value.as_array() {
+                    Some(layers) => Value::Array(
+                        layers
+                            .iter()
+                            .cloned()
+                            .map(|layer| normalize_conjunction(layer, kind.as_deref()))
+                            .collect(),
+                    ),
+                    None => value,
                 }
-            }
+            } else {
+                value
+            };
+            // Retain the applicator even with no unconditional layers. Its
+            // existing language-specific approximation belongs to ty_schema.
+            constraints.push(json!({keyword: value}));
         }
-        if !annotations_only(&schema) {
-            // Partial keywords only receive a type already guaranteed by this
-            // conjunction. Required-only objects retain unknown field types.
-            if schema.get("type").is_none()
-                && let Some(kind) = kind
-            {
-                schema["type"] = json!(kind);
-            }
-            constraints.push(schema.clone());
-        }
-        let mut layers = constraints.into_iter();
-        let Some(mut result) = layers.next() else {
-            return schema;
-        };
-        for layer in layers {
-            intersect_schemas(&mut result, layer);
-        }
-        result
     }
+    if !annotations_only(&schema) {
+        // Partial keywords only receive a type already guaranteed by this
+        // conjunction. Required-only objects retain unknown field types.
+        if schema.get("type").is_none()
+            && let Some(kind) = kind
+        {
+            schema["type"] = json!(kind);
+        }
+        constraints.push(schema.clone());
+    }
+    let mut layers = constraints.into_iter();
+    let Some(mut result) = layers.next() else {
+        return schema;
+    };
+    for layer in layers {
+        intersect_schemas(&mut result, layer);
+    }
+    result
+}
+// An explicit scalar type adds no constraint when every enum value already
+// has that type. Keep these common enums compact in all generated languages.
+fn enum_matches_type(schema: &Value) -> bool {
+    schema["enum"].as_array().is_some_and(|values| {
+        !values.is_empty()
+            && values.iter().all(|value| match schema["type"].as_str() {
+                Some("string") => value.is_string(),
+                Some("number") => value.is_number(),
+                Some("integer") => value.is_i64() || value.is_u64(),
+                Some("boolean") => value.is_boolean(),
+                Some("null") => value.is_null(),
+                _ => false,
+            })
+    })
+}
+// A local $ref and its siblings are conjunctive in JSON Schema 2020-12.
+// Use the same normalization as ordinary property and array-item schemas.
+fn compose_reference(mut target: Value, mut siblings: Value) -> Value {
     if annotations_only(&siblings) {
         return target;
     }
@@ -329,8 +336,8 @@ fn compose_reference(mut target: Value, mut siblings: Value) -> Value {
     let kind = known_type(&target)
         .or_else(|| known_type(&siblings))
         .map(str::to_owned);
-    target = normalize(target, kind.as_deref());
-    siblings = normalize(siblings, kind.as_deref());
+    target = normalize_conjunction(target, kind.as_deref());
+    siblings = normalize_conjunction(siblings, kind.as_deref());
     intersect_schemas(&mut target, siblings);
     target
 }
@@ -363,6 +370,9 @@ fn validate_enums(schema: &Value) -> Result<()> {
     Ok(())
 }
 fn ty(schema: &Value, lang: Language) -> Result<String> {
+    ty_schema(&normalize_conjunction(schema.clone(), None), lang)
+}
+fn ty_schema(schema: &Value, lang: Language) -> Result<String> {
     use Language::*;
     if let Some(reference) = schema["$ref"].as_str() {
         let name = reference.rsplit('/').next().unwrap();
@@ -863,6 +873,56 @@ mod tests {
     fn fixture() -> PathBuf {
         Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/catalog")
     }
+    #[test]
+    fn ordinary_conjunction_normalization_is_idempotent_and_keeps_enum_types_compact() {
+        let fixture: Value = serde_json::from_str(include_str!(
+            "../../../spec/fixtures/catalog-adjacent-constraints.json"
+        ))
+        .unwrap();
+        for schema in fixture["components"]["Adjacent"]["properties"]
+            .as_object()
+            .unwrap()
+            .values()
+        {
+            let normalized = normalize_conjunction(schema.clone(), None);
+            assert_eq!(normalize_conjunction(normalized.clone(), None), normalized);
+            for lang in [Language::Ts, Language::Py, Language::Rs] {
+                assert_eq!(ty(schema, lang).unwrap(), ty(&normalized, lang).unwrap());
+            }
+        }
+        assert_eq!(
+            ty(
+                &fixture["components"]["Adjacent"]["properties"]["choice"],
+                Language::Ts
+            )
+            .unwrap(),
+            r#"(string | number) & "allowed""#
+        );
+        assert_eq!(
+            ty(
+                &fixture["components"]["Adjacent"]["properties"]["details"],
+                Language::Ts
+            )
+            .unwrap(),
+            r#"{ "count": number } & { "label": string }"#
+        );
+        for schema in [
+            json!({"type": "string", "enum": ["allowed"]}),
+            json!({"type": "number", "enum": [1, 2.5]}),
+            json!({"type": "integer", "enum": [1, 2]}),
+            json!({"type": "boolean", "enum": [true, false]}),
+            json!({"type": "null", "enum": [null]}),
+        ] {
+            assert_eq!(normalize_conjunction(schema.clone(), None), schema);
+            for lang in [Language::Ts, Language::Py, Language::Rs] {
+                assert_eq!(
+                    ty(&schema, lang).unwrap(),
+                    ty(&json!({"enum": schema["enum"]}), lang).unwrap()
+                );
+            }
+        }
+    }
+
     #[test]
     fn reference_siblings_keep_constraints_and_their_own_document_scope() {
         let temp = tempfile::tempdir().unwrap();

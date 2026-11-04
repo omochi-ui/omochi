@@ -344,6 +344,54 @@ async fn catalog_ref_siblings_preserve_values_and_compile() {
     );
 }
 
+#[allow(dead_code, unused_imports)]
+#[path = "fixtures/catalog-adjacent-constraints/expected.rs"]
+#[rustfmt::skip]
+mod generated_adjacent_constraints;
+
+#[tokio::test]
+async fn catalog_adjacent_constraints_preserve_values_and_compile() {
+    use generated_adjacent_constraints::{AdjacentChoice, AdjacentProps};
+    use omochi_ui::ComponentProps;
+    use serde_json::json;
+
+    let root = tempfile::tempdir().unwrap();
+    let source = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let output = command(root.path())
+        .args(["generate", "catalog", "--catalog"])
+        .arg(source.join("../../spec/fixtures/catalog-adjacent-constraints.json"))
+        .arg("--rust")
+        .arg(root.path().join("catalog.rs"))
+        .output()
+        .await
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        std::fs::read(root.path().join("catalog.rs")).unwrap(),
+        include_bytes!("fixtures/catalog-adjacent-constraints/expected.rs")
+    );
+    let props = AdjacentProps {
+        choice: AdjacentChoice::Allowed,
+        details: json!({"label": "label", "count": 2}),
+        typed: json!("allowed"),
+        both: json!("label"),
+        items: vec![json!("allowed")],
+        objects: vec![json!({"label": "label", "count": 2})],
+        array: json!(["allowed"]),
+    };
+    assert_eq!(
+        json!(props.into_props()),
+        json!({
+            "choice": "allowed", "details": {"label": "label", "count": 2}, "typed": "allowed", "both": "label",
+            "items": ["allowed"], "objects": [{"label": "label", "count": 2}], "array": ["allowed"]
+        })
+    );
+}
+
 #[path = "fixtures/catalog-overlapping-properties/expected.rs"]
 #[rustfmt::skip]
 mod generated_overlapping_properties;

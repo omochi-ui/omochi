@@ -292,6 +292,12 @@ a local property definition use `unknown` in TypeScript and retain their referen
 type through the intersection. Each side resolves relative references from its own
 source file. Python and Rust use the `allOf` approximations described below.
 
+Property and array-item schemas also combine adjacent constraints without a `$ref`.
+For example, `anyOf` accepting strings or numbers alongside `enum: ["allowed"]`
+accepts only `"allowed"` in TypeScript. Object properties and requirements next to
+`allOf` remain part of the generated intersection. Python and Rust use the same
+approximations as `allOf`; these bindings do not implement full JSON Schema validation.
+
 Enums support JSON scalar values (strings, booleans, numbers and null), including
 inside arrays and unions. Empty enums and object or array enum members are rejected
 before any output is written. TypeScript uses literal unions; Python uses
