@@ -73,14 +73,28 @@ try {
   const input = async (selector, value) => {
     await evaluate(`(() => { const el = document.querySelector(${JSON.stringify(selector)}); Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(el, ${JSON.stringify(value)}); el.dispatchEvent(new Event('input', { bubbles: true })); })()`);
   };
+  const language = async value => {
+    await evaluate(`(() => { const select = document.querySelector('.language-switcher select'); select.value = ${JSON.stringify(value)}; select.dispatchEvent(new Event('change', { bubbles: true })); })()`);
+    await until(() => evaluate(`document.documentElement.lang === ${JSON.stringify(value)}`), `language ${value}`);
+  };
   const screenshot = async name => {
     const image = await cdp('Page.captureScreenshot', { format: 'png', captureBeyondViewport: true });
     await writeFile(path.join(output, name), Buffer.from(image.data, 'base64'));
   };
   await cdp('Runtime.enable'); await cdp('Page.enable');
+  await cdp('Emulation.setUserAgentOverride', { userAgent: await evaluate('navigator.userAgent'), acceptLanguage: 'ja-JP,ja,en-US,en' });
   await cdp('Emulation.setDeviceMetricsOverride', { width: 1440, height: 1000, deviceScaleFactor: 1, mobile: false });
   await cdp('Page.navigate', { url: `${url}?dashboard=${dashboard.id}` });
   await until(async () => (await text()).includes('Task runner') && (await text()).includes('Ready'), 'live dashboard');
+  assert.equal(await evaluate('document.documentElement.lang'), 'ja');
+  assert.ok((await text()).includes('ダッシュボードを作成'));
+  assert.ok((await text()).includes('1個のアプリが利用可能'));
+  assert.equal(await evaluate('document.documentElement.scrollWidth <= innerWidth'), true);
+  await screenshot('dashboard-ja.png');
+  await language('en');
+  await cdp('Page.reload');
+  await until(async () => (await text()).includes('Task runner') && (await text()).includes('Create dashboard'), 'saved language overrides Japanese browser preference');
+  assert.equal(await evaluate('document.documentElement.lang'), 'en');
   await screenshot('dashboard.png');
   if (process.env.CAPTURE_ONLY) { console.log(`Baseline: ${output}`); } else {
     await click('Board view');
@@ -108,6 +122,19 @@ try {
     assert.equal(await evaluate("document.activeElement.classList.contains('details-button')"), true, 'dialog focus stays on its trigger after animation frames');
     await input('[aria-label="Dashboard name"]', ''); await click('Save dashboard');
     await until(() => evaluate("document.activeElement.id === 'dashboard-name' && document.activeElement.getAttribute('aria-invalid') === 'true'"), 'name validation');
+    await input('[aria-label="Dashboard name"]', 'Daily overview');
+    await input('[aria-label="Dashboard name"]', '未保存の名前');
+    await language('ja');
+    assert.equal(await evaluate("document.querySelector('.dashboard-name').value"), '未保存の名前');
+    assert.ok((await text()).includes('未保存の変更があります'));
+    assert.equal(await evaluate("window.savedSurface === document.querySelector('.omochi-surface')"), true);
+    assert.equal(await evaluate("document.querySelector('.details-button').getAttribute('aria-label')"), '「Task runner」の詳細');
+    await screenshot('editing-ja.png');
+    await click('ビューを追加'); await input('#search-views', '<missing-view>');
+    await until(async () => (await text()).includes('「<missing-view>」に一致するビューはありません。'), 'Japanese search interpolation');
+    assert.equal(await evaluate("document.querySelector('.picker-empty missing-view') === null"), true, 'search is rendered as text');
+    await evaluate("document.querySelector('[aria-label=\"ビュー選択を閉じる\"]').click()");
+    await language('en');
     await input('[aria-label="Dashboard name"]', 'Daily overview');
     assert.equal(await evaluate("document.querySelectorAll('.panel input[type=number]').length"), 0);
     assert.equal(await evaluate("document.querySelectorAll('.resize-edge').length"), 8);
@@ -161,6 +188,9 @@ try {
     await click('Edit dashboard'); await input('[aria-label="Dashboard name"]', 'Local changes');
     await fetch(`${url}api/dashboards/${dashboard.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...saved[0], name: 'Changed elsewhere' }) });
     await click('Save dashboard'); await until(async () => (await text()).includes('Your edits are kept'), 'conflict');
+    await language('ja');
+    assert.ok((await text()).includes('別の場所でダッシュボードが変更されました。'));
+    await language('en');
     assert.equal(await evaluate("document.querySelector('.dashboard-name').value"), 'Local changes');
     await screenshot('save-error.png');
     await click('Discard and reload'); await click('Discard changes');
@@ -198,6 +228,15 @@ try {
     await until(() => evaluate("getComputedStyle(document.querySelector('.panel-grid')).display === 'flex'"), 'mobile layout');
     assert.equal(await evaluate('document.documentElement.scrollWidth <= innerWidth'), true);
     await screenshot('mobile.png');
+    await language('ja');
+    assert.equal(await evaluate('document.documentElement.scrollWidth <= innerWidth'), true);
+    await screenshot('mobile-ja.png');
+    await click('ボード表示');
+    await until(async () => (await text()).includes('ボード表示を終了'), 'Japanese board view');
+    assert.equal(await evaluate('document.documentElement.scrollWidth <= innerWidth'), true);
+    await screenshot('mobile-board-ja.png');
+    await click('ボード表示を終了');
+    await language('en');
     await click('Edit dashboard');
     assert.equal(await evaluate("document.querySelectorAll('.resize-edge').length"), 0);
     assert.equal((await text()).includes('Move up'), true);

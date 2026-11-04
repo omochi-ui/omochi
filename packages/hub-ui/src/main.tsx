@@ -1,3 +1,4 @@
+import './i18n.js';
 import { DashboardNavigationProvider } from './DashboardNavigation.js';
 import { HttpSharingRepository } from './sharing-repository.js';
 import { OwnerSettings } from './OwnerSettings.js';

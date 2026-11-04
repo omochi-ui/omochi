@@ -24,6 +24,10 @@ function passed(label, ...conditions) { if (conditions.length) assert.equal(cond
 const button = text => `Array.from(document.querySelectorAll('button')).find(b=>b.textContent.trim()===${JSON.stringify(text)}&&b.getClientRects().length)`;
 async function click(page, text) { await until(async () => await page.evaluate(`!!${button(text)}&&!${button(text)}.matches(':disabled')`), `enabled ${text}`); await page.evaluate(`${button(text)}.click()`); }
 async function navigate(page, url) { await page.command('Page.enable'); await page.command('Runtime.enable'); await page.command('Page.navigate', { url }); }
+async function language(page, value) {
+  await page.evaluate(`(()=>{const select=document.querySelector('.language-switcher select');select.value=${JSON.stringify(value)};select.dispatchEvent(new Event('change',{bubbles:true}));})()`);
+  await until(async () => await page.evaluate(`document.documentElement.lang===${JSON.stringify(value)}`), `language ${value}`);
+}
 async function live(page, count = 2) { await until(async () => await page.evaluate(`document.querySelectorAll('[data-surface]').length===${count}&&document.querySelector('.connection-status')?.textContent.includes('Hub connected')`), 'live shared panels'); }
 async function createLink(mode, interact = false, edit = false) {
   await click(browser, 'Share dashboard');
@@ -68,6 +72,14 @@ try {
   passed('actual SDK PNG pixels pass scoped native resource delivery', await viewer.evaluate('Array.from(document.querySelectorAll("canvas")).filter(c=>c.width===2).every(c=>{const p=c.getContext("2d").getImageData(0,0,1,1).data;return p[0]===255&&p[1]===0&&p[2]===0&&p[3]===255})'));
   passed('bearer fragment is removed from browser history', await viewer.evaluate('location.hash===""'));
   passed('public viewing does not create an enrolled browser profile', await viewer.evaluate(`(async()=>!(await indexedDB.databases()).some(db=>db.name==='omochi.hub-client.v1'))()`));
+  await viewer.evaluate("void (window.savedSurface=document.querySelector('.omochi-surface'))");
+  await language(viewer, 'ja');
+  passed('hosted Japanese switching preserves the live surface and readonly permissions', await viewer.evaluate("window.savedSurface===document.querySelector('.omochi-surface')&&document.body.textContent.includes('閲覧専用のダッシュボードです。')&&document.querySelector('[data-panel-id=\"p0\"] input[type=\"text\"]').matches(':disabled')"));
+  const japaneseScreenshot = await viewer.command('Page.captureScreenshot', { format: 'png', captureBeyondViewport: true });
+  await writeFile(path.join(output, 'shared-ja.png'), Buffer.from(japaneseScreenshot.data, 'base64'));
+  await viewer.command('Page.reload');
+  await until(async () => await viewer.evaluate("document.documentElement.lang==='ja'&&document.querySelectorAll('[data-surface]').length===2"), 'hosted Japanese preference persists');
+  await language(viewer, 'en');
   await viewer.command('Page.reload'); await live(viewer); passed('public link reload restores only its per-tab bearer context');
   const files = [];
   async function scan(directory, prefix = '') { for (const entry of await readdir(directory, {withFileTypes:true})) { const relative = prefix + entry.name; if (entry.isDirectory()) await scan(path.join(directory,entry.name),relative+'/'); else if (/\.(?:js|css|wasm|html)$/.test(relative)) files.push(relative); } }
@@ -85,6 +97,10 @@ try {
   const invite = await createLink('invite', true, true);
   recipient = await browser.tab(); await navigate(recipient, invite.url);
   await until(async()=>await recipient.evaluate('!!document.querySelector("[data-browser-id]")'),'durable invitation profile');
+  const invitedBrowserId = await recipient.evaluate("document.querySelector('[data-browser-id]').textContent");
+  await language(recipient, 'ja');
+  passed('Japanese invitation screen preserves browser identity before enrollment', await recipient.evaluate(`document.body.textContent.includes('ダッシュボードへの招待を承認')&&document.querySelector('[data-browser-id]').textContent===${JSON.stringify(invitedBrowserId)}`));
+  await language(recipient, 'en');
   await recipient.evaluate(`(async()=>{const module=await import(new URL('./iroh/iroh.js',document.baseURI).href);const connect=module.RawEndpoint.prototype.connect;window.__enrollCalls=0;module.RawEndpoint.prototype.connect=function(address,alpn,operation){if(alpn==='omochi/dashboard-enroll/1')window.__enrollCalls++;return connect.call(this,address,alpn,operation)};const put=IDBObjectStore.prototype.put;window.__failShareSave=true;IDBObjectStore.prototype.put=function(value,...rest){if(this.name==='shares'&&value.state==='accepted'&&window.__failShareSave)throw new DOMException('fixture quota','QuotaExceededError');return put.call(this,value,...rest)}})()`);
   await click(recipient, 'Accept invitation');
   await until(async()=>await recipient.evaluate(`!!${button('Retry connection save')}`),'local acceptance save recovery');

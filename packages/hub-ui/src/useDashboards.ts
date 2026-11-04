@@ -6,7 +6,7 @@ export function useDashboards(boards: BoardRepository) {
   const [presets, setPresets] = useState<readonly DashboardPreset[]>([]);
   const [selected, setSelected] = useState('');
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<Error | null>(null);
   const reloadSequence = useRef(0);
   const reload = useCallback(async () => {
     const sequence = ++reloadSequence.current;
@@ -28,7 +28,7 @@ export function useDashboards(boards: BoardRepository) {
         return nextDashboards[0] ? `dashboard:${nextDashboards[0].id}` : nextPresets[0] ? `preset:${nextPresets[0].id}` : '';
       });
       setError(null);
-    } catch (reason) { if (sequence === reloadSequence.current) setError(reason instanceof Error ? reason.message : new BoardFault('StorageUnavailable').message); }
+    } catch (reason) { if (sequence === reloadSequence.current) setError(reason instanceof Error ? reason : new BoardFault('StorageUnavailable')); }
     finally { if (sequence === reloadSequence.current) setLoading(false); }
   }, [boards]);
   useEffect(() => {

@@ -1,3 +1,5 @@
+import type { TranslationMessage } from '../i18n.js';
+import { useTranslation } from 'react-i18next';
 import { useEffect, useRef, useState } from 'react';
 import { Button } from '../Button.js';
 import { parseGatewayLink, type GatewayInvitation as Invitation } from './gateway-link.js';
@@ -18,9 +20,10 @@ export function GatewayInvitation({
   hubName: string;
   ownsProfile: boolean;
 }) {
+  const { t, i18n } = useTranslation();
   const [invite, setInvite] = useState<Invitation | null>(null),
     [name, setName] = useState(''),
-    [message, setMessage] = useState(''),
+    [message, setMessage] = useState<TranslationMessage | null>(null),
     [job, setJob] = useState<Job | null>(null),
     [busy, setBusy] = useState(false);
   const pending = useRef<Invitation | null>(null),
@@ -38,17 +41,17 @@ export function GatewayInvitation({
     const receive = (fragment: string) => {
       try {
         if (pending.current) {
-          setMessage('Another gateway invitation is awaiting confirmation.');
+          setMessage({ key: 'gateway.busy' });
           return;
         }
         const parsed = parseGatewayLink(fragment);
         pending.current = parsed;
         setInvite(parsed);
-        setName(`Gateway ${parsed.gatewayId.slice(0, 8)}`);
+        setName(i18n.t('gateway.defaultName', { id: parsed.gatewayId.slice(0, 8) }));
         setJob(null);
-        setMessage('');
+        setMessage(null);
       } catch {
-        setMessage('Invalid or expired gateway invitation. Request a new invitation.');
+        setMessage({ key: 'gateway.invalid' });
       }
     };
     const initial = takeInvitation();
@@ -95,7 +98,7 @@ export function GatewayInvitation({
       bc?.close();
       channel.current = null;
     };
-  }, [takeInvitation]);
+  }, [takeInvitation, i18n]);
   useEffect(() => {
     if (!invite || ownsProfile || !channel.current) return;
     const bc = channel.current,
@@ -107,13 +110,9 @@ export function GatewayInvitation({
         received = true;
         pending.current = null;
         setInvite(null);
-        setMessage(
-          'Invitation sent. Confirm the gateway in the tab already connected to your hub.',
-        );
+        setMessage({ key: 'gateway.sent' });
       } else if (event.data.kind === 'busy')
-        setMessage(
-          'The connected tab already has an invitation. Finish or dismiss it, then retry sending.',
-        );
+        setMessage({ key: 'gateway.tabBusy' });
     };
     bc.addEventListener('message', reply);
     bc.postMessage({
@@ -123,7 +122,7 @@ export function GatewayInvitation({
     });
     const timer = setTimeout(() => {
       if (!received)
-        setMessage('Connect an owner hub here, or retry sending to the connected tab.');
+        setMessage({ key: 'gateway.connectOrSend' });
     }, 1500);
     return () => {
       clearTimeout(timer);
@@ -139,7 +138,7 @@ export function GatewayInvitation({
         if (!stopped) setJob(next);
       } catch {
         if (!stopped)
-          setMessage('Registration status unavailable. Reconnect this hub to check again.');
+          setMessage({ key: 'gateway.statusError' });
       }
     };
     const timer = setInterval(() => {
@@ -153,7 +152,7 @@ export function GatewayInvitation({
   const submit = async () => {
     if (!session || !invite || busy) return;
     setBusy(true);
-    setMessage('');
+    setMessage(null);
     jobSession.current = session;
     try {
       setJob(
@@ -164,28 +163,26 @@ export function GatewayInvitation({
         )) as Job,
       );
     } catch {
-      setMessage(
-        'Could not start registration. Check the owner connection, invitation expiry and whether another registration is running.',
-      );
+      setMessage({ key: 'gateway.startError' });
     } finally {
       setBusy(false);
     }
   };
-  if (!invite) return message ? <p role="status">{message}</p> : null;
+  if (!invite) return message ? <p role="status">{t(message.key, { ...message.values })}</p> : null;
   return (
-    <section className="gateway-invitation" aria-label="Add gateway">
-      <h2>Add gateway to hub</h2>
+    <section className="gateway-invitation" aria-label={t('gateway.add')}>
+      <h2>{t('gateway.title')}</h2>
       <p>
-        Gateway: <code>{invite.gatewayId}</code>
+        {t('gateway.id')} <code>{invite.gatewayId}</code>
       </p>
-      <p>Expires: {new Date(invite.expires * 1000).toLocaleString()}</p>
+      <p>{t('gateway.expires', { date: new Date(invite.expires * 1000).toLocaleString(i18n.resolvedLanguage) })}</p>
       <p>
         {session
-          ? `Hub: ${hubName}`
-          : 'Connect an owner hub below to add this gateway. If no owner connection is saved, open an owner invitation from your hub first.'}
+          ? t('gateway.hub', { name: hubName })
+          : t('gateway.connectHelp')}
       </p>
       <label>
-        Gateway name{' '}
+        {t('gateway.name')}{' '}
         <input
           value={name}
           maxLength={256}
@@ -195,18 +192,18 @@ export function GatewayInvitation({
       </label>
       <p role="status">
         {invite.expires * 1000 <= now && !job
-          ? 'Invitation expired. Request a new invitation.'
+          ? t('gateway.expired')
           : job?.status === 'registered'
-            ? 'Gateway registered. Apps will appear when the gateway connects.'
+            ? t('gateway.registered')
             : job?.status === 'savePending'
-              ? 'Gateway accepted registration, but saving on the hub failed. Retry saving.'
+              ? t('gateway.savePending')
               : job?.status === 'outcomeUnknown'
-                ? 'Registration outcome unknown. Retry with this same hub while the invitation is valid, or request a new invitation.'
+                ? t('gateway.unknown')
                 : job?.status === 'failed'
-                  ? 'Registration failed. Check the invitation and retry.'
+                  ? t('gateway.failed')
                   : job?.status === 'pairing'
-                    ? 'Registering gateway…'
-                    : message}
+                    ? t('gateway.registering')
+                    : message && t(message.key, { ...message.values })}
       </p>
       <Button
         disabled={
@@ -222,10 +219,10 @@ export function GatewayInvitation({
           void submit();
         }}
       >
-        {job?.status === 'savePending' ? 'Retry saving registration' : 'Add to this hub'}
+        {job?.status === 'savePending' ? t('gateway.retrySave') : t('gateway.confirm')}
       </Button>
       {!ownsProfile && (
-        <Button onClick={() => setSendAttempt((v) => v + 1)}>Send to connected tab</Button>
+        <Button onClick={() => setSendAttempt((v) => v + 1)}>{t('gateway.send')}</Button>
       )}
       <Button
         disabled={busy || job?.status === 'pairing'}
@@ -233,10 +230,10 @@ export function GatewayInvitation({
           pending.current = null;
           setInvite(null);
           setJob(null);
-          setMessage('');
+          setMessage(null);
         }}
       >
-        Dismiss invitation
+        {t('gateway.dismiss')}
       </Button>
     </section>
   );

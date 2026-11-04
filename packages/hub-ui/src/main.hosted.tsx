@@ -3,6 +3,7 @@ let fragment: string | null = location.hash;
 if ((fragment.startsWith('#share:') || fragment.startsWith('#owner:') || fragment.startsWith('#g:'))) history.replaceState(null, '', location.pathname + location.search);
 window.addEventListener('pageshow', event => { if (event.persisted) location.reload(); });
 async function main() {
+  await import('./i18n.js');
   const [{ createRoot }, { createElement }, { ConnectionScreen }, { parseShareLink }, { loadBrowserTransport }, { SessionFault }] = await Promise.all([
     import('react-dom/client'), import('react'), import('./remote/ConnectionScreen.js'), import('./remote/link.js'), import('@omochi-ui/hub-transport'), import('@omochi-ui/core/browser'), import('./styles.css'), import('@omochi-ui/renderer/styles.css'),
   ]);
@@ -21,4 +22,8 @@ async function main() {
   const takeGateway = () => { const current = gatewayFragment; gatewayFragment = null; return current; };
   createRoot(document.getElementById('root')!).render(createElement(ConnectionScreen, { transport, takeLink, bootstrapError, takeGateway }));
 }
-void main().catch(() => { fragment = null; document.getElementById('root')!.textContent = 'Shared connections are unavailable. Use a supported Chromium browser over HTTPS and reload.'; });
+void main().catch(async () => {
+  fragment = null;
+  const { default: i18n } = await import('./i18n.js');
+  document.getElementById('root')!.textContent = i18n.t('connection.bootstrapError');
+});

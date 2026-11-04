@@ -129,6 +129,9 @@ body { margin: 0; }
 .board-only .workspace-status { margin-block-end: 16px; }
 .exit-board { margin-inline-start: auto; max-width: 100%; }
 .workspace-status { display: flex; align-items: start; flex-wrap: wrap; gap: 16px; margin-block-end: 24px; }
+.language-switcher { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 8px; max-width: 100%; font-size: .875rem; }
+.language-switcher select { min-height: 40px; max-width: 100%; padding: 8px 12px; font: inherit; color: var(--omochi-color-text-primary); background: var(--omochi-color-bg-surface); border: 1px solid var(--omochi-color-border-control); border-radius: var(--omochi-radius-control); }
+.language-switcher select:focus-visible { outline: 3px solid var(--omochi-color-focus); outline-offset: 3px; }
 .workspace-status .connection-status { margin: 0; }
 .panel-content .omochi-surface { --a2ui-color-primary: var(--omochi-color-accent-solid); --a2ui-color-primary-hover: var(--omochi-color-accent-hover); --a2ui-color-border: var(--omochi-color-border-control); --a2ui-text-caption-color: var(--omochi-color-text-secondary); }
 @media (hover: hover) { .hub-button:hover:not(:disabled) { background: var(--omochi-color-bg-subtle); } .hub-button.primary:hover:not(:disabled) { background: var(--omochi-color-accent-hover); } .hub-button.danger:hover:not(:disabled) { background: var(--omochi-color-danger-bg); } .sidebar .hub-button:hover:not(:disabled) { background: var(--omochi-color-accent-solid); } }
@@ -140,6 +143,7 @@ body { margin: 0; }
   .nav-open .sidebar { display: block; }
   .workspace { padding: 16px; }
   .hub-button { min-height: 48px; min-width: 48px; }
+  .language-switcher select { min-height: 48px; }
   .page-header h1 { font-size: 1.75rem; }
   .panel-grid { display: flex; flex-direction: column; }
   .panel { min-height: 280px; }

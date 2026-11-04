@@ -1,3 +1,4 @@
+import { useTranslation } from 'react-i18next';
 import { useEffect, useRef, type ReactNode } from 'react';
 import { Button } from './Button.js';
 import type { Panel } from './contracts.js';
@@ -50,6 +51,7 @@ export function ConfirmationDialog({
   returnTo,
   onClose,
 }: DialogProps & { confirmation: Confirmation }) {
+  const { t } = useTranslation();
   return (
     <Modal labelledBy="confirm-title" returnTo={returnTo} onClose={onClose}>
       <h2 id="confirm-title">{confirmation.title}</h2>
@@ -62,7 +64,7 @@ export function ConfirmationDialog({
             restoreDialogFocus(returnTo);
           }}
         >
-          Cancel
+          {t('common.cancel')}
         </Button>
         <Button
           className="danger"
@@ -83,22 +85,23 @@ export function DetailsDialog({
   returnTo,
   onClose,
 }: DialogProps & { panel: Panel; services: ServiceView[] }) {
+  const { t } = useTranslation();
   return (
     <Modal labelledBy="details-title" returnTo={returnTo} onClose={onClose}>
-      <h2 id="details-title">View details</h2>
+      <h2 id="details-title">{t('view.detailsTitle')}</h2>
       <dl>
-        <dt>Name</dt>
+        <dt>{t('common.name')}</dt>
         <dd>{panel.title}</dd>
-        <dt>Device</dt>
+        <dt>{t('common.device')}</dt>
         <dd>
           {services.find((s) => s.node?.id === panel.reference.nodeId)?.node?.name ?? panel.reference.nodeId}
         </dd>
-        <dt>App</dt>
+        <dt>{t('common.app')}</dt>
         <dd>
           {services.find((s) => s.id === `${panel.reference.nodeId}~${panel.reference.serviceId}`)?.name ??
             panel.reference.serviceId}
         </dd>
-        <dt>View ID</dt>
+        <dt>{t('common.viewId')}</dt>
         <dd>{panel.reference.surfaceId}</dd>
       </dl>
       <Button
@@ -107,7 +110,7 @@ export function DetailsDialog({
           restoreDialogFocus(returnTo);
         }}
       >
-        Close details
+        {t('view.closeDetails')}
       </Button>
     </Modal>
   );
