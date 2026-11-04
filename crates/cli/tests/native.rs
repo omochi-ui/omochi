@@ -298,6 +298,47 @@ mod generated_component_allof;
 #[rustfmt::skip]
 mod generated_required_only;
 
+#[allow(dead_code, unused_imports, non_camel_case_types)]
+#[path = "fixtures/catalog-component-names/expected.rs"]
+#[rustfmt::skip]
+mod generated_component_names;
+
+#[tokio::test]
+async fn catalog_component_names_compile_and_preserve_wire_names() {
+    use generated_component_names::{_BadgeProps, Card2Props, SelfProps, classProps};
+    use omochi_ui::ComponentProps;
+    use serde_json::json;
+
+    let root = tempfile::tempdir().unwrap();
+    let source = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let output = command(root.path())
+        .args(["generate", "catalog", "--catalog"])
+        .arg(source.join("../../spec/fixtures/catalog-component-names.json"))
+        .arg("--rust")
+        .arg(root.path().join("catalog.rs"))
+        .output()
+        .await
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        std::fs::read(root.path().join("catalog.rs")).unwrap(),
+        include_bytes!("fixtures/catalog-component-names/expected.rs")
+    );
+    assert_eq!(
+        json!({
+            Card2Props::NAME: Card2Props { label: "card".into() }.into_props(),
+            SelfProps::NAME: SelfProps { label: "self".into() }.into_props(),
+            _BadgeProps::NAME: _BadgeProps { label: "badge".into() }.into_props(),
+            classProps::NAME: classProps { label: "keyword".into() }.into_props(),
+        }),
+        json!({"Card2": {"label": "card"}, "Self": {"label": "self"}, "_Badge": {"label": "badge"}, "class": {"label": "keyword"}})
+    );
+}
+
 #[tokio::test]
 async fn catalog_required_only_preserves_unconstrained_required_values() {
     use generated_required_only::{DirectProps, NestedProps, OnlyProps};

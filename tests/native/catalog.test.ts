@@ -4,7 +4,7 @@ import { copyFile, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/pro
 import { tmpdir } from "node:os";
 import { delimiter, join, resolve } from "node:path";
 
-for (const fixture of ["catalog-annotation-data", "catalog-reference-documents", "catalog-arrays", "catalog-enums", "catalog-property-names", "catalog-python-keys", "catalog-allof", "catalog-required", "catalog-required-only", "catalog-intersections", "catalog-component-allof", "catalog-overlapping-properties", "catalog-ref-siblings", "catalog-adjacent-constraints"]) {
+for (const fixture of ["catalog-component-names", "catalog-annotation-data", "catalog-reference-documents", "catalog-arrays", "catalog-enums", "catalog-property-names", "catalog-python-keys", "catalog-allof", "catalog-required", "catalog-required-only", "catalog-intersections", "catalog-component-allof", "catalog-overlapping-properties", "catalog-ref-siblings", "catalog-adjacent-constraints"]) {
   test(`native ${fixture} bindings preserve JSON types`, {
     skip: !process.env.OMOCHI_NATIVE_TEST,
   }, async (t) => {
@@ -84,6 +84,21 @@ for (const fixture of ["catalog-annotation-data", "catalog-reference-documents",
               accessibility: { label: "accessible" }, checks: [], validationErrors: ["error"],
             },
           ];
+        expect(JSON.parse(tsOut)).toEqual(expected);
+        expect(JSON.parse(pythonOut)).toEqual(expected);
+      }
+      if (fixture === "catalog-component-names") {
+        const typescript = Bun.spawn([process.execPath, join(root, "usage.ts")], {
+          stdout: "pipe", stderr: "pipe",
+        });
+        const [tsOut, tsError, tsStatus] = await Promise.all([
+          new Response(typescript.stdout).text(), new Response(typescript.stderr).text(), typescript.exited,
+        ]);
+        expect(tsStatus, tsError).toBe(0);
+        const expected = {
+          Card2: { label: "card" }, Self: { label: "self" },
+          _Badge: { label: "badge" }, class: { label: "keyword" },
+        };
         expect(JSON.parse(tsOut)).toEqual(expected);
         expect(JSON.parse(pythonOut)).toEqual(expected);
       }

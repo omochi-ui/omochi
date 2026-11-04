@@ -282,6 +282,14 @@ At least one output flag is required. Generation resolves local schemas only;
 it does not fetch schemas over the network. Reuse the same invocation with
 `--check` in CI.
 
+Component names are used unchanged in generated type names and on the wire. They
+must match `[A-Za-z_][A-Za-z0-9_]*`; TypeScript also permits `$` at any position.
+Python component names must not start with `__`, because class references would
+be name-mangled. Rust rejects `Component`, whose generated `ComponentProps` would
+conflict with the SDK trait. Keyword names such as `class` are supported because
+generated property types append `Props`. Restrictions apply only to the selected
+output languages, and an unsupported name fails before any output is modified.
+
 Local `$ref` siblings follow the [JSON Schema 2020-12 reference rules](https://json-schema.org/draft/2020-12/json-schema-core#section-8.2.3.1):
 both the referenced schema and adjacent constraints apply. For example, a reference
 to `enum: ["a", "b"]` with a sibling `enum: ["b", "c"]` becomes an intersection,

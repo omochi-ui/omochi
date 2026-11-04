@@ -78,6 +78,8 @@ omochi-ui generate catalog --catalog ./catalog.json --name ProductCatalog \
 
 出力言語は一部だけ指定できます。`--check`は既存生成物が古いと失敗します。生成だけではブラウザにカスタム部品の実装は追加されません。
 
+コンポーネント名は生成する型名と通信上の名前にそのまま使うため、`[A-Za-z_][A-Za-z0-9_]*`に一致する必要があります。TypeScriptでは各位置に`$`も使えます。Pythonではクラス内の参照に名前マングリングが働くため、先頭が`__`の名前には対応していません。Rustでは生成する`ComponentProps`がSDKのtraitと重複するため、`Component`を使えません。型名には`Props`を付けるため、`class`などの予約語は使えます。制約は指定した出力言語にだけ適用し、未対応の名前があればどの出力も変更せずにエラーになります。
+
 `enum`は文字列・真偽値・数値・nullを扱え、配列やunion内でもJSONの型を保ちます。空のenumや、オブジェクト・配列を値に持つenumは出力前にエラーになります。TypeScriptはリテラルのunion、Pythonは`True`・`False`・`None`を使った`Literal`を生成し、小数の値は`float`に広げます。Rustは文字列プロパティの名前付きenumを維持し、同じ型の非文字列enumには`bool`・`serde_json::Number`・`()`、型が混在するenumには`Value`を使います。ネストした文字列enumは`String`になります。広げた型はJSONの値を保ちますが、宣言されたenumの値だけに制限するものではありません。Rustの文字列variant名が変換後に重複する場合は数値の接尾辞を付けます。
 
 Pythonは元のプロパティ名を維持し、`class`のような予約語や`data-label`のようなクラスのフィールドにできないキーには関数形式の`TypedDict`を使います。これらのキーは辞書で指定でき、必須・任意の区別も保たれます。
