@@ -16,6 +16,7 @@ pub struct Options {
     pub catalog: PathBuf,
     #[arg(long)]
     pub name: Option<String>,
+    /// Write TypeScript bindings; component property `key` is reserved for the node key.
     #[arg(long)]
     pub typescript: Option<PathBuf>,
     /// Write Python bindings preserving JSON keys; approximate allOf without intersections.
@@ -826,9 +827,10 @@ fn render(m: &Model, lang: Language) -> Result<String> {
     use Language::*;
     for component in &m.components {
         validate_component_name(&component.name, lang)?;
-        if lang == Py && component.properties.iter().any(|p| p.name == "key") {
+        if matches!(lang, Ts | Py) && component.properties.iter().any(|p| p.name == "key") {
+            let language = if lang == Ts { "TypeScript" } else { "Python" };
             bail!(
-                "component {:?}, property \"key\": reserved for the Python builder's node key; rename this property to generate Python bindings",
+                "component {:?}, property \"key\": reserved for the {language} builder's node key; rename this property to generate {language} bindings",
                 component.name
             );
         }
@@ -1084,7 +1086,7 @@ pub fn generate(options: Options) -> Result<()> {
 mod tests {
     use super::*;
     #[test]
-    fn python_builder_key_is_rejected_before_writing_any_output() {
+    fn builder_key_is_rejected_before_writing_any_output() {
         let temp = tempfile::tempdir().unwrap();
         let input = temp.path().join("input.json");
         let outputs = ["ts", "py", "rs"].map(|ext| temp.path().join(format!("catalog.{ext}")));
@@ -1109,36 +1111,57 @@ mod tests {
                     .to_string(),
                 )
                 .unwrap();
-                for check in [false, true] {
-                    for output in &outputs {
-                        std::fs::write(output, "existing").unwrap();
-                    }
-                    let error = generate(Options {
-                        catalog: input.clone(),
-                        name: None,
-                        typescript: Some(outputs[0].clone()),
-                        python: Some(outputs[1].clone()),
-                        rust: Some(outputs[2].clone()),
-                        check,
-                    })
-                    .unwrap_err()
-                    .to_string();
-                    assert!(
-                        error.contains("component \"Shortcut\", property \"key\""),
-                        "{error}"
-                    );
-                    assert!(
-                        error.contains("reserved for the Python builder's node key"),
-                        "{error}"
-                    );
-                    for output in &outputs {
-                        assert_eq!(std::fs::read_to_string(output).unwrap(), "existing");
+                for (typescript, python, language) in [
+                    (true, false, "TypeScript"),
+                    (false, true, "Python"),
+                    (true, true, "TypeScript"),
+                ] {
+                    for check in [false, true] {
+                        for existing in [false, true] {
+                            for output in &outputs {
+                                if existing {
+                                    std::fs::write(output, "existing").unwrap();
+                                } else if output.exists() {
+                                    std::fs::remove_file(output).unwrap();
+                                }
+                            }
+                            let error = generate(Options {
+                                catalog: input.clone(),
+                                name: None,
+                                typescript: typescript.then(|| outputs[0].clone()),
+                                python: python.then(|| outputs[1].clone()),
+                                rust: Some(outputs[2].clone()),
+                                check,
+                            })
+                            .unwrap_err()
+                            .to_string();
+                            assert!(
+                                error.contains("component \"Shortcut\", property \"key\""),
+                                "{error}"
+                            );
+                            assert!(
+                                error.contains(&format!(
+                                    "reserved for the {language} builder's node key"
+                                )),
+                                "{error}"
+                            );
+                            for output in &outputs {
+                                if existing {
+                                    assert_eq!(
+                                        std::fs::read_to_string(output).unwrap(),
+                                        "existing"
+                                    );
+                                } else {
+                                    assert!(!output.exists());
+                                }
+                            }
+                        }
                     }
                 }
                 generate(Options {
                     catalog: input.clone(),
                     name: None,
-                    typescript: Some(outputs[0].clone()),
+                    typescript: None,
                     python: None,
                     rust: Some(outputs[2].clone()),
                     check: false,

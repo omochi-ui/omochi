@@ -4,14 +4,14 @@ import { copyFile, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/pro
 import { tmpdir } from "node:os";
 import { delimiter, join, resolve } from "node:path";
 
-for (const fixture of ["catalog-builder-key", "catalog-component-names", "catalog-annotation-data", "catalog-reference-documents", "catalog-arrays", "catalog-enums", "catalog-property-names", "catalog-python-keys", "catalog-allof", "catalog-required", "catalog-required-only", "catalog-intersections", "catalog-component-allof", "catalog-overlapping-properties", "catalog-ref-siblings", "catalog-adjacent-constraints", "catalog-symbolic-siblings"]) {
+for (const fixture of ["catalog-nested-key", "catalog-component-names", "catalog-annotation-data", "catalog-reference-documents", "catalog-arrays", "catalog-enums", "catalog-property-names", "catalog-python-keys", "catalog-allof", "catalog-required", "catalog-required-only", "catalog-intersections", "catalog-component-allof", "catalog-overlapping-properties", "catalog-ref-siblings", "catalog-adjacent-constraints", "catalog-symbolic-siblings"]) {
   test(`native ${fixture} bindings preserve JSON types`, {
     skip: !process.env.OMOCHI_NATIVE_TEST,
   }, async (t) => {
     const root = await mkdtemp(join(tmpdir(), "omochi-catalog-"));
     t.after(() => rm(root, { recursive: true, force: true }));
     const workspace = resolve(import.meta.dir, "../..");
-    const pythonBindings = fixture !== "catalog-builder-key" && fixture !== "catalog-arrays" && fixture !== "catalog-required" && fixture !== "catalog-intersections";
+    const pythonBindings = fixture !== "catalog-arrays" && fixture !== "catalog-required" && fixture !== "catalog-intersections";
     const profile = process.env.OMOCHI_NATIVE_PROFILE ?? "debug";
     if (profile !== "debug" && profile !== "release") throw new Error("invalid native profile");
     const generate = Bun.spawn([
@@ -42,18 +42,6 @@ for (const fixture of ["catalog-builder-key", "catalog-component-names", "catalo
       new Response(compile.stdout).text(), new Response(compile.stderr).text(), compile.exited,
     ]);
     expect(status, stdout + stderr).toBe(0);
-    if (fixture === "catalog-builder-key") {
-      const typescript = Bun.spawn([process.execPath, join(root, "usage.ts")], {
-        stdout: "pipe", stderr: "pipe",
-      });
-      const [stdout, stderr, status] = await Promise.all([
-        new Response(typescript.stdout).text(), new Response(typescript.stderr).text(), typescript.exited,
-      ]);
-      expect(status, stderr).toBe(0);
-      expect(JSON.parse(stdout)).toEqual([
-        { key: "Enter" }, {}, { key: "Escape" }, { key: { arbitrary: true } },
-      ]);
-    }
     if (pythonBindings) {
       await copyFile(join(import.meta.dir, `fixtures/${fixture}.py`), join(root, "usage.py"));
       const python = Bun.spawn(["python3", "-B", join(root, "usage.py")], {
@@ -64,7 +52,7 @@ for (const fixture of ["catalog-builder-key", "catalog-component-names", "catalo
         new Response(python.stdout).text(), new Response(python.stderr).text(), python.exited,
       ]);
       expect(pythonStatus, pythonOut + pythonError).toBe(0);
-      if (fixture === "catalog-required-only" || fixture === "catalog-component-allof" || fixture === "catalog-overlapping-properties" || fixture === "catalog-ref-siblings" || fixture === "catalog-adjacent-constraints") {
+      if (fixture === "catalog-nested-key" || fixture === "catalog-required-only" || fixture === "catalog-component-allof" || fixture === "catalog-overlapping-properties" || fixture === "catalog-ref-siblings" || fixture === "catalog-adjacent-constraints") {
         const typescript = Bun.spawn([process.execPath, join(root, "usage.ts")], {
           stdout: "pipe", stderr: "pipe",
         });
@@ -72,7 +60,9 @@ for (const fixture of ["catalog-builder-key", "catalog-component-names", "catalo
           new Response(typescript.stdout).text(), new Response(typescript.stderr).text(), typescript.exited,
         ]);
         expect(tsStatus, tsError).toBe(0);
-        const expected = fixture === "catalog-required-only" ? [
+        const expected = fixture === "catalog-nested-key" ? [
+          { component: "Shortcut", key: "shortcut", props: { details: { key: "Enter" } } },
+        ] : fixture === "catalog-required-only" ? [
           { label: "label", metadata: { enabled: true } },
           { label: "label", parentData: null, nestedData: [1, "two"] },
           { payload: false },
@@ -138,6 +128,28 @@ for (const fixture of ["catalog-builder-key", "catalog-component-names", "catalo
     }
   });
 }
+
+test("native TypeScript rejects builder-reserved key before modifying outputs", {
+  skip: !process.env.OMOCHI_NATIVE_TEST,
+}, async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "omochi-catalog-reserved-key-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const workspace = resolve(import.meta.dir, "../..");
+  const profile = process.env.OMOCHI_NATIVE_PROFILE ?? "debug";
+  if (profile !== "debug" && profile !== "release") throw new Error("invalid native profile");
+  const outputs = ["ts", "py", "rs"].map((extension) => join(root, `catalog.${extension}`));
+  for (const output of outputs) await writeFile(output, "existing");
+  const generate = Bun.spawn([
+    join(workspace, "crates/target", profile, "omochi-ui"),
+    "generate", "catalog", "--catalog", join(workspace, "spec/fixtures/catalog-builder-key.json"),
+    "--typescript", outputs[0]!, "--python", outputs[1]!, "--rust", outputs[2]!,
+  ], { stdout: "pipe", stderr: "pipe" });
+  const error = await new Response(generate.stderr).text();
+  expect(await generate.exited).not.toBe(0);
+  expect(error).toContain('component "Shortcut", property "key"');
+  expect(error).toContain("reserved for the TypeScript builder's node key");
+  for (const output of outputs) expect(await readFile(output, "utf8")).toBe("existing");
+});
 
 test("native TypeScript imports compile with noUnusedLocals", {
   skip: !process.env.OMOCHI_NATIVE_TEST,

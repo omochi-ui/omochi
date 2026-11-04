@@ -98,7 +98,7 @@ def main() -> None:
         result = subprocess.run([
             str(CLI), "generate", "catalog", "--catalog",
             str(ROOT / "spec/fixtures/catalog-builder-key.json"),
-            "--typescript", str(outputs[0]), "--python", str(outputs[1]), "--rust", str(outputs[2]),
+            "--python", str(outputs[1]), "--rust", str(outputs[2]),
         ], cwd=ROOT, text=True, capture_output=True)
         assert result.returncode != 0, "Python accepted a builder-reserved component property"
         assert 'component "Shortcut", property "key"' in result.stderr, result.stderr

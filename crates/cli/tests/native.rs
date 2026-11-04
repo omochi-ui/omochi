@@ -724,9 +724,9 @@ async fn catalog_component_allof_preserves_parent_and_nested_properties() {
 mod generated_builder_key;
 
 #[tokio::test]
-async fn catalog_rust_preserves_the_python_builder_reserved_key() {
+async fn catalog_rust_preserves_builder_reserved_key_through_ui() {
     use generated_builder_key::{OptionalProps, RequiredOnlyProps, ShortcutProps};
-    use omochi_ui::ComponentProps;
+    use omochi_ui::Ui;
     use serde_json::json;
 
     let root = tempfile::tempdir().unwrap();
@@ -748,23 +748,81 @@ async fn catalog_rust_preserves_the_python_builder_reserved_key() {
         std::fs::read(root.path().join("catalog.rs")).unwrap(),
         include_bytes!("fixtures/catalog-builder-key/expected.rs")
     );
+    let mut ui = Ui::new("main", generated_builder_key::CATALOG_ID);
+    ui.component(
+        "shortcut",
+        ShortcutProps {
+            key: "Enter".into(),
+        },
+    )
+    .unwrap();
+    ui.component("optional", OptionalProps { key: None })
+        .unwrap();
+    ui.component(
+        "supplied",
+        OptionalProps {
+            key: Some("Escape".into()),
+        },
+    )
+    .unwrap();
+    ui.component(
+        "required",
+        RequiredOnlyProps {
+            key: json!({"arbitrary": true}),
+        },
+    )
+    .unwrap();
     assert_eq!(
+        json!(ui.build().root.slots[0].nodes),
         json!([
-            ShortcutProps {
-                key: "Enter".into()
-            }
-            .into_props(),
-            OptionalProps { key: None }.into_props(),
-            OptionalProps {
-                key: Some("Escape".into())
-            }
-            .into_props(),
-            RequiredOnlyProps {
-                key: json!({"arbitrary": true})
-            }
-            .into_props(),
-        ]),
-        json!([{"key": "Enter"}, {}, {"key": "Escape"}, {"key": {"arbitrary": true}}])
+            {"component": "Shortcut", "key": "shortcut", "props": {"key": "Enter"}},
+            {"component": "Optional", "key": "optional", "props": {}},
+            {"component": "Optional", "key": "supplied", "props": {"key": "Escape"}},
+            {"component": "RequiredOnly", "key": "required", "props": {"key": {"arbitrary": true}}},
+        ])
+    );
+}
+
+#[allow(dead_code, unused_imports)]
+#[path = "fixtures/catalog-nested-key/expected.rs"]
+#[rustfmt::skip]
+mod generated_nested_key;
+
+#[tokio::test]
+async fn catalog_rust_preserves_nested_key_through_ui() {
+    use omochi_ui::Ui;
+    use serde_json::json;
+
+    let root = tempfile::tempdir().unwrap();
+    let source = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let output = command(root.path())
+        .args(["generate", "catalog", "--catalog"])
+        .arg(source.join("../../spec/fixtures/catalog-nested-key.json"))
+        .arg("--rust")
+        .arg(root.path().join("catalog.rs"))
+        .output()
+        .await
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        std::fs::read(root.path().join("catalog.rs")).unwrap(),
+        include_bytes!("fixtures/catalog-nested-key/expected.rs")
+    );
+    let mut ui = Ui::new("main", generated_nested_key::CATALOG_ID);
+    ui.component(
+        "shortcut",
+        generated_nested_key::ShortcutProps {
+            details: json!({"key": "Enter"}),
+        },
+    )
+    .unwrap();
+    assert_eq!(
+        json!(ui.build().root.slots[0].nodes),
+        json!([{"component": "Shortcut", "key": "shortcut", "props": {"details": {"key": "Enter"}}}])
     );
 }
 
