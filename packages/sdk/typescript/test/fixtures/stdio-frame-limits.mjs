@@ -39,9 +39,12 @@ if (process.argv[2] === "child") {
     transport.stopReceiving();
   }
   if (mode !== "boundary") assert.equal(process.stdin.destroyed, false);
-  assert.equal(process.stdin.listenerCount("data"), 0);
+  for (const event of ["data", "readable"]) {
+    assert.equal(process.stdin.listenerCount(event), 0, `leaked stdin ${event} listener`);
+  }
   emit({ finished: true });
 } else {
+  assert.equal(process.versions.bun ? "bun" : "node", process.argv[2], "unexpected test runtime");
   function deadline(promise, name) {
     let timer;
     return Promise.race([

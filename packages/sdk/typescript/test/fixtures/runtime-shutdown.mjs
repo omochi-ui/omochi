@@ -65,10 +65,11 @@ if (mode === "custom" || mode === "late-rejection" || mode === "callback") {
   const started = runtime.start(transport);
   await runtime.ready();
   await setImmediate();
-  assert.ok(input.listenerCount("data") > 0);
+  assert.ok(input.listenerCount("readable") > 0);
   await runtime.shutdown();
   await started;
   assert.equal(input.listenerCount("data"), 0);
+  assert.equal(input.listenerCount("readable"), 0);
   assert.equal(input.destroyed, false);
   input.destroy();
 } else if (mode === "websocket" || mode === "unix") {

@@ -26,6 +26,10 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version-file: .bun-version
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          package-manager-cache: false
       - name: Cache Bun packages
         uses: actions/cache@v6
         with:
@@ -42,11 +46,11 @@ jobs:
             crates -> target
             packages/sdk/rust -> target
             examples/rust -> target
-      - run: bun run test
       - uses: actions/setup-python@v7
         with:
           python-version: '3.11'
-      - run: python -m pip install mypy pyright
+      - run: python -m pip install ./packages/sdk/python mypy pyright
+      - run: bun run test
       - run: python scripts/test-catalog-types.py
       - run: bun run check:dashboard-app
       - run: bun run --bun --filter '*' lint

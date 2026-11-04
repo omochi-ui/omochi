@@ -90,7 +90,7 @@ jobs:
       - name: Install Android NDK
         run: '"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "ndk;30.0.16248370"'
       - run: flutter pub get --enforce-lockfile
-      - run: flutter build apk --release --no-pub --target-platform android-arm64,android-x64
+      - run: flutter build apk --release --target-platform android-arm64,android-x64
       - uses: actions/upload-artifact@v7
         with:
           name: omochi-android-apk
@@ -120,7 +120,7 @@ jobs:
           workspaces: crates -> target
           key: mobile-macos
       - run: flutter pub get --enforce-lockfile
-      - run: flutter build macos --release --no-pub
+      - run: flutter build macos --release
       - name: Verify and package app
         run: |
           test -s build/macos/Build/Products/Release/mobile.app/Contents/Frameworks/libomochi_native_bridge.dylib
@@ -155,7 +155,7 @@ jobs:
           workspaces: crates -> target
           key: mobile-ios
       - run: flutter pub get --enforce-lockfile
-      - run: flutter build ipa --release --no-pub --no-codesign
+      - run: flutter build ipa --release --no-codesign
       # Flutter skips IPA export without signing. Package the archived app so
       # PRs and forks can verify release builds without signing credentials.
       - name: Package unsigned IPA
@@ -213,7 +213,7 @@ jobs:
           key: mobile-${{ matrix.target }}
       - run: flutter config --enable-${{ matrix.target }}-desktop
       - run: flutter pub get --enforce-lockfile
-      - run: flutter build ${{ matrix.target }} --release --no-pub
+      - run: flutter build ${{ matrix.target }} --release
       - if: runner.os == 'Linux'
         name: Package Linux bundle
         run: |

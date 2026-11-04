@@ -30,7 +30,7 @@ async function roundTrip() {
     await wait(() => messages.some(m => m.createSurface?.surfaceId.endsWith('~python-example/main')));
     const surfaceId = messages.find(m => m.createSurface).createSurface.surfaceId;
     await wait(() => JSON.stringify(messages).includes('Hello'));
-    socket.send(JSON.stringify({ version: 'v0.9', action: { surfaceId, name: 'run', context: { input: { temperature } } } }));
+    socket.send(JSON.stringify({ version: 'v0.9', action: { surfaceId, sourceComponentId: 'root', timestamp: new Date().toISOString(), name: 'run', context: { input: { temperature } } } }));
     await wait(() => JSON.stringify(messages).includes(`Ran at temperature ${temperature}`));
   } finally { socket.close(); }
 }

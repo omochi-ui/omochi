@@ -1,5 +1,6 @@
 [run]
-bun = true
+# Cross-runtime tests must resolve `node` to Node, including inside package scripts.
+bun = false
 
 [test]
 preload = ["./tests/setup-dom.ts"]

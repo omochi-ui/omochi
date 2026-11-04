@@ -8,6 +8,7 @@ for (const runtime of ["node", "bun"]) {
     const result = spawnSync(runtime, [
       "--unhandled-rejections=strict",
       fileURLToPath(new URL("./fixtures/stdio-frame-limits.mjs", import.meta.url)),
+      runtime,
     ], { encoding: "utf8", timeout: 20_000 });
     assert.ifError(result.error);
     assert.equal(result.status, 0, result.stderr);
