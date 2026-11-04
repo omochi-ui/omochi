@@ -1,5 +1,5 @@
 [workspace]
-members = ["protocol", "transport", "discovery", "gateway", "hub", "cli", "utils", "native-bridge"]
+members = ["protocol", "mdns", "transport", "discovery", "gateway", "hub", "cli", "utils", "native-bridge"]
 resolver = "3"
 
 [workspace.package]
@@ -20,3 +20,8 @@ iroh = "=1.4.1"
 strip = true
 lto = "thin"
 codegen-units = 1
+
+[patch.crates-io]
+netdev = { path = "../vendor/netdev" }
+netwatch = { path = "../vendor/netwatch" }
+swarm-discovery = { path = "../vendor/swarm-discovery" }

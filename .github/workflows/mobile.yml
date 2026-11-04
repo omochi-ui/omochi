@@ -1,0 +1,233 @@
+name: Mobile
+
+on:
+  pull_request:
+    paths-ignore: ['apps/site/**', '.github/workflows/site.yml']
+  push:
+    branches: [main]
+    paths-ignore: ['apps/site/**', '.github/workflows/site.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mobile-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  FLUTTER_VERSION: '3.47.9'
+  CARGO_INCREMENTAL: '0'
+
+defaults:
+  run:
+    shell: bash
+    working-directory: apps/mobile
+
+jobs:
+  check:
+    name: Flutter analyze and test
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: crates -> target
+          key: mobile-check
+      - run: flutter pub get --enforce-lockfile
+      - run: flutter analyze --no-pub
+      - name: Verify portable snapshot materialization
+        run: cargo test --locked --manifest-path ../../packages/sdk/rust/Cargo.toml --no-default-features --test snapshot --target-dir ../../crates/target
+      - name: Build shared Hub for FFI tests
+        run: |
+          python3 tool/build_shared_hub.py --platform linux --output build/shared-hub/linux
+          test -s build/shared-hub/linux/libomochi_native_bridge.so
+      - run: flutter test --no-pub
+        env:
+          LD_LIBRARY_PATH: ${{ github.workspace }}/apps/mobile/build/shared-hub/linux
+
+  android:
+    name: Android release APK
+    needs: check
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+          cache-dependency-path: |
+            apps/mobile/android/**/*.gradle.kts
+            apps/mobile/android/gradle.properties
+            apps/mobile/android/gradle/wrapper/gradle-wrapper.properties
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,x86_64-linux-android
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: crates -> target
+          key: mobile-android
+      - name: Install Android NDK
+        run: '"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "ndk;30.0.16248370"'
+      - run: flutter pub get --enforce-lockfile
+      - run: flutter build apk --release --no-pub --target-platform android-arm64,android-x64
+      - uses: actions/upload-artifact@v7
+        with:
+          name: omochi-android-apk
+          path: apps/mobile/build/app/outputs/flutter-apk/app-release.apk
+          if-no-files-found: error
+          retention-days: 14
+
+  macos:
+    name: macOS release app
+    needs: check
+    runs-on: macos-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: crates -> target
+          key: mobile-macos
+      - run: flutter pub get --enforce-lockfile
+      - run: flutter build macos --release --no-pub
+      - name: Verify and package app
+        run: |
+          test -s build/macos/Build/Products/Release/mobile.app/Contents/Frameworks/libomochi_native_bridge.dylib
+          codesign --verify --deep --strict build/macos/Build/Products/Release/mobile.app
+          ditto -c -k --keepParent build/macos/Build/Products/Release/mobile.app build/omochi-macos.zip
+      - uses: actions/upload-artifact@v7
+        with:
+          name: omochi-macos-app
+          path: apps/mobile/build/omochi-macos.zip
+          if-no-files-found: error
+          retention-days: 14
+
+  ios:
+    name: iOS unsigned release IPA
+    needs: check
+    runs-on: macos-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios,aarch64-apple-ios-sim,x86_64-apple-ios
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: crates -> target
+          key: mobile-ios
+      - run: flutter pub get --enforce-lockfile
+      - run: flutter build ipa --release --no-pub --no-codesign
+      # Flutter skips IPA export without signing. Package the archived app so
+      # PRs and forks can verify release builds without signing credentials.
+      - name: Package unsigned IPA
+        run: |
+          test -d build/ios/archive/Runner.xcarchive/Products/Applications/Runner.app
+          mkdir -p "$RUNNER_TEMP/omochi-ipa/Payload" build/ios/ipa
+          ditto build/ios/archive/Runner.xcarchive/Products/Applications/Runner.app \
+            "$RUNNER_TEMP/omochi-ipa/Payload/Runner.app"
+          ditto -c -k --keepParent "$RUNNER_TEMP/omochi-ipa/Payload" \
+            build/ios/ipa/omochi-unsigned.ipa
+      - uses: actions/upload-artifact@v7
+        with:
+          name: omochi-ios-unsigned-ipa
+          path: apps/mobile/build/ios/ipa/omochi-unsigned.ipa
+          if-no-files-found: error
+          retention-days: 14
+
+  desktop:
+    name: ${{ matrix.name }} release bundle
+    needs: check
+    env:
+      CARGO_BUILD_JOBS: '2'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            name: Linux
+            target: linux
+            rust: x86_64-unknown-linux-gnu
+          - os: windows-latest
+            name: Windows
+            target: windows
+            rust: x86_64-pc-windows-msvc
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - if: runner.os == 'Linux'
+        name: Install Linux build dependencies
+        run: sudo apt-get update && sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev libsecret-1-dev libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: crates -> target
+          key: mobile-${{ matrix.target }}
+      - run: flutter config --enable-${{ matrix.target }}-desktop
+      - run: flutter pub get --enforce-lockfile
+      - run: flutter build ${{ matrix.target }} --release --no-pub
+      - if: runner.os == 'Linux'
+        name: Package Linux bundle
+        run: |
+          test -s build/linux/x64/release/bundle/lib/libomochi_native_bridge.so
+          tar -czf build/omochi-linux-x64.tar.gz -C build/linux/x64/release/bundle .
+      - if: runner.os == 'Windows'
+        name: Package Windows bundle
+        shell: pwsh
+        run: |
+          if (!(Test-Path build/windows/x64/runner/Release/omochi_native_bridge.dll)) { throw 'Embedded Hub missing' }
+          Compress-Archive -Path build/windows/x64/runner/Release/* -DestinationPath build/omochi-windows-x64.zip
+      - uses: actions/upload-artifact@v7
+        with:
+          name: omochi-${{ matrix.target }}-x64
+          path: |
+            apps/mobile/build/omochi-linux-x64.tar.gz
+            apps/mobile/build/omochi-windows-x64.zip
+          if-no-files-found: error
+          retention-days: 14

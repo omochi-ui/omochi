@@ -1,0 +1,6 @@
+#include "Generated.xcconfig"
+
+OMOCHI_HUB_SLICE = ios-arm64
+OMOCHI_HUB_SLICE[sdk=iphonesimulator*] = ios-arm64_x86_64-simulator
+OTHER_LDFLAGS = $(inherited) -framework Security -framework SystemConfiguration -framework Foundation -lresolv -force_load "$(PROJECT_DIR)/../build/shared-hub/ios/OmochiHub.xcframework/$(OMOCHI_HUB_SLICE)/libomochi_native_bridge.a"
+ENABLE_USER_SCRIPT_SANDBOXING = NO

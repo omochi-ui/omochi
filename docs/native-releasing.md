@@ -49,7 +49,7 @@ Keep optional dependencies enabled. Linux prebuilds target glibc (built on Ubunt
 and macOS; Windows source builds are also unsupported. Native archives can still be
 installed directly without Node. npm registry integrity covers the binary package.
 
-Cargo publishes the seven native crates, including protocol, transport, discovery,
+Cargo publishes the eight native crates, including protocol, mdns, transport, discovery,
 gateway and hub, because registry builds must resolve their dependencies. Internal
 path dependencies have exact release version requirements. The existing Rust SDK
 version must already be published. Hub dashboard assets are embedded in the `.crate`,
@@ -60,7 +60,7 @@ so `cargo install` does not need Bun, Node, or a checkout of the monorepo.
 ```sh
 bun install --frozen-lockfile
 bun run build:native:release
-python3 scripts/package-crates.py          # packages and builds all seven crates
+python3 scripts/package-crates.py          # packages and builds all eight crates
 python3 scripts/package-native-npm.py artifacts/native/*.tar.gz
 bun run release:native:smoke:npm
 ```
@@ -100,7 +100,7 @@ Registry-side setup is required once (workflow files do not grant registry acces
    renderer/hub-ui on the existing workflow. New platform names need first-publication
    credentials; use a narrowly scoped `NPM_BOOTSTRAP_TOKEN` environment secret and
    the workflow's `bootstrap` option, then remove it after OIDC setup.
-3. Configure crates.io trusted publishing for `native-release.yml` on all seven new
+3. Configure crates.io trusted publishing for `native-release.yml` on all eight new
    native crates. Keep the Rust SDK's publisher on `release.yml`. Use a temporary
    `CRATES_IO_BOOTSTRAP_TOKEN` in the `crates-io` environment for first publication.
 4. npm uses the same staged publication policy as SDK releases. Review the exact

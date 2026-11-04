@@ -16,4 +16,8 @@ The next minor release introduces `ActionInput` derive and typed component
 builders. The SDK depends on the exact matching `omochi-ui-macros` version.
 See the SDK guide for migration and custom Serde expression adapters.
 
+The default `runtime` feature keeps the complete SDK API. Embedded renderers that
+only materialize protocol messages can disable default features to use
+`A2uiSnapshot` and `SnapshotCursor` without Unix server or resource-file code.
+
 Licensed under Apache-2.0.

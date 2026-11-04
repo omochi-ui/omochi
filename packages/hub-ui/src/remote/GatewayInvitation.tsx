@@ -221,6 +221,7 @@ export function GatewayInvitation({
       >
         {job?.status === 'savePending' ? t('gateway.retrySave') : t('gateway.confirm')}
       </Button>
+      <a className="hub-button" href={invite.invitation}>Open in Omochi app</a>
       {!ownsProfile && (
         <Button onClick={() => setSendAttempt((v) => v + 1)}>{t('gateway.send')}</Button>
       )}

@@ -1,0 +1,92 @@
+{
+  "@@locale": "en",
+  "apps": "Apps",
+  "cancel": "Cancel",
+  "internetRelays": "Internet relays",
+  "deviceIdentity": "This device",
+  "gatewayInvitation": "Gateway invitation",
+  "invitationExample": "omochi://invite/\u2026",
+  "forget": "Forget",
+  "appImage": "App image",
+  "retryImage": "Retry image",
+  "errorImageNeedsNativeHub": "Connect the built-in Hub to load this image",
+  "errorOversizedMessage": "A2UI message exceeds 4 MiB",
+  "errorInvalidServerMessage": "Expected one A2UI v0.9 server message",
+  "errorDisconnectedAction": "Disconnected; action was not sent.",
+  "errorStoppedHub": "Built-in Hub is stopped",
+  "errorInvalidInvitation": "Invalid or expired Gateway invitation. Create a new invitation on the Gateway.",
+  "demoNotes": "Field notes",
+  "demoPlayground": "Playground",
+  "demoDevice": "This device \u00b7 demo",
+  "demoAddOne": "Add one",
+  "demoTask": "What are you working on?",
+  "demoSetIntention": "Set intention",
+  "demoSampleTask": "Explore Omochi",
+  "demoNote": "Example text from an app.",
+  "errorActionFailed": "Action failed: {error}",
+  "@errorActionFailed": {
+    "description": "Failure with the underlying error detail.",
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  "errorRenderingFailed": "A2UI: {error}",
+  "@errorRenderingFailed": {
+    "description": "Failure with the underlying error detail.",
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  "errorHubFailed": "Built-in Hub: {error}",
+  "@errorHubFailed": {
+    "description": "Failure with the underlying error detail.",
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  "errorPairingFailed": "Pairing failed: {error}",
+  "@errorPairingFailed": {
+    "description": "Failure with the underlying error detail.",
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  "demoMoments": "{count, plural, =1{1 moment} other{{count} moments}}",
+  "@demoMoments": {
+    "description": "Demo counter value.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "addGateway": "Add gateway",
+  "addOnDevice": "Add this gateway to the Hub on this device.",
+  "addOnDeviceButton": "Add to this device",
+  "expiresAt": "Expires: {time}",
+  "@expiresAt": {
+    "placeholders": {
+      "time": {
+        "type": "String"
+      }
+    }
+  },
+  "invitationPending": "Another invitation or operation is pending.",
+  "gatewayAdded": "Gateway added.",
+  "continueButton": "Continue",
+  "startWithInvitation": "Open a gateway invitation or add one in Connections.",
+  "waitingForApps": "Waiting for gateway apps\u2026",
+  "forgetGatewayTitle": "Forget gateway?",
+  "dismiss": "Dismiss",
+  "connections": "Connections",
+  "retry": "Retry",
+  "forgetLocalExplanation": "Remove the registration from this device. Revoking this device on the gateway is a separate operation."
+}

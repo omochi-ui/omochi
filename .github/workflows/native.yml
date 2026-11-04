@@ -56,6 +56,10 @@ jobs:
       - if: runner.os == 'Linux'
         run: python3 scripts/package-crates.py --local-sdk
       - run: cargo test --manifest-path crates/Cargo.toml --release --locked --workspace
+      - name: Test Bonjour compatibility patch
+        run: cargo test --manifest-path vendor/swarm-discovery/Cargo.toml --lib
+        env:
+          CARGO_TARGET_DIR: ${{ github.workspace }}/crates/target
       - run: OMOCHI_NATIVE_TEST=1 OMOCHI_NATIVE_PROFILE=release bun test tests/native/mcp.test.ts
       - run: OMOCHI_NATIVE_TEST=1 OMOCHI_NATIVE_PROFILE=release bun test packages/renderer/test/native.test.ts
       - run: cargo clippy --manifest-path crates/Cargo.toml --release --locked --all-targets -- -D warnings
@@ -75,3 +79,22 @@ jobs:
           name: native-${{ matrix.os }}
           path: artifacts/native/
           if-no-files-found: error
+
+  windows-transport:
+    name: Windows DNS-SD adapter
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: windows-transport
+          workspaces: crates -> target
+      # The desktop CLI/store still target Unix; compile the shared transport
+      # without that feature. Real multicast/VM checks remain opt-in.
+      - run: cargo clippy --manifest-path crates/Cargo.toml --locked -p omochi-mdns -p omochi-transport --no-default-features --lib -- -D warnings

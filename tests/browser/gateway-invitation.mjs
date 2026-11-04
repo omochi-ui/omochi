@@ -44,6 +44,10 @@ try {
     await browser.evaluate(`document.querySelector('[aria-label="Add gateway"] input').value`),
     'Gateway aaaaaaaa',
   );
+  assert.equal(
+    await browser.evaluate(`Array.from(document.querySelectorAll('a')).find(a => a.textContent === 'Open in Omochi app')?.getAttribute('href')`),
+    'omochi://invite/' + payload,
+  );
   const shot = await browser.command('Page.captureScreenshot', { format: 'png' });
   await writeFile('/tmp/omochi-gateway-confirmation.png', Buffer.from(shot.data, 'base64'));
   console.log(
