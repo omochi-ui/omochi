@@ -26,8 +26,12 @@ BADGE = {
     },
     "required": ["label"],
 }
-SETUP = '''from catalog import TESTCATALOG, TestCatalogUI
-ui = TestCatalogUI("main", TESTCATALOG, lambda *args: "unused")
+SETUP = '''from catalog import {constant}, {catalog_name}UI
+ui = {catalog_name}UI("main", {constant}, lambda *args: "unused")
+assert ui.catalog is {constant}
+assert {constant}.id == "urn:test:typing"
+assert {constant}.name == "{catalog_name}"
+assert {constant}.ui_type is {catalog_name}UI
 '''
 POSITIVE = '''from catalog import BadgeProps
 props: BadgeProps = {"label": "hello", "tone": "info", "self": "self", "data-label": "literal", "details": {"key": "Enter"}}
@@ -100,10 +104,12 @@ def main() -> None:
         assert 'component "Shortcut", property "key"' in result.stderr, result.stderr
         assert "reserved for the Python builder's node key" in result.stderr, result.stderr
         assert [output.read_text() for output in outputs] == ["existing"] * 3
-        for name, components in [
-            ("empty", {}),
-            ("single", {"Badge": BADGE}),
-            ("multiple", {"Badge": BADGE, "Empty": {"properties": {}}}),
+        for name, components, title, name_override in [
+            ("empty", {}, "TestCatalog", None),
+            ("single", {"Badge": BADGE}, "TestCatalog", None),
+            ("multiple", {"Badge": BADGE, "Empty": {"properties": {}}}, "TestCatalog", None),
+            ("ui-title", {"Badge": BADGE}, "UI", None),
+            ("ui-name-override", {"Badge": BADGE}, "TestCatalog", "UI"),
         ]:
             directory = Path(temporary) / name
             directory.mkdir()
@@ -112,14 +118,16 @@ def main() -> None:
                 "enableTypeIgnoreComments": False,
             }))
             (directory / "input.json").write_text(json.dumps({
-                "catalogId": "urn:test:typing", "title": "TestCatalog", "components": components,
+                "catalogId": "urn:test:typing", "title": title, "components": components,
             }))
             subprocess.run([
                 str(CLI), "generate", "catalog", "--catalog", str(directory / "input.json"),
                 "--python", str(directory / "catalog.py"),
+                *(["--name", name_override] if name_override else []),
             ], cwd=ROOT, check=True)
-            positive = SETUP
-            negative = SETUP
+            catalog_name = name_override or title
+            positive = SETUP.format(constant=catalog_name.upper(), catalog_name=catalog_name)
+            negative = positive
             if components:
                 positive += POSITIVE
                 negative += NEGATIVE

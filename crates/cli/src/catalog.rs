@@ -1025,8 +1025,10 @@ fn render(m: &Model, lang: Language) -> Result<String> {
                     format!("{overloads}\n    def component(self, /, component: str, *, key: str, **props: Any) -> None:  # pyright: ignore[reportIncompatibleMethodOverride]\n        self._append(component, props, key)")
                 }
             };
+            // Mixed case and a Base suffix keep the SDK alias distinct from
+            // uppercase catalog constants and generated Props/UI classes.
             format!(
-                "{header}from typing import Any, Literal, Never, Required, TypedDict, Unpack, overload\nfrom omochi_ui import Catalog, UI\nfrom omochi_ui.catalog import DataBinding, DynamicBoolean, DynamicNumber, DynamicString, DynamicStringList, FunctionCall\n\n{body}\n\nclass {name}UI(UI):\n{override_comment}{component}\n\n{constant} = Catalog(id={id}, name={}, ui_type={name}UI)\n",
+                "{header}from typing import Any, Literal, Never, Required, TypedDict, Unpack, overload\nfrom omochi_ui import Catalog, UI as _UIBase\nfrom omochi_ui.catalog import DataBinding, DynamicBoolean, DynamicNumber, DynamicString, DynamicStringList, FunctionCall\n\n{body}\n\nclass {name}UI(_UIBase):\n{override_comment}{component}\n\n{constant} = Catalog(id={id}, name={}, ui_type={name}UI)\n",
                 quote(name)
             )
         }
