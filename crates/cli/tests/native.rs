@@ -176,10 +176,56 @@ async fn hub_bind_failure_cleans_up_owned_gateway_and_allows_restart() {
 }
 
 #[tokio::test]
-async fn hub_shutdown_error_still_cleans_up_owned_gateway_and_allows_restart() {
+async fn hub_invalid_relay_exits_without_signal_and_allows_restart() {
+    let root = tempfile::tempdir().unwrap();
+    let output = tokio::time::timeout(
+        Duration::from_secs(10),
+        command(root.path())
+            .args(["hub", "--remote", "--relay", "not-a-url", "--port", "0"])
+            .output(),
+    )
+    .await
+    .expect("remote startup failure must terminate the hub without a signal")
+    .unwrap();
+    assert!(!output.status.success());
+    let error = String::from_utf8_lossy(&output.stderr);
+    assert!(error.contains("Failed to parse relay URL"), "{error}");
+    assert!(!root.path().join("runtime/gateway.sock").exists());
+    local_dashboard_at(root.path(), true).await;
+}
+
+#[tokio::test]
+async fn hub_remote_identity_failure_exits_without_signal_and_allows_restart() {
+    let root = tempfile::tempdir().unwrap();
+    omochi_transport::store::Store::open(root.path().join("config")).unwrap();
+    let state_path = root.path().join("config/state.json");
+    let original = std::fs::read(&state_path).unwrap();
+    let mut state: serde_json::Value = serde_json::from_slice(&original).unwrap();
+    state["hub_key"] = "".into();
+    std::fs::write(&state_path, serde_json::to_vec(&state).unwrap()).unwrap();
+
+    let output = tokio::time::timeout(
+        Duration::from_secs(10),
+        command(root.path())
+            .args(["hub", "--remote", "--port", "0"])
+            .output(),
+    )
+    .await
+    .expect("remote identity failure must terminate the hub without a signal")
+    .unwrap();
+    assert!(!output.status.success());
+    let error = String::from_utf8_lossy(&output.stderr);
+    assert!(error.contains("invalid key length"), "{error}");
+    assert!(!root.path().join("runtime/gateway.sock").exists());
+    std::fs::write(state_path, original).unwrap();
+    local_dashboard_at(root.path(), true).await;
+}
+
+#[tokio::test]
+async fn hub_defers_remote_startup_until_gateway_registration_and_reports_failure() {
     let root = tempfile::tempdir().unwrap();
     let mut child = command(root.path())
-        .args(["hub", "--remote", "--relay", "invalid", "--port", "0"])
+        .args(["hub", "--relay", "not-a-url", "--port", "0"])
         .stderr(Stdio::piped())
         .spawn()
         .unwrap();
@@ -189,22 +235,33 @@ async fn hub_shutdown_error_still_cleans_up_owned_gateway_and_allows_restart() {
         .unwrap()
         .unwrap()
         .unwrap();
-    assert!(line.starts_with("[omochi-ui] dashboard http://"), "{line}");
+    let base = line.strip_prefix("[omochi-ui] dashboard ").unwrap();
     assert_eq!(
-        unsafe { libc::kill(child.id().unwrap() as i32, libc::SIGTERM) },
-        0
+        reqwest::get(format!("{base}services"))
+            .await
+            .unwrap()
+            .status(),
+        200
     );
+    assert!(
+        tokio::time::timeout(Duration::from_millis(600), child.wait())
+            .await
+            .is_err(),
+        "an unpaired local hub must not start remote networking"
+    );
+    let store = omochi_transport::store::Store::open(root.path().join("config")).unwrap();
+    let id = omochi_transport::SecretKey::from_bytes(&[42; 32]).public();
+    store.register_gateway(id, "remote gateway").unwrap();
     assert!(
         !tokio::time::timeout(Duration::from_secs(10), child.wait())
             .await
-            .unwrap()
+            .expect("lazy remote startup failure must terminate the hub without a signal")
             .unwrap()
             .success()
     );
     let error = lines.next_line().await.unwrap().unwrap();
     assert!(error.contains("Failed to parse relay URL"), "{error}");
     assert!(!root.path().join("runtime/gateway.sock").exists());
-    local_dashboard_at(root.path(), true).await;
 }
 
 #[tokio::test]

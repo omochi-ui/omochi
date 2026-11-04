@@ -550,13 +550,14 @@ async fn serve_hub(
     let hub = omochi_hub::Hub::new();
     let attached = hub.attach_unix(socket);
     let mut tasks = Vec::new();
+    let mut remote_task = None;
     let mut result: Result<()> = async {
         let dashboards =
             omochi_hub::dashboards::DashboardStore::open(root).map_err(|e| anyhow::anyhow!(e.1))?;
         let remote_boards = dashboards.clone();
         let remote_hub = hub.clone();
         let remote_store = store.clone();
-        tasks.push(tokio::spawn(async move {
+        remote_task = Some(tokio::spawn(async move {
             let stop = remote_hub.cancellation_token();
             loop {
                 let store = remote_store.clone();
@@ -638,13 +639,23 @@ async fn serve_hub(
             dashboard_url.set_host(Some(&browser_address.ip().to_string()))?;
             composition::open_browser(dashboard_url.as_str());
         }
-        shutdown.wait().await;
-        Ok(())
+        tokio::select! {
+            _ = shutdown.wait() => Ok(()),
+            finished = remote_task.as_mut().unwrap() => {
+                // A completed JoinHandle must not be polled again during cleanup.
+                remote_task.take();
+                finished.context("hub remote task failed")??;
+                bail!("hub remote task stopped unexpectedly")
+            }
+        }
     }
     .await;
     // Cancel every owned resource before joining. Preserve the first failure,
     // but still await every task so its cleanup completes before returning.
     hub.shutdown();
+    if let Some(task) = remote_task {
+        tasks.push(task);
+    }
     if let Some((gateway, listener, discovery)) = owned {
         gateway.shutdown();
         tasks.extend([listener, discovery]);
