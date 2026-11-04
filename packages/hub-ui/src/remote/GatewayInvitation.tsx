@@ -1,6 +1,6 @@
 import type { TranslationMessage } from '../i18n.js';
 import { useTranslation } from 'react-i18next';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { Button } from '../Button.js';
 import { parseGatewayLink, type GatewayInvitation as Invitation } from './gateway-link.js';
 import type { RemoteHubSession } from './session.js';
@@ -39,6 +39,8 @@ export function GatewayInvitation({
   owner.current = ownsProfile;
   const [sendAttempt, setSendAttempt] = useState(0);
   const [now, setNow] = useState(Date.now());
+  const nameErrorId = useId();
+  const nameTooLong = new TextEncoder().encode(name).byteLength > 256;
   const operation = useRef(0);
   useEffect(() => () => { operation.current++; }, []);
   useEffect(() => {
@@ -164,7 +166,7 @@ export function GatewayInvitation({
     };
   }, [job, session, ownerScope]);
   const submit = async () => {
-    if (!session || !ownerScope || !invite || busy || (job && job.scope !== ownerScope)) return;
+    if (!session || !ownerScope || !invite || busy || !name.trim() || nameTooLong || (job && job.scope !== ownerScope)) return;
     if (job && job.status !== 'savePending' && job.status !== 'failed') return;
     const attempt = ++operation.current;
     const started: ScopedJob = job?.status === 'savePending' ? job : {
@@ -209,10 +211,13 @@ export function GatewayInvitation({
         <input
           value={name}
           maxLength={256}
+          aria-invalid={nameTooLong || undefined}
+          aria-describedby={nameTooLong ? nameErrorId : undefined}
           disabled={busy || (!!job && job.status !== 'failed')}
           onChange={(event) => setName(event.target.value)}
         />
       </label>
+      {nameTooLong && <p id={nameErrorId} role="status">{t('gateway.nameTooLong')}</p>}
       <p role="status">
         {invite.expires * 1000 <= now && !job
           ? t('gateway.expired')
@@ -238,6 +243,7 @@ export function GatewayInvitation({
           (job && ownerScope !== job.scope) ||
           (invite.expires * 1000 <= now && job?.status !== 'savePending') ||
           !name.trim() ||
+          nameTooLong ||
           busy ||
           (!!job && job.status !== 'savePending' && job.status !== 'failed')
         }

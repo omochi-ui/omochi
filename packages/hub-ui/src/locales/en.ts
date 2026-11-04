@@ -241,6 +241,7 @@ export default {
     "title": "Add gateway to hub",
     "connectHelp": "Connect to a hub as its owner below. If no connection is saved, open an owner invitation first.",
     "name": "Gateway name",
+    "nameTooLong": "Gateway name is too long. Use a shorter name.",
     "expired": "Invitation expired. Request a new invitation.",
     "registered": "Gateway registered. Apps will appear when the gateway connects.",
     "savePending": "Gateway accepted registration, but saving on the hub failed. Retry saving.",

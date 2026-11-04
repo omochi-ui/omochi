@@ -129,15 +129,45 @@ try {
   assert.ok((await content()).includes('Reconnect to Original Hub'));
   await click('Dismiss invitation'); await invite();
 
+  // Names use the hub's UTF-8 byte limit, and invalid input must remain editable.
+  const nameInput = '.gateway-invitation input';
+  const enterName = async value => {
+    await evaluate(`(() => { const input = document.querySelector(${JSON.stringify(nameInput)}); Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, ${JSON.stringify(value)}); input.dispatchEvent(new Event('input', { bubbles: true })); })()`);
+    await until(() => evaluate(`document.querySelector(${JSON.stringify(nameInput)}).value === ${JSON.stringify(value)}`), 'name input');
+  };
+  await enterName('あ'.repeat(86)); // 258 bytes, despite fitting maxLength=256.
+  await until(() => evaluate(`document.querySelector(${JSON.stringify(nameInput)}).getAttribute('aria-invalid') === 'true'`), 'invalid UTF-8 name');
+  assert.equal(await evaluate(`!!(${button('Add to this hub')})`), false, 'oversized UTF-8 name cannot submit');
+  assert.ok((await content()).includes('Gateway name is too long. Use a shorter name.'));
+  await shot('name-too-long-en');
+  await evaluate(`(() => { const select = document.querySelector('.language-switcher select'); select.value = 'ja'; select.dispatchEvent(new Event('change', { bubbles: true })); })()`);
+  await until(async () => (await content()).includes('ゲートウェイ名が長すぎます。短くしてください。'), 'Japanese name validation');
+  assert.equal(await count(), 12, 'local validation sends no enrollment request');
+  assert.equal(await evaluate(`document.querySelector(${JSON.stringify(nameInput)}).disabled`), false, 'invalid name can be shortened');
+  await shot('name-too-long-ja');
+  await evaluate(`(() => { const select = document.querySelector('.language-switcher select'); select.value = 'en'; select.dispatchEvent(new Event('change', { bubbles: true })); })()`);
+  await enterName('あ'.repeat(85)); // 255 bytes.
+  await click('Add to this hub');
+  assert.equal((await nextCall(12, 'gatewayPairStart')).name, 'あ'.repeat(85));
+  await reply(12, 'registered', 'job6');
+  await until(async () => (await content()).includes('Gateway registered'), 'shortened name registers');
+  await click('Dismiss invitation'); await invite();
+  await enterName('あ'.repeat(85) + 'a'); // Exactly 256 bytes is also accepted.
+  await click('Add to this hub');
+  assert.equal((await nextCall(13, 'gatewayPairStart')).name, 'あ'.repeat(85) + 'a');
+  await reply(13, 'registered', 'job7');
+  await until(async () => (await content()).includes('Gateway registered'), '256-byte name registers');
+  await click('Dismiss invitation'); await invite();
+
   // Warm owner links still reach the parent while the child holds an invitation.
   const owner = Buffer.from(JSON.stringify({ version: 1, hubId: 'b'.repeat(64), grantId: '22222222-2222-4222-8222-222222222222', relayUrls: ['https://relay.example/'], mode: 'owner', secret: '1'.repeat(64) })).toString('base64url');
   await evaluate(`location.hash=${JSON.stringify('#owner:' + owner)}`);
   await until(() => evaluate(`location.hash===''&&!!(${button('Accept invitation')})`), 'warm owner link');
   assert.ok((await content()).includes('Gateway name'), 'warm parent navigation preserves child invitation');
   await shot('warm-owner-invitation');
-  assert.equal(await count(), 12, 'navigation and dismissal never automatically enroll');
+  assert.equal(await count(), 14, 'navigation and dismissal never automatically enroll');
   assert.deepEqual(errors, []);
-  console.log(`PASS: gateway reconnect, authority isolation, save retry, late results, dismissal, next invitation and warm navigation. Screenshots: ${screenshots}`);
+  console.log(`PASS: gateway reconnect, authority isolation, save retry, late results, dismissal, UTF-8 name validation, next invitation and warm navigation. Screenshots: ${screenshots}`);
 } catch (error) {
   console.error(await browser?.evaluate('document.body.innerText'));
   throw error;
