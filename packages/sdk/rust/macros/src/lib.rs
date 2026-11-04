@@ -122,24 +122,25 @@ impl VisitMut for ResolveSelf {
     }
 }
 fn rename_field(name: &str, rule: &str) -> String {
+    // Match serde_derive's RenameRule: case conversion changes ASCII only.
     match rule {
         "lowercase" | "snake_case" => name.into(),
-        "UPPERCASE" | "SCREAMING_SNAKE_CASE" => name.to_uppercase(),
+        "UPPERCASE" | "SCREAMING_SNAKE_CASE" => name.to_ascii_uppercase(),
         "kebab-case" => name.replace('_', "-"),
-        "SCREAMING-KEBAB-CASE" => name.replace('_', "-").to_uppercase(),
+        "SCREAMING-KEBAB-CASE" => name.replace('_', "-").to_ascii_uppercase(),
         "PascalCase" | "camelCase" => {
             let mut s = name
                 .split('_')
                 .map(|w| {
                     let mut c = w.chars();
                     match c.next() {
-                        Some(first) => first.to_uppercase().to_string() + c.as_str(),
+                        Some(first) => first.to_ascii_uppercase().to_string() + c.as_str(),
                         None => String::new(),
                     }
                 })
                 .collect::<String>();
             if rule == "camelCase" && !s.is_empty() {
-                s.replace_range(..1, &s[..1].to_lowercase());
+                s.replace_range(..1, &s[..1].to_ascii_lowercase());
             }
             s
         }
@@ -599,15 +600,27 @@ fn snake(name: &str) -> String {
 }
 fn rename_variant(name: &str, rule: &str) -> String {
     match rule {
-        "snake_case" | "SCREAMING_SNAKE_CASE" | "kebab-case" | "SCREAMING-KEBAB-CASE" => {
-            rename_field(&snake(name), rule)
+        "snake_case" => {
+            // Serde detects Unicode uppercase boundaries but only lowercases ASCII.
+            // Keep this separate from the Rust method-name conversion above.
+            let mut out = String::new();
+            for (i, c) in name.char_indices() {
+                if i > 0 && c.is_uppercase() {
+                    out.push('_');
+                }
+                out.push(c.to_ascii_lowercase());
+            }
+            out
         }
-        "lowercase" => name.to_lowercase(),
-        "UPPERCASE" => name.to_uppercase(),
+        "SCREAMING_SNAKE_CASE" => rename_variant(name, "snake_case").to_ascii_uppercase(),
+        "kebab-case" => rename_variant(name, "snake_case").replace('_', "-"),
+        "SCREAMING-KEBAB-CASE" => rename_variant(name, "SCREAMING_SNAKE_CASE").replace('_', "-"),
+        "lowercase" => name.to_ascii_lowercase(),
+        "UPPERCASE" => name.to_ascii_uppercase(),
         "camelCase" => {
             let mut s = name.to_owned();
             if !s.is_empty() {
-                s.replace_range(..1, &s[..1].to_lowercase());
+                s.replace_range(..1, &s[..1].to_ascii_lowercase());
             }
             s
         }
