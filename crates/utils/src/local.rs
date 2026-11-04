@@ -104,9 +104,10 @@ impl LocalTransport {
         if !omochi_protocol::session::valid_service_id(&options.service_id) {
             bail!("invalid service id");
         }
-        let root = options
-            .runtime_dir
-            .unwrap_or_else(omochi_ui::omochi_runtime_root);
+        let root = match options.runtime_dir {
+            Some(root) => root,
+            None => omochi_ui::prepare_omochi_runtime_root()?,
+        };
         private(&root)?;
         let lock = ServiceLock::acquire(&root, &options.service_id)?;
         let directory = root.join(&options.service_id);
@@ -390,7 +391,7 @@ mod tests {
     #[ignore]
     async fn ownership_process_fixture() {
         use std::io::Write;
-        let root = std::env::var("OMOCHI_OWNER_ROOT").expect("fixture runtime root");
+        let root = std::env::var_os("OMOCHI_OWNER_ROOT");
         let announce = |message| {
             println!("OWNER {message}");
             std::io::stdout().flush().unwrap();
@@ -401,9 +402,11 @@ mod tests {
         };
         announce("WAITING");
         command();
-        let Ok(mut transport) =
-            LocalTransport::bind(UnixSocketServerOptions::new("demo").with_runtime_dir(root)).await
-        else {
+        let mut options = UnixSocketServerOptions::new("demo");
+        if let Some(root) = root {
+            options = options.with_runtime_dir(root);
+        }
+        let Ok(mut transport) = LocalTransport::bind(options).await else {
             announce("REJECTED");
             return;
         };

@@ -16,6 +16,7 @@ import {
   ensureServiceDirectory,
   lockService,
   omochiRuntimeRoot,
+  prepareFallbackRuntimeRoot,
   removeServiceDirectory,
   removeServiceDirectorySync,
   validateServiceId,
@@ -63,6 +64,7 @@ export class UnixSocketServerTransport implements Transport {
   private readonly manifestName: string;
   private readonly icon: string | undefined;
   private readonly root: string;
+  private readonly fallbackRoot: boolean;
   private readonly server: Server = createServer();
   private readonly clients = new Set<Socket>();
   private readonly outbound = new WeakMap<Socket, OutboundWriter>();
@@ -81,6 +83,7 @@ export class UnixSocketServerTransport implements Transport {
     this.manifestName = options.name ?? this.serviceId;
     this.icon = options.icon;
     this.root = options.runtimeDir ?? omochiRuntimeRoot();
+    this.fallbackRoot = options.runtimeDir === undefined && !process.env.XDG_RUNTIME_DIR;
     this.capabilities = new Set(options.capabilities ?? []);
     this.server.on("connection", (socket) => this.accept(socket));
     this.exitCleanup = () => {
@@ -156,6 +159,7 @@ export class UnixSocketServerTransport implements Transport {
   }
 
   private async publish(): Promise<void> {
+    if (this.fallbackRoot) await prepareFallbackRuntimeRoot(this.root);
     this.releaseService = await lockService(this.root, this.serviceId);
     const directory = path.join(this.root, this.serviceId);
     try {

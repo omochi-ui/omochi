@@ -11,7 +11,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from omochi_ui import schema, Expr, InputSchema, ActionContext, UI, App, ResourceRegistry, UnixSocketServerTransport
-from omochi_ui.unix_server import validate_service_id
+from omochi_ui.unix_server import validate_service_id, _prepare_fallback_runtime_root
 
 
 def counter_app() -> App:
@@ -43,6 +43,19 @@ async def read_messages(reader: asyncio.StreamReader, count: int) -> list[dict]:
 
 
 class UnixSocketServerTransportTests(unittest.TestCase):
+    def test_rejects_foreign_fallback_parent_before_traversal(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            parent = Path(temporary) / "parent"
+            parent.mkdir(mode=0o755)
+            parent.chmod(0o755)
+            root = parent / "omochi"
+            # Inject foreign ownership without requiring chown privileges.
+            with patch("omochi_ui.unix_server.os.geteuid", return_value=os.geteuid() + 1):
+                with self.assertRaises(PermissionError):
+                    _prepare_fallback_runtime_root(root)
+            self.assertFalse(root.exists())
+            self.assertEqual(parent.stat().st_mode & 0o777, 0o755)
+
     def test_isolates_malformed_client_frames(self) -> None:
         fixtures = Path(__file__).parents[4] / "spec/fixtures"
         actions = json.loads((fixtures / "client-actions.json").read_text())

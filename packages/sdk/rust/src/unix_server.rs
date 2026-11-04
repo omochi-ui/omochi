@@ -2,7 +2,7 @@ use crate::resources::{ResourceRegistry, hello, is_resource};
 use std::collections::{BTreeSet, VecDeque};
 use std::fs;
 use std::os::fd::AsRawFd;
-use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -195,10 +195,10 @@ pub fn validate_service_id(service_id: &str) -> Result<()> {
 /// trust boundary. A world-writable `/tmp/omochi` is never used, because another local
 /// user could pre-create a service directory and squat the socket.
 pub fn omochi_runtime_root() -> PathBuf {
-    match std::env::var_os("XDG_RUNTIME_DIR") {
+    match std::env::var_os("XDG_RUNTIME_DIR").filter(|value| !value.is_empty()) {
         Some(configured) => PathBuf::from(configured).join("omochi"),
         None => {
-            let uid = unsafe { libc_getuid() };
+            let uid = unsafe { libc::geteuid() };
             std::env::temp_dir()
                 .join(format!("omochi-{uid}"))
                 .join("omochi")
@@ -206,12 +206,36 @@ pub fn omochi_runtime_root() -> PathBuf {
     }
 }
 
-// Avoids a `libc` dependency for the single value the fallback path needs.
-unsafe fn libc_getuid() -> u32 {
-    unsafe extern "C" {
-        fn getuid() -> u32;
+/// Resolves the default runtime root and secures its per-user fallback before use.
+/// Explicit XDG runtime directories retain their existing trust policy.
+pub fn prepare_omochi_runtime_root() -> Result<PathBuf> {
+    let root = omochi_runtime_root();
+    if std::env::var_os("XDG_RUNTIME_DIR").is_none_or(|value| value.is_empty()) {
+        prepare_fallback_runtime_root(&root, unsafe { libc::geteuid() })?;
     }
-    unsafe { getuid() }
+    Ok(root)
+}
+
+fn prepare_fallback_runtime_root(root: &Path, uid: u32) -> Result<()> {
+    // Validate the parent before following any path below it. Writable existing
+    // directories may already contain attacker-planted entries, so reject them.
+    for directory in [root.parent().expect("fallback has a parent"), root] {
+        match fs::DirBuilder::new().mode(0o700).create(directory) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
+            Err(error) => return Err(error.into()),
+        }
+        let metadata = fs::symlink_metadata(directory)?;
+        if !metadata.is_dir() || metadata.uid() != uid || metadata.mode() & 0o022 != 0 {
+            return Err(Error::Transport(format!(
+                "fallback runtime directory must be owned, a real directory, and not writable by other users: {}",
+                directory.display()
+            )));
+        }
+        // Safe, owned 0755 directories from older versions can be tightened.
+        fs::set_permissions(directory, fs::Permissions::from_mode(0o700))?;
+    }
+    Ok(())
 }
 
 #[derive(Debug, Clone)]
@@ -293,10 +317,10 @@ pub struct UnixSocketServerTransport {
 impl UnixSocketServerTransport {
     pub async fn bind(mut options: UnixSocketServerOptions) -> Result<Self> {
         validate_service_id(&options.service_id)?;
-        let root = options
-            .runtime_dir
-            .take()
-            .unwrap_or_else(omochi_runtime_root);
+        let root = match options.runtime_dir.take() {
+            Some(root) => root,
+            None => prepare_omochi_runtime_root()?,
+        };
         let directory = root.join(&options.service_id);
         fs::create_dir_all(&root)?;
         fs::set_permissions(&root, fs::Permissions::from_mode(0o700))?;
@@ -744,3 +768,25 @@ mod outbound_tests;
 #[cfg(test)]
 #[path = "../tests/unix_server/inbound.rs"]
 mod inbound_tests;
+
+#[cfg(test)]
+mod fallback_tests {
+    use super::*;
+
+    #[test]
+    fn rejects_foreign_parent_without_traversing_or_chmodding_it() {
+        let uid = unsafe { libc::geteuid() };
+        let sandbox = std::env::temp_dir().join(format!("omochi-fb-owner-{}", std::process::id()));
+        fs::create_dir(&sandbox).unwrap();
+        let parent = sandbox.join("parent");
+        fs::create_dir(&parent).unwrap();
+        fs::set_permissions(&parent, fs::Permissions::from_mode(0o755)).unwrap();
+        let root = parent.join("omochi");
+        // Inject an expected owner different from the real directory owner; no
+        // privilege or mutation of another user's directory is needed.
+        assert!(prepare_fallback_runtime_root(&root, uid.wrapping_add(1)).is_err());
+        assert!(!root.exists());
+        assert_eq!(fs::metadata(&parent).unwrap().mode() & 0o777, 0o755);
+        fs::remove_dir_all(sandbox).unwrap();
+    }
+}

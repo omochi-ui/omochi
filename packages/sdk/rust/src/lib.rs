@@ -55,7 +55,8 @@ pub use snapshot::{A2uiSnapshot, SnapshotCursor};
 pub use transport::{CallbackTransport, StdioTransport, Transport};
 #[cfg(feature = "runtime")]
 pub use unix_server::{
-    UnixSocketServerOptions, UnixSocketServerTransport, omochi_runtime_root, validate_service_id,
+    UnixSocketServerOptions, UnixSocketServerTransport, omochi_runtime_root,
+    prepare_omochi_runtime_root, validate_service_id,
 };
 
 #[cfg(feature = "runtime")]

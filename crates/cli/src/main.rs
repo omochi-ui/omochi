@@ -267,9 +267,10 @@ async fn run(cli: Cli) -> Result<()> {
     }
     let root = config_root(cli.config_dir)?;
     let store = Store::open(&root)?;
-    let runtime = cli
-        .runtime_dir
-        .unwrap_or_else(omochi_ui::omochi_runtime_root);
+    let runtime = match cli.runtime_dir {
+        Some(root) => root,
+        None => omochi_ui::prepare_omochi_runtime_root()?,
+    };
     match cli.command {
         Command::Dev {
             host,

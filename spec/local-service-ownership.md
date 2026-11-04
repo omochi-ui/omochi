@@ -5,6 +5,17 @@ native utilities, use the same lifetime lock before publishing
 `<runtimeRoot>/<serviceId>/a2ui.sock` and `manifest.json`. The wire format and
 manifest stay unchanged. A service id has one owner across all publisher types.
 
+When `XDG_RUNTIME_DIR` is unset or empty, the default root is
+`<tempdir>/omochi-<effective uid>/omochi`. Before opening a root file, locking,
+listening or scanning, SDK publishers and native CLI/utilities create the per-user
+parent and root with mode 0700. Each existing directory must be a real directory
+(no symlink), owned by the effective user and not group/world writable. Only after
+validating the parent may a caller access the root. Safe owned 0755 directories
+from earlier versions are tightened to 0700. Writable or foreign-owned directories
+are rejected without repairing or following their contents: they may already
+contain attacker-planted entries. Explicit custom roots and nonempty
+`XDG_RUNTIME_DIR` retain their existing trust policy.
+
 1. Create the private runtime root, then open
    `<runtimeRoot>/.<serviceId>.lock~` (mode 0600, without truncating it). `~` is not
    legal in a service id, so this file cannot collide with a service directory.
@@ -60,6 +71,10 @@ leaves each publisher's real socket behind. Each SDK also has same-process
 lifecycle regressions, including controlled bind and cleanup boundaries. Native
 utility tests add same-process SDK contention, cancelled close, supervisor abort,
 and successor ownership after close, while checking that the lock inode survives
-cleanup. Rust and Python regressions retain a duplicated descriptor through owner
-shutdown to reproduce fork inheritance deterministically, and verify that the
+cleanup. The same subprocess fixtures redirect their default fallback into a
+disposable `TMPDIR` to verify safe creation, legacy modes, empty XDG configuration,
+and rejection of writable directories and parent/root symlinks before publication.
+Native CLI startup independently checks fallback preparation, and SDK unit checks
+inject foreign ownership without requiring privileges. Rust and Python regressions
+retain a duplicated descriptor through owner shutdown to reproduce fork inheritance deterministically, and verify that the
 successor is immediately available while that descriptor remains open.

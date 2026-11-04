@@ -151,7 +151,24 @@ def omochi_runtime_root() -> Path:
     configured = os.environ.get("XDG_RUNTIME_DIR")
     if configured:
         return Path(configured) / "omochi"
-    return Path(tempfile.gettempdir()) / f"omochi-{os.getuid()}" / "omochi"
+    return Path(tempfile.gettempdir()) / f"omochi-{os.geteuid()}" / "omochi"
+
+
+def _prepare_fallback_runtime_root(root: Path) -> None:
+    # Validate the parent before traversing into it. Never repair directories that
+    # other users could have populated with socket, manifest or lock-file entries.
+    for directory in (root.parent, root):
+        try:
+            directory.mkdir(mode=0o700)
+        except FileExistsError:
+            pass
+        metadata = directory.lstat()
+        if (not stat.S_ISDIR(metadata.st_mode)
+                or metadata.st_uid != os.geteuid()
+                or metadata.st_mode & 0o022):
+            raise PermissionError(f"fallback runtime directory must be owned, a real directory, and not writable by other users: {directory}")
+        # Older versions created safe, owned 0755 parents. Tighten those only.
+        directory.chmod(0o700)
 
 
 def _is_socket_in_use(path: Path) -> bool:
@@ -194,6 +211,7 @@ class UnixSocketServerTransport(Transport):
         self._name = name or self._service_id
         self._icon = icon
         self._root = Path(runtime_dir) if runtime_dir is not None else omochi_runtime_root()
+        self._fallback_root = runtime_dir is None and not os.environ.get("XDG_RUNTIME_DIR")
         self.capabilities = capabilities or set()
         self._snapshot = A2uiSnapshot()
         self._clients: set[_OutboundPeer] = set()
@@ -222,6 +240,8 @@ class UnixSocketServerTransport(Transport):
             # Keep non-Unix transports importable on platforms without fcntl.
             import fcntl
 
+            if self._fallback_root:
+                _prepare_fallback_runtime_root(self._root)
             directory = self._root / self._service_id
             self._root.mkdir(parents=True, exist_ok=True, mode=0o700)
             self._root.chmod(0o700)

@@ -1673,3 +1673,49 @@ async fn assert_remote_dashboard_web_url(web_url: Option<&str>, expected: &str) 
             .success()
     );
 }
+
+#[tokio::test]
+async fn default_runtime_secures_fallback_before_native_startup() {
+    use std::os::unix::fs::PermissionsExt;
+    for mode in [0o755, 0o770, 0o777] {
+        let sandbox = tempfile::tempdir().unwrap();
+        let parent = sandbox
+            .path()
+            .join(format!("omochi-{}", unsafe { libc::geteuid() }));
+        std::fs::create_dir(&parent).unwrap();
+        std::fs::set_permissions(&parent, std::fs::Permissions::from_mode(mode)).unwrap();
+        let output = Command::new(env!("CARGO_BIN_EXE_omochi-ui"))
+            .arg("--config-dir")
+            .arg(sandbox.path().join("config"))
+            .args(["gateway", "--remote", "--relay", "invalid"])
+            .env_remove("XDG_RUNTIME_DIR")
+            .env("TMPDIR", sandbox.path())
+            .output()
+            .await
+            .unwrap();
+        assert!(!output.status.success());
+        let error = String::from_utf8_lossy(&output.stderr);
+        if mode == 0o755 {
+            assert!(error.contains("Failed to parse relay URL"), "{error}");
+            assert_eq!(
+                std::fs::metadata(&parent).unwrap().permissions().mode() & 0o777,
+                0o700
+            );
+            assert_eq!(
+                std::fs::metadata(parent.join("omochi"))
+                    .unwrap()
+                    .permissions()
+                    .mode()
+                    & 0o777,
+                0o700
+            );
+        } else {
+            assert!(error.contains("fallback runtime directory"), "{error}");
+            assert!(!parent.join("omochi").exists());
+            assert_eq!(
+                std::fs::metadata(&parent).unwrap().permissions().mode() & 0o777,
+                mode
+            );
+        }
+    }
+}

@@ -1,4 +1,4 @@
-import { chmod, mkdir, rename, rm, writeFile } from "node:fs/promises";
+import { chmod, lstat, mkdir, rename, rm, writeFile } from "node:fs/promises";
 import { closeSync, openSync, rmSync, unlinkSync } from "node:fs";
 import { createConnection } from "node:net";
 import { tmpdir } from "node:os";
@@ -29,8 +29,28 @@ export function validateServiceId(serviceId: string): string {
 export function omochiRuntimeRoot(env: NodeJS.ProcessEnv = process.env): string {
   const configured = env.XDG_RUNTIME_DIR;
   if (configured) return path.join(configured, "omochi");
-  const uid = typeof process.getuid === "function" ? process.getuid() : 0;
+  const uid = typeof process.geteuid === "function" ? process.geteuid() : 0;
   return path.join(tmpdir(), `omochi-${uid}`, "omochi");
+}
+
+/** Prepare the predictable fallback before following any paths beneath it.
+ * Existing writable directories may contain attacker-planted entries; never repair them.
+ */
+export async function prepareFallbackRuntimeRoot(root: string): Promise<void> {
+  const uid = process.geteuid?.() ?? 0;
+  for (const directory of [path.dirname(root), root]) {
+    try {
+      await mkdir(directory, { mode: 0o700 });
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+    }
+    const metadata = await lstat(directory);
+    if (!metadata.isDirectory() || metadata.uid !== uid || (metadata.mode & 0o022) !== 0) {
+      throw new Error(`fallback runtime directory must be owned, a real directory, and not writable by other users: ${directory}`);
+    }
+    // An owned 0755 parent from an older publisher is safe to tighten.
+    await chmod(directory, 0o700);
+  }
 }
 
 /** A permanent inode outside the removable service directory serializes its entire lifetime.

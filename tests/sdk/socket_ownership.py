@@ -25,7 +25,7 @@ async def python_owner():
     from omochi_ui import UnixSocketServerTransport
     print("OWNER WAITING", flush=True)
     input()
-    transport = UnixSocketServerTransport("demo", runtime_dir=os.environ["OMOCHI_OWNER_ROOT"])
+    transport = UnixSocketServerTransport("demo", runtime_dir=os.environ.get("OMOCHI_OWNER_ROOT"))
     try:
         await transport.start()
     except Exception:
@@ -42,8 +42,13 @@ async def python_owner():
 
 
 class Owner:
-    def __init__(self, command, root):
-        self.process = subprocess.Popen(command, cwd=ROOT, env={**os.environ, "OMOCHI_OWNER_ROOT": str(root)},
+    def __init__(self, command, root, env=None):
+        environment = dict(os.environ if env is None else env)
+        if root is None:
+            environment.pop("OMOCHI_OWNER_ROOT", None)
+        else:
+            environment["OMOCHI_OWNER_ROOT"] = str(root)
+        self.process = subprocess.Popen(command, cwd=ROOT, env=environment,
                                         stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         self.buffer = b""
         assert self.read() == "WAITING"
@@ -84,6 +89,79 @@ def connectable(root):
         client.connect(str(root / "demo" / manifest["socket"]))
 
 
+def fallback_roots(commands):
+    # Every child resolves its real default, redirected into a disposable temp dir.
+    # Never touch the current user's actual /tmp/omochi-<uid> directory.
+    cases = ("fresh", "empty-xdg", "legacy-0755", "group-writable", "world-writable", "parent-symlink",
+             "parent-file", "root-symlink", "root-writable")
+    for name, command in commands.items():
+        for case in cases:
+            with tempfile.TemporaryDirectory(prefix="omochi-fb-") as temporary:
+                sandbox = Path(temporary)
+                parent = sandbox / f"omochi-{os.geteuid()}"
+                root = parent / "omochi"
+                target = sandbox / "outside"
+                target.mkdir(mode=0o755)
+                target.chmod(0o755)
+                (target / "marker").write_text("untouched")
+                if case == "parent-symlink":
+                    parent.symlink_to(target, target_is_directory=True)
+                elif case == "parent-file":
+                    parent.write_text("untouched")
+                elif case not in ("fresh", "empty-xdg"):
+                    parent.mkdir(mode=0o700)
+                    if case in ("group-writable", "world-writable", "legacy-0755"):
+                        parent.chmod({"group-writable": 0o770, "world-writable": 0o777,
+                                      "legacy-0755": 0o755}[case])
+                        root.mkdir(mode=0o700)
+                        if case == "legacy-0755":
+                            root.chmod(0o755)
+                        else:
+                            # No chmod or lock access inside an unsafe parent is allowed.
+                            (root / ".demo.lock~").symlink_to(target / "marker")
+                    elif case == "root-symlink":
+                        root.symlink_to(target, target_is_directory=True)
+                    elif case == "root-writable":
+                        root.mkdir(mode=0o700)
+                        root.chmod(0o777)
+                        (root / ".demo.lock~").symlink_to(target / "marker")
+                env = {**os.environ, "TMPDIR": temporary, "TMP": temporary, "TEMP": temporary}
+                env.pop("XDG_RUNTIME_DIR", None)
+                if case == "empty-xdg":
+                    env["XDG_RUNTIME_DIR"] = ""
+                owner = Owner(command, None, env)
+                try:
+                    owner.command()
+                    result = owner.read()
+                    if case in ("fresh", "empty-xdg", "legacy-0755"):
+                        assert result == "READY", (name, case, result)
+                        for directory in (parent, root, root / "demo"):
+                            metadata = directory.lstat()
+                            assert metadata.st_uid == os.geteuid()
+                            assert metadata.st_mode & 0o777 == 0o700, (name, case, directory)
+                        connectable(root)
+                        owner.command()
+                        assert owner.read() == "CLOSED"
+                        owner.command()
+                    else:
+                        assert result == "REJECTED", (name, case, result)
+                        assert not (root / "demo").exists()
+                        if case == "group-writable":
+                            assert parent.stat().st_mode & 0o777 == 0o770
+                        elif case == "world-writable":
+                            assert parent.stat().st_mode & 0o777 == 0o777
+                        elif case == "root-writable":
+                            assert root.stat().st_mode & 0o777 == 0o777
+                        if case in ("group-writable", "world-writable", "root-writable"):
+                            assert (root / ".demo.lock~").is_symlink()
+                    owner.finish()
+                    assert target.stat().st_mode & 0o777 == 0o755
+                    assert (target / "marker").read_text() == "untouched"
+                finally:
+                    owner.dispose()
+        print(f"{name}: default fallback parent and root validation passed")
+
+
 def main():
     built = subprocess.run(["cargo", "test", "--manifest-path", "packages/sdk/rust/Cargo.toml", "--test", "unix_server",
                             "--no-run", "--message-format=json"], cwd=ROOT, check=True, text=True, capture_output=True)
@@ -102,6 +180,7 @@ def main():
         "native-utility": [utility_executable, "--exact", "local::tests::ownership_process_fixture",
                            "--ignored", "--nocapture"],
     }
+    fallback_roots(commands)
     children = []
     try:
         with tempfile.TemporaryDirectory(prefix="omochi-owner-") as temporary:
