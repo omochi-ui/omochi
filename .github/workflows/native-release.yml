@@ -155,7 +155,7 @@ jobs:
           restore-keys: |
             bun-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('.bun-version') }}-
       - run: bun install --frozen-lockfile
-      - run: bun run --filter @omochi-ui/renderer build && bun run --filter @omochi-ui/hub-ui build
+      - run: bun run --filter @omochi-ui/core build && bun run --filter @omochi-ui/renderer build && bun run --filter @omochi-ui/hub-ui build
       - run: python3 scripts/package-crates.py
       - uses: actions/upload-artifact@v7
         with:
@@ -229,7 +229,7 @@ jobs:
           restore-keys: |
             bun-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('.bun-version') }}-
       - run: bun install --frozen-lockfile
-      - run: bun run --filter @omochi-ui/renderer build && bun run --filter @omochi-ui/hub-ui build
+      - run: bun run --filter @omochi-ui/core build && bun run --filter @omochi-ui/renderer build && bun run --filter @omochi-ui/hub-ui build
       - name: Reproduce verified crates before obtaining credentials
         run: |
           python3 scripts/package-crates.py
