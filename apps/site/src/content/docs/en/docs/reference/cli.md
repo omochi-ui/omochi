@@ -345,8 +345,9 @@ remaining layers generate the same Python type, that type is used (including
 combinations and empty `allOf` use `Any`. As with the other bindings, layers with
 `if` or `then` are skipped; if none remain, Python uses `Any`. These approximations
 also apply inside arrays and unions. They preserve JSON values but do not enforce
-every schema constraint. Unsupported layers, such as an empty schema `{}` or a
-boolean schema, still fail generation before any output is written.
+every schema constraint. An empty schema `{}` adds no constraints and uses
+`unknown` in TypeScript, `Any` in Python and `Value` in Rust. Unsupported layers,
+such as boolean schemas, still fail generation before any output is written.
 
 Rust fields use snake case and explicitly preserve the catalog's original JSON
 property names, including acronyms and underscores. Rust keywords use raw
