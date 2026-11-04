@@ -282,7 +282,19 @@ fn ty(schema: &Value, lang: Language) -> Result<String> {
         } else if lang == Rs {
             "Value".into()
         } else {
-            values.join(" & ")
+            // Intersections bind more tightly than unions, including unions
+            // expanded from enum schemas and symbolic references.
+            values
+                .iter()
+                .map(|value| {
+                    if value.contains('|') {
+                        format!("({value})")
+                    } else {
+                        value.clone()
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join(" & ")
         });
     }
     if let Some(union) = schema

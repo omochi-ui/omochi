@@ -4,14 +4,14 @@ import { copyFile, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { delimiter, join, resolve } from "node:path";
 
-for (const fixture of ["catalog-arrays", "catalog-enums", "catalog-property-names", "catalog-python-keys", "catalog-allof", "catalog-required"]) {
+for (const fixture of ["catalog-arrays", "catalog-enums", "catalog-property-names", "catalog-python-keys", "catalog-allof", "catalog-required", "catalog-intersections"]) {
   test(`native ${fixture} bindings preserve JSON types`, {
     skip: !process.env.OMOCHI_NATIVE_TEST,
   }, async (t) => {
     const root = await mkdtemp(join(tmpdir(), "omochi-catalog-"));
     t.after(() => rm(root, { recursive: true, force: true }));
     const workspace = resolve(import.meta.dir, "../..");
-    const pythonBindings = fixture !== "catalog-arrays" && fixture !== "catalog-required";
+    const pythonBindings = fixture !== "catalog-arrays" && fixture !== "catalog-required" && fixture !== "catalog-intersections";
     const profile = process.env.OMOCHI_NATIVE_PROFILE ?? "debug";
     if (profile !== "debug" && profile !== "release") throw new Error("invalid native profile");
     const generate = Bun.spawn([

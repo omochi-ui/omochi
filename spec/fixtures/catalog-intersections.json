@@ -1,0 +1,29 @@
+{
+  "catalogId": "urn:test:catalog-intersections",
+  "title": "Intersection Catalog",
+  "components": {
+    "Intersection": {
+      "type": "object",
+      "properties": {
+        "choices": {"allOf": [{"enum": ["a", "b"]}, {"enum": ["b", "c"]}]},
+        "any": {"allOf": [
+          {"anyOf": [{"type": "string"}, {"type": "number"}]},
+          {"enum": [1, 2]}
+        ]},
+        "one": {"allOf": [
+          {"oneOf": [{"type": "boolean"}, {"type": "number"}]},
+          {"enum": [true, 1]}
+        ]},
+        "children": {"allOf": [
+          {"$ref": "https://a2ui.org/specification/v0_9/common_types.json#/$defs/ChildList"},
+          {"type": "object", "properties": {"marker": {"type": "string"}}, "required": ["marker"]}
+        ]},
+        "nested": {"type": "array", "items": {"type": "array", "items": {"allOf": [
+          {"allOf": [{"enum": ["a", "b"]}, {"enum": ["b", "c"]}]},
+          {"anyOf": [{"type": "string"}, {"type": "boolean"}]}
+        ]}}}
+      },
+      "required": ["choices", "any", "one", "children", "nested"]
+    }
+  }
+}
