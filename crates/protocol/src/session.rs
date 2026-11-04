@@ -2,6 +2,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::BTreeMap;
+use std::io;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -40,6 +41,18 @@ pub enum ServiceFrame {
     SnapshotStart,
     Message { message: Value },
     SnapshotEnd,
+}
+
+/// SDK messages must leave room for the gateway's `ServiceFrame::Message` wrapper.
+pub fn validate_service_message_frame(message: &Value) -> io::Result<()> {
+    const ENVELOPE: usize = b"{\"kind\":\"message\",\"message\":}".len();
+    if serde_json::to_vec(message)?.len() + ENVELOPE > crate::MAX_FRAME_BYTES {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "service message exceeds framed transport limit",
+        ));
+    }
+    Ok(())
 }
 pub fn valid_node_id(id: &str) -> bool {
     id.len() == 64
@@ -122,6 +135,26 @@ impl Session {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn service_message_budget_matches_serialized_envelope_at_boundary() {
+        let mut message = serde_json::json!({"text":"\n\"\\日本語", "padding":""});
+        let empty_frame = ServiceFrame::Message {
+            message: message.clone(),
+        };
+        let padding = crate::MAX_FRAME_BYTES - serde_json::to_vec(&empty_frame).unwrap().len();
+        message["padding"] = Value::String("x".repeat(padding));
+        assert_eq!(
+            serde_json::to_vec(&ServiceFrame::Message {
+                message: message.clone()
+            })
+            .unwrap()
+            .len(),
+            crate::MAX_FRAME_BYTES
+        );
+        validate_service_message_frame(&message).unwrap();
+        message["padding"] = Value::String("x".repeat(padding + 1));
+        assert!(validate_service_message_frame(&message).is_err());
+    }
     #[test]
     fn reconnect_and_service_restart_require_a_fresh_snapshot() {
         let mut session = Session::default();

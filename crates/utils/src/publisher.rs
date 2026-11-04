@@ -2,6 +2,7 @@
 use crate::events::EventBuffer;
 use crate::local::LocalTransport;
 use anyhow::{Context, Result, bail};
+use omochi_protocol::session::validate_service_message_frame;
 use omochi_ui::{A2uiSnapshot, UnixSocketServerOptions};
 use serde_json::{Value, json};
 use std::path::PathBuf;
@@ -162,18 +163,17 @@ async fn publish(
     }
     for (index, message) in batch.iter().enumerate() {
         validate(message)
+            .and_then(|_| validate_service_message_frame(message).map_err(Into::into))
             .and_then(|_| candidate.apply(message).map_err(Into::into))
             .with_context(|| format!("messages[{index}]"))?;
-        if serde_json::to_vec(&candidate.messages())?.len() > 16 * 1024 * 1024 {
+        let replay = candidate.messages();
+        for message in &replay {
+            validate_service_message_frame(message)
+                .with_context(|| format!("messages[{index}] snapshot"))?;
+        }
+        if serde_json::to_vec(&replay)?.len() > 16 * 1024 * 1024 {
             bail!("snapshot exceeds 16 MiB");
         }
-    }
-    if candidate
-        .messages()
-        .iter()
-        .any(|message| message.to_string().len() > omochi_protocol::MAX_FRAME_BYTES)
-    {
-        bail!("snapshot message exceeds 4 MiB");
     }
     for message in &batch {
         transport.send(message).await?;
@@ -184,7 +184,143 @@ async fn publish(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use omochi_protocol::{MAX_FRAME_BYTES, session::ServiceFrame};
     use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+
+    fn data(value: Value) -> Value {
+        json!({"version":"v0.9","updateDataModel":{"surfaceId":"main","path":"/","value":value}})
+    }
+
+    fn patch(key: &str, value: &str) -> Value {
+        json!({"version":"v0.9","updateDataModel":{"surfaceId":"main","path":format!("/{key}"),"value":value}})
+    }
+
+    fn framed_size(message: &Value) -> usize {
+        serde_json::to_vec(&ServiceFrame::Message {
+            message: message.clone(),
+        })
+        .unwrap()
+        .len()
+    }
+
+    fn value_for_frame_size(size: usize, split: bool) -> Value {
+        let mut value = json!({"a":"","b":""});
+        let payload = size - framed_size(&data(value.clone()));
+        let first = if split { payload / 2 } else { payload };
+        value["a"] = Value::String("x".repeat(first));
+        value["b"] = Value::String("y".repeat(payload - first));
+        assert_eq!(framed_size(&data(value.clone())), size);
+        value
+    }
+
+    async fn seeded(value: Value) -> (tempfile::TempDir, Publisher, PublisherTask) {
+        use std::os::unix::fs::PermissionsExt;
+        let root = tempfile::tempdir().unwrap();
+        std::fs::set_permissions(root.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
+        let (publisher, task) =
+            Publisher::open(UnixSocketServerOptions::new("test").with_runtime_dir(root.path()))
+                .await
+                .unwrap();
+        publisher
+            .publish(vec![
+                json!({"version":"v0.9","createSurface":{"surfaceId":"main","catalogId":"test"}}),
+                data(value),
+            ])
+            .await
+            .unwrap();
+        (root, publisher, task)
+    }
+
+    async fn replay(
+        publisher: &Publisher,
+    ) -> (
+        Vec<Value>,
+        tokio::io::Lines<BufReader<tokio::net::UnixStream>>,
+    ) {
+        let socket = tokio::net::UnixStream::connect(&publisher.socket_path)
+            .await
+            .unwrap();
+        let mut lines = BufReader::new(socket).lines();
+        let mut messages = Vec::new();
+        for _ in 0..2 {
+            let line = tokio::time::timeout(std::time::Duration::from_secs(5), lines.next_line())
+                .await
+                .unwrap()
+                .unwrap()
+                .unwrap();
+            messages.push(serde_json::from_str(&line).unwrap());
+        }
+        (messages, lines)
+    }
+
+    async fn assert_rejected_unchanged(publisher: &Publisher, batch: Vec<Value>) {
+        let (before, mut existing) = replay(publisher).await;
+        let error = publisher.publish(batch).await.unwrap_err();
+        assert!(format!("{error:#}").contains("framed transport limit"));
+        assert!(
+            tokio::time::timeout(std::time::Duration::from_millis(100), existing.next_line())
+                .await
+                .is_err(),
+            "a rejected batch must send no messages to existing clients"
+        );
+        let (after, _) = replay(publisher).await;
+        assert_eq!(after, before, "rejected batches must preserve late replay");
+    }
+
+    #[tokio::test]
+    async fn accumulated_patches_reserve_the_gateway_frame_envelope() {
+        // The raw replay fits 4 MiB, but its gateway wrapper does not.
+        let value = value_for_frame_size(MAX_FRAME_BYTES + 19, true);
+        let (_root, publisher, task) = seeded(json!({"a":value["a"],"b":""})).await;
+        let update = patch("b", value["b"].as_str().unwrap());
+        validate_service_message_frame(&update).unwrap();
+        assert_rejected_unchanged(&publisher, vec![update]).await;
+        task.close().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn oversized_intermediate_replay_rejects_a_batch_even_if_it_finishes_small() {
+        let value = value_for_frame_size(MAX_FRAME_BYTES - 128, false);
+        let (_root, publisher, task) = seeded(value).await;
+        let grow = patch("b", &"y".repeat(256));
+        let shrink = patch("a", "");
+        validate_service_message_frame(&grow).unwrap();
+        validate_service_message_frame(&shrink).unwrap();
+        assert_rejected_unchanged(&publisher, vec![patch("b", "staged"), grow, shrink]).await;
+        task.close().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn oversized_outgoing_message_rejects_the_entire_batch() {
+        let (_root, publisher, task) = seeded(json!({"a":"original"})).await;
+        // Unknown fields are omitted from the materialized data replay, but still
+        // travel in the outgoing SDK message and need the same frame budget.
+        let mut oversized = patch("a", "small");
+        oversized["extra"] = json!("");
+        let padding = MAX_FRAME_BYTES + 1 - framed_size(&oversized);
+        oversized["extra"] = json!("x".repeat(padding));
+        assert!(serde_json::to_vec(&vec![oversized.clone()]).unwrap().len() <= MAX_FRAME_BYTES);
+        assert_rejected_unchanged(&publisher, vec![oversized]).await;
+        task.close().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn accepts_accumulated_replay_at_the_exact_framed_limit() {
+        let value = value_for_frame_size(MAX_FRAME_BYTES, true);
+        let (_root, publisher, task) = seeded(json!({"a":value["a"],"b":""})).await;
+        publisher
+            .publish(vec![patch("b", value["b"].as_str().unwrap())])
+            .await
+            .unwrap();
+        let (messages, _) = replay(&publisher).await;
+        assert_eq!(messages[1], data(value));
+        assert_eq!(framed_size(&messages[1]), MAX_FRAME_BYTES);
+        for message in messages {
+            validate_service_message_frame(&message).unwrap();
+        }
+        task.close().await.unwrap();
+    }
+
     #[tokio::test]
     async fn batches_are_atomic_and_late_clients_replay_current_state_and_actions() {
         let root = tempfile::tempdir().unwrap();

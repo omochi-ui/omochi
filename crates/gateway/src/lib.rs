@@ -10,7 +10,7 @@ use futures_util::{SinkExt, StreamExt};
 use omochi_local_discovery::{DiscoveredService, scan};
 use omochi_protocol::{
     MAX_FRAME_BYTES,
-    session::{Control, Service},
+    session::{Control, Service, validate_service_message_frame},
 };
 use omochi_ui::A2uiSnapshot;
 use serde_json::{Value, json};
@@ -357,13 +357,13 @@ where
                 if value.get("version").and_then(Value::as_str) != Some("v0.9") { bail!("invalid A2UI version") }
                 let mut state = running.state.lock().await;
                 omochi_protocol::data_path::validate(&value)?;
-                validate_service_frame(&value)?;
+                validate_service_message_frame(&value)?;
                 state.snapshot.apply(&value)?;
                 let replay = state.snapshot.messages();
                 if serde_json::to_vec(&replay)?.len() > MAX_SNAPSHOT_BYTES { bail!("snapshot exceeds limit") }
                 // Small patches can merge into a replay message larger than a wire frame.
                 // Retract the service before publishing state that cannot be replayed.
-                for message in &replay { validate_service_frame(message)?; }
+                for message in &replay { validate_service_message_frame(message)?; }
                 let _ = state.events.send(Arc::new(value));
             },
             command = commands.recv() => {
@@ -390,15 +390,6 @@ where
             }
         }
     }
-}
-
-fn validate_service_frame(message: &Value) -> Result<()> {
-    // ServiceFrame::Message wraps the original SDK message with these fixed bytes.
-    const ENVELOPE: usize = b"{\"kind\":\"message\",\"message\":}".len();
-    if serde_json::to_vec(message)?.len() + ENVELOPE > MAX_FRAME_BYTES {
-        bail!("service message exceeds framed transport limit")
-    }
-    Ok(())
 }
 
 #[cfg(test)]
@@ -823,14 +814,14 @@ mod tests {
             .unwrap();
         for key in ["a", "b"] {
             let patch = json!({"version":"v0.9","updateDataModel":{"surfaceId":"main","path":format!("/{key}"),"value":"x".repeat(MAX_FRAME_BYTES / 2)}});
-            validate_service_frame(&patch).unwrap();
+            validate_service_message_frame(&patch).unwrap();
             snapshot.apply(&patch).unwrap();
         }
         assert!(
             snapshot
                 .messages()
                 .iter()
-                .any(|message| validate_service_frame(message).is_err())
+                .any(|message| validate_service_message_frame(message).is_err())
         );
         let message = json!({"version":"v0.9"});
         let wrapped = omochi_protocol::session::ServiceFrame::Message {
