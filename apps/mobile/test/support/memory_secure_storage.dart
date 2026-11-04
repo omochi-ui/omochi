@@ -38,4 +38,17 @@ class MemorySecureStorage extends FlutterSecureStorage {
     this.value = value;
     if (failAfterWrite) throw StateError('write result unavailable');
   }
+
+  @override
+  Future<void> delete({
+    required String key,
+    AppleOptions? iOptions,
+    AndroidOptions? aOptions,
+    LinuxOptions? lOptions,
+    WebOptions? webOptions,
+    AppleOptions? mOptions,
+    WindowsOptions? wOptions,
+  }) async {
+    value = null;
+  }
 }

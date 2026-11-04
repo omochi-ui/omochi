@@ -13,6 +13,9 @@ class NativeHubStore {
            secure ??
            const FlutterSecureStorage(
              aOptions: AndroidOptions(resetOnError: false),
+             // The app does not share Keychain items. This keeps macOS builds
+             // usable with ad-hoc signing without a provisioning profile.
+             mOptions: MacOsOptions(usesDataProtectionKeychain: false),
            );
   final String namespace;
   final FlutterSecureStorage secure;

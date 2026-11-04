@@ -1,6 +1,6 @@
 # Omochi Mobile
 
-Android / iOS の Flutter アプリ。アプリ内の共通 Rust Hub から iroh で Gateway に接続し、GenUI で A2UI v0.9 の画面を表示・操作します。外部 HTTP Hub、LLM、API キーは不要です。
+Android / iOS / macOS / Windows / Linux の Flutter アプリ。アプリ内の共通 Rust Hub から iroh で Gateway に接続し、GenUI で A2UI v0.9 の画面を表示・操作します。外部 HTTP Hub、LLM、API キーは不要です。
 
 アプリの表示言語はシステムの優先言語に合わせて日本語・英語から選び、未対応の言語は英語で表示します。起動中の言語変更にも追従します。Gateway のアプリが送るコンテンツやステータス文字列は、そのまま表示します。
 
@@ -24,9 +24,46 @@ flutter build apk --release --target-platform android-arm64,android-x64
 # macOS
 flutter build ios --simulator --debug
 flutter build ios --debug --no-codesign
+# macOS desktop
+flutter run -d macos
+flutter build macos --release
 ```
 
+macOS は12.0以上。Xcode の build phase が `tool/build_macos_hub.sh` を呼び、ビルド対象の arm64 / x86_64 用 Rust Hub を `mobile.app/Contents/Frameworks` に同梱して署名します。開発用の ad-hoc 署名で起動でき、実行時に Rust や外部 Hub は不要です。debug / release とも sandbox の network client / server を有効にし、Bonjour の service type とローカルネットワーク利用説明を指定しています。
+
+macOS の identity は共有不要の login Keychain に保存します。Keychain Sharing や provisioning profile が不要になるよう、macOS だけ data protection keychain を使用しません。Mac の画面・login Keychain がロックされている SSH セッションでは `-25308` で保存できない場合があります。Keychain を解除してから起動してください。保存失敗時に鍵を再生成したり、平文ファイルへ保存したりはしません。
+
 Rust のビルドは大きくなります。`CARGO_TARGET_DIR` で空き容量のあるボリュームを指定できます。Flutter の `build` も必要ならアプリを終了して別ボリュームへ移し、元の場所にシンボリックリンクを置けます。マシン固有のパスをソースへ書き込まないでください。
+
+## Windows / Linux desktop
+
+```sh
+flutter config --enable-linux-desktop --enable-windows-desktop
+flutter pub get --enforce-lockfile
+# Linux host
+flutter run -d linux
+flutter build linux --release
+# Windows host
+flutter run -d windows
+flutter build windows --release
+```
+
+CMake が `tool/build_desktop_hub.dart` を実行し、同じ Rust Hub をビルド・同梱します。Windows は MSVC target、Linux は GNU target を使います。x64 / ARM64 の target を選択し、Debug は Cargo dev、Profile / Release は Cargo release です。検証と CI の対象は x64 で、ARM64 は未検証です。実行には bundle 全体が必要ですが、利用者の端末に Rust や Flutter は不要です。
+
+Windows の開発には Flutter が対応する Visual Studio の Desktop development with C++、Windows SDK、MSVC の ATL（`Microsoft.VisualStudio.Component.VC.ATL`）、Rust MSVC target が必要です。プラグインの symlink 作成には Windows の Developer Mode を有効にします。配布は `build/windows/x64/runner/Release` 全体を使用します。Hub DLL と再配布可能な release C runtime を同梱し、アプリは exe と同じディレクトリーの Hub DLL をロードします。identity は `flutter_secure_storage` のユーザー単位の DPAPI 保護ストレージへ保存します。二重起動は同じ identity を別 Hub で開かず、招待 URL を起動済みの同じ exe へ転送します。
+
+Linux の開発には clang、CMake、Ninja、pkg-config、GTK 3、libsecret、GStreamer と base plugins の開発パッケージが必要です。Debian / Ubuntu では `libgtk-3-dev libsecret-1-dev libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev` などを導入します。配布は `build/linux/x64/release/bundle` 全体を使用します。Hub は `lib/libomochi_native_bridge.so` からロードします。実行時にも GTK 3 / libsecret / GStreamer と、ロック解除された Secret Service 対応 keyring（GNOME Keyring、KWallet等）が必要です。保護ストレージが利用できない場合、平文へフォールバックしません。GApplication の単一インスタンスで招待 URL を起動済み画面へ届けます。GenUI が依存する動画プラグインには Linux 実装がなく、Linux の Video 再生は未対応です。
+
+bundle を永続的な場所に展開した後、ブラウザーからの `omochi://` 起動を使う場合だけ、同梱の登録スクリプトを実行します。既存の `omochi://` ハンドラーを、このユーザーの Omochi アプリに変更します。
+
+```sh
+# Linux: bundle 内で実行
+./register_linux.sh "$PWD"
+# Windows PowerShell: bundle 内で実行
+powershell -ExecutionPolicy Bypass -File .\register_windows.ps1 -BundlePath .
+```
+
+移動した場合は新しい場所で登録し直してください。招待の貼り付けはハンドラー登録なしでも使えます。Windows の受信 QUIC は Windows Firewall のアプリ別許可が必要な場合があります。Linux は Avahi が使える場合はそれを利用し、未導入なら Rust mDNS を使用します。
 
 ## 招待から操作まで
 
@@ -46,7 +83,7 @@ Apps からサービスの Surface を選んで操作できます。Connections 
 - 標準 Image / Markdown のラスター画像は共通 resolver を通ります。公開 HTTPS:443 と認可された Omochi resource を扱い、直接ネットワーク取得へフォールバックしません。
 - 上限は2 Gateway / 8サービス、画像4 M画素、保持画素32 MiB、読み込み同時2件。これは総 RSS の上限ではありません。
 
-GenUI の入れ子 action context、UTC 時刻、サービス別入力モデルを合わせる処理は実験から引き継ぎ、回帰テストを置いています。旧 Dart Hub、HTTP Hub モード、Lab、ダッシュボード編集は含みません。雛形に含まれる Web / desktop プロジェクトは対応対象ではありません。
+GenUI の入れ子 action context、UTC 時刻、サービス別入力モデルを合わせる処理は実験から引き継ぎ、回帰テストを置いています。旧 Dart Hub、HTTP Hub モード、Lab、ダッシュボード編集は含みません。Web の雛形は対応対象ではありません。
 
 native catalog の Column は表示領域を超える内容を縦にスクロールし、weight を持つ子と暗黙の flex には有限の高さを配分します。ネストと Modal 内も同じ実装です。Modal の bottom sheet は Surface のレンダラー世代が所有し、削除・置換・切断・forget・休止・画面離脱で、その Surface の route だけを閉じます。
 
@@ -58,17 +95,28 @@ Mac Bonjour と Linux の双方向アドレス解決は、vendored `swarm-discov
 
 ## 検証
 
-GitHub Actions の [Mobile workflow](../../.github/workflows/mobile.yml) は PR、main への push、手動実行で動きます（サイトのみの変更は除外）。Flutter 3.47.9 で解析と通常テストを実行し、Linux 用 Rust 共有ライブラリーをビルドして C ABI テストも実行します。成功後、Android ARM64 / x86_64 の release APK と iOS の release アーカイブをビルドし、APK と署名なし IPA を Actions の成果物として14日間保存します。
+GitHub Actions の [Mobile workflow](../../.github/workflows/mobile.yml) は PR、main への push、手動実行で動きます（サイトのみの変更は除外）。Flutter 3.47.9 で解析と通常テストを実行し、Linux 用 Rust 共有ライブラリーをビルドして C ABI テストも実行します。成功後、Android ARM64 / x86_64 の release APK、macOS release アプリ、Windows / Linux の release bundle、iOS の release アーカイブをビルドし、APK、macOS / Windows の ZIP、Linux の tar.gz、署名なし IPA を Actions の成果物として14日間保存します。macOS は開発用 ad-hoc 署名で、notarization は行いません。
 
 APK は現在の開発用デバッグ鍵で署名されます。iOS は署名情報を使わず、`flutter build ipa --no-codesign` が作成するアーカイブ内のアプリを `Payload/Runner.app` として IPA に梱包します。この IPA の実機インストール・配布には別途署名と provisioning が必要です。端末結合テストはこの workflow には含めません。
 
 ```sh
 flutter analyze
 flutter test
+# Windows / Linux: 実 OS 保存・Hub再起動・起動済みアプリへの招待URL転送
+flutter test integration_test/desktop_test.dart -d windows
+flutter test integration_test/desktop_test.dart -d linux
+# macOS: sandbox 内の Hub を OS Bonjour で Browse / Resolve し、Keychain 保存も確認
+flutter test integration_test/bonjour_test.dart -d macos
 # 任意: Linux で実 C ABI を使う保存故障テスト
 python3 tool/build_shared_hub.py --platform linux --output build/shared-hub/linux
 LD_LIBRARY_PATH="$PWD/build/shared-hub/linux" flutter test test/shared_hub_bridge_test.dart
 ```
+
+Windows / Linux の結合テストは通常アプリを終了してから実行します。`desktop_test.dart` はテスト専用 namespace に保存し、終了時に削除します。`--dart-define=DESKTOP_SCREENSHOT=/absolute/path/desktop.png` で、招待を取り消した後のアプリ画面を保存できます。
+
+Keychain がロックされた検証用 Mac で通信だけを切り分ける場合は、Bonjour の結合テストに `--dart-define=BONJOUR_MEMORY_STORE=true` を指定できます。これはテストの保存 fixture だけを置き換え、通常アプリには影響しません。`--dart-define=BONJOUR_HOLD_SECONDS=40` も指定すると、ログに出る公開 Hub ID を使い、別の LAN ホストから `cargo run --locked --manifest-path crates/Cargo.toml -p omochi-transport --example bonjour_probe -- --resolve <Hub ID>` でアプリの広告を解決できます。
+
+`--dart-define=BONJOUR_PEER_ID=<LAN peerの公開EndpointId>` を加えると、アプリ内の OS Bonjour からその peer を Browse / Resolve する方向も検証します。このフラグは検証対象を指定するだけで、本番アプリは常に共通 transport 層の OS Bonjour を使います。
 
 端末結合テストには、同じ checkout でビルドした `../../crates/target/debug/omochi-ui`、Bun dependencies、ビルド済み `@omochi-ui/core` が必要です。
 

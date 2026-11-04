@@ -72,6 +72,14 @@ endif()
 set(INSTALL_BUNDLE_DATA_DIR "${CMAKE_INSTALL_PREFIX}/data")
 set(INSTALL_BUNDLE_LIB_DIR "${CMAKE_INSTALL_PREFIX}")
 
+include("${CMAKE_CURRENT_SOURCE_DIR}/../tool/desktop_hub.cmake")
+# Include the redistributable release CRT required by Flutter and native plugins.
+set(CMAKE_INSTALL_SYSTEM_RUNTIME_DESTINATION "${INSTALL_BUNDLE_LIB_DIR}")
+set(CMAKE_INSTALL_SYSTEM_RUNTIME_COMPONENT Runtime)
+include(InstallRequiredSystemLibraries)
+install(PROGRAMS "${CMAKE_CURRENT_SOURCE_DIR}/../tool/register_windows.ps1"
+  DESTINATION "${CMAKE_INSTALL_PREFIX}" COMPONENT Runtime)
+
 install(TARGETS ${BINARY_NAME} RUNTIME DESTINATION "${CMAKE_INSTALL_PREFIX}"
   COMPONENT Runtime)
 

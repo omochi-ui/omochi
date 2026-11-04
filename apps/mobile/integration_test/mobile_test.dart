@@ -35,7 +35,11 @@ void main() {
         while (!check() && DateTime.now().isBefore(deadline)) {
           await tester.pump(const Duration(milliseconds: 100));
         }
-        expect(check(), true, reason: '$reason (${hub.status}: ${hub.error})');
+        expect(
+          check(),
+          true,
+          reason: '$reason (${hub.status}: ${hub.error}; ${hub.connections})',
+        );
         debugPrint('Verified: $reason');
       }
 

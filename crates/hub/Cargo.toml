@@ -20,7 +20,7 @@ serde.workspace = true
 serde_json.workspace = true
 omochi-protocol = { path = "../protocol", version = "=0.2.1" }
 omochi-transport = { path = "../transport", version = "=0.2.1", default-features = false }
-omochi-ui = { path = "../../packages/sdk/rust", version = "=0.1.2" }
+omochi-ui = { path = "../../packages/sdk/rust", version = "=0.1.2", default-features = false }
 tokio-util = { version = "0.7", features = ["rt", "codec"] }
 axum = { version = "0.8", features = ["ws"], optional = true }
 futures-util = { version = "0.3", features = ["sink"] }

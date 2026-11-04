@@ -114,6 +114,32 @@ packet 単位の回帰テスト5件を先に実行し、TXT 欠落、cache-flush
 
 Mac 側の広告は解決専用の架空 EndpointId で、対応する QUIC listener は起動していない。そのため今回の Mac／Linux probe はアドレス解決の検証であり、両方向 QUIC接続、認可、オフライン再接続を確認したという意味ではない。取得した link-local IPv6 の scope ID の保持／接続、分割 packet の集約、失効・ネットワーク変更・foreground 復帰もこの修正では扱っていない。iOS Bonjour のアプリ実装は未実装で、iOS実機ゲートも引き続き未達。multicast entitlement への切り替えは行っていない。
 
+## 2026-11-04 macOS アプリの対応と Bonjour 結合テスト
+
+macOS Runner に Rust Hub の build / bundle / signing を追加し、アプリ内の Frameworks から C ABI ライブラリーを読み込むようにした。debug / release に sandbox の network client / server を指定し、Bonjour の `_irohv1._udp`、ローカルネットワーク利用説明、招待 URL scheme を設定した。macOS の保存は共有不要の login Keychain を使い、provisioning profile が必要な Keychain Sharing は使用しない。通常アプリにメモリー保存へのフォールバックはない。
+
+MacBook の `/tmp/omochi-macos` にこの checkout の必要なソースを同期した。Flutter 3.47.9 / Dart 3.13.7、macOS 27.0.1、Xcode 27.0、Apple Silicon。iOS Simulator ではなく macOS の Flutter アプリを実行した。
+
+| 対象 | 結果 |
+| --- | --- |
+| `flutter analyze --no-pub` | 問題なし |
+| `flutter test --no-pub` | 通常テスト61件成功 |
+| `flutter build macos --debug --no-pub` | 成功。Rust Hub の同梱・署名を含む |
+| `flutter build macos --release --no-pub` | 成功。79.8 MB。アプリ本体と Hub dylib に arm64 / x86_64 を含むこと、`codesign --verify --deep --strict`、release dylib のロードと C ABI version 1 を確認 |
+| `flutter test --no-pub integration_test/bonjour_test.dart -d macos --dart-define=BONJOUR_MEMORY_STORE=true --dart-define=BONJOUR_HOLD_SECONDS=40` | 1件成功。sandbox 内の実 Rust Hub を起動し、OS の DNSServiceBrowse / Resolve で公開 EndpointId に一致する instance、host、port、LAN interface を取得。Hub を stop / start して同じ ID を保持 |
+| Linux の `bonjour_probe --resolve <アプリの公開Hub ID>` | 成功。同じ macOS アプリの広告から LAN IPv4、IPv6、port を取得。別プロセスの架空広告ではない |
+| 上の結合テストに `--dart-define=BONJOUR_PEER_ID=<Linux Gateway ID>` を指定 | 成功。新しくビルドした CLI の一時 offline Gateway を、Mac アプリ内の OS Bonjour で Browse / Resolve。Linux 側から同じアプリを解決する逆方向も同時に成功。Gateway に招待や登録済み trust は作らず、終了時に一時設定とプロセスを削除 |
+| 実 Keychain を使う Bonjour 結合テスト | 保存の preflight で `-25308: User interaction is not allowed`。OS の照会でも login Keychain は `unlocked=false`。解除後の再検証待ち |
+
+通信の切り分けに使った `BONJOUR_MEMORY_STORE=true` は結合テスト専用の fixture で、通常アプリの保存先を変更しない。メモリー保存のテスト成功を、実 Keychain の保存成功やプロセスを越えた identity 保持の証拠とは扱わない。ロック中の SSH セッションでは Flutter の foreground 操作も `open returned 1` だったが、アプリ内 Hub と OS DNS-SD のテストは動作した。
+
+最初の release ビルドでは Rust の proc-macro 読み込みが E0463 で失敗した。対象 dylib を直接 `dlopen` すると `mis-aligned LINKEDIT string pool` となり、debug の dylib は正常だった。macOS の build script に限って Cargo の release strip を無効にし、最終 dylib を Xcode の `strip -S -x` で処理してから署名するよう修正した。修正後の proc-macro と最終 release dylib はともにロードできた。他プラットフォームの release profile は変更していない。
+
+通常起動用の release アプリは MacBook の `/tmp/omochi-macos/apps/mobile/build/macos/Build/Products/Release/mobile.app` にある。開発用 ad-hoc 署名で、notarization はしていない。Intel はクロスビルドの確認であり、Intel 実機上の動作確認ではない。
+
+この節の検証時点では本番の探索・広告は Rust mDNS だった。後続の本番 adapter と検証結果は次節を参照。今回追加した OS DNS-SD の呼び出しは結合テスト側。iOS の OS Bonjour adapter を実装・検証したという意味ではない。iOS 実機、Mac↔Linux の QUIC 接続・登録済み role による認可・オフライン再接続はこの macOS テストでは未検証。
+
+
 ## 2026-11-04 本番 LAN discovery の OS 切り替え
 
 共通 `crates/transport/src/lan` に実装した。Gateway・Hub・mobile native bridge は同じ `bind()` から利用する。Apple は OS Bonjour、Windows は DNSapi の DNS-SD、Linux は既存 Avahi Server2 が system D-Bus 上にあれば Avahi、なければ Rust mDNS を選ぶ。Android は既存の Rust mDNS。Apple / Windows で raw multicast へ自動切り替えしない。SDK / A2UI schema / Gateway wire contract / peer role / trust の認可は変更していない。multicast entitlement も追加していない。
@@ -141,3 +167,39 @@ Windows の検証には VM 内の PowerShell と NAT 内だけの一時 HTTP 転
 Windows の GNU debug ビルドでは、依存 iroh 1.4.1 の不要な cdylib 生成が export ordinal 上限で失敗した。この VM 検証では一時 checkout の iroh / iroh-relay の出力を rlib のみにしてリンクした（Rust 実装や transport のソースは同一）。Windows CLI / 配布パッケージを完成・検証したという意味ではない。通常ソースの Windows transport は `--no-default-features` の cross check / Clippy を通している。
 
 iOS 実機はないため、ローカルネットワーク拒否→再許可、foreground 復帰、実際のアドレス変更、登録済み ID の古い保存アドレスからの再接続は未検証。Windows の IPv6-only LAN と実ネットワーク変更も未検証。Mac の login Keychain はロックされたままで、上の Flutter 通信テストはテスト専用メモリー保存を使用した。これらを実機の完了判定と扱わない。
+
+## 2026-11-04 Flutter Windows / Linux desktop
+
+Windows / Linux の Runner にプラグイン登録、Rust Hub の CMake ビルドと同梱、実行ファイルを基準とする FFI ロードを追加した。Windows は MSVC、Linux は GNU target を使う。既存の共通 transport により、Windows は DNS-SD、Linux は Avahi / Rust mDNS を選ぶ。A2UI schema、SDK API、wire contract、trust の認可は変更していない。
+
+Windows は名前付き mutex、Linux は GApplication で単一インスタンスを維持する。別起動からの URL は既存のアプリへ転送する。OS の URL handler 登録はユーザーが bundle 配置後に実行するスクリプトに分けた。ビルド時には handler を変更しない。
+
+| 検証 | 結果 |
+| --- | --- |
+| Linux x64 build | Flutter 3.47.9 / Dart 3.13.7、CachyOS。Debug / Release とも成功。Release bundle 約47 MiB、Hub `.so` とプラグインを同梱 |
+| Linux 実 OS 保存 | `desktop_test.dart` 成功。実際の Secret Service を使用し、Hub の suspend / resume、別 bridge / store からの再起動後も identity と保存文書が一致。テスト専用 namespace を削除 |
+| Linux warm URL | 同じ exe をテスト用の架空招待で別起動し、終了コード0、既存画面の招待ダイアログ、取消後に Gateway が未登録であることを確認 |
+| Linux display | Wayland と独立した X11 / Xvfb で上記テスト成功。ホストの Xwayland `:0` ではテスト窓が map されず待機したため、その環境での成功は主張しない。試験的な Runner の表示順変更は採用していない |
+| Linux 2 Gateway 結合 | `mobile_test.dart -d linux` 成功。実 Gateway / SDK への登録、2 Surface、操作と SDK 応答、suspend / resume、Hub 再起動での登録維持、サービス世代更新、Gateway 再接続、forget の分離を確認。`TEST_ONLINE=false`、loopback 上の専用 fixture を使用 |
+| Linux bundle 移動 | 完全な bundle をアーカイブして空白を含む別ディレクトリーへ展開し、作業ディレクトリー `/` から同梱 Hub `.so` のロードと ABI=1 を確認 |
+| Linux URL 登録 | 別 `XDG_DATA_HOME` と検証用 `xdg-mime` でシステムの既存 handler を変更せず検証。`desktop-file-validate` と実際の GLib `gio launch` で空白・引用符・`$`・backtick を含むパスから正確な URI 引数を確認。GLib が executable path 内の percent を扱えないため、そのパスと改行は明示的に拒否 |
+| Windows x64 build | Windows 11 build 26100、Flutter 3.47.9 / Dart 3.13.7、Visual Studio Build Tools 2022 17.14.44、Rust MSVC。Debug / Release とも成功。Release bundle 49,897,438 bytes、Hub DLL 15,731,712 bytes |
+| Windows 実 OS 保存・warm URL | `desktop_test.dart -d windows` 成功。実際の DPAPI を使用し、再起動での identity / 保存文書の一致、別起動からの招待転送と取消を確認。メモリー保存への置換なし |
+| Windows 2 Gateway 結合 | 現行コードからビルドした Linux Gateway を新しい一時データで起動し、`mobile_test.dart -d windows` 成功。2 Surface の操作・SDK 応答、休止復帰、登録保持、サービス世代更新、Gateway 再発見・再接続、forget の分離を確認。テスト本体36秒。`TEST_ONLINE=false`、libvirt NAT の IPv4 で実施 |
+| Windows bundle 移動 | 空白を含む別ディレクトリーへ完全な bundle をコピーし、作業ディレクトリー `C:\` から Release Hub DLL をロードして ABI=1。Flutter DLL、MSVC release CRT、AOT data、URL 登録スクリプトの同梱も確認 |
+| Windows URL 登録 | 実際の HKCU に一時登録し、空白を含む exe パスと `%1` の引用、`URL Protocol` を確認。既存 handler はバックアップし、検証後に元の状態へ戻した |
+| Flutter 回帰 | `flutter analyze --no-pub` 問題なし。通常テスト61件成功（実 C ABI のテストを含む） |
+
+[Linux アプリ画面](screenshots/linux-desktop.png) と [Windows アプリ画面](screenshots/windows-desktop.png) は実 OS 保存の結合テスト内から取得した。テスト専用の未登録画面であり、保存済みのユーザー情報は含まない。
+
+CI に Linux / Windows x64 の release build と完全な bundle の artifact 作成を追加した。CI 自体の実行結果ではなく、上記はローカルで実行した検証である。ARM64 の target mapping は用意したが未検証。Linux の Video は依存する GenUI の動画プラグインに Linux 実装がないため未対応。メディア再生全般、インストーラー、ストア配布の検証は含まない。
+
+Windows の実ビルドで、Hub が Snapshot だけを使用しているにもかかわらず SDK の Unix server / resource-file コードまでコンパイルされる問題を確認した。SDK の既定 `runtime` feature は従来の API を維持し、Hub は default features を無効にして同じ `A2uiSnapshot` / `SnapshotCursor` だけを利用するよう分離した。Hub 自身の Unix 接続経路も `cfg(unix)` に限定し、iroh の認証・role / trust の処理は維持した。SDK の通常テスト63件（doc-testを含む）、最小構成の既存 Snapshot fixture 3件、Windows target の最小 SDK check、Hub の51件（公開 HTTPS 1件 ignored）、native bridge 5件が成功。分離後の Linux desktop 結合テストと release build も再実行して成功した。
+
+Windows では `flutter_secure_storage_windows` のコンパイルに ATL が必要だったため、VS Build Tools に `Microsoft.VisualStudio.Component.VC.ATL` を導入した。今回の MSVC ビルドは依存 crate のソースや crate-type を変更せず成功しており、前節の GNU probe の回避策は使っていない。VM の Flutter SDK 初期化は Dart 側の HTTPS 検証に失敗したため、ホストで取得・検証した公式 SDK と公開 pub cache で実行した。TLS 検証の無効化はしていない。SDK bootstrap の一時的な offline 指定は検証後に戻した。
+
+最初の Windows 結合テストは変更前の Linux Gateway バイナリを使っており、初回接続と操作は成功したが、再起動後の再発見が90秒以内に完了しなかった。新しい Windows DNS-SD probe もその Gateway のアドレスを取得できず、Linux の browse 結果でも VM 側 virbr0 にその広告がなかった。現行 Gateway に切り替えた直後の Linux の試行でも再接続 timeout が1回発生した。その後の同じ現行構成の Linux 再実行では5秒で全項目が成功し、さらに新しい一時 identity の fixture で Windows の全項目が成功した。切り替え直後の失敗原因を広告キャッシュだけと断定していない。旧 Gateway からの広告切り替え直後の再接続については追加の原因調査が残る。
+
+追加で実施した Hub の最小構成 Clippy は、既存の `scoped.rs` / `stdio.rs` の collapsible_if と `lib.rs` の too_many_arguments の3件で失敗した。これらの処理は今回変更しておらず、全 workspace が Clippy 無警告とは主張しない。Hub / bridge / SDK の上記テストは成功している。
+
+ローカルの配布ファイルは `build/omochi-linux-x64.tar.gz`（約19 MiB）と `build/omochi-windows-x64.zip`（20,348,049 bytes）。Windows ZIP は VM から転送後の SHA-256 一致を確認した。Windows VM は検証前と同じ停止状態へ戻した。SSH / RDP は有効化しておらず、この Flutter 検証で firewall rule は追加していない。

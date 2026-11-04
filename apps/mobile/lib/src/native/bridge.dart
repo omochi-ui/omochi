@@ -25,9 +25,17 @@ class SharedHubBridge {
             ? DynamicLibrary.process()
             : DynamicLibrary.open(
                 Platform.isWindows
-                    ? 'omochi_native_bridge.dll'
+                    ? File(Platform.resolvedExecutable).parent.uri
+                          .resolve('omochi_native_bridge.dll')
+                          .toFilePath()
                     : Platform.isMacOS
-                    ? 'libomochi_native_bridge.dylib'
+                    ? File(Platform.resolvedExecutable).parent.parent.uri
+                          .resolve('Frameworks/libomochi_native_bridge.dylib')
+                          .toFilePath()
+                    : Platform.isLinux
+                    ? File(Platform.resolvedExecutable).parent.uri
+                          .resolve('lib/libomochi_native_bridge.so')
+                          .toFilePath()
                     : 'libomochi_native_bridge.so',
               ));
     final version = lib.lookupFunction<Uint32 Function(), int Function()>(

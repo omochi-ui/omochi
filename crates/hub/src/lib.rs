@@ -41,9 +41,10 @@ use omochi_protocol::{
 };
 use omochi_ui::A2uiSnapshot;
 use serde_json::{Value, json};
+#[cfg(unix)]
+use std::path::PathBuf;
 use std::{
     collections::{BTreeMap, BTreeSet},
-    path::PathBuf,
     pin::Pin,
     sync::{
         Arc,
@@ -51,9 +52,10 @@ use std::{
     },
     time::Duration,
 };
+#[cfg(unix)]
+use tokio::net::UnixStream;
 use tokio::{
     io::{AsyncRead, AsyncWrite},
-    net::UnixStream,
     sync::{Mutex, broadcast},
     task::JoinHandle,
 };
@@ -63,12 +65,14 @@ type Reader = Pin<Box<dyn AsyncRead + Send>>;
 type Writer = Pin<Box<dyn AsyncWrite + Send>>;
 #[derive(Clone)]
 pub enum Connection {
+    #[cfg(unix)]
     Unix(PathBuf),
     Iroh(omochi_transport::EndpointConnection),
 }
 impl Connection {
     async fn open(&self, header: OpenStream) -> Result<(Reader, Writer)> {
         let (reader, mut writer): (Reader, Writer) = match self {
+            #[cfg(unix)]
             Self::Unix(path) => {
                 let socket = UnixStream::connect(path).await?;
                 let (reader, writer) = socket.into_split();
@@ -321,6 +325,7 @@ impl Hub {
     pub(crate) async fn allow_gateway(&self, id: &str) {
         self.state.lock().await.blocked_gateways.remove(id);
     }
+    #[cfg(unix)]
     pub fn attach_unix(&self, path: PathBuf) -> JoinHandle<()> {
         let hub = self.clone();
         tokio::spawn(async move {
@@ -376,6 +381,7 @@ impl Hub {
                 }
                 Some(actual)
             }
+            #[cfg(unix)]
             Connection::Unix(_) => expected,
         };
         let epoch = self.epoch.fetch_add(1, Ordering::Relaxed);

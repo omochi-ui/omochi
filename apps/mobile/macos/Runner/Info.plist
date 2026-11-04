@@ -28,5 +28,20 @@
 	<string>MainMenu</string>
 	<key>NSPrincipalClass</key>
 	<string>NSApplication</string>
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_irohv1._udp</string>
+	</array>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Connect to your Omochi gateways on the local network.</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>fyi.omochi.mobile.invitation</string>
+			<key>CFBundleURLSchemes</key>
+			<array><string>omochi</string></array>
+		</dict>
+	</array>
 </dict>
 </plist>
