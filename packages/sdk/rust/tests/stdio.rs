@@ -7,6 +7,7 @@ use std::time::{Duration, Instant};
 
 const CHILD_MODE: &str = "OMOCHI_STDIO_TEST_MODE";
 const DEADLINE: Duration = Duration::from_secs(5);
+const FRAME_LIMIT: usize = 4 * 1024 * 1024;
 
 // Run the actual transport in a fresh process: stdin is process-global, and a
 // regression can hang Tokio's destructor even after its async work has finished.
@@ -22,7 +23,7 @@ fn stdio_child_process() {
     runtime.block_on(async {
         if matches!(
             mode.as_str(),
-            "action_error" | "json_error" | "resources" | "runtime_eof"
+            "action_error" | "json_error" | "resources" | "runtime_eof" | "runtime_frame_error"
         ) {
             let mut app = App::new(());
             app.action::<(), _, _>("fail", |_, _| async {
@@ -41,13 +42,16 @@ fn stdio_child_process() {
                     matches!(result, Err(Error::Protocol(ref error)) if error == "handler failed")
                 ),
                 "json_error" => assert!(matches!(result, Err(Error::Json(_)))),
+                "runtime_frame_error" => assert!(
+                    matches!(result, Err(Error::Io(ref error)) if error.kind() == std::io::ErrorKind::InvalidData && error.to_string().contains("4 MiB"))
+                ),
                 "runtime_eof" => result.unwrap(),
                 _ => panic!("pending action unexpectedly completed: {result:?}"),
             }
             assert!(app_runtime.is_closed());
         } else {
             let mut transport = StdioTransport::new();
-            if mode != "direct_stop" {
+            if mode != "direct_stop" && mode != "direct_frame_error" {
                 transport.set_resources(ResourceRegistry::default());
             }
             transport.send(&json!({"ready": true})).await.unwrap();
@@ -55,6 +59,14 @@ fn stdio_child_process() {
                 for expected in 0..3 {
                     assert_eq!(transport.receive().await.unwrap(), Some(json!(expected)));
                 }
+                assert_eq!(transport.receive().await.unwrap(), None);
+            } else if matches!(mode.as_str(), "frame_error" | "direct_frame_error") {
+                assert!(
+                    matches!(transport.receive().await, Err(Error::Io(ref error)) if error.kind() == std::io::ErrorKind::InvalidData && error.to_string().contains("4 MiB"))
+                );
+                assert_eq!(transport.receive().await.unwrap(), None);
+            } else if mode == "boundary" {
+                assert_eq!(transport.receive().await.unwrap(), Some(json!("雪🦀")));
                 assert_eq!(transport.receive().await.unwrap(), None);
             } else if mode == "io_error" {
                 // Invalid UTF-8 makes std::io's line reader return InvalidData.
@@ -197,6 +209,51 @@ fn runtime_exits_normally_after_stdin_eof() {
 fn stdin_read_error_is_delivered_before_eof() {
     let mut child = StdioChild::spawn("io_error");
     child.write(b"\xff\n");
+    child.assert_exit();
+}
+
+#[test]
+fn oversized_stdio_frames_fail_before_newline_or_eof() {
+    for mode in ["frame_error", "direct_frame_error", "runtime_frame_error"] {
+        let mut child = StdioChild::spawn(mode);
+        // Keep stdin open and omit LF: receiving must fail at the first excess byte.
+        child.write(&vec![b' '; FRAME_LIMIT + 1]);
+        child.assert_exit();
+        assert!(child.input.is_some());
+    }
+}
+
+#[test]
+fn stdio_frame_limit_counts_raw_bytes_including_carriage_return() {
+    for suffix in [b"\n".as_slice(), b"\r\n".as_slice(), b"".as_slice()] {
+        let mut child = StdioChild::spawn("boundary");
+        let message = serde_json::to_vec(&json!("雪🦀")).unwrap();
+        let carriage_return = usize::from(suffix.starts_with(b"\r"));
+        let mut frame = vec![b' '; FRAME_LIMIT - message.len() - carriage_return];
+        frame.extend_from_slice(&message);
+        frame.extend_from_slice(suffix);
+        // Split within the UTF-8 sequence and ensure buffering spans pipe reads.
+        let split = FRAME_LIMIT - carriage_return - 4;
+        child.write(&frame[..split]);
+        child.write(&frame[split..]);
+        drop(child.input.take());
+        child.assert_exit();
+    }
+    for tail in ["\r", "雪"] {
+        let mut child = StdioChild::spawn("frame_error");
+        let mut frame = vec![b' '; FRAME_LIMIT];
+        frame.extend_from_slice(tail.as_bytes());
+        child.write(&frame);
+        child.assert_exit();
+    }
+}
+
+#[test]
+fn oversized_completed_whitespace_is_not_ignored() {
+    let mut child = StdioChild::spawn("frame_error");
+    let mut frame = vec![b' '; FRAME_LIMIT + 1];
+    frame.extend_from_slice(b"\n\"stop\"\n");
+    child.write(&frame);
     child.assert_exit();
 }
 

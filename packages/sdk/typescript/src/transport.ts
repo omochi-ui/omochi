@@ -1,6 +1,6 @@
 import { type ResourceFrame } from "@omochi-ui/core";
 import { ResourceRegistry, resourceMessages } from "./resources.js";
-import { createInterface } from "node:readline";
+import { JsonlFramer } from "./node/jsonl-framer.js";
 import type { A2UIMessage, JsonObject } from "./types.js";
 
 export interface Transport extends AsyncIterable<JsonObject> {
@@ -27,12 +27,65 @@ export class StdioTransport implements Transport {
   }
 
   async *[Symbol.asyncIterator](): AsyncIterator<JsonObject> {
-    const lines = createInterface({ input: process.stdin, crlfDelay: Infinity });
-    const close = () => lines.close();
+    const stdin = process.stdin;
+    let chunk: Uint8Array | undefined;
+    let ended = this.stop.signal.aborted;
+    let failure: unknown;
+    let wake: (() => void) | undefined;
+    let line: string | undefined;
+    const framer = new JsonlFramer(value => { line = value; return true; });
+    const takeLine = (): string | undefined => { const value = line; line = undefined; return value; };
+    const data = (value: Buffer | string) => {
+      // Retain at most one input chunk. Parse and yield its lines individually so
+      // resourceMessages remains responsible for bounded action admission.
+      stdin.pause();
+      chunk = typeof value === "string" ? Buffer.from(value) : value;
+      wake?.();
+    };
+    const end = () => { ended = true; wake?.(); };
+    const error = (value: Error) => { failure = value; end(); };
+    const close = () => {
+      stdin.off("data", data);
+      stdin.off("end", end);
+      stdin.off("error", error);
+      stdin.pause();
+      chunk = undefined;
+      framer.close();
+      end();
+    };
     this.stop.signal.addEventListener("abort", close, { once: true });
-    const input = (async function* () { for await (const line of lines) if (line.trim()) yield JSON.parse(line) as JsonObject; })();
+    if (!ended) {
+      stdin.on("end", end);
+      stdin.on("error", error);
+      stdin.on("data", data);
+    }
+    const input = (async function* () {
+      try {
+        while (!ended || chunk) {
+          if (!chunk) {
+            await new Promise<void>(resolve => { wake = resolve; });
+            continue;
+          }
+          const current = chunk;
+          chunk = undefined;
+          for (let offset = 0; offset < current.length;) {
+            const newline = current.indexOf(0x0a, offset);
+            const next = newline === -1 ? current.length : newline + 1;
+            if (!framer.write(current.subarray(offset, next))) return;
+            const value = takeLine();
+            if (value?.trim()) yield JSON.parse(value) as JsonObject;
+            offset = next;
+          }
+          if (!ended) stdin.resume();
+        }
+        if (failure) throw failure;
+        framer.end();
+        const value = takeLine();
+        if (value?.trim()) yield JSON.parse(value) as JsonObject;
+      } finally { close(); }
+    })();
     try { yield* resourceMessages(input, frame => this.send(frame), this.resources, this.stop.signal); }
-    finally { this.stop.signal.removeEventListener("abort", close); lines.close(); }
+    finally { this.stop.signal.removeEventListener("abort", close); close(); }
   }
   stopReceiving(): void { this.stop.abort(); }
 }

@@ -1,6 +1,6 @@
 use crate::resources::{ResourceRegistry, is_resource};
 use std::collections::BTreeSet;
-use std::io::BufRead;
+use std::io::{BufRead, Read};
 use std::sync::Arc;
 use tokio::sync::{Mutex, mpsc};
 
@@ -9,6 +9,31 @@ use serde_json::Value;
 use tokio::io::{AsyncWriteExt, Stdout};
 
 use crate::Result;
+
+// Count raw bytes before UTF-8 decoding, excluding only the terminating LF.
+const MAX_STDIN_FRAME_BYTES: usize = 4 * 1024 * 1024;
+
+fn read_stdin_line(reader: &mut impl BufRead) -> std::io::Result<Option<String>> {
+    let mut line = Vec::new();
+    let read = reader
+        .take((MAX_STDIN_FRAME_BYTES + 1) as u64)
+        .read_until(b'\n', &mut line)?;
+    if read == 0 {
+        return Ok(None);
+    }
+    if line.last() == Some(&b'\n') {
+        line.pop();
+    }
+    if line.len() > MAX_STDIN_FRAME_BYTES {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "stdin frame exceeds 4 MiB limit",
+        ));
+    }
+    String::from_utf8(line)
+        .map(Some)
+        .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error))
+}
 
 #[async_trait]
 pub trait Transport: Send {
@@ -70,10 +95,9 @@ impl StdioTransport {
                 let stdin = std::io::stdin();
                 let mut stdin = stdin.lock();
                 while !input.is_closed() {
-                    let mut line = String::new();
-                    let result = match stdin.read_line(&mut line) {
-                        Ok(0) => break,
-                        Ok(_) => Ok(line),
+                    let result = match read_stdin_line(&mut stdin) {
+                        Ok(None) => break,
+                        Ok(Some(line)) => Ok(line),
                         Err(error) => Err(error),
                     };
                     let failed = result.is_err();
