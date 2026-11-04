@@ -223,6 +223,7 @@ async fn hub_remote_identity_failure_exits_without_signal_and_allows_restart() {
 
 #[tokio::test]
 async fn hub_defers_remote_startup_until_gateway_registration_and_reports_failure() {
+    let _ = rustls::crypto::ring::default_provider().install_default();
     let root = tempfile::tempdir().unwrap();
     let mut child = command(root.path())
         .args(["hub", "--relay", "not-a-url", "--port", "0"])
