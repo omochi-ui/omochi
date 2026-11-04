@@ -1,6 +1,10 @@
 //! LAN discovery is an address source, never authorization. Native backends own
 //! their registrations and callbacks for exactly one endpoint lifetime.
-use anyhow::Result;
+//!
+//! Attach [`LanDiscovery`] to an Iroh endpoint's address lookup. Callers must
+//! bind IPv4 and IPv6 to the same UDP port and pass that local port explicitly
+//! for native DNS-SD advertisement; NAT-mapped ports must not be used.
+use anyhow::{Result, ensure};
 use iroh::{
     EndpointId,
     address_lookup::{AddressLookup, EndpointData, Error, Item},
@@ -20,6 +24,8 @@ mod avahi;
 mod records;
 #[cfg(windows)]
 mod windows;
+#[cfg(any(windows, test))]
+mod windows_cache;
 
 use records::{Advertisement, ServiceRecords};
 pub(crate) const MAX_SERVICES: usize = 64;
@@ -29,8 +35,10 @@ pub(crate) const MAX_TARGETS: usize = 8;
 pub(crate) const SERVICE: &str = "_irohv1._udp";
 
 #[derive(Debug)]
+/// Publishes and resolves Iroh endpoints using the platform's mDNS backend.
 pub struct LanDiscovery {
     backend: Backend,
+    local_port: u16,
 }
 
 #[derive(Debug)]
@@ -41,7 +49,16 @@ enum Backend {
 }
 
 impl LanDiscovery {
-    pub async fn new(id: EndpointId) -> Result<Self> {
+    /// Select and start the backend for one endpoint. Dropping the lookup
+    /// cancels discovery and withdraws its advertisement.
+    ///
+    /// `local_port` must be the nonzero UDP port actually bound by the endpoint
+    /// for both IP families, not a NAT-mapped port from its published addresses.
+    pub async fn new(id: EndpointId, local_port: u16) -> Result<Self> {
+        ensure!(
+            local_port != 0,
+            "LAN advertisement requires a bound UDP port"
+        );
         let (events, receiver) = mpsc::channel(256);
         let (publication, updates) = watch::channel(None);
         let cancel = CancellationToken::new();
@@ -49,6 +66,7 @@ impl LanDiscovery {
         {
             apple::start(id, events, updates, cancel.clone())?;
             Ok(Self {
+                local_port,
                 backend: Backend::System(SystemLookup::new(
                     "bonjour",
                     id,
@@ -62,6 +80,7 @@ impl LanDiscovery {
         {
             windows::start(id, events, updates, cancel.clone())?;
             Ok(Self {
+                local_port,
                 backend: Backend::System(SystemLookup::new(
                     "windows-dns-sd",
                     id,
@@ -75,6 +94,7 @@ impl LanDiscovery {
         if let Some(connection) = avahi::connect().await {
             avahi::start(id, connection, events, updates, cancel.clone());
             return Ok(Self {
+                local_port,
                 backend: Backend::System(SystemLookup::new(
                     "avahi",
                     id,
@@ -86,10 +106,12 @@ impl LanDiscovery {
         }
         #[cfg(not(any(target_vendor = "apple", windows)))]
         Ok(Self {
+            local_port,
             backend: Backend::Rust(MdnsAddressLookup::builder().build(id)?),
         })
     }
 
+    /// The selected backend's diagnostic name.
     pub fn backend(&self) -> &'static str {
         match &self.backend {
             Backend::System(system) => system.0.name,
@@ -106,7 +128,7 @@ impl AddressLookup for LanDiscovery {
                 system
                     .0
                     .publication
-                    .send_replace(Advertisement::from_data(data));
+                    .send_replace(Advertisement::from_data(data, self.local_port));
             }
             #[cfg(not(any(target_vendor = "apple", windows)))]
             Backend::Rust(rust) => rust.publish(data),
@@ -118,7 +140,12 @@ impl AddressLookup for LanDiscovery {
             Backend::Rust(rust) => rust.resolve(id),
             Backend::System(system) => {
                 let (sender, receiver) = mpsc::channel(4);
-                if system.0.queries.try_send((id, sender.clone())).is_err() {
+                if system
+                    .0
+                    .queries
+                    .try_send(Query::Resolve(id, sender.clone()))
+                    .is_err()
+                {
                     let _ = sender.try_send(Err(error(
                         system.0.name,
                         "LAN lookup queue is full or stopped",
@@ -133,10 +160,16 @@ impl AddressLookup for LanDiscovery {
 #[derive(Clone, Debug)]
 struct SystemLookup(Arc<Inner>);
 #[derive(Debug)]
+enum Query {
+    Resolve(EndpointId, mpsc::Sender<Result<Item, Error>>),
+    #[cfg(test)]
+    Barrier(tokio::sync::oneshot::Sender<()>),
+}
+#[derive(Debug)]
 struct Inner {
     name: &'static str,
     publication: watch::Sender<Option<Advertisement>>,
-    queries: mpsc::Sender<(EndpointId, mpsc::Sender<Result<Item, Error>>)>,
+    queries: mpsc::Sender<Query>,
     cancel: CancellationToken,
 }
 impl Drop for Inner {
@@ -178,8 +211,7 @@ impl SystemLookup {
         mut events: mpsc::Receiver<Event>,
         cancel: CancellationToken,
     ) -> Self {
-        let (queries, mut requests) =
-            mpsc::channel::<(EndpointId, mpsc::Sender<Result<Item, Error>>)>(128);
+        let (queries, mut requests) = mpsc::channel(128);
         let stop = cancel.clone();
         tokio::spawn(async move {
             let mut services = HashMap::<u64, ServiceRecords>::new();
@@ -195,7 +227,15 @@ impl SystemLookup {
                     biased;
                     _ = stop.cancelled() => break,
                     query = requests.recv() => {
-                        let Some((id, sender)) = query else { break };
+                        let (id, sender) = match query {
+                            Some(Query::Resolve(id, sender)) => (id, sender),
+                            #[cfg(test)]
+                            Some(Query::Barrier(sender)) => {
+                                let _ = sender.send(());
+                                continue;
+                            }
+                            None => break,
+                        };
                         if let Some(message) = &failure {
                             let _ = sender.try_send(Err(error(name, message.clone())));
                         } else if pending.len() < 128 {
@@ -260,10 +300,86 @@ impl SystemLookup {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use n0_future::StreamExt;
+    use n0_future::{StreamExt, future::now_or_never};
+
+    #[tokio::test]
+    async fn native_advertisement_survives_nat_port_mapping() {
+        use std::{collections::BTreeSet, net::SocketAddr};
+
+        let own = iroh::SecretKey::from_bytes(&[3; 32]).public();
+        let (_events, receiver) = mpsc::channel(256);
+        let (publication, updates) = watch::channel(None);
+        let lookup = LanDiscovery {
+            local_port: 43123,
+            backend: Backend::System(SystemLookup::new(
+                "test",
+                own,
+                publication,
+                receiver,
+                CancellationToken::new(),
+            )),
+        };
+        let local: SocketAddr = "192.168.1.20:43123".parse().unwrap();
+        let ipv6: SocketAddr = "[2001:db8::20]:43123".parse().unwrap();
+        let mapped: SocketAddr = "203.0.113.20:54321".parse().unwrap();
+        let remapped: SocketAddr = "203.0.113.20:54322".parse().unwrap();
+        // Include a mapping in the very first publication: retaining the last
+        // single-port advertisement would not fix startup behind NAT.
+        for (revision, addresses) in [
+            vec![local, mapped],
+            vec![local],
+            vec![local, ipv6, remapped],
+            vec![ipv6, mapped],
+            vec![mapped],
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let mut data = EndpointData::from(addresses.into_iter().collect::<BTreeSet<_>>());
+            let relay = format!("https://relay-{revision}.example.invalid/");
+            let user = format!("revision-{revision}");
+            data.add_relay_url(relay.parse().unwrap());
+            data.set_user_data(Some(user.parse().unwrap()));
+            lookup.publish(&data);
+            let update = updates.borrow();
+            let advertisement = update
+                .as_ref()
+                .expect("NAT must not withdraw LAN advertising");
+            assert_eq!(
+                advertisement.port, 43123,
+                "NAT must not replace the LAN port"
+            );
+            assert!(
+                advertisement
+                    .txt
+                    .contains(&format!("relay={relay}").into_bytes())
+            );
+            assert!(
+                advertisement
+                    .txt
+                    .contains(&format!("user-data={user}").into_bytes())
+            );
+        }
+        lookup.publish(&EndpointData::from(BTreeSet::<SocketAddr>::new()));
+        assert!(
+            updates.borrow().is_none(),
+            "empty IP data must still withdraw advertising"
+        );
+    }
+
     async fn flush(events: &mpsc::Sender<Event>) {
         let (send, receive) = tokio::sync::oneshot::channel();
         events.send(Event::Barrier(send)).await.unwrap();
+        receive.await.unwrap();
+    }
+    async fn flush_queries(lookup: &LanDiscovery) {
+        let system = match &lookup.backend {
+            Backend::System(system) => system,
+            #[cfg(not(any(target_vendor = "apple", windows)))]
+            Backend::Rust(_) => panic!("expected the test system backend"),
+        };
+        let (send, receive) = tokio::sync::oneshot::channel();
+        system.0.queries.send(Query::Barrier(send)).await.unwrap();
         receive.await.unwrap();
     }
     async fn record(
@@ -292,6 +408,7 @@ mod tests {
         let (publication, _updates) = watch::channel(None);
         let cancel = CancellationToken::new();
         let lookup = LanDiscovery {
+            local_port: 43123,
             backend: Backend::System(SystemLookup::new(
                 "test",
                 own,
@@ -330,10 +447,13 @@ mod tests {
         record(&events, 2, full, 33, srv).await;
         flush(&events).await;
         let mut fresh = lookup.resolve(peer).unwrap();
+        // The event barrier drains old-generation records; the query barrier
+        // then confirms this lookup has checked that state. An immediate poll
+        // now tests the absence of a result, rather than scheduler speed.
+        flush_queries(&lookup).await;
         assert!(
-            tokio::time::timeout(Duration::from_millis(30), fresh.next())
-                .await
-                .is_err()
+            now_or_never(fresh.next()).is_none(),
+            "an old-generation record must not satisfy the new lookup"
         );
         record(&events, 2, "host.local.".into(), 1, vec![192, 0, 2, 3]).await;
         let item = fresh.next().await.unwrap().unwrap().to_endpoint_addr();

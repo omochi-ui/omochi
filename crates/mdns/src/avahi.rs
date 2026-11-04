@@ -65,11 +65,20 @@ pub(super) fn start(
                 && let Err(error) =
                     run(own, conn, &events, &mut updates, &cancel, &mut serial).await
             {
-                let _ = events.send(Event::Reset(format!("Avahi: {error}"))).await;
+                tokio::select! {
+                    biased;
+                    _ = cancel.cancelled() => break,
+                    result = events.send(Event::Reset(format!("Avahi: {error}"))) => {
+                        if result.is_err() { break }
+                    }
+                }
             }
             tokio::select! {
                 _ = cancel.cancelled() => break,
-                _ = tokio::time::sleep(Duration::from_secs(2)) => connection = connect().await,
+                next = async {
+                    tokio::time::sleep(Duration::from_secs(2)).await;
+                    connect().await
+                } => connection = next,
             }
         }
     });
@@ -98,18 +107,19 @@ async fn run(
     let group = object(&connection, path, "org.freedesktop.Avahi.EntryGroup").await?;
     let mut group_signals = group.receive_all_signals().await?;
     let _: () = browser.call("Start", &()).await?;
-    events.send(Event::Ready).await?;
     let stop = cancel.child_token();
     let mut jobs = JoinSet::new();
     let mut services = HashMap::<(i32, i32, String), (u64, CancellationToken)>::new();
     let mut published: Option<Advertisement> = None;
     // Mark the initial value changed even if publish preceded backend startup.
     updates.mark_changed();
-    let result: Result<()> = async {
+    // Race the entire event loop, including awaits inside select branches.
+    // Otherwise backpressure or a D-Bus call can prevent shutdown cleanup.
+    let processing = async {
+        events.send(Event::Ready).await?;
         loop {
             tokio::select! {
                 biased;
-                _ = cancel.cancelled() => return Ok(()),
                 owner = owners.next() => {
                     let owner = owner.context("D-Bus owner stream ended")?;
                     if owner.args()?.name.as_str() == DEST { bail!("Avahi daemon owner changed") }
@@ -154,7 +164,12 @@ async fn run(
                 done = jobs.join_next(), if !jobs.is_empty() => { done.unwrap()??; }
             }
         }
-    }.await;
+    };
+    let result: Result<()> = tokio::select! {
+        biased;
+        _ = cancel.cancelled() => Ok(()),
+        result = processing => result,
+    };
     stop.cancel();
     // Complete Free calls while the D-Bus connection is still alive. On an
     // abrupt runtime shutdown, connection loss withdraws the whole client.
@@ -234,25 +249,146 @@ async fn record(
         )
         .await?;
     let browser = object(&connection, path, "org.freedesktop.Avahi.RecordBrowser").await?;
-    let mut signals = browser.receive_all_signals().await?;
+    let signals = browser.receive_all_signals().await?;
     let _: () = browser.call("Start", &()).await?;
-    let result: Result<()> = async {
-        loop { tokio::select! {
-            biased;
-            _ = cancel.cancelled() => return Ok(()),
-            signal = signals.next() => {
-                let signal=signal.context("Avahi record stream ended")?;
-                let member=signal.header().member().map(|s| s.as_str().to_owned());
-                if member.as_deref()==Some("Failure") { bail!("Avahi record query failed") }
-                if !matches!(member.as_deref(),Some("ItemNew"|"ItemRemove")) { continue }
-                let (_,_,name,class,kind,data,_): (i32,i32,String,u16,u16,Vec<u8>,u32)=signal.body().deserialize()?;
-                if class!=1 || data.len()>1024 { continue }
-                let add=member.as_deref()==Some("ItemNew");
-                if kind==33 && add && let Some((host,_))=records::srv(&data) { targets.send(host).await?; }
-                events.send(Event::Record {token,name,kind,data,add}).await?;
-            }
-        }}
-    }.await;
+    let result = receive_records(signals, &events, token, &targets, &cancel).await;
     let _: Result<(), _> = browser.call("Free", &()).await;
     result
+}
+
+async fn receive_records(
+    mut signals: impl n0_future::Stream<Item = zbus::Message> + Unpin,
+    events: &mpsc::Sender<Event>,
+    token: u64,
+    targets: &mpsc::Sender<String>,
+    cancel: &CancellationToken,
+) -> Result<()> {
+    // Keep cancellation active while either bounded channel is full. The
+    // caller still frees the record browser after this future is cancelled.
+    let processing = async {
+        loop {
+            let signal = signals.next().await;
+            let signal = signal.context("Avahi record stream ended")?;
+            let member = signal.header().member().map(|s| s.as_str().to_owned());
+            if member.as_deref() == Some("Failure") {
+                bail!("Avahi record query failed")
+            }
+            if !matches!(member.as_deref(), Some("ItemNew" | "ItemRemove")) {
+                continue;
+            }
+            let (_, _, name, class, kind, data, _): (i32, i32, String, u16, u16, Vec<u8>, u32) =
+                signal.body().deserialize()?;
+            if class != 1 || data.len() > 1024 {
+                continue;
+            }
+            let add = member.as_deref() == Some("ItemNew");
+            if kind == 33
+                && add
+                && let Some((host, _)) = records::srv(&data)
+            {
+                targets.send(host).await?;
+            }
+            events
+                .send(Event::Record {
+                    token,
+                    name,
+                    kind,
+                    data,
+                    add,
+                })
+                .await?;
+        }
+    };
+    tokio::select! {
+        biased;
+        _ = cancel.cancelled() => Ok(()),
+        result = processing => result,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use n0_future::{future::now_or_never, stream};
+
+    fn srv_signal() -> zbus::Message {
+        let data = vec![
+            0u8, 0, 0, 0, 0x12, 0x34, 4, b'h', b'o', b's', b't', 5, b'l', b'o', b'c', b'a', b'l', 0,
+        ];
+        zbus::Message::signal("/record", "org.freedesktop.Avahi.RecordBrowser", "ItemNew")
+            .unwrap()
+            .build(&(
+                1i32,
+                0i32,
+                "peer._irohv1._udp.local.",
+                1u16,
+                33u16,
+                data,
+                0u32,
+            ))
+            .unwrap()
+    }
+
+    async fn cancel_blocked_record(full_targets: bool) {
+        let (events, mut received) = mpsc::channel(1);
+        let (targets, mut discovered) = mpsc::channel(1);
+        if full_targets {
+            targets.send("occupied.local.".into()).await.unwrap();
+        } else {
+            events.send(Event::Ready).await.unwrap();
+        }
+        let cancel = CancellationToken::new();
+        let signals = stream::iter([srv_signal()]).chain(stream::pending());
+        let worker = receive_records(signals, &events, 7, &targets, &cancel);
+        tokio::pin!(worker);
+        // Poll through signal decoding until the bounded send is blocked. Keep
+        // the receiver alive but undrained, as during service/backend shutdown.
+        assert!(now_or_never(worker.as_mut()).is_none());
+        cancel.cancel();
+        now_or_never(worker.as_mut())
+            .expect("cancelled Avahi record worker is still blocked on a full queue")
+            .unwrap();
+        if full_targets {
+            assert_eq!(discovered.try_recv().unwrap(), "occupied.local.");
+            assert!(received.try_recv().is_err());
+        } else {
+            assert_eq!(discovered.try_recv().unwrap(), "host.local.");
+            assert!(matches!(received.try_recv().unwrap(), Event::Ready));
+        }
+        assert!(discovered.try_recv().is_err());
+        assert!(received.try_recv().is_err());
+    }
+
+    #[tokio::test]
+    async fn cancellation_interrupts_full_target_queue() {
+        cancel_blocked_record(true).await;
+    }
+
+    #[tokio::test]
+    async fn cancellation_interrupts_full_event_queue() {
+        cancel_blocked_record(false).await;
+    }
+
+    #[tokio::test]
+    async fn records_forward_before_cancellation() {
+        let (events, mut received) = mpsc::channel(1);
+        let (targets, mut discovered) = mpsc::channel(1);
+        let cancel = CancellationToken::new();
+        let signals = stream::iter([srv_signal()]).chain(stream::pending());
+        let worker = receive_records(signals, &events, 7, &targets, &cancel);
+        tokio::pin!(worker);
+        assert!(now_or_never(worker.as_mut()).is_none());
+        assert_eq!(discovered.try_recv().unwrap(), "host.local.");
+        assert!(matches!(
+            received.try_recv().unwrap(),
+            Event::Record {
+                token: 7,
+                kind: 33,
+                add: true,
+                ..
+            }
+        ));
+        cancel.cancel();
+        now_or_never(worker.as_mut()).unwrap().unwrap();
+    }
 }

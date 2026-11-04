@@ -5,7 +5,7 @@ import path from 'node:path';
 import { npmStageId, root, run } from './release.ts';
 
 const registry = 'https://registry.npmjs.org/';
-export const crateNames = ['omochi-protocol', 'omochi-transport', 'omochi-local-discovery', 'omochi-gateway', 'omochi-hub', 'omochi-cli', 'omochi-utils'];
+export const crateNames = ['omochi-protocol', 'omochi-mdns', 'omochi-transport', 'omochi-local-discovery', 'omochi-gateway', 'omochi-hub', 'omochi-cli', 'omochi-utils'];
 type Artifact = { name: string; version: string; filename: string; integrity?: string; sha256?: string };
 type Bundle = { version: string; packages: Artifact[]; complete?: boolean; verified?: boolean; commit?: string; dirty?: boolean };
 const targets = await Bun.file(path.join(root, 'scripts/native/targets.json')).json() as { os: string; cpu: string }[];

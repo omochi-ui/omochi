@@ -1,0 +1,29 @@
+[package]
+name = "omochi-mdns"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Cross-platform mDNS advertisement and discovery for Omochi Iroh endpoints"
+readme = "README.md"
+include = ["src/**", "Cargo.toml", "Cargo.lock", "README.md", "LICENSE"]
+
+[dependencies]
+iroh.workspace = true
+tokio.workspace = true
+anyhow.workspace = true
+iroh-mdns-address-lookup = "=0.6.1"
+data-encoding = "2"
+n0-future = "0.3.2"
+tokio-stream = "0.1"
+tokio-util = { version = "0.7", features = ["rt"] }
+tracing = "0.1"
+
+[target.'cfg(target_vendor = "apple")'.dependencies]
+libc = "0.2"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+zbus = { version = "5", default-features = false, features = ["tokio"] }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_NetworkManagement_Dns", "Win32_NetworkManagement_IpHelper", "Win32_NetworkManagement_Ndis", "Win32_Networking_WinSock", "Win32_System_SystemInformation"] }

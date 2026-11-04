@@ -2,7 +2,8 @@
 //! Usage: lan_probe serve [seconds] | lan_probe connect <EndpointId>
 //! Add --rust to exercise interoperability with swarm-discovery 0.6.5.
 use anyhow::{Context, Result, ensure};
-use omochi_transport::{EndpointId, SecretKey, lan::LanDiscovery};
+use omochi_mdns::LanDiscovery;
+use omochi_transport::{EndpointId, SecretKey};
 use serde_json::json;
 use std::time::Duration;
 const ALPN: &[u8] = b"omochi/lan-probe/1";
@@ -32,7 +33,7 @@ async fn main() -> Result<()> {
         endpoint.set_alpns(vec![ALPN.to_vec()]);
         endpoint
     };
-    let diagnostic = LanDiscovery::new(endpoint.id()).await?;
+    let diagnostic = LanDiscovery::new(endpoint.id(), endpoint.bound_sockets()[0].port()).await?;
     tokio::time::sleep(Duration::from_secs(1)).await;
     println!(
         "{}",
@@ -96,35 +97,40 @@ async fn lifecycle() -> Result<()> {
     use std::{collections::BTreeSet, net::SocketAddr};
     let own = SecretKey::from_bytes(&rand::random()).public();
     let peer = SecretKey::from_bytes(&rand::random()).public();
-    let listener = LanDiscovery::new(own).await?;
-    let mut publisher = Some(LanDiscovery::new(peer).await?);
+    let listener = LanDiscovery::new(own, 43122).await?;
     let data =
         |port| EndpointData::from(BTreeSet::from([SocketAddr::from(([192, 0, 2, 1], port))]));
     for port in [43123u16, 43124, 43125] {
-        if publisher.is_none() {
-            publisher = Some(LanDiscovery::new(peer).await?);
-        }
-        publisher.as_ref().unwrap().publish(&data(port));
-        let mut stream = listener.resolve(peer).context("lookup unavailable")?;
-        tokio::time::timeout(Duration::from_secs(10), async {
-            while let Some(item) = stream.next().await {
-                let item = item?;
-                let addr = item.to_endpoint_addr();
-                if addr.ip_addrs().next().is_some() && addr.ip_addrs().all(|a| a.port() == port) {
-                    println!(
-                        "{}",
-                        json!({"event":"updated","backend":listener.backend(),"port":port})
-                    );
-                    return Ok::<_, anyhow::Error>(());
+        let publisher = LanDiscovery::new(peer, port).await?;
+        // A changed relay TXT field exercises an update without rebinding the
+        // endpoint's local socket or changing the native SRV port.
+        for revision in 0..2 {
+            let relay: iroh::RelayUrl =
+                format!("https://relay-{port}-{revision}.example.invalid/").parse()?;
+            let mut updated = data(port);
+            updated.add_relay_url(relay.clone());
+            publisher.publish(&updated);
+            let mut stream = listener.resolve(peer).context("lookup unavailable")?;
+            tokio::time::timeout(Duration::from_secs(10), async {
+                while let Some(item) = stream.next().await {
+                    let item = item?;
+                    let addr = item.to_endpoint_addr();
+                    if addr.ip_addrs().next().is_some()
+                        && addr.ip_addrs().all(|a| a.port() == port)
+                        && addr.relay_urls().any(|url| url == &relay)
+                    {
+                        println!(
+                            "{}",
+                            json!({"event":"updated","backend":listener.backend(),"port":port})
+                        );
+                        return Ok::<_, anyhow::Error>(());
+                    }
                 }
-            }
-            anyhow::bail!("updated advertisement missing")
-        })
-        .await??;
-        if port == 43123 {
-            continue;
+                anyhow::bail!("updated advertisement missing")
+            })
+            .await??;
         }
-        drop(publisher.take());
+        drop(publisher);
         tokio::time::sleep(Duration::from_secs(2)).await;
         let mut absent = listener.resolve(peer).context("lookup unavailable")?;
         ensure!(
@@ -138,7 +144,6 @@ async fn lifecycle() -> Result<()> {
             json!({"event":"withdrawn","backend":listener.backend(),"port":port})
         );
     }
-    drop(publisher);
     drop(listener);
     tokio::time::sleep(Duration::from_millis(300)).await;
     Ok(())

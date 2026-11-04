@@ -14,13 +14,11 @@ pub(crate) struct Advertisement {
     pub txt: Vec<Vec<u8>>,
 }
 impl Advertisement {
-    pub fn from_data(data: &EndpointData) -> Option<Self> {
-        let ports: BTreeSet<_> = data.ip_addrs().map(|a| a.port()).collect();
-        // DNS-SD services have one SRV port. bind() uses the same UDP port for
-        // IPv4/IPv6; never silently discard a second port supplied by a caller.
-        if ports.len() != 1 {
-            return None;
-        }
+    pub fn from_data(data: &EndpointData, local_port: u16) -> Option<Self> {
+        // Published addresses include NAT-mapped ports. Native DNS-SD supplies
+        // the host's interface addresses, so pair them with the bound UDP port.
+        // An empty IP set still withdraws an advertisement.
+        data.ip_addrs().next()?;
         let mut txt = Vec::new();
         if let Some(relay) = data.relay_urls().next() {
             let value = format!("relay={relay}");
@@ -35,7 +33,7 @@ impl Advertisement {
             }
         }
         Some(Self {
-            port: *ports.first()?,
+            port: local_port,
             txt,
         })
     }
@@ -269,19 +267,21 @@ mod tests {
         assert!(item("test", id, std::iter::empty()).is_none());
     }
     #[test]
-    fn advertisement_requires_a_common_port_and_encodes_empty_txt() {
+    fn advertisement_uses_bound_port_and_encodes_empty_txt() {
         let data = EndpointData::from(BTreeSet::from([
             "192.0.2.1:1234".parse::<SocketAddr>().unwrap(),
             "[2001:db8::1]:1234".parse().unwrap(),
         ]));
-        let ad = Advertisement::from_data(&data).unwrap();
+        let ad = Advertisement::from_data(&data, 1234).unwrap();
         assert_eq!(ad.port, 1234);
         assert_eq!(ad.wire_txt(), [0]);
         let data = EndpointData::from(BTreeSet::from([
             "192.0.2.1:1234".parse::<SocketAddr>().unwrap(),
             "[2001:db8::1]:4321".parse().unwrap(),
         ]));
-        assert!(Advertisement::from_data(&data).is_none());
+        assert_eq!(Advertisement::from_data(&data, 1234).unwrap().port, 1234);
+        let empty = EndpointData::from(BTreeSet::<SocketAddr>::new());
+        assert!(Advertisement::from_data(&empty, 1234).is_none());
     }
     #[test]
     fn endpoint_and_wire_names_are_strict_and_bounded() {

@@ -97,4 +97,4 @@ jobs:
           workspaces: crates -> target
       # The desktop CLI/store still target Unix; compile the shared transport
       # without that feature. Real multicast/VM checks remain opt-in.
-      - run: cargo clippy --manifest-path crates/Cargo.toml --locked -p omochi-transport --no-default-features --lib -- -D warnings
+      - run: cargo clippy --manifest-path crates/Cargo.toml --locked -p omochi-mdns -p omochi-transport --no-default-features --lib -- -D warnings
