@@ -4,7 +4,7 @@ import { MessageProcessor } from '../../../packages/renderer/node_modules/@a2ui/
 import { SurfaceView } from '../../../packages/renderer/src/surface';
 import { resourceCatalog } from '../../../packages/renderer/src/resources';
 import { BrowserImages } from '../../../packages/renderer/src/images';
-import { createActionMessage } from '../../../packages/renderer/src/client';
+import { createActionMessage, prepareRendererMessage } from '../../../packages/renderer/src/messages';
 import '../../../packages/renderer/src/styles.css';
 import { parseInvitation } from '../../browser-dashboard/hub/src/bootstrap';
 import init, { BrowserEndpoint } from './pkg/omochi_browser_hub_spike.js';
@@ -159,7 +159,7 @@ class Client {
         message[kind].surfaceId = this.surface;
         if (kind === 'createSurface') this.images.update(this.surface, `epoch-${epoch}`);
         if (kind === 'deleteSurface') this.images.update(this.surface, null);
-        this.processor.processMessages([message]); evidence.frames++;
+        this.processor.processMessages([prepareRendererMessage(message)]); evidence.frames++;
         root.render(<SurfaceView session={{ processor: this.processor, surfaceIds: [this.surface], status: 'Connected', error: null, images: this.images, endpoint: 'ws://unused.invalid', resourceBaseUrl: undefined }} surfaceId={this.surface} />);
       }
     } catch (error) { if (epoch === this.epoch && !evidence.connectionClosed) fail(error); }
