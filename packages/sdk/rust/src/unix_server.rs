@@ -304,6 +304,10 @@ impl Transport for UnixSocketServerTransport {
     async fn receive(&mut self) -> Result<Option<Value>> {
         Ok(self.inbound.recv().await)
     }
+
+    async fn stop_receiving(&mut self) {
+        self.close().await;
+    }
 }
 
 struct ServiceLock(fs::File);

@@ -17,6 +17,10 @@ pub trait Transport: Send {
     }
     async fn send(&mut self, message: &Value) -> Result<()>;
     async fn receive(&mut self) -> Result<Option<Value>>;
+    /// Stop and await receive-side work, including listeners and discovery publication.
+    /// Called during runtime shutdown; implementations should be idempotent and may
+    /// retain sending support for subsequent direct runtime calls.
+    async fn stop_receiving(&mut self) {}
 }
 
 pub struct StdioTransport {
@@ -108,14 +112,22 @@ impl Transport for StdioTransport {
         if let Some(receiver) = &mut self.inbound {
             return receiver.recv().await.unwrap_or(Ok(None));
         }
+        let Some(lines) = &mut self.lines else {
+            return Ok(None);
+        };
         loop {
-            let Some(line) = self.lines.as_mut().unwrap().next_line().await? else {
+            let Some(line) = lines.next_line().await? else {
                 return Ok(None);
             };
             if !line.trim().is_empty() {
                 return Ok(Some(serde_json::from_str(&line)?));
             }
         }
+    }
+    async fn stop_receiving(&mut self) {
+        self.inbound.take();
+        self.lines.take();
+        stop_reader(&mut self.reader).await;
     }
 }
 
@@ -193,10 +205,26 @@ where
     async fn receive(&mut self) -> Result<Option<Value>> {
         if let Some(receiver) = &mut self.inbound {
             receiver.recv().await.unwrap_or(Ok(None))
+        } else if let Some(receive) = &mut self.receiver {
+            receive().await
         } else {
-            self.receiver.as_mut().unwrap()().await
+            Ok(None)
         }
     }
+    async fn stop_receiving(&mut self) {
+        self.inbound.take();
+        self.receiver.take();
+        stop_reader(&mut self.reader).await;
+    }
+}
+
+async fn stop_reader(reader: &mut Option<tokio::task::JoinHandle<()>>) {
+    if let Some(task) = reader.as_mut() {
+        task.abort();
+        // Retain the handle until joined so cancellation of shutdown can be resumed.
+        let _ = task.await;
+    }
+    reader.take();
 }
 impl<S, R> Drop for CallbackTransport<S, R> {
     fn drop(&mut self) {

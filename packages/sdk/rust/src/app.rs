@@ -203,6 +203,9 @@ impl<S: Send + Sync + 'static> Runtime<S> {
     pub async fn shutdown(&mut self) {
         self.tasks.abort_all();
         while self.tasks.join_next().await.is_some() {}
+        if let Some(transport) = &mut self.transport {
+            transport.stop_receiving().await;
+        }
         self.resources.close();
         self.closed = true;
     }

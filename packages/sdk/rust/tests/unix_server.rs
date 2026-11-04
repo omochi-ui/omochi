@@ -2,7 +2,9 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use omochi_ui::{ResourceRegistry, Transport, UnixSocketServerOptions, UnixSocketServerTransport};
+use omochi_ui::{
+    App, Error, ResourceRegistry, Transport, UnixSocketServerOptions, UnixSocketServerTransport,
+};
 use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::UnixStream;
@@ -94,6 +96,76 @@ async fn assert_eof(client: &mut BufReader<UnixStream>) {
         0,
         "shutdown must not leave a resource response or replay writer alive: {line}"
     );
+}
+
+#[tokio::test]
+async fn runtime_render_failure_releases_service_while_runtime_is_retained() {
+    let root = TempRoot::new("runtime-fail");
+    let options = UnixSocketServerOptions::new("demo").with_runtime_dir(root.path());
+    let transport = UnixSocketServerTransport::bind(options.clone())
+        .await
+        .unwrap();
+    let socket = transport.socket_path().to_owned();
+    let directory = transport.directory().to_owned();
+    let mut app = App::new(());
+    app.surface("main", |_, _| {
+        Err(Error::Declaration("initial render failed".into()))
+    })
+    .unwrap();
+    let mut runtime = app.build();
+    assert!(matches!(
+        runtime.start_with(transport).await,
+        Err(Error::Declaration(message)) if message == "initial render failed"
+    ));
+    assert!(runtime.is_closed());
+    assert!(!directory.join("manifest.json").exists());
+    assert!(!socket.exists());
+    assert!(UnixStream::connect(&socket).await.is_err());
+
+    // The retained Runtime must neither hold the ownership lock nor later remove
+    // a successor's publication when shutdown or Drop runs again.
+    let mut successor = UnixSocketServerTransport::bind(options).await.unwrap();
+    runtime.shutdown().await;
+    drop(runtime);
+    assert!(directory.join("manifest.json").exists());
+    assert!(UnixStream::connect(&socket).await.is_ok());
+    successor.close().await;
+}
+
+#[tokio::test]
+async fn runtime_shutdown_waits_for_owned_connections_to_stop() {
+    let root = TempRoot::new("runtime-stop");
+    let options = UnixSocketServerOptions::new("demo").with_runtime_dir(root.path());
+    let transport = UnixSocketServerTransport::bind(options.clone())
+        .await
+        .unwrap();
+    let socket = transport.socket_path().to_owned();
+    let mut client = BufReader::new(UnixStream::connect(&socket).await.unwrap());
+    let mut runtime = App::new(()).build();
+    // Drive start until the client observes readiness, then cancel the receive
+    // loop and explicitly shut down the retained runtime.
+    tokio::select! {
+        result = runtime.start_with(transport) => panic!("unexpected runtime exit: {result:?}"),
+        _ = read_messages(&mut client, 1) => {},
+    }
+    runtime.shutdown().await;
+    assert!(runtime.is_closed());
+    assert!(!root.path().join("demo/manifest.json").exists());
+    assert!(!socket.exists());
+    // The initial hello can be sent both live and on subscription. Drain any
+    // queued bytes, requiring EOF from the already accepted connection.
+    let mut remaining = Vec::new();
+    tokio::time::timeout(
+        Duration::from_secs(5),
+        tokio::io::AsyncReadExt::read_to_end(&mut client, &mut remaining),
+    )
+    .await
+    .expect("runtime shutdown must close every connection")
+    .unwrap();
+    let mut successor = UnixSocketServerTransport::bind(options).await.unwrap();
+    drop(runtime);
+    assert!(socket.exists());
+    successor.close().await;
 }
 
 #[tokio::test]

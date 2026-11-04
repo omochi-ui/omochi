@@ -154,6 +154,8 @@ async fn shutdown_runs_on_every_exit_and_preserves_the_original_error() {
 
         let responding = Arc::new(AtomicBool::new(false));
         let sending = responding.clone();
+        let reader_stopped = Arc::new(AtomicBool::new(false));
+        let reader_guard = TaskStopped(reader_stopped.clone());
         let transport = CallbackTransport::new(
             move |_| {
                 let fail = stage == "initial send"
@@ -167,6 +169,7 @@ async fn shutdown_runs_on_every_exit_and_preserves_the_original_error() {
                 }
             },
             move || {
+                let _guard = &reader_guard;
                 responding.store(true, Ordering::SeqCst);
                 async move {
                     match stage {
@@ -189,6 +192,10 @@ async fn shutdown_runs_on_every_exit_and_preserves_the_original_error() {
         }
         assert!(runtime.is_closed(), "runtime remained open after {stage}");
         assert!(stopped.load(Ordering::SeqCst), "task survived {stage}");
+        assert!(
+            reader_stopped.load(Ordering::SeqCst),
+            "transport receive pump survived {stage}"
+        );
         for op in ["stat", "read"] {
             let request = json!({"kind":"request","id":"test","op":op,
                 "resource":resource,"offset":0,"length":5});
