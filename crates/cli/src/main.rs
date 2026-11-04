@@ -542,101 +542,111 @@ async fn serve_hub(
     };
     let hub = omochi_hub::Hub::new();
     let attached = hub.attach_unix(socket);
-    let dashboards =
-        omochi_hub::dashboards::DashboardStore::open(root).map_err(|e| anyhow::anyhow!(e.1))?;
-    let remote_boards = dashboards.clone();
-    let remote_hub = hub.clone();
-    let remote_store = store.clone();
-    let remote = tokio::spawn(async move {
-        let stop = remote_hub.cancellation_token();
-        loop {
-            let store = remote_store.clone();
-            if remote_dashboard
-                || omochi_transport::blocking::run(move || store.peers())
-                    .await??
-                    .1
-                    .values()
-                    .any(|p| p.role == Role::Gateway)
-            {
-                break;
+    let mut tasks = Vec::new();
+    let mut result: Result<()> = async {
+        let dashboards =
+            omochi_hub::dashboards::DashboardStore::open(root).map_err(|e| anyhow::anyhow!(e.1))?;
+        let remote_boards = dashboards.clone();
+        let remote_hub = hub.clone();
+        let remote_store = store.clone();
+        tasks.push(tokio::spawn(async move {
+            let stop = remote_hub.cancellation_token();
+            loop {
+                let store = remote_store.clone();
+                if remote_dashboard
+                    || omochi_transport::blocking::run(move || store.peers())
+                        .await??
+                        .1
+                        .values()
+                        .any(|p| p.role == Role::Gateway)
+                {
+                    break;
+                }
+                tokio::select! { _ = stop.cancelled() => return Ok::<(), anyhow::Error>(()), _ = tokio::time::sleep(Duration::from_millis(250)) => {} }
             }
-            tokio::select! { _ = stop.cancelled() => return Ok::<(), anyhow::Error>(()), _ = tokio::time::sleep(Duration::from_millis(250)) => {} }
+            let relays = if relay.is_empty() {
+                None
+            } else {
+                Some(
+                    relay
+                        .into_iter()
+                        .map(|s| s.parse())
+                        .collect::<std::result::Result<Vec<_>, _>>()?,
+                )
+            };
+            let identity_store = remote_store.clone();
+            let key =
+                omochi_transport::blocking::run(move || identity_store.identity(Role::Hub)).await??;
+            let endpoint = omochi_transport::bind(key, offline, relays).await?;
+            remote_hub.configure_pairing(endpoint.clone(), remote_store.clone());
+            let listener = if remote_dashboard {
+                remote_hub.set_dashboard_host(endpoint.clone(), web_url)?;
+                let listener = omochi_hub::dashboard_remote::listen(
+                    remote_hub.clone(),
+                    remote_boards,
+                    endpoint.clone(),
+                )?;
+                Some(listener)
+            } else {
+                None
+            };
+            let result = remote_hub
+                .attach_registered(endpoint, remote_store)
+                .0
+                .await
+                .map_err(anyhow::Error::from);
+            if let Some(listener) = listener {
+                result.and(listener.await.unwrap_or_else(|error| Err(error.into())))
+            } else {
+                result
+            }
+        }));
+        let selected_preset = presets
+            .first()
+            .and_then(|preset| preset["id"].as_str())
+            .map(str::to_owned);
+        let (address, http) = omochi_hub::http::serve(
+            omochi_hub::http::HttpState {
+                hub: hub.clone(),
+                dashboards,
+                allow_origins: allow_origin,
+                assets,
+                presets,
+            },
+            std::net::SocketAddr::new(host, port),
+        )
+        .await?;
+        tasks.push(http);
+        let mut dashboard_url = url::Url::parse(&format!("http://{address}/"))?;
+        if let Some(id) = selected_preset {
+            dashboard_url.query_pairs_mut().append_pair("preset", &id);
         }
-        let relays = if relay.is_empty() {
-            None
-        } else {
-            Some(
-                relay
-                    .into_iter()
-                    .map(|s| s.parse())
-                    .collect::<std::result::Result<Vec<_>, _>>()?,
-            )
-        };
-        let identity_store = remote_store.clone();
-        let key =
-            omochi_transport::blocking::run(move || identity_store.identity(Role::Hub)).await??;
-        let endpoint = omochi_transport::bind(key, offline, relays).await?;
-        remote_hub.configure_pairing(endpoint.clone(), remote_store.clone());
-        let listener = if remote_dashboard {
-            let listener = omochi_hub::dashboard_remote::listen(
-                remote_hub.clone(),
-                remote_boards,
-                endpoint.clone(),
-            )?;
-            remote_hub.set_dashboard_host(endpoint.clone(), web_url)?;
-            Some(listener)
-        } else {
-            None
-        };
-        remote_hub
-            .attach_registered(endpoint, remote_store)
-            .0
-            .await?;
-        if let Some(listener) = listener {
-            listener.await??;
+        eprintln!("[omochi-ui] dashboard {dashboard_url}");
+        if open {
+            let browser_address = if address.ip().is_unspecified() {
+                std::net::SocketAddr::new(std::net::Ipv4Addr::LOCALHOST.into(), address.port())
+            } else {
+                address
+            };
+            dashboard_url.set_host(Some(&browser_address.ip().to_string()))?;
+            composition::open_browser(dashboard_url.as_str());
         }
+        shutdown.wait().await;
         Ok(())
-    });
-    let selected_preset = presets
-        .first()
-        .and_then(|preset| preset["id"].as_str())
-        .map(str::to_owned);
-    let (address, http) = omochi_hub::http::serve(
-        omochi_hub::http::HttpState {
-            hub: hub.clone(),
-            dashboards,
-            allow_origins: allow_origin,
-            assets,
-            presets,
-        },
-        std::net::SocketAddr::new(host, port),
-    )
-    .await?;
-    let mut dashboard_url = url::Url::parse(&format!("http://{address}/"))?;
-    if let Some(id) = selected_preset {
-        dashboard_url.query_pairs_mut().append_pair("preset", &id);
     }
-    eprintln!("[omochi-ui] dashboard {dashboard_url}");
-    if open {
-        let browser_address = if address.ip().is_unspecified() {
-            std::net::SocketAddr::new(std::net::Ipv4Addr::LOCALHOST.into(), address.port())
-        } else {
-            address
-        };
-        dashboard_url.set_host(Some(&browser_address.ip().to_string()))?;
-        composition::open_browser(dashboard_url.as_str());
-    }
-    shutdown.wait().await;
+    .await;
+    // Cancel every owned resource before joining. Preserve the first failure,
+    // but still await every task so its cleanup completes before returning.
     hub.shutdown();
-    attached.await?;
-    remote.await??;
-    http.await??;
     if let Some((gateway, listener, discovery)) = owned {
         gateway.shutdown();
-        listener.await??;
-        discovery.await??;
+        tasks.extend([listener, discovery]);
     }
-    Ok(())
+    result = result.and(attached.await.map_err(anyhow::Error::from));
+    for task in tasks {
+        result = result.and(task.await.unwrap_or_else(|error| Err(error.into())));
+    }
+    result
 }
 
 #[cfg(test)]
@@ -751,6 +761,44 @@ mod shutdown_tests {
                 _ => unreachable!(),
             }
         }
+    }
+
+    #[tokio::test]
+    async fn dashboard_store_failure_cleans_up_owned_gateway() {
+        let root = tempfile::tempdir().unwrap();
+        let store = Store::open(root.path().join("config")).unwrap();
+        let dashboards = root.path().join("dashboards");
+        std::fs::write(&dashboards, "not a directory").unwrap();
+        let runtime = root.path().join("runtime");
+        let error = tokio::time::timeout(
+            Duration::from_secs(10),
+            serve_hub(
+                store,
+                dashboards,
+                runtime.clone(),
+                HubOptions {
+                    host: std::net::Ipv4Addr::LOCALHOST.into(),
+                    port: 0,
+                    allow_origin: vec![],
+                    no_auto_gateway: false,
+                    assets: None,
+                    remote: false,
+                    web_url: DEFAULT_WEB_URL.into(),
+                    offline: true,
+                    relay: vec![],
+                    presets: vec![],
+                    open: false,
+                },
+            ),
+        )
+        .await
+        .unwrap()
+        .unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            "Dashboard directory must be owned and private"
+        );
+        assert!(!runtime.join("gateway.sock").exists());
     }
 
     #[tokio::test]

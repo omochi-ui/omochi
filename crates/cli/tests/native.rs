@@ -22,6 +22,107 @@ async fn native_hub_serves_bundled_dashboard_without_bun_and_cleans_up_owned_gat
 async fn offline_hub_preserves_local_http_and_websocket_without_remote_tools() {
     local_dashboard(true).await;
 }
+#[tokio::test]
+async fn hub_bind_failure_cleans_up_owned_gateway_and_allows_restart() {
+    let root = tempfile::tempdir().unwrap();
+    let occupied = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = occupied.local_addr().unwrap().port().to_string();
+    let output = tokio::time::timeout(
+        Duration::from_secs(10),
+        command(root.path())
+            .args(["hub", "--offline", "--port", &port])
+            .output(),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    assert!(!output.status.success());
+    assert!(
+        String::from_utf8_lossy(&output.stderr)
+            .contains(&std::io::Error::from_raw_os_error(libc::EADDRINUSE).to_string())
+    );
+    assert!(!root.path().join("runtime/gateway.sock").exists());
+    drop(occupied);
+    local_dashboard_at(root.path(), true).await;
+}
+
+#[tokio::test]
+async fn hub_shutdown_error_still_cleans_up_owned_gateway_and_allows_restart() {
+    let root = tempfile::tempdir().unwrap();
+    let mut child = command(root.path())
+        .args(["hub", "--remote", "--relay", "invalid", "--port", "0"])
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut lines = BufReader::new(child.stderr.take().unwrap()).lines();
+    let line = tokio::time::timeout(Duration::from_secs(10), lines.next_line())
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    assert!(line.starts_with("[omochi-ui] dashboard http://"), "{line}");
+    assert_eq!(
+        unsafe { libc::kill(child.id().unwrap() as i32, libc::SIGTERM) },
+        0
+    );
+    assert!(
+        !tokio::time::timeout(Duration::from_secs(10), child.wait())
+            .await
+            .unwrap()
+            .unwrap()
+            .success()
+    );
+    let error = lines.next_line().await.unwrap().unwrap();
+    assert!(error.contains("Failed to parse relay URL"), "{error}");
+    assert!(!root.path().join("runtime/gateway.sock").exists());
+    local_dashboard_at(root.path(), true).await;
+}
+
+#[tokio::test]
+async fn hub_bind_failure_preserves_an_existing_gateway() {
+    let root = tempfile::tempdir().unwrap();
+    let mut gateway = command(root.path())
+        .args(["gateway", "--offline"])
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut lines = BufReader::new(gateway.stderr.take().unwrap()).lines();
+    let line = tokio::time::timeout(Duration::from_secs(10), lines.next_line())
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    assert!(line.starts_with("[omochi-ui] gateway "), "{line}");
+    let occupied = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = occupied.local_addr().unwrap().port().to_string();
+    let output = tokio::time::timeout(
+        Duration::from_secs(10),
+        command(root.path())
+            .args(["hub", "--offline", "--port", &port])
+            .output(),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    assert!(!output.status.success());
+    let socket = root.path().join("runtime/gateway.sock");
+    assert!(socket.exists());
+    assert!(gateway.try_wait().unwrap().is_none());
+    tokio::net::UnixStream::connect(&socket).await.unwrap();
+    assert_eq!(
+        unsafe { libc::kill(gateway.id().unwrap() as i32, libc::SIGTERM) },
+        0
+    );
+    assert!(
+        tokio::time::timeout(Duration::from_secs(10), gateway.wait())
+            .await
+            .unwrap()
+            .unwrap()
+            .success()
+    );
+    assert!(!socket.exists());
+}
+
 #[cfg(target_os = "linux")]
 #[tokio::test]
 async fn hub_store_lock_contention_keeps_single_worker_http_responsive() {
@@ -104,7 +205,10 @@ async fn hub_store_lock_contention_keeps_single_worker_http_responsive() {
 }
 async fn local_dashboard(offline: bool) {
     let root = tempfile::tempdir().unwrap();
-    let mut child = command(root.path())
+    local_dashboard_at(root.path(), offline).await;
+}
+async fn local_dashboard_at(root: &Path, offline: bool) {
+    let mut child = command(root)
         .args(if offline {
             vec!["hub", "--offline", "--port", "0"]
         } else {
@@ -147,7 +251,7 @@ async fn local_dashboard(offline: bool) {
         .unwrap();
     websocket.close(None).await.unwrap();
     drop(websocket);
-    let reader_root = root.path().join("status-reader");
+    let reader_root = root.join("status-reader");
     let status = command(&reader_root)
         .args([
             "status",
@@ -184,7 +288,7 @@ async fn local_dashboard(offline: bool) {
             .unwrap()
             .success()
     );
-    assert!(!root.path().join("runtime/gateway.sock").exists());
+    assert!(!root.join("runtime/gateway.sock").exists());
 }
 #[tokio::test]
 async fn identities_persist_and_hub_and_gateway_have_separate_keys() {
