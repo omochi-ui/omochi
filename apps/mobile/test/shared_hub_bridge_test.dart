@@ -31,16 +31,20 @@ class _DelayedLeaseStore extends NativeHubStore {
   Future<Future<void> Function()> acquireIdentityLease() => acquired.future;
 }
 
+class _OfflineStore extends NativeHubStore {
+  _OfflineStore({required super.namespace, required super.secure});
+  @override
+  Future<bool> online() async => false;
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
-  if (Platform.isMacOS) {
-    // Native flock behavior is exercised by test_driver/macos/identity_lease_test.py.
-    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
-        .setMockMethodCallHandler(
-          const MethodChannel('omochi/identity-lease'),
-          (call) async => call.method == 'acquire' ? 'test-lease' : null,
-        );
-  }
+  // Native exclusion is exercised by test_driver/{android,macos}/identity_lease_test.py.
+  TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+      .setMockMethodCallHandler(
+        const MethodChannel('omochi/identity-lease'),
+        (call) async => call.method == 'acquire' ? 'test-lease' : null,
+      );
   test(
     'closing during lease acquisition releases the lease without opening a Hub',
     () async {
@@ -177,6 +181,37 @@ void main() {
         await start;
         await close;
         expect(secure.value, isNotNull);
+      });
+      test('client retains its identity lease until native storage shutdown completes', () async {
+        final secure = MemorySecureStorage()
+          ..writeStarted = Completer<void>()
+          ..finishWrite = Completer<void>();
+        final store = _OfflineStore(
+          namespace: 'omochi.test.closing-lease',
+          secure: secure,
+        );
+        final client = createSharedGatewayClient(
+          store: store,
+          onMessage: (_) {},
+          onRetract: (_) {},
+          onEvent: (_) {},
+          openBridge: (store) => SharedHubBridge(
+            store,
+            library: DynamicLibrary.open(file.absolute.path),
+          ),
+        );
+        final started = expectLater(client.start(), throwsStateError);
+        await secure.writeStarted!.future;
+        var closed = false;
+        final close = client.close().then((_) => closed = true);
+        await Future<void>.delayed(const Duration(milliseconds: 30));
+        expect(closed, isFalse);
+        final competing = NativeHubStore(namespace: store.namespace);
+        await expectLater(competing.acquireIdentityLease(), throwsStateError);
+        secure.finishWrite!.complete();
+        await close;
+        await started;
+        await (await competing.acquireIdentityLease())();
       });
       test('corrupt and unavailable existing storage never creates a replacement key', () async {
         for (final value in ['{}', 'invalid', '{"secret":"bad","peers":[]}']) {

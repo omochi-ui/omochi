@@ -16,6 +16,8 @@ flutter run -d <device>
 
 Android は minSdk 24、NDK 30.0.16248370、Rust targets `aarch64-linux-android` と `x86_64-linux-android` が必要です。Gradle が `tool/build_shared_hub.py` を呼び、共有ライブラリーを APK に含めます。Android の DNS / TLS 初期化と multicast lock は小さなホストアダプターが担当します。この Waydroid 環境の Vulkan 起動停止を避けるため、debug だけ Impeller の OpenGL ES backend を指定しています。
 
+Android は `singleTask` でブラウザーからの招待を起動済みの Activity へ届けます。Flutter engine はプロセスで保持し、Activity の破棄・再作成でも同じ Dart / Hub に接続します。さらに namespace ごとのファイルロックをプロセスで保持し、別の Flutter engine / process が同じ identity で Hub を開くことを防ぎます。Activity の破棄では解放せず、native Hub と保存処理の終了後に明示的に解放します。プロセス終了時には OS が解放します。ロックファイルは同じ inode を保つため削除しません。
+
 iOS は15.0以上。Xcode、Rust targets `aarch64-apple-ios`、`aarch64-apple-ios-sim`、`x86_64-apple-ios` が必要です。Xcode の build phase が `tool/build_ios_hub.sh` を呼び、device / simulator 用の静的 XCFramework を生成します。FFI シンボルは force-load し、Dart はプロセス内から参照します。実機で実行する場合の署名は各開発環境で設定します。
 
 ```sh
@@ -102,6 +104,14 @@ APK は現在の開発用デバッグ鍵で署名されます。iOS は署名情
 ```sh
 flutter analyze
 flutter test
+# Android: 本番の lease 実装を JVM 上で検証（JDK が必要）
+python3 test_driver/android/identity_lease_test.py
+# Android 実機 / emulator: 独立した一時 package で browser task と lease を検証
+# 通常アプリの起動・保存変更は行わず、終了時に一時 package を uninstall する
+python3 test_driver/android/launch_test.py --device <adb-device>
+# 同じ本番 Flutter host で Activity の finish / 再起動と招待配送を検証
+# native DNS/TLS 初期化だけを stub にし、Rust Hub / secure storage は使用しない
+python3 test_driver/android/engine_lifecycle_test.py --device <adb-device>
 # Windows / Linux: 実 OS 保存・Hub再起動・起動済みアプリへの招待URL転送
 flutter test integration_test/desktop_test.dart -d windows
 flutter test integration_test/desktop_test.dart -d linux

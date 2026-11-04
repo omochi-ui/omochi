@@ -45,6 +45,8 @@ jobs:
           key: mobile-check
       - run: flutter pub get --enforce-lockfile
       - run: flutter analyze --no-pub
+      - name: Verify Android identity ownership
+        run: python3 test_driver/android/identity_lease_test.py
       - name: Verify portable snapshot materialization
         run: cargo test --locked --manifest-path ../../packages/sdk/rust/Cargo.toml --no-default-features --test snapshot --target-dir ../../crates/target
       - name: Build shared Hub for FFI tests

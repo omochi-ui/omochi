@@ -1,6 +1,6 @@
 import 'dart:async';
-import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
@@ -33,15 +33,16 @@ class NativeHubStore {
 
   static const _leaseChannel = MethodChannel('omochi/identity-lease');
 
-  /// Held until the native Hub has completely closed. macOS also excludes
-  /// other processes; the local guard excludes concurrent callers immediately.
+  /// Held until the native Hub has completely closed. Android and macOS also
+  /// exclude other engines/processes; the local guard rejects callers immediately.
   Future<Future<void> Function()> acquireIdentityLease() async {
     if (!_active.add(namespace)) {
       throw StateError('This Hub is already running');
     }
     String? token;
     try {
-      if (Platform.isMacOS) {
+      if (defaultTargetPlatform == TargetPlatform.macOS ||
+          defaultTargetPlatform == TargetPlatform.android) {
         token = await _leaseChannel.invokeMethod<String>('acquire', namespace);
         if (token == null) throw StateError('Identity lease was not acquired');
       }
