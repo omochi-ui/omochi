@@ -149,6 +149,12 @@ async fn main() -> Result<()> {
 }
 ```
 
+## レンダラーが持つ入力
+
+上の例のように、`ui.local()`が返すLocalのフィールドを入力部品に結び付けます。`bind()`と`value()`はPointer引数を取りません。先にフィールドを選び、その後に`.bind()`や`.value()`を呼びます。フォーム自体の`.value()`はフォーム全体を参照します。Pythonでは`form.temperature`を`bind=`に直接渡し、`input=form`でフォーム全体を渡すこともできます。
+
+Actionの操作時にレンダラーが入力式を確定するため、Runtimeは確定済みJSONを受け取り、入力途中の値を保存しません。各SDKのフィールド参照は[ブラウザが持つ入力](../../concepts/inputs/)を参照してください。
+
 ## パッケージ名
 
 TypeScriptは`@omochi-ui/sdk`、Node専用Transportは`@omochi-ui/sdk/node`から読み込みます。Pythonは`omochi_ui`、Rustはcrate名`omochi-ui`を`omochi_ui`として使います。

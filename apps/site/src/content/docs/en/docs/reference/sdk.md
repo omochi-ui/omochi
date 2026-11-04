@@ -10,17 +10,36 @@ sidebar:
 | Concept | Python | TypeScript | Rust |
 | --- | --- | --- | --- |
 | App | `App(state)` | `new App(state)` | `App::new(state)` |
-| Register action | `@app.action(name)` | `app.action(name, handler)` | `app.action(name, handler)?` |
-| Register view | `@app.surface(name)` | `app.surface(name, view)` | `app.surface(name, view)?` |
+| Register action | `@app.action` or `@app.action(name)` | `app.action(name, schema, handler)` | `app.action::<Input, _, _>(name, handler)?` |
+| Register view | `app.mount(view)` or `@app.surface(name)` | `app.surface(name, view)` | `app.surface(name, view)?` |
 | Start stdio | `await app.start()` | `await app.start()` | `app.start().await` |
 | Explicit transport | `await app.start(transport)` | `await app.start(transport)` | `app.start_with(transport).await` |
 | Transaction | `await ctx.update(mutator)` | `await ctx.update(mutator)` | `ctx.update(mutator).await?` |
+
+Python infers the action input schema from the handler's first parameter annotation;
+use `schema=` for an explicit schema. Python also supports `async with ctx.update() as state:`.
+TypeScript requires a schema argument. Rust deserializes the handler's input type;
+derive `ActionInput` to construct typed expressions and field projections.
 
 ## Runtime and declarations
 
 `App.build()` builds a runtime without selecting a transport. The runtime exposes `update`, `handle`, and action invocation. `handle` accepts `getSurface` observations and `invoke` commands as JSON. Explicit keys identify components; the root is always `root`.
 
-`Action.call(input)` produces an action declaration for a component. `Local.bind(pointer)` binds an editable field; `Local.value(pointer)` creates an input expression. Inputs become concrete JSON before the action reaches the runtime.
+`Action.call(input)` produces an action declaration for a component (`action.call(input)?`
+in Rust). Project a field before binding it or reading its browser value:
+
+| Language | Editable binding | Action input expression |
+| --- | --- | --- |
+| Python | `form.field("temperature", float).bind()` | `form.field("temperature", float).value()` |
+| TypeScript | `form.field("temperature").bind()` | `form.field("temperature").value()` |
+| Rust | `form.field(RunInput::field_temperature()).bind()?` | `form.field(RunInput::field_temperature()).value()` |
+
+Here `form` is a Local whose input type contains a numeric `temperature` field;
+Rust's `RunInput` derives `ActionInput`. Python also accepts `form.temperature`
+directly as a control's `bind=` or in an action's `input=`.
+`bind()` and `value()` take no pointer argument and refer to the current Local,
+including the whole value when no field is selected. Inputs become concrete JSON
+before the action reaches the runtime. See [browser-owned input](../../concepts/inputs/).
 
 ## Transport exports
 

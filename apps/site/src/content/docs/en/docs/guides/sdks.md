@@ -259,9 +259,14 @@ would wait on that same action.
 
 ## Renderer-local inputs
 
-Bind editable components to a `Local` returned by `ui.local()`. `Local.value()`
-builds an Action input expression; the renderer resolves it when the user invokes
-the action, so the Runtime receives concrete JSON and never stores the draft.
+Bind editable components to a field of the `Local` returned by `ui.local()`, as in
+the examples above. `bind()` and `value()` take no pointer argument: select the
+field first, then call `.bind()` or `.value()`. Calling `.value()` on the form
+itself references the whole form. Python also accepts `form.temperature` directly
+as `bind=` and `input=form` for the whole form.
+The renderer resolves input expressions when the user invokes the action, so the
+Runtime receives concrete JSON and never stores the draft.
+See [browser-owned input](../../concepts/inputs/) for each SDK's field syntax.
 
 ## Transports
 
