@@ -1,6 +1,8 @@
 //! One shared SDK connection per discovered service, independent of hub transports.
 mod dispatch;
 pub mod remote;
+#[cfg(test)]
+mod stream_capacity_tests;
 pub mod wire;
 use anyhow::{Context, Result, bail};
 use dispatch::CommandOrigin;

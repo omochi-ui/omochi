@@ -81,6 +81,18 @@ ETag and byte-range semantics; remote resources require a live authorized peer.
 
 ## Limits and lifecycle
 
+Stream admission reserves separate budgets for control, service subscriptions,
+resource requests and headers awaiting classification. An authorized remote
+connection permits one control stream, 256 service streams, 64 resource streams
+and 64 pending headers. Its QUIC bidirectional-stream credit covers all 385;
+raising this credit happens only after gateway role authorization. The Unix
+listener shares budgets across clients: eight control streams, 2048 service
+streams (eight complete hub rosters), 64 resource streams and 64 pending headers.
+Subscriptions cannot consume the resource or control reservations. Exhausting a
+budget rejects that stream, while existing streams continue. Header reads still
+expire after five seconds, and resource concurrency and request timeouts remain
+bounded separately from long-lived subscriptions.
+
 Snapshots have a 16 MiB encoded-data limit. Every materialized gateway replay
 message must also fit the 4 MiB frame including its envelope; individually valid
 patches that exceed this limit after merging cause the service to be retracted.
