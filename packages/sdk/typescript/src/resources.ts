@@ -1,3 +1,4 @@
+import { ReceiveQueue, ReceiveQueueOverflowError } from './receive-queue.js';
 import { randomBytes } from 'node:crypto';
 import { mkdtempSync, openSync, readSync, writeSync, closeSync, unlinkSync, rmdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -65,14 +66,49 @@ export class ResourceRegistry {
 }
 /** Keep reading while an action executes, serving resource RPC independently. */
 export async function* resourceMessages<T>(input: AsyncIterable<T>, send: (frame: ResourceFrame) => Promise<void>, registry?: ResourceRegistry): AsyncIterable<T> {
-  const queue: T[] = []; let done = false; let stopped = false; let failure: unknown; let wake: (() => void) | undefined;
+  const queue = new ReceiveQueue<T>();
+  let done = false;
+  let stopped = false;
+  let failure: unknown;
+  let wake: (() => void) | undefined;
   const pump = (async () => {
-    try { for await (const value of input) {
-      if (stopped) break;
-      if (registry && isResourceFrame(value)) { if (value.kind === 'request') await send(registry.respond(value)); }
-      else { queue.push(value); wake?.(); }
-    } } catch (error) { failure = error; } finally { done = true; wake?.(); }
+    try {
+      for await (const value of input) {
+        if (stopped) break;
+        if (registry && isResourceFrame(value)) {
+          if (value.kind === 'request') await send(registry.respond(value));
+        } else {
+          try {
+            queue.push(value);
+          } catch (error) {
+            if (error instanceof ReceiveQueueOverflowError) {
+              // Latch before for-await closes the source: its cleanup may await I/O.
+              failure = error;
+              queue.clear();
+              done = true;
+              wake?.();
+            }
+            throw error;
+          }
+          wake?.();
+        }
+      }
+    } catch (error) {
+      failure ??= error;
+    } finally {
+      done = true;
+      wake?.();
+    }
   })();
-  try { while (!done || queue.length) { if (queue.length) yield queue.shift()!; else await new Promise<void>(resolve => { wake = resolve; }); } if (failure) throw failure; }
-  finally { stopped = true; void pump; }
+  try {
+    while (!done || queue.length) {
+      if (queue.length) yield queue.shift()!;
+      else await new Promise<void>(resolve => { wake = resolve; });
+    }
+    if (failure) throw failure;
+  } finally {
+    stopped = true;
+    queue.clear();
+    void pump;
+  }
 }

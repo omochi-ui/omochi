@@ -29,6 +29,17 @@ rejects outstanding requests; late responses are discarded. HTTP backpressure st
 additional reads; abort cancels local pending work and stops subsequent reads. A
 forwarded read already in flight may finish (at most 24 KiB); it is never broadcast.
 
+TypeScript and Python SDK receivers keep serving resource requests while an action
+handler runs. Their pending application-message queues are limited to 256 messages
+and 4 MiB of compact UTF-8 JSON, whichever is reached first. The running action and
+resource RPC frames do not count toward these limits. Exceeding either limit clears
+the pending actions and latches a receive error, surfaced when the current handler
+returns. Server transports immediately disconnect clients and close their listener;
+resource pumps stop consuming and close their source iterator. Custom callback
+integrations must release their connection in the source iterator's cleanup. This
+fails the stream instead of pausing resource reads behind an overloaded action queue.
+Normal shutdown also discards pending actions without needing space for a sentinel.
+
 Browser HTTP routes are `/resources/<nodeId>~<serviceId>/<id>` at a hub and
 `/resources/_/<id>` at a dev bridge or direct SDK server. GET and HEAD support media
 MIME types, Content-Length, ETag, Accept-Ranges, single byte ranges (including suffix

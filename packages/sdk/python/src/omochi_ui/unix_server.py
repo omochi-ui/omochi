@@ -15,6 +15,7 @@ from contextlib import suppress
 from pathlib import Path
 from typing import Any
 
+from .receive_queue import ReceiveQueue, ReceiveQueueOverflowError
 from .resources import is_resource, hello
 from .snapshot import A2uiSnapshot
 from .transport import MAX_FRAME_BYTES, Transport
@@ -91,7 +92,7 @@ class UnixSocketServerTransport(Transport):
         self.capabilities = capabilities or set()
         self._snapshot = A2uiSnapshot()
         self._writers: set[asyncio.StreamWriter] = set()
-        self._queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
+        self._queue = ReceiveQueue()
         self._server: asyncio.AbstractServer | None = None
         self._directory: Path | None = None
         self._lock_fd: int | None = None
@@ -174,9 +175,9 @@ class UnixSocketServerTransport(Transport):
 
     async def receive(self) -> AsyncIterator[dict[str, Any]]:
         await self.start()
-        while not self._closed:
+        while True:
             message = await self._queue.get()
-            if message is None:  # type: ignore[comparison-overlap]
+            if message is None:
                 return
             yield message
 
@@ -205,7 +206,7 @@ class UnixSocketServerTransport(Transport):
                 self._directory = None
                 self._release_lock()
                 # Cancellation must also release a consumer parked on receive().
-                self._queue.put_nowait(None)  # type: ignore[arg-type]
+                self._queue.finish(discard=True)
 
     @staticmethod
     def _write_manifest(directory: Path, manifest: dict[str, Any]) -> None:
@@ -225,6 +226,9 @@ class UnixSocketServerTransport(Transport):
             pass
 
     async def _accept(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+        if self._closed:
+            writer.close()
+            return
         self._writers.add(writer)
         try:
             if self.resources:
@@ -232,7 +236,7 @@ class UnixSocketServerTransport(Transport):
             for message in self._snapshot.messages():
                 self._write(writer, json.dumps(message, separators=(",", ":"), ensure_ascii=False) + "\n")
             await writer.drain()
-            while line := await reader.readline():
+            while not self._closed and (line := await reader.readline()):
                 text = line.decode().strip()
                 if not text:
                     continue
@@ -250,6 +254,13 @@ class UnixSocketServerTransport(Transport):
                 # the application down.
                 if isinstance(message, dict) and "action" in message:
                     self._queue.put_nowait(message)
+        except ReceiveQueueOverflowError as error:
+            # No queued action may execute after an action was lost. Abort peers
+            # immediately so their resource RPCs observe a disconnect as well.
+            self._queue.finish(error, discard=True)
+            for client in self._writers:
+                client.transport.abort()
+            await self.close()
         except (ConnectionError, OSError, ValueError):
             pass
         finally:

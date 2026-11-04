@@ -5,6 +5,7 @@ import { createServer, type Server } from "node:http";
 import { A2uiClientMessageSchema } from "@a2ui/web_core/v0_9";
 import { WebSocket, WebSocketServer } from "ws";
 
+import { ReceiveQueue, ReceiveQueueOverflowError } from "../receive-queue.js";
 import type { Transport } from "../transport.js";
 import type { A2UIMessage, JsonObject } from "../types.js";
 import { A2uiSnapshot } from "./snapshot.js";
@@ -46,7 +47,7 @@ export class WebSocketServerTransport implements Transport {
   private readonly webSocketServer = new WebSocketServer({ noServer: true });
   private readonly clients = new Set<WebSocket>();
   private readonly snapshot = new A2uiSnapshot();
-  private readonly received: JsonObject[] = [];
+  private readonly received = new ReceiveQueue<JsonObject>();
   private readonly waiting: PendingReceive[] = [];
   private closed = false;
   private receiveError: unknown = null;
@@ -141,6 +142,7 @@ export class WebSocketServerTransport implements Transport {
   close(): Promise<void> {
     if (this.closePromise) return this.closePromise;
     this.closed = true;
+    this.received.clear();
     this.flushReceivers();
     this.closePromise = (async () => {
       // A pending listen can still succeed even while server.listening is false.
@@ -161,6 +163,7 @@ export class WebSocketServerTransport implements Transport {
   }
 
   private accept(socket: WebSocket): void {
+    if (this.closed) { socket.terminate(); return; }
     this.clients.add(socket);
     socket.on("close", () => this.clients.delete(socket));
     socket.on("error", () => {
@@ -170,6 +173,7 @@ export class WebSocketServerTransport implements Transport {
     if (this.resources) socket.send(JSON.stringify(resourceHello()));
     for (const message of this.snapshot.messages()) socket.send(JSON.stringify(message));
     socket.on("message", (data, isBinary) => {
+      if (this.closed) return;
       if (isBinary) {
         closeSocket(socket, 1003, "expected a text JSON message");
         return;
@@ -195,6 +199,10 @@ export class WebSocketServerTransport implements Transport {
         }
         this.enqueue(message);
       } catch (error) {
+        if (error instanceof ReceiveQueueOverflowError) {
+          this.failReceive(error);
+          return;
+        }
         const detail = error instanceof Error ? error.message : String(error);
         closeSocket(socket, 1007, `invalid JSON: ${detail}`);
       }
@@ -205,6 +213,13 @@ export class WebSocketServerTransport implements Transport {
     const waiter = this.waiting.shift();
     if (waiter) waiter.resolve({ value: message, done: false });
     else this.received.push(message);
+  }
+
+  private failReceive(error: ReceiveQueueOverflowError): void {
+    this.receiveError = error;
+    // Abort immediately: queued actions must not run after an action was lost.
+    for (const client of this.clients) client.terminate();
+    void this.close().catch(() => {});
   }
 
   private nextMessage(): Promise<IteratorResult<JsonObject>> {

@@ -8,6 +8,7 @@ import { createInterface } from "node:readline";
 
 import { A2uiClientMessageSchema } from "@a2ui/web_core/v0_9";
 
+import { ReceiveQueue, ReceiveQueueOverflowError } from "../receive-queue.js";
 import type { Transport } from "../transport.js";
 import type { A2UIMessage, JsonObject } from "../types.js";
 import {
@@ -64,7 +65,7 @@ export class UnixSocketServerTransport implements Transport {
   private readonly server: Server = createServer();
   private readonly clients = new Set<Socket>();
   private readonly snapshot = new A2uiSnapshot();
-  private readonly received: JsonObject[] = [];
+  private readonly received = new ReceiveQueue<JsonObject>();
   private readonly waiting: PendingReceive[] = [];
   private readonly exitCleanup: () => void;
   private releaseService: (() => void) | null = null;
@@ -123,6 +124,7 @@ export class UnixSocketServerTransport implements Transport {
   close(): Promise<void> {
     if (this.closePromise) return this.closePromise;
     this.closed = true;
+    this.received.clear();
     this.flushReceivers();
     this.closePromise = (async () => {
       // Startup may still be binding or writing its manifest when close is called.
@@ -207,7 +209,7 @@ export class UnixSocketServerTransport implements Transport {
     if (this.resources) socket.write(`${JSON.stringify(resourceHello())}\n`);
     for (const message of this.snapshot.messages()) socket.write(`${JSON.stringify(message)}\n`);
     lines.on("line", (line) => {
-      if (!line.trim()) return;
+      if (this.closed || !line.trim()) return;
       try {
         const value: unknown = JSON.parse(line);
         if (this.resources && isResourceFrame(value)) {
@@ -222,7 +224,8 @@ export class UnixSocketServerTransport implements Transport {
         // invoke; dropping it keeps a client-side report from tearing the application down.
         if (!("action" in parsed.data)) return;
         this.enqueue(value as JsonObject);
-      } catch {
+      } catch (error) {
+        if (error instanceof ReceiveQueueOverflowError) this.failReceive(error);
         disconnect();
       }
     });
@@ -232,6 +235,13 @@ export class UnixSocketServerTransport implements Transport {
     const waiter = this.waiting.shift();
     if (waiter) waiter.resolve({ value: message, done: false });
     else this.received.push(message);
+  }
+
+  private failReceive(error: ReceiveQueueOverflowError): void {
+    this.receiveError = error;
+    // Abort immediately: queued actions must not run after an action was lost.
+    for (const client of this.clients) client.destroy();
+    void this.close().catch(() => {});
   }
 
   private nextMessage(): Promise<IteratorResult<JsonObject>> {
