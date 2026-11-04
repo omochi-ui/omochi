@@ -1,11 +1,12 @@
 use crate::resources::{ResourceRegistry, is_resource};
 use std::collections::BTreeSet;
+use std::io::BufRead;
 use std::sync::Arc;
 use tokio::sync::{Mutex, mpsc};
 
 use async_trait::async_trait;
 use serde_json::Value;
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, Lines, Stdin, Stdout};
+use tokio::io::{AsyncWriteExt, Stdout};
 
 use crate::Result;
 
@@ -23,8 +24,17 @@ pub trait Transport: Send {
     async fn stop_receiving(&mut self) {}
 }
 
+/// A JSON-lines transport that owns process stdin while receiving.
+///
+/// Stdin is read on a dedicated thread, rather than Tokio's blocking pool, so
+/// an idle pipe cannot prevent the async runtime or process from exiting.
+/// `stop_receiving` joins the async resource pump but cannot cancel a portable
+/// blocking stdin read: that detached thread exits on its next read completion
+/// or EOF. Do not reuse process stdin after stopping this transport; an in-flight
+/// read can still consume input. The thread retains no resource or output state.
 pub struct StdioTransport {
-    lines: Option<Lines<BufReader<Stdin>>>,
+    lines: Option<mpsc::Receiver<std::io::Result<String>>>,
+    receiving: bool,
     inbound: Option<mpsc::Receiver<Result<Option<Value>>>>,
     reader: Option<tokio::task::JoinHandle<()>>,
     stdout: Arc<Mutex<Stdout>>,
@@ -37,12 +47,45 @@ impl StdioTransport {
     }
     pub fn with_capabilities(capabilities: impl IntoIterator<Item = impl Into<String>>) -> Self {
         Self {
-            lines: Some(BufReader::new(tokio::io::stdin()).lines()),
+            lines: None,
+            receiving: true,
             inbound: None,
             reader: None,
             stdout: Arc::new(Mutex::new(tokio::io::stdout())),
             capabilities: capabilities.into_iter().map(Into::into).collect(),
         }
+    }
+
+    fn start_stdin(&mut self) {
+        if self.lines.is_some() {
+            return;
+        }
+        // One queued line bounds read-ahead between the blocking reader and the
+        // resource pump. Closing the receiver also wakes a blocked channel send.
+        let (sender, receiver) = mpsc::channel(1);
+        let input = sender.clone();
+        let reader = std::thread::Builder::new()
+            .name("omochi-stdin".into())
+            .spawn(move || {
+                let stdin = std::io::stdin();
+                let mut stdin = stdin.lock();
+                while !input.is_closed() {
+                    let mut line = String::new();
+                    let result = match stdin.read_line(&mut line) {
+                        Ok(0) => break,
+                        Ok(_) => Ok(line),
+                        Err(error) => Err(error),
+                    };
+                    let failed = result.is_err();
+                    if input.blocking_send(result).is_err() || failed {
+                        break;
+                    }
+                }
+            });
+        if let Err(error) = reader {
+            let _ = sender.try_send(Err(error));
+        }
+        self.lines = Some(receiver);
     }
 }
 
@@ -55,21 +98,23 @@ impl Default for StdioTransport {
 #[async_trait]
 impl Transport for StdioTransport {
     fn set_resources(&mut self, resources: ResourceRegistry) {
-        let Some(mut lines) = self.lines.take() else {
+        if self.reader.is_some() || !self.receiving {
             return;
-        };
+        }
+        self.start_stdin();
+        let mut lines = self.lines.take().expect("stdin receiver was initialized");
         let stdout = self.stdout.clone();
         let (sender, receiver) = mpsc::channel(256);
         self.inbound = Some(receiver);
         self.reader = Some(tokio::spawn(async move {
             loop {
-                let message = match lines.next_line().await {
-                    Ok(Some(line)) if line.trim().is_empty() => continue,
-                    Ok(Some(line)) => serde_json::from_str::<Value>(&line)
+                let message = match lines.recv().await {
+                    Some(Ok(line)) if line.trim().is_empty() => continue,
+                    Some(Ok(line)) => serde_json::from_str::<Value>(&line)
                         .map(Some)
                         .map_err(crate::Error::from),
-                    Ok(None) => break,
-                    Err(error) => {
+                    None => break,
+                    Some(Err(error)) => {
                         let _ = sender.send(Err(error.into())).await;
                         break;
                     }
@@ -112,19 +157,23 @@ impl Transport for StdioTransport {
         if let Some(receiver) = &mut self.inbound {
             return receiver.recv().await.unwrap_or(Ok(None));
         }
-        let Some(lines) = &mut self.lines else {
+        if !self.receiving {
             return Ok(None);
-        };
+        }
+        self.start_stdin();
+        let lines = self.lines.as_mut().expect("stdin receiver was initialized");
         loop {
-            let Some(line) = lines.next_line().await? else {
+            let Some(line) = lines.recv().await else {
                 return Ok(None);
             };
+            let line = line?;
             if !line.trim().is_empty() {
                 return Ok(Some(serde_json::from_str(&line)?));
             }
         }
     }
     async fn stop_receiving(&mut self) {
+        self.receiving = false;
         self.inbound.take();
         self.lines.take();
         stop_reader(&mut self.reader).await;
