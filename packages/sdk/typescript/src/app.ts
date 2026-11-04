@@ -140,7 +140,8 @@ export class Runtime<State, Components extends ComponentMap = BasicComponentMap>
     const controller = new AbortController();
     const running = typeof task === "function" ? task(controller.signal) : task;
     this.tasks.add(running); this.taskControllers.add(controller);
-    void running.finally(() => { this.tasks.delete(running); this.taskControllers.delete(controller); });
+    const cleanup = () => { this.tasks.delete(running); this.taskControllers.delete(controller); };
+    void running.then(cleanup, cleanup);
   }
   async shutdown(): Promise<void> { if (this.closed) return; this.closed = true; for (const controller of this.taskControllers) controller.abort(); await Promise.allSettled(this.tasks); this.resources.close(); this.closedResolve(); }
   waitClosed(): Promise<void> { return this.closedPromise; }
