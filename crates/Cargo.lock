@@ -2895,6 +2895,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "omochi-mdns"
+version = "0.2.1"
+dependencies = [
+ "anyhow",
+ "data-encoding",
+ "iroh",
+ "iroh-mdns-address-lookup",
+ "libc",
+ "n0-future",
+ "tokio",
+ "tokio-stream",
+ "tokio-util",
+ "tracing",
+ "windows-sys 0.61.2",
+ "zbus",
+]
+
+[[package]]
 name = "omochi-native-bridge"
 version = "0.2.1"
 dependencies = [
@@ -2925,14 +2943,13 @@ version = "0.2.1"
 dependencies = [
  "anyhow",
  "base64 0.23.1",
- "data-encoding",
  "fs2",
  "hex",
  "iroh",
  "iroh-mdns-address-lookup",
  "iroh-relay",
- "libc",
  "n0-future",
+ "omochi-mdns",
  "omochi-protocol",
  "rand 0.9.5",
  "serde",
@@ -2940,11 +2957,7 @@ dependencies = [
  "sha2",
  "tempfile",
  "tokio",
- "tokio-stream",
- "tokio-util",
  "tracing",
- "windows-sys 0.61.2",
- "zbus",
 ]
 
 [[package]]

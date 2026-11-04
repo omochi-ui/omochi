@@ -3,14 +3,15 @@
 //! preserving IPv6 scopes. Callback storage survives cancellation until the final
 //! ERROR_CANCELLED callback, as required by DnsServiceBrowseCancel.
 use super::{
-    Event, MAX_RECORDS, MAX_SERVICES, SERVICE,
+    Event, MAX_RECORDS, SERVICE,
     records::{self, Advertisement},
+    windows_cache::{Cache, Record},
 };
 use anyhow::{Context as _, Result, bail, ensure};
 use iroh::EndpointId;
 use std::{
     cell::UnsafeCell,
-    collections::{BTreeMap, HashMap},
+    collections::BTreeMap,
     ffi::c_void,
     ptr,
     sync::{
@@ -29,12 +30,6 @@ use windows_sys::Win32::{
 
 const PENDING: u32 = 9506;
 const CANCELLED: u32 = 1223;
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-struct Record {
-    name: String,
-    kind: u16,
-    data: Vec<u8>,
-}
 enum Command {
     Records(u32, Vec<(Record, u32)>),
     Failed(u32),
@@ -429,8 +424,7 @@ fn run(
         .map(|i| Browser::new(*i, sender.clone(), overflow.clone(), cancel.child_token()))
         .collect::<Result<_>>()?;
     let mut registration = None;
-    let mut cache = HashMap::<(u32, Record), Instant>::new();
-    let mut services = HashMap::<(u32, String), u64>::new();
+    let mut cache = Cache::default();
     let mut check = Instant::now();
     updates.mark_changed();
     events.blocking_send(Event::Ready)?;
@@ -451,116 +445,15 @@ fn run(
             !overflow.load(Ordering::Acquire),
             "Windows DNS-SD event queue exceeded capacity"
         );
-        match receiver.recv_timeout(Duration::from_millis(50)) {
+        let (interface, records) = match receiver.recv_timeout(Duration::from_millis(50)) {
             Ok(Command::Failed(status)) => bail!("DnsServiceBrowse callback status {status}"),
-            Ok(Command::Records(interface, records)) => {
-                for (record, ttl) in records {
-                    let key = (interface, record.clone());
-                    if ttl == 0 {
-                        cache.remove(&key);
-                    } else if cache.len() < MAX_SERVICES * MAX_RECORDS || cache.contains_key(&key) {
-                        cache.insert(
-                            key,
-                            Instant::now() + Duration::from_secs(ttl.min(4500) as u64),
-                        );
-                    } else {
-                        bail!("Windows DNS-SD cache exceeded capacity")
-                    }
-                    if record.kind == 33 || record.kind == 12 {
-                        let name = if record.kind == 12 {
-                            records::dns_name(&record.data)
-                        } else {
-                            Some(record.name.clone())
-                        };
-                        if let Some(name) =
-                            name.filter(|s| records::endpoint(s).is_some_and(|id| id != own))
-                        {
-                            let key = (interface, name.clone());
-                            if ttl == 0 && record.kind == 12 {
-                                if let Some(token) = services.remove(&key) {
-                                    events.blocking_send(Event::Removed(token))?;
-                                }
-                                cache.retain(|(i, rr), _| *i != interface || rr.name != name);
-                            }
-                            if ttl > 0
-                                && !services.contains_key(&key)
-                                && services.len() < MAX_SERVICES
-                            {
-                                *serial = serial
-                                    .checked_add(1)
-                                    .context("Windows DNS-SD generation exhausted")?;
-                                events.blocking_send(Event::Found {
-                                    token: *serial,
-                                    instance: name,
-                                    interface,
-                                })?;
-                                // Initial records can precede PTR/SRV in the same RR set.
-                                for ((_, rr), _) in
-                                    cache.iter().filter(|((i, _), _)| *i == interface)
-                                {
-                                    events.blocking_send(Event::Record {
-                                        token: *serial,
-                                        name: rr.name.clone(),
-                                        kind: rr.kind,
-                                        data: rr.data.clone(),
-                                        add: true,
-                                    })?;
-                                }
-                                services.insert(key, *serial);
-                            }
-                        }
-                    }
-                    for ((i, _), token) in &services {
-                        if *i == interface {
-                            events.blocking_send(Event::Record {
-                                token: *token,
-                                name: record.name.clone(),
-                                kind: record.kind,
-                                data: record.data.clone(),
-                                add: ttl > 0,
-                            })?;
-                        }
-                    }
-                }
-            }
-            Err(channel::RecvTimeoutError::Timeout) => {}
+            Ok(Command::Records(interface, records)) => (interface, records),
+            Err(channel::RecvTimeoutError::Timeout) => (0, Vec::new()),
             Err(error) => return Err(error.into()),
-        }
-        let now = Instant::now();
-        let expired: Vec<_> = cache
-            .iter()
-            .filter(|(_, until)| **until <= now)
-            .map(|(key, _)| key.clone())
-            .collect();
-        for (interface, record) in expired {
-            cache.remove(&(interface, record.clone()));
-            for ((i, _), token) in &services {
-                if *i == interface {
-                    events.blocking_send(Event::Record {
-                        token: *token,
-                        name: record.name.clone(),
-                        kind: record.kind,
-                        data: record.data.clone(),
-                        add: false,
-                    })?;
-                }
-            }
-        }
-        let gone: Vec<_> = services
-            .keys()
-            .filter(|(interface, name)| {
-                !cache.keys().any(|(i, rr)| {
-                    i == interface
-                        && ((rr.kind == 33 && &rr.name == name)
-                            || (rr.kind == 12
-                                && records::dns_name(&rr.data).as_ref() == Some(name)))
-                })
-            })
-            .cloned()
-            .collect();
-        for key in gone {
-            events.blocking_send(Event::Removed(services.remove(&key).unwrap()))?;
-        }
+        };
+        cache.update(own, interface, records, Instant::now(), serial, |event| {
+            events.blocking_send(event).map_err(Into::into)
+        })?;
     }
     Ok(())
 }

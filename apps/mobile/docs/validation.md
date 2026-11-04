@@ -142,7 +142,7 @@ MacBook の `/tmp/omochi-macos` にこの checkout の必要なソースを同�
 
 ## 2026-11-04 本番 LAN discovery の OS 切り替え
 
-共通 `crates/transport/src/lan` に実装した。Gateway・Hub・mobile native bridge は同じ `bind()` から利用する。Apple は OS Bonjour、Windows は DNSapi の DNS-SD、Linux は既存 Avahi Server2 が system D-Bus 上にあれば Avahi、なければ Rust mDNS を選ぶ。Android は既存の Rust mDNS。Apple / Windows で raw multicast へ自動切り替えしない。SDK / A2UI schema / Gateway wire contract / peer role / trust の認可は変更していない。multicast entitlement も追加していない。
+共通 `crates/mdns` (`omochi-mdns`) に実装した。Gateway・Hub・mobile native bridge は同じ `bind()` から利用する。Apple は OS Bonjour、Windows は DNSapi の DNS-SD、Linux は既存 Avahi Server2 が system D-Bus 上にあれば Avahi、なければ Rust mDNS を選ぶ。Android は既存の Rust mDNS。Apple / Windows で raw multicast へ自動切り替えしない。SDK / A2UI schema / Gateway wire contract / peer role / trust の認可は変更していない。multicast entitlement も追加していない。
 
 OS DNS-SD の1サービス・1 SRVポートに合わせ、QUIC の IPv4 / IPv6 の待受ポートを共通化した。受信側は複数 SRV・複数アドレスを集約し、IPv6 link-local に受信インターフェースの scope ID を付ける。広告・browser・callback は endpoint が所有する。削除・停止・backend 再初期化で世代を無効にし、古い callback から再生成しない。Avahi の record query は service browser と同じ IPv4 / IPv6 transport に限定し、片方のキャッシュ削除で他方の有効な record まで消さない。Avahi は daemon の owner 変更を検知して再接続し、Windows はアドレスを含む interface の変更でも再初期化する。
 

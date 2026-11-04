@@ -14,7 +14,9 @@ remain release checks.
   bounded length-prefixed JSON, control/service messages, session-generation guard.
 - `omochi-transport`: pinned iroh 1.4.1, authenticated `relay.omochi.fyi` by default
   in release builds (n0 relays in debug builds), optional custom relays, public
-  address lookup in online mode, mDNS lookup, and offline endpoints without public services.
+  address lookup in online mode, `omochi-mdns` integration, and offline endpoints without public services.
+- `omochi-mdns`: cross-platform mDNS advertisement and discovery, record aggregation
+  and invalidation, cancellation, and OS backend selection.
 - Durable role-specific keys and serialized state writes with atomic rename and
   fsync; 180-second single-use enrollment, identity-bound retry, and record revocation.
 - Enrollment exchange over the dedicated ALPN, using the authenticated remote

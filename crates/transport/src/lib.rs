@@ -1,5 +1,4 @@
 //! Iroh transport integration. Application authorization is separate from TLS identity.
-pub mod lan;
 #[cfg(feature = "desktop")]
 pub mod live;
 pub mod pairing;
@@ -62,7 +61,7 @@ pub async fn bind(
             .await;
         match result {
             Ok(endpoint) => {
-                let discovery = match lan::LanDiscovery::new(endpoint.id()).await {
+                let discovery = match omochi_mdns::LanDiscovery::new(endpoint.id(), port).await {
                     Ok(discovery) => discovery,
                     Err(error) => {
                         endpoint.close().await;

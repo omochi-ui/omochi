@@ -2,7 +2,7 @@
 //! Prints public addressing information only; never uses an on-disk identity.
 use anyhow::{Context, Result, ensure};
 use iroh::address_lookup::AddressLookup;
-use omochi_transport::lan::LanDiscovery;
+use omochi_mdns::LanDiscovery;
 use omochi_transport::{EndpointId, SecretKey};
 use serde_json::json;
 use std::{future::poll_fn, time::Duration};
@@ -28,7 +28,7 @@ async fn main() -> Result<()> {
 }
 
 async fn resolve_peer(endpoint: &omochi_transport::Endpoint, remote: EndpointId) -> Result<()> {
-    let lookup = LanDiscovery::new(endpoint.id()).await?;
+    let lookup = LanDiscovery::new(endpoint.id(), endpoint.bound_sockets()[0].port()).await?;
     let mut stream = lookup.resolve(remote).context("mDNS lookup unavailable")?;
     tokio::time::timeout(Duration::from_secs(20), async {
         while let Some(item) = poll_fn(|cx| stream.as_mut().poll_next(cx)).await {
@@ -48,7 +48,7 @@ async fn resolve_peer(endpoint: &omochi_transport::Endpoint, remote: EndpointId)
 
 async fn probe(endpoint: &omochi_transport::Endpoint) -> Result<()> {
     let remote = SecretKey::from_bytes(&rand::random()).public();
-    let lookup = LanDiscovery::new(endpoint.id()).await?;
+    let lookup = LanDiscovery::new(endpoint.id(), endpoint.bound_sockets()[0].port()).await?;
     let mut stream = lookup.resolve(remote).context("mDNS lookup unavailable")?;
     // bind() can return before local interface enumeration has completed.
     tokio::time::timeout(Duration::from_secs(5), async {
