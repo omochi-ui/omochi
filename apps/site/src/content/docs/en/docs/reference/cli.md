@@ -320,6 +320,11 @@ approximations below; Rust uses `Value` for multiple distinct layers. Required
 fields are combined across layers. Fields inside conditional branches are not
 added as unconditional component properties.
 
+Component-level `anyOf` and `oneOf` are unsupported, including in nested `allOf`
+layers and resolved local references. Generation reports the component and union
+keyword before modifying any output. Unions within property schemas, including
+array items and nested object properties, remain supported.
+
 Python has no intersection type operator for property-level `allOf`. If all
 remaining layers generate the same Python type, that type is used (including
 `dict[str, Any]` for object layers); a single layer keeps its type. Other

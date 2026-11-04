@@ -10,6 +10,7 @@ use std::{
 
 #[derive(Args)]
 pub struct Options {
+    /// Local catalog JSON; component-level anyOf and oneOf are unsupported.
     #[arg(long)]
     pub catalog: PathBuf,
     #[arg(long)]
@@ -588,6 +589,13 @@ fn collect_component_properties(
     properties: &mut Map<String, Value>,
     required: &mut BTreeSet<String>,
 ) -> Result<()> {
+    for keyword in ["anyOf", "oneOf"] {
+        if schema.get(keyword).is_some() {
+            bail!(
+                "unsupported component-level {keyword}; unions are supported only in property schemas"
+            );
+        }
+    }
     if let Some(reference) = schema["$ref"].as_str() {
         if reference.ends_with("/ComponentCommon") {
             add_component_property(
@@ -622,8 +630,9 @@ fn collect_component_properties(
         required.extend(keys.iter().filter_map(Value::as_str).map(str::to_owned));
     }
     if let Some(layers) = schema["allOf"].as_array() {
-        for layer in layers {
-            collect_component_properties(layer, properties, required)?;
+        for (index, layer) in layers.iter().enumerate() {
+            collect_component_properties(layer, properties, required)
+                .with_context(|| format!("allOf[{index}]"))?;
         }
     }
     Ok(())
@@ -643,7 +652,8 @@ fn model(catalog: Value, name: Option<&str>, hash: String) -> Result<Model> {
     {
         let mut properties = Map::new();
         let mut required = BTreeSet::new();
-        collect_component_properties(schema, &mut properties, &mut required)?;
+        collect_component_properties(schema, &mut properties, &mut required)
+            .with_context(|| format!("component {component:?}"))?;
         // Required keys need not have a property schema. Fill them only after
         // every allOf layer has had a chance to supply their value constraints.
         for key in &required {
@@ -984,6 +994,87 @@ mod tests {
             ty(&properties["value"], Language::Ts).unwrap(),
             r#"("a" | "b") & ("b" | "c")"#
         );
+    }
+
+    #[test]
+    fn rejects_component_unions_with_context_before_writing_any_output() {
+        let temp = tempfile::tempdir().unwrap();
+        let input = temp.path().join("input.json");
+        let ts = temp.path().join("catalog.ts");
+        let py = temp.path().join("catalog.py");
+        let rs = temp.path().join("catalog.rs");
+        for keyword in ["anyOf", "oneOf"] {
+            let union = json!({keyword: [
+                {"type": "object", "properties": {"label": {"type": "string"}}, "required": ["label"]},
+                {"type": "object", "properties": {"count": {"type": "number"}}, "required": ["count"]}
+            ]});
+            std::fs::write(temp.path().join("union.json"), union.to_string()).unwrap();
+            for (schema, nested) in [
+                (union.clone(), false),
+                (
+                    json!({"properties": {"shared": {"type": "boolean"}}, keyword: union[keyword]}),
+                    false,
+                ),
+                (json!({"allOf": [{"allOf": [union]}]}), true),
+                (json!({"$ref": "#/$defs/choice"}), false),
+                (json!({"allOf": [{"$ref": "union.json"}]}), true),
+                (
+                    json!({"$ref": "#/$defs/base", keyword: union[keyword]}),
+                    true,
+                ),
+            ] {
+                let catalog = json!({
+                    "$defs": {"choice": union, "base": {"type": "object"}},
+                    "components": {"Choice": schema}
+                });
+                std::fs::write(&input, catalog.to_string()).unwrap();
+                for output in [&ts, &py, &rs] {
+                    std::fs::write(output, "existing").unwrap();
+                }
+                let error = generate(Options {
+                    catalog: input.clone(),
+                    name: None,
+                    typescript: Some(ts.clone()),
+                    python: Some(py.clone()),
+                    rust: Some(rs.clone()),
+                    check: false,
+                })
+                .unwrap_err();
+                let message = format!("{error:#}");
+                assert!(message.contains("component \"Choice\""), "{message}");
+                assert!(
+                    message.contains(&format!("unsupported component-level {keyword}")),
+                    "{message}"
+                );
+                if nested {
+                    assert!(message.contains("allOf["), "{message}");
+                }
+                for output in [&ts, &py, &rs] {
+                    assert_eq!(std::fs::read_to_string(output).unwrap(), "existing");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn component_properties_still_support_unions_in_all_languages() {
+        for keyword in ["anyOf", "oneOf"] {
+            let union = json!({keyword: [{"type": "string"}, {"type": "number"}]});
+            let catalog = json!({"components": {"Choice": {"allOf": [{"properties": {
+                "value": union,
+                "items": {"type": "array", "items": union},
+                "details": {"type": "object", "properties": {"value": union}}
+            }}]}}});
+            let model = model(catalog, None, "".into()).unwrap();
+            for (lang, expected) in [
+                (Language::Ts, "string | number"),
+                (Language::Py, "str | float"),
+                (Language::Rs, "Value"),
+            ] {
+                assert_eq!(ty(&union, lang).unwrap(), expected);
+                assert!(render(&model, lang).unwrap().contains(expected));
+            }
+        }
     }
 
     #[test]

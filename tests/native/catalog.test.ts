@@ -1,6 +1,6 @@
 import { expect } from "bun:test";
 import { test } from "@omochi-ui/core/testing";
-import { copyFile, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
+import { copyFile, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { delimiter, join, resolve } from "node:path";
 
@@ -111,6 +111,39 @@ for (const fixture of ["catalog-arrays", "catalog-enums", "catalog-property-name
     }
   });
 }
+
+test("native component unions fail with context and preserve all outputs", {
+  skip: !process.env.OMOCHI_NATIVE_TEST,
+}, async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "omochi-catalog-unions-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const workspace = resolve(import.meta.dir, "../..");
+  const profile = process.env.OMOCHI_NATIVE_PROFILE ?? "debug";
+  if (profile !== "debug" && profile !== "release") throw new Error("invalid native profile");
+  const outputs = ["ts", "py", "rs"].map((extension) => join(root, `catalog.${extension}`));
+  for (const keyword of ["anyOf", "oneOf"]) {
+    await writeFile(join(root, "input.json"), JSON.stringify({
+      $defs: { choice: { [keyword]: [
+        { type: "object", properties: { label: { type: "string" } }, required: ["label"] },
+        { type: "object", properties: { count: { type: "number" } }, required: ["count"] },
+      ] } },
+      components: { Choice: { allOf: [{ $ref: "#/$defs/choice" }] } },
+    }));
+    await Promise.all(outputs.map((output) => writeFile(output, "existing")));
+    const generate = Bun.spawn([
+      join(workspace, "crates/target", profile, "omochi-ui"),
+      "generate", "catalog", "--catalog", join(root, "input.json"),
+      "--typescript", outputs[0]!, "--python", outputs[1]!, "--rust", outputs[2]!,
+    ], { stdout: "pipe", stderr: "pipe" });
+    const generationError = await new Response(generate.stderr).text();
+    expect(await generate.exited).not.toBe(0);
+    expect(generationError).toContain('component "Choice"');
+    expect(generationError).toContain("allOf[0]");
+    expect(generationError).toContain(`unsupported component-level ${keyword}`);
+    expect(await Promise.all(outputs.map((output) => readFile(output, "utf8"))))
+      .toEqual(["existing", "existing", "existing"]);
+  }
+});
 
 test("native empty and conditional allOf bindings compile and annotations evaluate", {
   skip: !process.env.OMOCHI_NATIVE_TEST,
