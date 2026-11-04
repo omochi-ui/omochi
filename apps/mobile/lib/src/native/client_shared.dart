@@ -33,7 +33,7 @@ class _SharedClient extends GatewayClient {
   final void Function(Json) onMessage;
   final void Function(String) onRetract, onEvent;
   SharedHubBridge? _bridge;
-  void Function()? _releaseLease;
+  Future<void> Function()? _releaseLease;
   bool _closing = false, _suspended = false;
   bool _foreground = true;
   Future<void> _transitions = Future<void>.value();
@@ -83,7 +83,13 @@ class _SharedClient extends GatewayClient {
   @override
   Future<void> start() => _starting ??= _start();
   Future<void> _start() async {
-    _releaseLease ??= store.acquireIdentityLease();
+    final release = await store.acquireIdentityLease();
+    // close() may finish while the platform is acquiring the lease.
+    if (_closing) {
+      await release();
+      throw StateError('Hub stopped during startup');
+    }
+    _releaseLease = release;
     try {
       await _setMulticast(true);
       if (_closing) {
@@ -346,7 +352,7 @@ class _SharedClient extends GatewayClient {
     await _bridge?.close();
     _bridge = null;
     await _setMulticast(false);
-    _releaseLease?.call();
+    await _releaseLease?.call();
     _releaseLease = null;
     super.dispose();
   }

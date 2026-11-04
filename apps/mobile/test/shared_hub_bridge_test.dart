@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:ffi';
 import 'dart:io';
 
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:omochi_mobile/src/native/bridge.dart';
 import 'package:omochi_mobile/src/native/client_shared.dart';
@@ -24,7 +25,64 @@ class _DelayedPreferencesStore extends NativeHubStore {
   }
 }
 
+class _DelayedLeaseStore extends NativeHubStore {
+  final acquired = Completer<Future<void> Function()>();
+  @override
+  Future<Future<void> Function()> acquireIdentityLease() => acquired.future;
+}
+
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+  if (Platform.isMacOS) {
+    // Native flock behavior is exercised by test_driver/macos/identity_lease_test.py.
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(
+          const MethodChannel('omochi/identity-lease'),
+          (call) async => call.method == 'acquire' ? 'test-lease' : null,
+        );
+  }
+  test(
+    'closing during lease acquisition releases the lease without opening a Hub',
+    () async {
+      final store = _DelayedLeaseStore();
+      var released = false;
+      final client = createSharedGatewayClient(
+        store: store,
+        onMessage: (_) {},
+        onRetract: (_) {},
+        onEvent: (_) {},
+        openBridge: (_) => throw StateError('must not open'),
+      );
+      final started = expectLater(client.start(), throwsStateError);
+      await client.close();
+      store.acquired.complete(() async {
+        released = true;
+      });
+      await started;
+      expect(released, isTrue);
+    },
+  );
+
+  test('lease acquisition failure never opens a Hub', () async {
+    final store = _DelayedLeaseStore();
+    var opened = false;
+    final client = createSharedGatewayClient(
+      store: store,
+      onMessage: (_) {},
+      onRetract: (_) {},
+      onEvent: (_) {},
+      openBridge: (_) {
+        opened = true;
+        throw StateError('must not open');
+      },
+    );
+    final started = expectLater(client.start(), throwsStateError);
+    store.acquired.completeError(StateError('This Hub is already running'));
+    await started;
+    expect(opened, isFalse);
+    await client.close();
+  });
+
   final file = File(
     Platform.environment['OMOCHI_HUB_LIBRARY'] ??
         'build/shared-hub/linux/libomochi_native_bridge.so',
@@ -157,9 +215,12 @@ void main() {
     secure.failAfterWrite = true;
     expect(await store.commitIdentityDocument('first', 'second'), 'unknown');
     expect(secure.value, 'second');
-    final release = store.acquireIdentityLease();
-    expect(() => NativeHubStore().acquireIdentityLease(), throwsStateError);
-    release();
-    store.acquireIdentityLease()();
+    final release = await store.acquireIdentityLease();
+    await expectLater(
+      NativeHubStore().acquireIdentityLease(),
+      throwsStateError,
+    );
+    await release();
+    await (await store.acquireIdentityLease())();
   });
 }

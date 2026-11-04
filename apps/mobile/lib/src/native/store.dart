@@ -1,10 +1,13 @@
 import 'dart:async';
+import 'dart:io';
+
+import 'package:flutter/services.dart';
 
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// Identity and registered peers use OS-protected storage.
-/// Mutations re-read under the app serial lock.
+/// Mutations re-read under the app serial lock while the Hub owns its lease.
 class NativeHubStore {
   NativeHubStore({
     this.namespace = 'omochi.mobile.v1',
@@ -28,18 +31,32 @@ class NativeHubStore {
 
   static final Set<String> _active = {};
 
-  /// Prevent two clients from owning the same document together.
-  /// CAS below still protects against stale data from another storage writer.
-  void Function() acquireIdentityLease() {
+  static const _leaseChannel = MethodChannel('omochi/identity-lease');
+
+  /// Held until the native Hub has completely closed. macOS also excludes
+  /// other processes; the local guard excludes concurrent callers immediately.
+  Future<Future<void> Function()> acquireIdentityLease() async {
     if (!_active.add(namespace)) {
       throw StateError('This Hub is already running');
     }
-    var released = false;
-    return () {
-      if (!released) {
-        released = true;
-        _active.remove(namespace);
+    String? token;
+    try {
+      if (Platform.isMacOS) {
+        token = await _leaseChannel.invokeMethod<String>('acquire', namespace);
+        if (token == null) throw StateError('Identity lease was not acquired');
       }
+    } catch (_) {
+      _active.remove(namespace);
+      rethrow;
+    }
+    var released = false;
+    return () async {
+      if (released) return;
+      if (token != null) {
+        await _leaseChannel.invokeMethod<void>('release', token);
+      }
+      released = true;
+      _active.remove(namespace);
     };
   }
 
