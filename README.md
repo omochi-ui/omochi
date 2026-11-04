@@ -169,6 +169,7 @@ and have no authentication or TLS.
 | [CLI reference](https://omochi.fyi/en/docs/reference/cli/) | Commands, flags, defaults, and troubleshooting |
 | [Discovery and dashboards](https://omochi.fyi/en/docs/guides/remote/) | Local services, remote access, and routing |
 | [Hosted dashboard sharing](docs/dashboard-sharing.md) | Hub-client iroh access, identity invitations and readonly public links |
+| [Docker](deploy/docker/README.md) | Run the hub and Python example with Compose; native images on GHCR |
 | [Deployment](deploy/README.md) | app.omochi.fyi static hosting, hub setup and relay operation |
 | [Browser dashboard experiment](experiments/browser-dashboard/README.md) | Opt-in browser-resident hub, WASM transport, and direct gateway tests |
 | [Design system](docs/design-system.md) | Shared palette, tokens, components, and connection states |
