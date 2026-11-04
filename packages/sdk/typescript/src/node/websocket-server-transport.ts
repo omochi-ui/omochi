@@ -165,10 +165,19 @@ export class WebSocketServerTransport implements Transport {
           return;
         }
         const parsed = A2uiClientMessageSchema.safeParse(value);
-        if (!parsed.success || parsed.data.version !== "v0.9" || !("action" in parsed.data)) {
+        if (!parsed.success || parsed.data.version !== "v0.9") {
           throw new Error(parsed.success ? `unsupported version: ${parsed.data.version}` : "expected an A2UI v0.9 client message");
         }
-        this.enqueue(value as JsonObject);
+        const message = value as JsonObject;
+        if ("error" in message) {
+          // The schema can omit a missing generic code or strip an extra action.
+          if ("action" in message || !("error" in parsed.data) || !("code" in parsed.data.error)) {
+            throw new Error("invalid client error report");
+          }
+          // Valid client error reports carry no action; keep the connection open.
+          return;
+        }
+        this.enqueue(message);
       } catch (error) {
         const detail = error instanceof Error ? error.message : String(error);
         closeSocket(socket, 1007, `invalid JSON: ${detail}`);

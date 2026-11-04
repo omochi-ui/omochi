@@ -9,6 +9,16 @@ import { WebSocketServerTransport } from "../src/node/index.js";
 import type { JsonObject } from "../src/index.js";
 
 for (const runtime of ["bun", "node"]) {
+  test(`continues after valid client errors and rejects invalid reports in ${runtime}`, () => {
+    const result = spawnSync(runtime, [
+      "--unhandled-rejections=strict",
+      fileURLToPath(new URL("./fixtures/websocket-client-errors.mjs", import.meta.url)),
+    ], { encoding: "utf8", timeout: 10_000 });
+    assert.ifError(result.error);
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.stdout.trim(), "client errors handled");
+  });
+
   for (const phase of ["starting", "ready", "bind-failure", "bind-failure-settled"]) {
     test(`closes a ${phase} WebSocket server and exits in ${runtime}`, () => {
       const result = spawnSync(runtime, [
