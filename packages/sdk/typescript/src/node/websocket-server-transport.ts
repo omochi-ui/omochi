@@ -151,6 +151,11 @@ export class WebSocketServerTransport implements Transport {
 
   private accept(socket: WebSocket): void {
     this.clients.add(socket);
+    socket.on("close", () => this.clients.delete(socket));
+    socket.on("error", () => {
+      // Isolate connection errors even when the peer never acknowledges a close.
+      socket.terminate();
+    });
     if (this.resources) socket.send(JSON.stringify(resourceHello()));
     for (const message of this.snapshot.messages()) socket.send(JSON.stringify(message));
     socket.on("message", (data, isBinary) => {
@@ -183,7 +188,6 @@ export class WebSocketServerTransport implements Transport {
         closeSocket(socket, 1007, `invalid JSON: ${detail}`);
       }
     });
-    socket.on("close", () => this.clients.delete(socket));
   }
 
   private enqueue(message: JsonObject): void {
