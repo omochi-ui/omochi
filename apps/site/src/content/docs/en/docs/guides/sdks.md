@@ -109,6 +109,15 @@ to select an available port, `await transport.ready` before reading
 server has no authentication or TLS; keep the loopback default unless external
 exposure is explicitly intended.
 
+WebSocket handshakes and HTTP resource requests share an Origin policy: only
+HTTP(S) origins on `localhost`, `127.0.0.1`, or `[::1]` (with an optional port)
+are accepted. External, malformed, empty, and `null` origins are rejected with
+HTTP 403 before the WebSocket opens, so they cannot read snapshots or resources
+or invoke actions. Non-browser clients may omit Origin. Requests marked
+`Sec-Fetch-Site: cross-site` are rejected even without Origin. Changing `host`
+does not widen this policy; use the hub's explicit origin configuration for
+external browser access.
+
 ## Rust
 
 The crate is named `omochi-ui` and imported as `omochi_ui`. Typed application

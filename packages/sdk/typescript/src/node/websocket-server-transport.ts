@@ -1,4 +1,4 @@
-import { isResourceFrame, ResourceError, resourceHello, serveResources, type ResourceFrame } from "@omochi-ui/core";
+import { isResourceFrame, ResourceError, resourceHello, resourceOriginAllowed, serveResources, type ResourceFrame } from "@omochi-ui/core";
 import { ResourceRegistry } from "../resources.js";
 import { createServer, type Server } from "node:http";
 
@@ -75,6 +75,11 @@ export class WebSocketServerTransport implements Transport {
       const pathname = new URL(request.url ?? "/", "http://localhost").pathname;
       if (this.closed || pathname !== this.path) {
         socket.destroy();
+        return;
+      }
+      // WebSocket upgrades bypass CORS; enforce the HTTP resource policy here too.
+      if (!resourceOriginAllowed(request)) {
+        socket.end("HTTP/1.1 403 Forbidden\r\nConnection: close\r\nContent-Length: 0\r\n\r\n");
         return;
       }
       this.webSocketServer.handleUpgrade(request, socket, head, (webSocket) => {

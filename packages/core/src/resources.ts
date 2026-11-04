@@ -65,7 +65,8 @@ export type ResourceFetch = (route: string, request: ResourceRequest, signal: Ab
 /** Deliberately rejects cross-site media requests without an explicitly allowed Origin. */
 export function resourceOriginAllowed(request: IncomingMessage, allowed?: (origin: string | undefined) => boolean): boolean {
   const origin = request.headers.origin
-  if (origin && !(allowed?.(origin) ?? /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/.test(origin))) return false
+  const loopback = origin?.match(/^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(?::(\d+))?$/)
+  if (origin !== undefined && !(allowed?.(origin) ?? (!!loopback && Number(loopback[2] ?? 0) <= 65535))) return false
   return request.headers['sec-fetch-site'] !== 'cross-site' || !!origin && !!allowed?.(origin)
 }
 export function serveResources(request: IncomingMessage, response: ServerResponse, fetch: ResourceFetch,
