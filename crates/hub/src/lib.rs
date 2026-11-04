@@ -10,6 +10,8 @@ pub mod control;
 pub mod dashboard_remote;
 #[cfg(feature = "browser")]
 pub mod dashboards;
+#[cfg(all(test, unix, feature = "desktop"))]
+mod gateway_ownership;
 #[cfg(all(feature = "desktop", feature = "browser"))]
 mod gateway_pairing;
 mod heartbeat;
@@ -115,6 +117,7 @@ struct OutboundAction {
 }
 struct State {
     channels: BTreeMap<String, Channel>,
+    gateway_owners: BTreeMap<String, u64>,
     events: omochi_protocol::fanout::Sender<scoped::HubEvent>,
     blocked_gateways: BTreeSet<String>,
     scoped: Option<CancellationToken>,
@@ -123,6 +126,7 @@ struct State {
 #[derive(Clone)]
 pub struct Hub {
     state: Arc<Mutex<State>>,
+    gateway_changes: tokio::sync::watch::Sender<()>,
     changes: broadcast::Sender<()>,
     epoch: Arc<AtomicU64>,
     stop: CancellationToken,
@@ -158,11 +162,13 @@ impl Hub {
         Self {
             state: Arc::new(Mutex::new(State {
                 channels: BTreeMap::new(),
+                gateway_owners: BTreeMap::new(),
                 events,
                 blocked_gateways: BTreeSet::new(),
                 scoped: None,
                 unavailable: BTreeMap::new(),
             })),
+            gateway_changes: tokio::sync::watch::channel(()).0,
             changes,
             epoch: Arc::new(AtomicU64::new(1)),
             stop: CancellationToken::new(),
@@ -436,6 +442,8 @@ impl Hub {
         tokio::pin!(heartbeat);
         let mut services = BTreeMap::new();
         let mut roster = BTreeMap::new();
+        let mut gateway_changes = self.gateway_changes.subscribe();
+        let mut owner = false;
         let mut capacity_changes = self.capacity.as_ref().map(|capacity| capacity.subscribe());
         let first_roster_deadline = tokio::time::Instant::now() + Duration::from_secs(10);
         let mut roster_received = false;
@@ -450,11 +458,20 @@ impl Hub {
                         result = &mut heartbeat => return result,
                         _ = tokio::time::sleep_until(first_roster_deadline), if !roster_received => bail!("gateway service discovery timed out"),
                         frame = &mut read => break frame?,
+                        _ = gateway_changes.changed(), if !owner && roster_received => {
+                            owner = self.claim_gateway(&session).await;
+                            if owner {
+                                if let Some(capacity) = &self.capacity { capacity.roster(&node_id, &roster); }
+                                self.reconcile_services(&session, &roster, &mut services).await;
+                            }
+                        }
                         _ = async {
                             if let Some(changes) = &mut capacity_changes { let _ = changes.changed().await; }
                             else { std::future::pending::<()>().await; }
                         } => {
-                            self.reconcile_services(&session, &roster, &mut services).await;
+                            if owner {
+                                self.reconcile_services(&session, &roster, &mut services).await;
+                            }
                         }
                     }
                 };
@@ -467,12 +484,15 @@ impl Hub {
                         for spec in listed {
                             if !valid_service_id(&spec.id) || spec.generation == 0 || next.insert(spec.id.clone(), spec).is_some() { bail!("invalid service list") }
                         }
+                        roster = next;
+                        owner = self.claim_gateway(&session).await;
+                        if owner {
+                            if let Some(capacity) = &self.capacity { capacity.roster(&node_id, &roster); }
+                            self.reconcile_services(&session, &roster, &mut services).await;
+                        }
                         if !local {
                             self.diagnostics.lock().await.insert(node_id.clone(), "connected".into());
                         }
-                        if let Some(capacity) = &self.capacity { capacity.roster(&node_id, &next); }
-                        roster = next;
-                        self.reconcile_services(&session, &roster, &mut services).await;
                     }
                     Control::Pong { id } => { pong.send_replace(id); },
                     Control::Bye { reason } => bail!("gateway closed: {reason}"),
@@ -485,15 +505,32 @@ impl Hub {
             let _ = task.await;
             self.remove(&format!("{node_id}~{id}"), epoch).await;
         }
-        if let Some(capacity) = &self.capacity {
-            capacity.offline(&node_id);
+        if owner {
+            if let Some(capacity) = &self.capacity {
+                capacity.offline(&node_id);
+            }
+            let mut state = self.state.lock().await;
+            state
+                .unavailable
+                .retain(|route, _| !route.starts_with(&format!("{node_id}~")));
+            state.gateway_owners.remove(&node_id);
+            // Transfer only after all old streams have ended and their surfaces
+            // have been retracted. Standby control sessions retain fresh rosters.
+            self.gateway_changes.send_replace(());
         }
-        self.state
-            .lock()
-            .await
-            .unavailable
-            .retain(|route, _| !route.starts_with(&format!("{node_id}~")));
         result
+    }
+
+    async fn claim_gateway(&self, session: &GatewaySession<'_>) -> bool {
+        let mut state = self.state.lock().await;
+        // Unix and authenticated iroh can reach the same node. Keep its current
+        // session until it ends instead of letting their service streams replace
+        // one another's snapshots, action queues and scope generations.
+        *state
+            .gateway_owners
+            .entry(session.node.into())
+            .or_insert(session.epoch)
+            == session.epoch
     }
 
     async fn service_unavailable(

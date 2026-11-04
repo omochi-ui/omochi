@@ -61,6 +61,14 @@ every 10 seconds after the preceding exchange; the gateway returns matching
 `pong`. A blocked write or missing matching pong for 10 seconds ends the session.
 `bye` carries a `reason`. Control loss retracts the associated services.
 
+When multiple live control sessions reach the same NodeId (for example through
+Unix and registered iroh), the first valid roster owns that node's service
+subscriptions. Other sessions keep their rosters and heartbeats current without
+replaying surfaces or replacing action routes. The owner retains its services
+until it ends; after its streams are joined and surfaces retracted, a live standby
+may take ownership and request fresh snapshots. Ending a standby does not retract
+the owner's services. Identity and role checks still apply to every connection.
+
 Discovery reserves space for the complete serialized roster within one 4 MiB
 frame, including JSON escaping, UTF-8 and the maximum generation width. Unchanged
 admitted manifests retain capacity first, followed by changed admitted manifests

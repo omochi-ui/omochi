@@ -230,7 +230,12 @@ impl Hub {
                             }
                         }
                         if let Some(capacity) = &hub.capacity {
-                            capacity.offline(&key);
+                            // A failed/revoked standby must not clear the roster
+                            // of another live path to the same gateway.
+                            let state = hub.state.lock().await;
+                            if !state.gateway_owners.contains_key(&key) {
+                                capacity.offline(&key);
+                            }
                         }
                         attempt = attempt.saturating_add(1);
                         let jitter = std::time::SystemTime::now()
