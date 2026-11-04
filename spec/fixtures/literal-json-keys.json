@@ -1,0 +1,165 @@
+{
+  "catalogId": "https://a2ui.org/specification/v0_9/catalogs/basic/catalog.json",
+  "keys": [
+    "__proto__",
+    "constructor",
+    "toString"
+  ],
+  "builder": {
+    "defaults": {
+      "__proto__": "default:__proto__",
+      "constructor": "default:constructor",
+      "toString": "default:toString"
+    },
+    "initials": {
+      "__proto__": {"__proto__": {"value": "__proto__"}},
+      "constructor": {"__proto__": {"value": "constructor"}},
+      "toString": {"__proto__": {"value": "toString"}}
+    }
+  },
+  "root": {
+    "key": "root",
+    "component": "Column",
+    "props": {}
+  },
+  "steps": [
+    {
+      "name": "empty",
+      "state": {"data": {"inputs": {}, "nested": {"a/b~": {}}}, "locals": {}},
+      "expectedMessages": [
+        {"version": "v0.9", "createSurface": {"surfaceId": "main", "catalogId": "https://a2ui.org/specification/v0_9/catalogs/basic/catalog.json", "sendDataModel": true}},
+        {"version": "v0.9", "updateComponents": {"surfaceId": "main", "components": [{"id": "root", "component": "Column"}]}},
+        {"version": "v0.9", "updateDataModel": {"surfaceId": "main", "path": "/", "value": {"inputs": {}, "nested": {"a/b~": {}}, "$local": {}}}}
+      ]
+    },
+    {
+      "name": "add",
+      "state": {"data": {"inputs": {"__proto__": "first", "constructor": "first", "toString": "first"}, "nested": {"a/b~": {"__proto__": "first", "constructor": "first", "toString": "first"}}, "__proto__": "first", "constructor": "first", "toString": "first"}, "locals": {"__proto__": {"initial": {"value": "first"}}, "constructor": {"initial": {"value": "first"}}, "toString": {"initial": {"value": "first"}}}},
+      "expectedMessages": [
+        {"version": "v0.9", "updateDataModel": {"surfaceId": "main", "path": "/__proto__", "value": "first"}},
+        {"version": "v0.9", "updateDataModel": {"surfaceId": "main", "path": "/constructor", "value": "first"}},
+        {"version": "v0.9", "updateDataModel": {"surfaceId": "main", "path": "/inputs/__proto__", "value": "first"}},
+        {"version": "v0.9", "updateDataModel": {"surfaceId": "main", "path": "/inputs/constructor", "value": "first"}},
+        {"version": "v0.9", "updateDataModel": {"surfaceId": "main", "path": "/inputs/toString", "value": "first"}},
+        {"version": "v0.9", "updateDataModel": {"surfaceId": "main", "path": "/nested/a~1b~0/__proto__", "value": "first"}},
+        {"version": "v0.9", "updateDataModel": {"surfaceId": "main", "path": "/nested/a~1b~0/constructor", "value": "first"}},
+        {"version": "v0.9", "updateDataModel": {"surfaceId": "main", "path": "/nested/a~1b~0/toString", "value": "first"}},
+        {"version": "v0.9", "updateDataModel": {"surfaceId": "main", "path": "/toString", "value": "first"}},
+        {"version": "v0.9", "updateDataModel": {"surfaceId": "main", "path": "/$local/__proto__", "value": {"value": "first"}}},
+        {"version": "v0.9", "updateDataModel": {"surfaceId": "main", "path": "/$local/constructor", "value": {"value": "first"}}},
+        {"version": "v0.9", "updateDataModel": {"surfaceId": "main", "path": "/$local/toString", "value": {"value": "first"}}}
+      ]
+    },
+    {
+      "name": "update",
+      "state": {"data": {"inputs": {"__proto__": "second", "constructor": "second", "toString": "second"}, "nested": {"a/b~": {"__proto__": "second", "constructor": "second", "toString": "second"}}, "__proto__": "second", "constructor": "second", "toString": "second"}, "locals": {"__proto__": {"initial": {"value": "second"}, "resetKey": 1}, "constructor": {"initial": {"value": "second"}, "resetKey": 1}, "toString": {"initial": {"value": "second"}, "resetKey": 1}}},
+      "expectedMessages": [
+        {"version": "v0.9", "updateDataModel": {"surfaceId": "main", "path": "/__proto__", "value": "second"}},
+        {"version": "v0.9", "updateDataModel": {"surfaceId": "main", "path": "/constructor", "value": "second"}},
+        {"version": "v0.9", "updateDataModel": {"surfaceId": "main", "path": "/inputs/__proto__", "value": "second"}},
+        {"version": "v0.9", "updateDataModel": {"surfaceId": "main", "path": "/inputs/constructor", "value": "second"}},
+        {"version": "v0.9", "updateDataModel": {"surfaceId": "main", "path": "/inputs/toString", "value": "second"}},
+        {"version": "v0.9", "updateDataModel": {"surfaceId": "main", "path": "/nested/a~1b~0/__proto__", "value": "second"}},
+        {"version": "v0.9", "updateDataModel": {"surfaceId": "main", "path": "/nested/a~1b~0/constructor", "value": "second"}},
+        {"version": "v0.9", "updateDataModel": {"surfaceId": "main", "path": "/nested/a~1b~0/toString", "value": "second"}},
+        {"version": "v0.9", "updateDataModel": {"surfaceId": "main", "path": "/toString", "value": "second"}},
+        {"version": "v0.9", "updateDataModel": {"surfaceId": "main", "path": "/$local/__proto__", "value": {"value": "second"}}},
+        {"version": "v0.9", "updateDataModel": {"surfaceId": "main", "path": "/$local/constructor", "value": {"value": "second"}}},
+        {"version": "v0.9", "updateDataModel": {"surfaceId": "main", "path": "/$local/toString", "value": {"value": "second"}}}
+      ]
+    },
+    {
+      "name": "preserve locals",
+      "state": {"data": {"inputs": {"__proto__": "third", "constructor": "third", "toString": "third"}, "nested": {"a/b~": {"__proto__": "third", "constructor": "third", "toString": "third"}}, "__proto__": "third", "constructor": "third", "toString": "third"}, "locals": {"__proto__": {"initial": {"value": "third"}, "resetKey": 1}, "constructor": {"initial": {"value": "third"}, "resetKey": 1}, "toString": {"initial": {"value": "third"}, "resetKey": 1}}},
+      "expectedMessages": [
+        {"version": "v0.9", "updateDataModel": {"surfaceId": "main", "path": "/__proto__", "value": "third"}},
+        {"version": "v0.9", "updateDataModel": {"surfaceId": "main", "path": "/constructor", "value": "third"}},
+        {"version": "v0.9", "updateDataModel": {"surfaceId": "main", "path": "/inputs/__proto__", "value": "third"}},
+        {"version": "v0.9", "updateDataModel": {"surfaceId": "main", "path": "/inputs/constructor", "value": "third"}},
+        {"version": "v0.9", "updateDataModel": {"surfaceId": "main", "path": "/inputs/toString", "value": "third"}},
+        {"version": "v0.9", "updateDataModel": {"surfaceId": "main", "path": "/nested/a~1b~0/__proto__", "value": "third"}},
+        {"version": "v0.9", "updateDataModel": {"surfaceId": "main", "path": "/nested/a~1b~0/constructor", "value": "third"}},
+        {"version": "v0.9", "updateDataModel": {"surfaceId": "main", "path": "/nested/a~1b~0/toString", "value": "third"}},
+        {"version": "v0.9", "updateDataModel": {"surfaceId": "main", "path": "/toString", "value": "third"}}
+      ]
+    },
+    {
+      "name": "delete",
+      "state": {"data": {"inputs": {}, "nested": {"a/b~": {}}}, "locals": {}},
+      "expectedMessages": [
+        {"version": "v0.9", "updateDataModel": {"surfaceId": "main", "path": "/__proto__"}},
+        {"version": "v0.9", "updateDataModel": {"surfaceId": "main", "path": "/constructor"}},
+        {"version": "v0.9", "updateDataModel": {"surfaceId": "main", "path": "/inputs/__proto__"}},
+        {"version": "v0.9", "updateDataModel": {"surfaceId": "main", "path": "/inputs/constructor"}},
+        {"version": "v0.9", "updateDataModel": {"surfaceId": "main", "path": "/inputs/toString"}},
+        {"version": "v0.9", "updateDataModel": {"surfaceId": "main", "path": "/nested/a~1b~0/__proto__"}},
+        {"version": "v0.9", "updateDataModel": {"surfaceId": "main", "path": "/nested/a~1b~0/constructor"}},
+        {"version": "v0.9", "updateDataModel": {"surfaceId": "main", "path": "/nested/a~1b~0/toString"}},
+        {"version": "v0.9", "updateDataModel": {"surfaceId": "main", "path": "/toString"}},
+        {"version": "v0.9", "updateDataModel": {"surfaceId": "main", "path": "/$local/__proto__"}},
+        {"version": "v0.9", "updateDataModel": {"surfaceId": "main", "path": "/$local/constructor"}},
+        {"version": "v0.9", "updateDataModel": {"surfaceId": "main", "path": "/$local/toString"}}
+      ]
+    },
+    {
+      "name": "re-add",
+      "state": {"data": {"inputs": {"__proto__": "again", "constructor": "again", "toString": "again"}, "nested": {"a/b~": {"__proto__": "again", "constructor": "again", "toString": "again"}}, "__proto__": "again", "constructor": "again", "toString": "again"}, "locals": {"__proto__": {"initial": {"value": "again"}}, "constructor": {"initial": {"value": "again"}}, "toString": {"initial": {"value": "again"}}}},
+      "expectedMessages": [
+        {"version": "v0.9", "updateDataModel": {"surfaceId": "main", "path": "/__proto__", "value": "again"}},
+        {"version": "v0.9", "updateDataModel": {"surfaceId": "main", "path": "/constructor", "value": "again"}},
+        {"version": "v0.9", "updateDataModel": {"surfaceId": "main", "path": "/inputs/__proto__", "value": "again"}},
+        {"version": "v0.9", "updateDataModel": {"surfaceId": "main", "path": "/inputs/constructor", "value": "again"}},
+        {"version": "v0.9", "updateDataModel": {"surfaceId": "main", "path": "/inputs/toString", "value": "again"}},
+        {"version": "v0.9", "updateDataModel": {"surfaceId": "main", "path": "/nested/a~1b~0/__proto__", "value": "again"}},
+        {"version": "v0.9", "updateDataModel": {"surfaceId": "main", "path": "/nested/a~1b~0/constructor", "value": "again"}},
+        {"version": "v0.9", "updateDataModel": {"surfaceId": "main", "path": "/nested/a~1b~0/toString", "value": "again"}},
+        {"version": "v0.9", "updateDataModel": {"surfaceId": "main", "path": "/toString", "value": "again"}},
+        {"version": "v0.9", "updateDataModel": {"surfaceId": "main", "path": "/$local/__proto__", "value": {"value": "again"}}},
+        {"version": "v0.9", "updateDataModel": {"surfaceId": "main", "path": "/$local/constructor", "value": {"value": "again"}}},
+        {"version": "v0.9", "updateDataModel": {"surfaceId": "main", "path": "/$local/toString", "value": {"value": "again"}}}
+      ]
+    },
+    {
+      "name": "delete again",
+      "state": {"data": {"inputs": {}, "nested": {"a/b~": {}}}, "locals": {}},
+      "expectedMessages": [
+        {"version": "v0.9", "updateDataModel": {"surfaceId": "main", "path": "/__proto__"}},
+        {"version": "v0.9", "updateDataModel": {"surfaceId": "main", "path": "/constructor"}},
+        {"version": "v0.9", "updateDataModel": {"surfaceId": "main", "path": "/inputs/__proto__"}},
+        {"version": "v0.9", "updateDataModel": {"surfaceId": "main", "path": "/inputs/constructor"}},
+        {"version": "v0.9", "updateDataModel": {"surfaceId": "main", "path": "/inputs/toString"}},
+        {"version": "v0.9", "updateDataModel": {"surfaceId": "main", "path": "/nested/a~1b~0/__proto__"}},
+        {"version": "v0.9", "updateDataModel": {"surfaceId": "main", "path": "/nested/a~1b~0/constructor"}},
+        {"version": "v0.9", "updateDataModel": {"surfaceId": "main", "path": "/nested/a~1b~0/toString"}},
+        {"version": "v0.9", "updateDataModel": {"surfaceId": "main", "path": "/toString"}},
+        {"version": "v0.9", "updateDataModel": {"surfaceId": "main", "path": "/$local/__proto__"}},
+        {"version": "v0.9", "updateDataModel": {"surfaceId": "main", "path": "/$local/constructor"}},
+        {"version": "v0.9", "updateDataModel": {"surfaceId": "main", "path": "/$local/toString"}}
+      ]
+    }
+  ],
+  "flatten": {
+    "root": {
+      "key": "root",
+      "component": "Custom",
+      "props": {"existing": {"__proto__": {"keep": true}}},
+      "slots": [
+        {"path": "/__proto__/child", "kind": "single", "nodes": [{"key": "child:0", "component": "Text", "props": {"text": "child:0"}}]},
+        {"path": "/constructor/child", "kind": "single", "nodes": [{"key": "child:1", "component": "Text", "props": {"text": "child:1"}}]},
+        {"path": "/toString/child", "kind": "single", "nodes": [{"key": "child:2", "component": "Text", "props": {"text": "child:2"}}]},
+        {"path": "/direct/__proto__", "kind": "single", "nodes": [{"key": "child:3", "component": "Text", "props": {"text": "child:3"}}]},
+        {"path": "/existing/__proto__/child", "kind": "single", "nodes": [{"key": "child:4", "component": "Text", "props": {"text": "child:4"}}]},
+        {"path": "/array/0/__proto__/child", "kind": "single", "nodes": [{"key": "child:5", "component": "Text", "props": {"text": "child:5"}}]}
+      ]
+    },
+    "expectedComponents": [
+      {"id": "child:0", "component": "Text", "text": "child:0"},
+      {"id": "child:1", "component": "Text", "text": "child:1"},
+      {"id": "child:2", "component": "Text", "text": "child:2"},
+      {"id": "child:3", "component": "Text", "text": "child:3"},
+      {"id": "child:4", "component": "Text", "text": "child:4"},
+      {"id": "child:5", "component": "Text", "text": "child:5"},
+      {"id": "root", "component": "Custom", "existing": {"__proto__": {"keep": true, "child": "child:4"}}, "__proto__": {"child": "child:0"}, "constructor": {"child": "child:1"}, "toString": {"child": "child:2"}, "direct": {"__proto__": "child:3"}, "array": [{"__proto__": {"child": "child:5"}}]}
+    ]
+  }
+}
