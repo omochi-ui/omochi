@@ -3,7 +3,7 @@ import type { MessageProcessor, ComponentApi, DataModel } from '@a2ui/web_core/v
 
 const directModels = new WeakSet<DataModel>();
 /** Preserve Omochi's missing/null roots through the upstream model's public API. */
-function preserveDirectRoot(model: DataModel): void {
+export function preserveDirectRoot(model: DataModel): void {
   if (directModels.has(model)) return;
   directModels.add(model);
   let root: null | undefined;
