@@ -7,14 +7,19 @@ import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
 import '../action_input.dart';
 import '../messages.dart';
 import 'client_api.dart';
+import 'column.dart';
 import 'image_budget.dart';
+import 'modal.dart';
 
 Catalog nativeCatalog(
   GatewayImageRequest Function(String, String) read, {
   required bool Function() useHub,
+  required NativeModalRegistry modals,
 }) => BasicCatalogItems.asCatalog().copyWith(
   newFunctions: [const ActionInputFunction()],
   newItems: [
+    nativeColumn,
+    modals.catalogItem,
     CatalogItem(
       name: BasicCatalogItems.text.name,
       dataSchema: BasicCatalogItems.text.dataSchema,

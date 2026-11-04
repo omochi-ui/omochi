@@ -46,7 +46,13 @@ Apps からサービスの Surface を選んで操作できます。Connections 
 
 GenUI の入れ子 action context、UTC 時刻、サービス別入力モデルを合わせる処理は実験から引き継ぎ、回帰テストを置いています。旧 Dart Hub、HTTP Hub モード、Lab、ダッシュボード編集は含みません。雛形に含まれる Web / desktop プロジェクトは対応対象ではありません。
 
+native catalog の Column は表示領域を超える内容を縦にスクロールし、weight を持つ子と暗黙の flex には有限の高さを配分します。ネストと Modal 内も同じ実装です。Modal の bottom sheet は Surface のレンダラー世代が所有し、削除・置換・切断・forget・休止・画面離脱で、その Surface の route だけを閉じます。
+
 iOS 向けに `../../vendor` の netdev / netwatch に限定的なパッチがあります。macOS 専用の libc 型を使用せず、iOS のアドレス一覧と5秒間隔の foreground 監視を使用します。default route / home router / IPv6 付加フラグの取得には制限があります。詳細は vendor の README を参照してください。
+
+iOS LAN discovery の Bonjour 移行は、iOS 実機と既存 Linux Gateway の双方向相互運用を先に検証する必要があり、未実装です。現在の iOS も Rust の mDNS 実装を使用しており、実機での LAN discovery は未確認です。multicast entitlement は追加していません。移行の検証条件は [検証記録](docs/validation.md#2026-11-04-columnmodal-の修正と-bonjour-移行の先行ゲート) を参照してください。
+
+Mac Bonjour と Linux の双方向アドレス解決は、vendored `swarm-discovery 0.6.5` の互換修正後に確認しています。同じ LAN の Mac に SSH 接続できる Linux から、`python3 apps/mobile/tool/bonjour_probe.py --ssh-host macbook` をリポジトリーのルートで実行すると再検証できます。Mac は `dns-sd` と Python 3 が必要です。登録済み identity は使わず、iOS 実機や QUIC 接続を検証するものではありません。
 
 ## 検証
 

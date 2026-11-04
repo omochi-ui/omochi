@@ -11,6 +11,7 @@ import 'context_codec.dart';
 import 'models.dart';
 import 'log_redaction.dart';
 import 'native/client.dart';
+import 'native/modal.dart';
 import 'native/protocol.dart';
 import 'native/resource_image.dart';
 import 'native/store.dart';
@@ -32,6 +33,7 @@ class HubSession extends ChangeNotifier {
     _newRenderer();
   }
   late SurfaceController renderer;
+  late NativeModalRegistry _modals;
   StreamSubscription<ChatMessage>? _submits;
   int _epoch = 0;
   bool _disposed = false;
@@ -79,13 +81,18 @@ class HubSession extends ChangeNotifier {
   }
 
   void _newRenderer() {
+    _modals = NativeModalRegistry();
     renderer = SurfaceController(
       catalogs: [
-        nativeCatalog((surfaceId, uri) {
-          final scope = _renderScopes[surfaceId];
-          if (scope != null) return scope.image(uri);
-          throw StateError(messages.errorImageNeedsNativeHub);
-        }, useHub: () => true),
+        nativeCatalog(
+          (surfaceId, uri) {
+            final scope = _renderScopes[surfaceId];
+            if (scope != null) return scope.image(uri);
+            throw StateError(messages.errorImageNeedsNativeHub);
+          },
+          useHub: () => true,
+          modals: _modals,
+        ),
       ],
     );
     _sendData.clear();
@@ -108,6 +115,7 @@ class HubSession extends ChangeNotifier {
   }
 
   void _clearRenderer() {
+    _modals.clear();
     _submits?.cancel();
     renderer.dispose();
     _newRenderer();
@@ -159,6 +167,7 @@ class HubSession extends ChangeNotifier {
         }
         final old = _surfaceRenderIds[id];
         if (old != null && old != renderId) {
+          _modals.remove(old);
           renderer.handleMessage(
             core.A2uiMessage.fromJson(
               _contexts.incoming({
@@ -180,6 +189,12 @@ class HubSession extends ChangeNotifier {
           ...j,
           key: {...body, 'surfaceId': renderId},
         };
+      }
+      if (renderMessage['createSurface'] case final Map created) {
+        _modals.create(created['surfaceId'] as String);
+      }
+      if (renderMessage['deleteSurface'] case final Map deleted) {
+        _modals.remove(deleted['surfaceId'] as String);
       }
       renderer.handleMessage(
         core.A2uiMessage.fromJson(_contexts.incoming(renderMessage)),
@@ -270,6 +285,7 @@ class HubSession extends ChangeNotifier {
   }
 
   void _stop() {
+    _modals.clear();
     _epoch++;
     final native = _native;
     _native = null;
@@ -353,6 +369,9 @@ class HubSession extends ChangeNotifier {
   }
 
   Future<void> forgetGateway(String id) async {
+    for (final surface in surfaceIds.where((s) => s.startsWith('$id~'))) {
+      _modals.remove(_surfaceRenderIds[surface] ?? surface);
+    }
     await _native?.forget(id);
   }
 
@@ -362,6 +381,7 @@ class HubSession extends ChangeNotifier {
   }
 
   Future<void> suspendNative() async {
+    _modals.clear();
     await _native?.suspend();
   }
 
