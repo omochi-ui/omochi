@@ -40,3 +40,7 @@ releases the browser prompt without cancelling work already started on the hub.
 `bun tests/browser/gateway-reconnect.mjs` checks this lifecycle with real React
 components and Chromium, controlled session replies and poll timers. Screenshots
 are saved in `/tmp/omochi-gateway-reconnect` (or `SCREENSHOT_DIR`).
+
+After building hosted assets, `bun tests/browser/gateway-bootstrap.mjs` delays the
+transport module in Chromium and verifies immediate fragment scrubbing, latest
+startup invitation selection and gateway routing after the UI mounts.

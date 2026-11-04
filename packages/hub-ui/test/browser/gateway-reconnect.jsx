@@ -4,7 +4,7 @@ import { createRoot } from 'react-dom/client';
 import { ConnectionScreen } from '../../src/remote/ConnectionScreen.tsx';
 import { RemoteHubSession } from '../../src/remote/session.ts';
 import { openHubProfile } from '../../src/remote/profile.ts';
-import { createFragmentInbox } from '../../src/remote/fragment.ts';
+import { createHostedFragmentInbox } from '../../src/remote/fragment.ts';
 import i18n from '../../src/i18n.ts';
 import '../../src/styles.css';
 import '@omochi-ui/renderer/styles.css';
@@ -58,14 +58,8 @@ RemoteHubSession.prototype.control = async function (command) {
   return new Promise((resolve, reject) => { replies[index] = { resolve, reject }; });
 };
 const payload = () => '#g:' + btoa(JSON.stringify({ version: 4, address: { id: 'e'.repeat(64), addrs: [] }, secret: 'f'.repeat(64), expires: Math.floor(Date.now() / 1000) + 180 })).replaceAll('+', '-').replaceAll('/', '_').replaceAll('=', '');
-let initial = payload();
-const fragments = createFragmentInbox();
-window.addEventListener('hashchange', () => {
-  if (!location.hash.startsWith('#owner:')) return;
-  const fragment = location.hash;
-  history.replaceState(null, '', location.pathname);
-  fragments.receive(fragment);
-});
+history.replaceState(null, '', payload());
+const fragments = createHostedFragmentInbox(window);
 window.gatewayTest = {
   calls, sources,
   tick() { const ready = [...timers.values()]; timers.clear(); for (const callback of ready) callback(); },
@@ -74,4 +68,4 @@ window.gatewayTest = {
   fail(index) { replies[index].reject(Error('Disconnected')); },
   changeIdentity() { restoreRecords = true; identity.endpointId = '9'.repeat(64); identity.secretHex = '8'.repeat(64); },
 };
-createRoot(document.getElementById('root')).render(<ConnectionScreen transport={transport} takeLink={() => null} takeGateway={() => { const value = initial; initial = null; return value; }} bootstrapError={null} subscribeFragment={fragments.subscribe} />);
+createRoot(document.getElementById('root')).render(<ConnectionScreen transport={transport} takeLink={() => null} bootstrapError={null} subscribeFragment={fragments.subscribe} />);

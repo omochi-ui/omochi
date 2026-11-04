@@ -14,13 +14,13 @@ interface ScopedJob extends Job {
   hubName: string;
 }
 export function GatewayInvitation({
-  takeInvitation,
+  subscribeInvitation,
   session,
   ownerScope,
   hubName,
   ownsProfile,
 }: {
-  takeInvitation(): string | null;
+  subscribeInvitation(receive: (fragment: string) => void): () => void;
   session: RemoteHubSession | null;
   /** Hub ID, owner grant ID and authenticated browser identity; stable across reconnects. */
   ownerScope: string | null;
@@ -64,16 +64,7 @@ export function GatewayInvitation({
         setMessage({ key: 'gateway.invalid' });
       }
     };
-    const initial = takeInvitation();
-    if (initial) receive(initial);
-    const hash = () => {
-      const fragment = location.hash;
-      if (fragment.startsWith('#g:')) {
-        history.replaceState(null, '', location.pathname + location.search);
-        receive(fragment);
-      }
-    };
-    window.addEventListener('hashchange', hash);
+    const unsubscribe = subscribeInvitation(receive);
     let bc: BroadcastChannel | null = null;
     try {
       bc = new BroadcastChannel('omochi.gateway-invitation.v1');
@@ -104,11 +95,11 @@ export function GatewayInvitation({
       /* Transfer can be retried when this browser supports channels. */
     }
     return () => {
-      window.removeEventListener('hashchange', hash);
+      unsubscribe();
       bc?.close();
       channel.current = null;
     };
-  }, [takeInvitation, i18n]);
+  }, [subscribeInvitation, i18n]);
   useEffect(() => {
     if (!invite || job || ownsProfile || !channel.current) return;
     const bc = channel.current,

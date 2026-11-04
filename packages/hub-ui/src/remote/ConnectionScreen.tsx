@@ -1,6 +1,7 @@
 import { LanguageSwitcher } from '../LanguageSwitcher.js';
 import { useTranslation } from 'react-i18next';
 import { DashboardNavigationProvider, useDashboardNavigation } from '../DashboardNavigation.js';
+import { createFragmentInbox } from './fragment.js';
 import { GatewayInvitation } from './GatewayInvitation.js';
 import { OwnerBoardRepository, OwnerSharingRepository } from './owner-boards.js';
 import { ShareSettings } from '../ShareSettings.js';
@@ -16,7 +17,6 @@ import { SharedBoardRepository } from './boards.js';
 import { openHubProfile, resetHubProfile, type HubProfile, type ShareRecord } from './profile.js';
 import { acceptInvitation, recoverShare } from './enrollment.js';
 import { parseShareLink, type ShareLink, type SavedShare } from './link.js';
-const noGateway = () => null;
 const noFragments = () => () => {};
 function sameLink(a: ShareLink | null, b: ShareLink) {
   return a?.hubId === b.hubId && a.grantId === b.grantId && a.mode === b.mode && a.secret === b.secret && a.relayUrls.join('\n') === b.relayUrls.join('\n');
@@ -24,8 +24,9 @@ function sameLink(a: ShareLink | null, b: ShareLink) {
 const PUBLIC_CONTEXT = 'omochi.shared.public', SELECTED = 'omochi.shared.selected';
 function cache(key: string, value?: string) { try { if (value === undefined) return sessionStorage.getItem(key); if (value) sessionStorage.setItem(key, value); else sessionStorage.removeItem(key); } catch { /* Storage denial does not grant network authority. */ } return null; }
 function fixed(error: unknown): SessionFault { return error instanceof SessionFault ? error : new SessionFault('StorageUnavailable'); }
-function Connections({ transport, takeLink, bootstrapError, takeGateway = noGateway, subscribeFragment = noFragments }: { transport: BrowserTransport; takeLink(): ShareLink | null; bootstrapError: SessionFault | null; takeGateway?: () => string | null; subscribeFragment?: (receive: (fragment: string) => void) => () => void }) {
+function Connections({ transport, takeLink, bootstrapError, subscribeFragment = noFragments }: { transport: BrowserTransport; takeLink(): ShareLink | null; bootstrapError: SessionFault | null; subscribeFragment?: (receive: (fragment: string) => void) => () => void }) {
   const { t } = useTranslation();
+  const [gatewayFragments] = useState(createFragmentInbox);
   const navigation = useDashboardNavigation();
   const [link, setLink] = useState(takeLink), [profile, setProfile] = useState<HubProfile | null>(null), [records, setRecords] = useState<ShareRecord[]>([]);
   const [error, setError] = useState<SessionFault | null>(bootstrapError), [busy, setBusy] = useState(true), [attempt, setAttempt] = useState(0), [confirmReset, setConfirmReset] = useState(false);
@@ -61,12 +62,13 @@ function Connections({ transport, takeLink, bootstrapError, takeGateway = noGate
     return handle;
   };
   useEffect(() => subscribeFragment(fragment => {
+    if (fragment.startsWith('#g:')) { gatewayFragments.receive(fragment); return; }
     try {
       const next = parseShareLink(fragment);
       // A duplicate must not restart acceptance or erase a local save proof.
       if (!sameLink(currentLink.current, next)) setIncoming({ link: next });
     } catch { setIncoming({ error: new SessionFault('InvalidInvitation') }); }
-  }), [subscribeFragment]);
+  }), [subscribeFragment, gatewayFragments]);
   useEffect(() => {
     if (!incoming || busy || proof) return;
     setIncoming(null);
@@ -131,7 +133,7 @@ function Connections({ transport, takeLink, bootstrapError, takeGateway = noGate
     {!live && <Button disabled={busy} className="danger" onClick={() => setConfirmReset(true)}>{t('connection.reset')}</Button>}
     {confirmReset && <section role="group" aria-label={t('connection.resetLabel')}><p>{t('connection.resetHelp')}</p><Button className="danger" disabled={busy} onClick={() => { void run(async () => { if (!(await disconnect())) return; await profile?.close(); state.current.profile = null; setProfile(null); await resetHubProfile(); setProof(null); setRecords([]); setConfirmReset(false); setAttempt(v => v + 1); }); }}>{t('connection.resetConfirm')}</Button><Button disabled={busy} onClick={() => setConfirmReset(false)}>{t('connection.resetCancel')}</Button></section>}
   </section>;
-  return <><GatewayInvitation takeInvitation={takeGateway} session={live?.owner ? live.source : null} ownerScope={live?.owner && profile ? `${live.id}/${profile.identity.endpointId}` : null} hubName={live ? `${live.name} (${live.id.split("/")[0]})` : ""} ownsProfile={!!profile} />{live ? <App key={live.id} environment={{ session: live.source, boards: live.boards, authority: live.owner ? { kind: 'owner' } : { kind: 'share', permissions: view?.permissions ?? { interact: false, editLayout: false } } }} connectionUi={controls} renderSharing={live.owner ? board => <ShareSettings boardId={board.id} repository={new OwnerSharingRepository(live.source)} /> : undefined} /> : <main className="workspace"><LanguageSwitcher /><h1>{t('connection.title')}</h1>{controls}</main>}
+  return <><GatewayInvitation subscribeInvitation={gatewayFragments.subscribe} session={live?.owner ? live.source : null} ownerScope={live?.owner && profile ? `${live.id}/${profile.identity.endpointId}` : null} hubName={live ? `${live.name} (${live.id.split("/")[0]})` : ""} ownsProfile={!!profile} />{live ? <App key={live.id} environment={{ session: live.source, boards: live.boards, authority: live.owner ? { kind: 'owner' } : { kind: 'share', permissions: view?.permissions ?? { interact: false, editLayout: false } } }} connectionUi={controls} renderSharing={live.owner ? board => <ShareSettings boardId={board.id} repository={new OwnerSharingRepository(live.source)} /> : undefined} /> : <main className="workspace"><LanguageSwitcher /><h1>{t('connection.title')}</h1>{controls}</main>}
     {forgetRecord && <ConfirmationDialog returnTo={forgetTrigger.current} onClose={() => setForgetRecord(null)} confirmation={{
       title: t('connection.forgetTitle', { name: forgetRecord.name }),
       body: t('connection.forgetHelp'),
