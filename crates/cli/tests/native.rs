@@ -279,6 +279,11 @@ mod generated_catalog;
 mod generated_scalar_catalog;
 
 #[allow(dead_code, unused_imports)]
+#[path = "fixtures/catalog-enum-names/expected.rs"]
+#[rustfmt::skip]
+mod generated_enum_names;
+
+#[allow(dead_code, unused_imports)]
 #[path = "fixtures/catalog-property-names/expected.rs"]
 #[rustfmt::skip]
 mod generated_property_names;
@@ -686,6 +691,82 @@ async fn catalog_rust_fields_serialize_with_the_original_property_names() {
         .into_props(),
         expected_optional
     );
+}
+
+#[tokio::test]
+async fn catalog_enum_type_names_compile_without_collisions_and_preserve_wire_values() {
+    use generated_enum_names::*;
+    use omochi_ui::ComponentProps;
+    use serde_json::json;
+
+    let root = tempfile::tempdir().unwrap();
+    let source = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let output = command(root.path())
+        .args(["generate", "catalog", "--catalog"])
+        .arg(source.join("../../spec/fixtures/catalog-enum-names.json"))
+        .arg("--rust")
+        .arg(root.path().join("catalog.rs"))
+        .output()
+        .await
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        std::fs::read(root.path().join("catalog.rs")).unwrap(),
+        include_bytes!("fixtures/catalog-enum-names/expected.rs")
+    );
+
+    for (props, expected) in [
+        (
+            PanelProps {
+                props: PanelProps3::Primary,
+                props2: PanelProps2::Compact,
+                tone_props: PanelToneProps2::Warm,
+            },
+            json!({"props": "primary", "props2": "compact", "toneProps": "warm"}),
+        ),
+        (
+            PanelProps {
+                props: PanelProps3::Secondary,
+                props2: PanelProps2::Expanded,
+                tone_props: PanelToneProps2::Cool,
+            },
+            json!({"props": "secondary", "props2": "expanded", "toneProps": "cool"}),
+        ),
+    ] {
+        assert_eq!(json!(props.into_props()), expected);
+    }
+    assert_eq!(json!(PanelToneProps {}.into_props()), json!({}));
+    for (tone_size, expected) in [
+        (CardToneSize::Large, "large"),
+        (CardToneSize::Small, "small"),
+    ] {
+        assert_eq!(
+            json!(CardProps { tone_size }.into_props()),
+            json!({"toneSize": expected})
+        );
+    }
+    for (size, expected) in [
+        (CardToneSize2::Wide, "wide"),
+        (CardToneSize2::Narrow, "narrow"),
+    ] {
+        assert_eq!(
+            json!(CardToneProps { size }.into_props()),
+            json!({"size": expected})
+        );
+    }
+    for (object, expected) in [
+        (JsonObject2::Literal, "literal"),
+        (JsonObject2::Bound, "bound"),
+    ] {
+        assert_eq!(
+            json!(JsonProps { object }.into_props()),
+            json!({"object": expected})
+        );
+    }
 }
 
 #[tokio::test]

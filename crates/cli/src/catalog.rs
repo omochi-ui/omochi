@@ -689,6 +689,13 @@ fn model(catalog: Value, name: Option<&str>, hash: String) -> Result<Model> {
         components,
     })
 }
+fn rust_enum_name(component: &Component, property: &Property) -> String {
+    format!(
+        "{}{}",
+        identifier(&component.name),
+        identifier(&upper_first(&property.name))
+    )
+}
 fn render(m: &Model, lang: Language) -> Result<String> {
     use Language::*;
     let comment = if lang == Py { "#" } else { "//" };
@@ -698,6 +705,32 @@ fn render(m: &Model, lang: Language) -> Result<String> {
     );
     let mut bodies = Vec::new();
     let mut enums = Vec::new();
+    let mut rust_types: BTreeSet<String> = [
+        "ComponentProps",
+        "JsonObject",
+        "Serialize",
+        "Value",
+        "Option",
+        "String",
+        "Vec",
+    ]
+    .into_iter()
+    .map(str::to_owned)
+    .collect();
+    let mut preferred_enum_names = BTreeSet::new();
+    if lang == Rs {
+        for c in &m.components {
+            rust_types.insert(format!("{}Props", c.name));
+            for p in &c.properties {
+                if p.schema["enum"]
+                    .as_array()
+                    .is_some_and(|values| values.iter().all(Value::is_string))
+                {
+                    preferred_enum_names.insert(rust_enum_name(c, p));
+                }
+            }
+        }
+    }
     for c in &m.components {
         let functional_typed_dict =
             lang == Py && c.properties.iter().any(|p| !python_class_field(&p.name));
@@ -710,11 +743,20 @@ fn render(m: &Model, lang: Language) -> Result<String> {
                 && let Some(values) = p.schema["enum"].as_array()
                 && values.iter().all(Value::is_string)
             {
-                kind = format!(
-                    "{}{}",
-                    identifier(&c.name),
-                    identifier(&upper_first(&p.name))
-                );
+                let base = rust_enum_name(c, p);
+                kind = base.clone();
+                let mut suffix = 2;
+                if !rust_types.insert(kind.clone()) {
+                    loop {
+                        kind = format!("{base}{suffix}");
+                        suffix += 1;
+                        // A suffix must not steal another property's ordinary name.
+                        if !preferred_enum_names.contains(&kind) && rust_types.insert(kind.clone())
+                        {
+                            break;
+                        }
+                    }
+                }
                 let mut used = BTreeSet::new();
                 let variants = values
                     .iter()

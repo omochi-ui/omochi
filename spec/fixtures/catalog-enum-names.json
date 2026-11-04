@@ -1,0 +1,27 @@
+{
+  "catalogId": "urn:test:catalog-enum-names",
+  "title": "Enum Names",
+  "components": {
+    "Panel": {
+      "properties": {
+        "props": {"enum": ["primary", "secondary"]},
+        "props2": {"enum": ["compact", "expanded"]},
+        "toneProps": {"enum": ["warm", "cool"]}
+      },
+      "required": ["props", "props2", "toneProps"]
+    },
+    "PanelTone": {"properties": {}},
+    "Card": {
+      "properties": {"toneSize": {"enum": ["large", "small"]}},
+      "required": ["toneSize"]
+    },
+    "CardTone": {
+      "properties": {"size": {"enum": ["wide", "narrow"]}},
+      "required": ["size"]
+    },
+    "Json": {
+      "properties": {"object": {"enum": ["literal", "bound"]}},
+      "required": ["object"]
+    }
+  }
+}
