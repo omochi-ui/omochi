@@ -52,7 +52,7 @@ native catalog の Column は表示領域を超える内容を縦にスクロー
 
 iOS 向けに `../../vendor` の netdev / netwatch に限定的なパッチがあります。macOS 専用の libc 型を使用せず、iOS のアドレス一覧と5秒間隔の foreground 監視を使用します。default route / home router / IPv6 付加フラグの取得には制限があります。詳細は vendor の README を参照してください。
 
-iOS LAN discovery の Bonjour 移行は、iOS 実機と既存 Linux Gateway の双方向相互運用を先に検証する必要があり、未実装です。現在の iOS も Rust の mDNS 実装を使用しており、実機での LAN discovery は未確認です。multicast entitlement は追加していません。移行の検証条件は [検証記録](docs/validation.md#2026-11-04-columnmodal-の修正と-bonjour-移行の先行ゲート) を参照してください。
+本番の LAN discovery は共通 Rust transport 層で選択します。iOS / macOS は OS Bonjour、Windows は OS DNS-SD、Linux は Avahi があれば D-Bus 経由、なければ Rust mDNS、Android は既存の Rust mDNS を使います。multicast entitlement は追加していません。iOS はビルド確認のみで、実機の許可ダイアログ・復帰・再発見の完了判定は引き続き未達です。[検証記録](docs/validation.md) を参照してください。
 
 Mac Bonjour と Linux の双方向アドレス解決は、vendored `swarm-discovery 0.6.5` の互換修正後に確認しています。同じ LAN の Mac に SSH 接続できる Linux から、`python3 apps/mobile/tool/bonjour_probe.py --ssh-host macbook` をリポジトリーのルートで実行すると再検証できます。Mac は `dns-sd` と Python 3 が必要です。登録済み identity は使わず、iOS 実機や QUIC 接続を検証するものではありません。
 

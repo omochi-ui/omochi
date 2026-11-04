@@ -113,3 +113,31 @@ packet 単位の回帰テスト5件を先に実行し、TXT 欠落、cache-flush
 再利用できる probe は、一時鍵の offline Linux Endpoint を起動し、Mac の `dns-sd` を SSH 経由で実行する。Mac から Browse と Resolve が成功し、さらに SRV query と GetAddrInfo を組み合わせ、Linux の2つのSRV、IPv4アドレス6個とIPv6アドレス1個をすべて取得した。逆方向は Mac が TXT 属性なしで登録した一時 instance を Linux が正しい EndpointId で解決し、Mac の IPv4、global IPv6、link-local IPv6 と登録portを取得した。終了時に Endpoint、広告、子プロセスを停止する。
 
 Mac 側の広告は解決専用の架空 EndpointId で、対応する QUIC listener は起動していない。そのため今回の Mac／Linux probe はアドレス解決の検証であり、両方向 QUIC接続、認可、オフライン再接続を確認したという意味ではない。取得した link-local IPv6 の scope ID の保持／接続、分割 packet の集約、失効・ネットワーク変更・foreground 復帰もこの修正では扱っていない。iOS Bonjour のアプリ実装は未実装で、iOS実機ゲートも引き続き未達。multicast entitlement への切り替えは行っていない。
+
+## 2026-11-04 本番 LAN discovery の OS 切り替え
+
+共通 `crates/transport/src/lan` に実装した。Gateway・Hub・mobile native bridge は同じ `bind()` から利用する。Apple は OS Bonjour、Windows は DNSapi の DNS-SD、Linux は既存 Avahi Server2 が system D-Bus 上にあれば Avahi、なければ Rust mDNS を選ぶ。Android は既存の Rust mDNS。Apple / Windows で raw multicast へ自動切り替えしない。SDK / A2UI schema / Gateway wire contract / peer role / trust の認可は変更していない。multicast entitlement も追加していない。
+
+OS DNS-SD の1サービス・1 SRVポートに合わせ、QUIC の IPv4 / IPv6 の待受ポートを共通化した。受信側は複数 SRV・複数アドレスを集約し、IPv6 link-local に受信インターフェースの scope ID を付ける。広告・browser・callback は endpoint が所有する。削除・停止・backend 再初期化で世代を無効にし、古い callback から再生成しない。Avahi の record query は service browser と同じ IPv4 / IPv6 transport に限定し、片方のキャッシュ削除で他方の有効な record まで消さない。Avahi は daemon の owner 変更を検知して再接続し、Windows はアドレスを含む interface の変更でも再初期化する。
+
+| 検証 | 結果 |
+| --- | --- |
+| Linux の本番選択 | `lan_probe` が `avahi` を選択。EndpointId だけの offline QUIC 接続テスト成功 |
+| Avahi がない場合 | 分離した D-Bus の `DBUS_SYSTEM_BUS_ADDRESS` を使用。`rust-mdns` を選択し、Avahi 側から EndpointId だけで接続成功。システムの daemon は停止していない |
+| 既存 Rust peer との互換 | `lan_probe --rust` は従来と同じ別々の IPv4 / IPv6 ポートを広告。Avahi が両方のポートを取得し、QUIC 往復成功。Rust peer→Mac Bonjour の QUIC 往復も成功。逆方向の Rust peer→Avahi も、実際に endpoint に登録した lookup を明示的に resolve する probe で QUIC 往復成功 |
+| Mac Bonjour ↔ Linux Avahi | 両方向で公開 EndpointId から LAN IPv4 / IPv6 / port を解決。Linux→Mac は authenticated QUIC の ping/pong 成功 |
+| Mac→Linux の incoming QUIC | 解決は成功したが接続は timeout。別の単純な UDP socket でも Mac→Linux が届かなかった。受信経路の制限を解消しての再検証は未実施。root 権限や firewall 全体の変更は行っていない |
+| Windows VM ↔ Linux Avahi | libvirt `win11` / Windows 11 build 26100 / NAT LAN。Windows の `windows-dns-sd` 選択を確認。両方向とも EndpointId だけの解決と authenticated QUIC ping/pong 成功。Linux 側は Windows の link-local IPv6 に virbr0 の scope ID を保持 |
+| ネイティブ広告の更新・停止・再開 | Linux Avahi、Mac Bonjour、Windows DNS-SD それぞれ `lan_probe lifecycle` 成功。43123→43124への更新、停止後に古い広告を返さないこと、同じ EndpointId / 43125での再広告と再停止を確認 |
+| macOS release | 新しい Bonjour adapter を含めて再ビルド成功、78.1 MB。arm64 / x86_64 のアプリ本体・Hub dylib と `codesign --verify --deep --strict` を確認。最終 dylib に OS DNSService 関数の import を確認 |
+| macOS Flutter 本番 adapter | `BONJOUR_MEMORY_STORE=true` の既存結合テスト1件成功。sandbox 内の本番 Rust Hub が Bonjour で広告され、OS Browse / Resolve で自分と Linux peer を取得、stop / start 後の ID 一致も確認 |
+| iOS device target | Mac 上で `cargo check -p omochi-transport --no-default-features --target aarch64-apple-ios` 成功。実機動作の証拠ではない |
+| Rust 回帰 | transport: 通常19件成功（lib16・integration3）、公開 relay / 実 multicast の2件は通常実行では ignored。実 multicast の EndpointId-only offline テストは明示実行で成功。Hub:26件成功、公開 HTTPS 1件 ignored。LAN parser / 世代 / reset / cancel の4件は Mac でも成功 |
+
+`lan_probe` は ephemeral identity と offline transport を使い、接続時に認証された EndpointId と要求 ID を照合して ping/pong する。保存済み trust の変更や招待・登録は行わない。Flutter の通常解析は問題なし、通常テスト61件も成功。変更 transport の Clippy は Linux の全 target、Windows の lib、Mac の mobile と同じ `--no-default-features` の lib / examples で成功（vendored netwatch の既存 deprecated 警告あり）。Mac の desktop feature を含む Clippy は既存 `live.rs` の nonminimal_bool により失敗したため、全 workspace が無警告と主張しない。
+
+Windows の検証には VM 内の PowerShell と NAT 内だけの一時 HTTP 転送を使い、SSH / RDP を有効化していない。検証用 exe の受信だけを Windows Firewall のアプリ別許可で通し、検証後に当該ルールと一時 exe を削除した。
+
+Windows の GNU debug ビルドでは、依存 iroh 1.4.1 の不要な cdylib 生成が export ordinal 上限で失敗した。この VM 検証では一時 checkout の iroh / iroh-relay の出力を rlib のみにしてリンクした（Rust 実装や transport のソースは同一）。Windows CLI / 配布パッケージを完成・検証したという意味ではない。通常ソースの Windows transport は `--no-default-features` の cross check / Clippy を通している。
+
+iOS 実機はないため、ローカルネットワーク拒否→再許可、foreground 復帰、実際のアドレス変更、登録済み ID の古い保存アドレスからの再接続は未検証。Windows の IPv6-only LAN と実ネットワーク変更も未検証。Mac の login Keychain はロックされたままで、上の Flutter 通信テストはテスト専用メモリー保存を使用した。これらを実機の完了判定と扱わない。

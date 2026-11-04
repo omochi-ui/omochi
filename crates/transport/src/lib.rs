@@ -1,4 +1,5 @@
 //! Iroh transport integration. Application authorization is separate from TLS identity.
+pub mod lan;
 #[cfg(feature = "desktop")]
 pub mod live;
 pub mod pairing;
@@ -11,7 +12,6 @@ use iroh::RelayConfig;
 pub use iroh::endpoint::{Connection as EndpointConnection, RecvStream, SendStream};
 pub use iroh::{Endpoint, EndpointAddr, EndpointId, SecretKey};
 use iroh::{RelayMode, RelayUrl, endpoint::presets};
-use iroh_mdns_address_lookup::MdnsAddressLookup;
 use omochi_protocol::{ALPN, PAIR_ALPN};
 
 mod relay;
@@ -39,20 +39,45 @@ pub async fn bind(
     offline: bool,
     relays: Option<Vec<RelayUrl>>,
 ) -> Result<Endpoint> {
-    let builder = if offline {
-        Endpoint::builder(presets::Minimal)
-    } else {
-        Endpoint::builder(presets::N0)
-    };
-    let endpoint = builder
-        .relay_mode(relay_mode(offline, relays))
-        .secret_key(key)
-        .alpns(vec![ALPN.to_vec(), PAIR_ALPN.to_vec()])
-        .bind()
-        .await?;
-    let mdns = MdnsAddressLookup::builder().build(endpoint.id())?;
-    endpoint.address_lookup()?.add(mdns);
-    Ok(endpoint)
+    // Native DNS-SD represents a service with a single SRV port. Use that port
+    // for both IP families, so every OS-advertised address is a valid candidate.
+    // Retry the short reserve/drop/bind race without a fixed public port.
+    for attempt in 0..8 {
+        let port = std::net::UdpSocket::bind("0.0.0.0:0")?.local_addr()?.port();
+        let builder = if offline {
+            Endpoint::builder(presets::Minimal)
+        } else {
+            Endpoint::builder(presets::N0)
+        };
+        let result = builder
+            .relay_mode(relay_mode(offline, relays.clone()))
+            .secret_key(key.clone())
+            .alpns(vec![ALPN.to_vec(), PAIR_ALPN.to_vec()])
+            .bind_addr((std::net::Ipv4Addr::UNSPECIFIED, port))?
+            .bind_addr_with_opts(
+                (std::net::Ipv6Addr::UNSPECIFIED, port),
+                iroh::endpoint::BindOpts::default().set_is_required(false),
+            )?
+            .bind()
+            .await;
+        match result {
+            Ok(endpoint) => {
+                let discovery = match lan::LanDiscovery::new(endpoint.id()).await {
+                    Ok(discovery) => discovery,
+                    Err(error) => {
+                        endpoint.close().await;
+                        return Err(error);
+                    }
+                };
+                tracing::debug!(backend = discovery.backend(), "LAN discovery selected");
+                endpoint.address_lookup()?.add(discovery);
+                return Ok(endpoint);
+            }
+            Err(error) if attempt == 7 => return Err(error.into()),
+            Err(_) => {}
+        }
+    }
+    unreachable!()
 }
 
 #[cfg(test)]
