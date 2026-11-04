@@ -80,6 +80,8 @@ omochi-ui generate catalog --catalog ./catalog.json --name ProductCatalog \
 
 `enum`は文字列・真偽値・数値・nullを扱え、配列やunion内でもJSONの型を保ちます。空のenumや、オブジェクト・配列を値に持つenumは出力前にエラーになります。TypeScriptはリテラルのunion、Pythonは`True`・`False`・`None`を使った`Literal`を生成し、小数の値は`float`に広げます。Rustは文字列プロパティの名前付きenumを維持し、同じ型の非文字列enumには`bool`・`serde_json::Number`・`()`、型が混在するenumには`Value`を使います。ネストした文字列enumは`String`になります。広げた型はJSONの値を保ちますが、宣言されたenumの値だけに制限するものではありません。Rustの文字列variant名が変換後に重複する場合は数値の接尾辞を付けます。
 
+Rustのフィールドはsnake caseになりますが、JSON出力ではカタログの元のプロパティ名を略語やアンダースコアも含めて維持します。Rustの予約語には`r#type`のようなraw identifierを使い、`self`・`super`・`crate`には末尾に`_`を付けます。Rustの識別子に変換できない名前や、変換後に同じフィールド名になるプロパティがある場合は、どの出力も書き込まずにエラーになります。
+
 ## 正確なオプションを調べる
 
 ```sh

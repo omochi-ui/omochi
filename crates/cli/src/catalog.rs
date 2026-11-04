@@ -18,6 +18,7 @@ pub struct Options {
     pub typescript: Option<PathBuf>,
     #[arg(long)]
     pub python: Option<PathBuf>,
+    /// Write Rust bindings that preserve the original JSON property names.
     #[arg(long)]
     pub rust: Option<PathBuf>,
     #[arg(long)]
@@ -62,6 +63,23 @@ fn snake(s: &str) -> String {
         .unwrap()
         .replace_all(&s, "_")
         .to_lowercase()
+}
+fn rust_field(name: &str) -> Result<String> {
+    let field = snake(name);
+    if field.is_empty() || field == "_" || field.starts_with(|c: char| c.is_ascii_digit()) {
+        bail!("property {name:?} cannot be represented as a Rust field");
+    }
+    Ok(match field.as_str() {
+        // These keywords cannot be raw identifiers.
+        "self" | "super" | "crate" => format!("{field}_"),
+        "as" | "async" | "await" | "break" | "const" | "continue" | "dyn" | "else" | "enum"
+        | "extern" | "false" | "fn" | "for" | "if" | "impl" | "in" | "let" | "loop" | "match"
+        | "mod" | "move" | "mut" | "pub" | "ref" | "return" | "static" | "struct" | "trait"
+        | "true" | "type" | "unsafe" | "use" | "where" | "while" | "abstract" | "become"
+        | "box" | "do" | "final" | "gen" | "macro" | "override" | "priv" | "try" | "typeof"
+        | "unsized" | "virtual" | "yield" => format!("r#{field}"),
+        _ => field,
+    })
 }
 fn upper_first(s: &str) -> String {
     let mut chars = s.chars();
@@ -383,6 +401,7 @@ fn render(m: &Model, lang: Language) -> Result<String> {
     let mut enums = Vec::new();
     for c in &m.components {
         let mut props = Vec::new();
+        let mut rust_fields = BTreeSet::new();
         for p in &c.properties {
             validate_enums(&p.schema)?;
             let mut kind = ty(&p.schema, lang)?;
@@ -436,27 +455,39 @@ fn render(m: &Model, lang: Language) -> Result<String> {
                         kind
                     }
                 ),
-                Rs => format!(
-                    "{}    pub {}: {},",
-                    if p.required {
-                        ""
-                    } else {
-                        "    #[serde(skip_serializing_if = \"Option::is_none\")]\n"
-                    },
-                    snake(&p.name),
-                    if p.required {
-                        kind
-                    } else {
-                        format!("Option<{kind}>")
+                Rs => {
+                    let field =
+                        rust_field(&p.name).with_context(|| format!("component {}", c.name))?;
+                    if !rust_fields.insert(field.clone()) {
+                        bail!(
+                            "component {}: property {:?} collides with another Rust field {field}",
+                            c.name,
+                            p.name
+                        );
                     }
-                ),
+                    format!(
+                        "    #[serde(rename = {:?})]\n{}    pub {}: {},",
+                        p.name,
+                        if p.required {
+                            ""
+                        } else {
+                            "    #[serde(skip_serializing_if = \"Option::is_none\")]\n"
+                        },
+                        field,
+                        if p.required {
+                            kind
+                        } else {
+                            format!("Option<{kind}>")
+                        }
+                    )
+                }
             });
         }
         let props = props.join("\n");
         bodies.push(match lang {
             Ts => format!("export interface {}Props {{\n{props}\n}}", c.name),
             Py => format!("class {}Props(TypedDict, total=False):\n{}", c.name, if props.is_empty() { "    pass" } else { &props }),
-            Rs => format!("#[derive(Clone, Debug, Serialize)]\n#[serde(rename_all = \"camelCase\")]\npub struct {}Props {{\n{props}\n}}\nimpl ComponentProps for {}Props {{\n    const NAME: &'static str = {};\n    fn into_props(self) -> JsonObject {{ serde_json::to_value(self).unwrap().as_object().unwrap().clone() }}\n}}", c.name, c.name, quote(&c.name)),
+            Rs => format!("#[derive(Clone, Debug, Serialize)]\npub struct {}Props {{\n{props}\n}}\nimpl ComponentProps for {}Props {{\n    const NAME: &'static str = {};\n    fn into_props(self) -> JsonObject {{ serde_json::to_value(self).unwrap().as_object().unwrap().clone() }}\n}}", c.name, c.name, quote(&c.name)),
         });
     }
     let body = bodies.join("\n\n");
@@ -650,6 +681,47 @@ mod tests {
                     assert!(error.to_string().contains("unsupported enum"), "{error}");
                     assert_eq!(std::fs::read_to_string(output).unwrap(), "existing");
                 }
+            }
+        }
+    }
+
+    #[test]
+    fn rejects_invalid_or_colliding_rust_fields_before_writing_any_language() {
+        let temp = tempfile::tempdir().unwrap();
+        for (names, message) in [
+            (vec!["dataKey", "data_key"], "collides"),
+            (vec!["self", "self_"], "collides"),
+            (vec!["123key"], "cannot be represented"),
+            (vec![""], "cannot be represented"),
+            (vec!["_"], "cannot be represented"),
+        ] {
+            let properties: Map<_, _> = names
+                .iter()
+                .map(|name| ((*name).to_owned(), json!({"type": "string"})))
+                .collect();
+            let input = temp.path().join("input.json");
+            std::fs::write(
+                &input,
+                json!({"components": {"Bad": {"properties": properties}}}).to_string(),
+            )
+            .unwrap();
+            let ts = temp.path().join("catalog.ts");
+            let rs = temp.path().join("catalog.rs");
+            for output in [&ts, &rs] {
+                std::fs::write(output, "existing").unwrap();
+            }
+            let error = generate(Options {
+                catalog: input,
+                name: None,
+                typescript: Some(ts.clone()),
+                python: None,
+                rust: Some(rs.clone()),
+                check: false,
+            })
+            .unwrap_err();
+            assert!(format!("{error:#}").contains(message), "{error:#}");
+            for output in [ts, rs] {
+                assert_eq!(std::fs::read_to_string(output).unwrap(), "existing");
             }
         }
     }

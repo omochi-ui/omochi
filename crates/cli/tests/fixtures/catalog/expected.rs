@@ -15,29 +15,40 @@ pub enum BadgeTone {
 }
 
 #[derive(Clone, Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
 pub struct BadgeProps {
+    #[serde(rename = "accessibility")]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub accessibility: Option<Value>,
+    #[serde(rename = "checks")]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub checks: Option<Vec<Value>>,
+    #[serde(rename = "isValid")]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub is_valid: Option<bool>,
+    #[serde(rename = "validationErrors")]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub validation_errors: Option<Vec<String>>,
+    #[serde(rename = "weight")]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub weight: Option<f64>,
+    #[serde(rename = "label")]
     pub label: String,
+    #[serde(rename = "tone")]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tone: Option<BadgeTone>,
+    #[serde(rename = "meta")]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub meta: Option<Value>,
+    #[serde(rename = "children")]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub children: Option<Value>,
+    #[serde(rename = "value")]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub value: Option<Value>,
+    #[serde(rename = "dynamic")]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub dynamic: Option<Value>,
+    #[serde(rename = "labels")]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub labels: Option<Vec<String>>,
 }
@@ -47,7 +58,6 @@ impl ComponentProps for BadgeProps {
 }
 
 #[derive(Clone, Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
 pub struct EmptyProps {
 
 }

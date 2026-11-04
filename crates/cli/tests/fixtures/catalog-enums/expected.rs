@@ -27,18 +27,28 @@ pub enum ScalarTone {
 }
 
 #[derive(Clone, Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
 pub struct ScalarProps {
+    #[serde(rename = "enabled")]
     pub enabled: bool,
+    #[serde(rename = "count")]
     pub count: serde_json::Number,
+    #[serde(rename = "ratio")]
     pub ratio: serde_json::Number,
+    #[serde(rename = "empty")]
     pub empty: (),
+    #[serde(rename = "mixed")]
     pub mixed: Value,
+    #[serde(rename = "tone")]
     pub tone: ScalarTone,
+    #[serde(rename = "flags")]
     pub flags: Vec<bool>,
+    #[serde(rename = "counts")]
     pub counts: Vec<Vec<serde_json::Number>>,
+    #[serde(rename = "choices")]
     pub choices: Vec<Value>,
+    #[serde(rename = "nullable")]
     pub nullable: Value,
+    #[serde(rename = "optional")]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub optional: Option<bool>,
 }

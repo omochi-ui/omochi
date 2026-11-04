@@ -4,7 +4,7 @@ import { copyFile, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
-for (const fixture of ["catalog-arrays", "catalog-enums"]) {
+for (const fixture of ["catalog-arrays", "catalog-enums", "catalog-property-names"]) {
   test(`native ${fixture} bindings preserve JSON types`, {
     skip: !process.env.OMOCHI_NATIVE_TEST,
   }, async (t) => {
@@ -15,11 +15,11 @@ for (const fixture of ["catalog-arrays", "catalog-enums"]) {
     if (profile !== "debug" && profile !== "release") throw new Error("invalid native profile");
     const generate = Bun.spawn([
       join(workspace, "crates/target", profile, "omochi-ui"),
-      "generate", "catalog", "--catalog", fixture === "catalog-enums"
-        ? join(workspace, "spec/fixtures/catalog-enums.json")
+      "generate", "catalog", "--catalog", fixture !== "catalog-arrays"
+        ? join(workspace, `spec/fixtures/${fixture}.json`)
         : join(import.meta.dir, "fixtures/catalog-arrays.json"),
       "--typescript", join(root, "catalog.ts"),
-      ...(fixture === "catalog-enums" ? ["--python", join(root, "catalog.py")] : []),
+      ...(fixture !== "catalog-arrays" ? ["--python", join(root, "catalog.py")] : []),
     ], { stdout: "pipe", stderr: "pipe" });
     const generationError = await new Response(generate.stderr).text();
     expect(await generate.exited, generationError).toBe(0);
@@ -41,8 +41,8 @@ for (const fixture of ["catalog-arrays", "catalog-enums"]) {
       new Response(compile.stdout).text(), new Response(compile.stderr).text(), compile.exited,
     ]);
     expect(status, stdout + stderr).toBe(0);
-    if (fixture === "catalog-enums") {
-      await copyFile(join(import.meta.dir, "fixtures/catalog-enums.py"), join(root, "usage.py"));
+    if (fixture !== "catalog-arrays") {
+      await copyFile(join(import.meta.dir, `fixtures/${fixture}.py`), join(root, "usage.py"));
       const python = Bun.spawn(["python3", "-B", join(root, "usage.py")], {
         env: { ...process.env, PYTHONPATH: join(workspace, "packages/sdk/python/src") },
         stdout: "pipe", stderr: "pipe",
@@ -51,6 +51,22 @@ for (const fixture of ["catalog-arrays", "catalog-enums"]) {
         new Response(python.stdout).text(), new Response(python.stderr).text(), python.exited,
       ]);
       expect(pythonStatus, pythonOut + pythonError).toBe(0);
+      if (fixture === "catalog-property-names") {
+        const typescript = Bun.spawn([process.execPath, join(root, "usage.ts")], {
+          stdout: "pipe", stderr: "pipe",
+        });
+        const [tsOut, tsError, tsStatus] = await Promise.all([
+          new Response(typescript.stdout).text(), new Response(typescript.stderr).text(), typescript.exited,
+        ]);
+        expect(tsStatus, tsError).toBe(0);
+        const expected = {
+          sourceURL: "source", data_key: "data", type: "type", match: "match",
+          self: "self", crate: "crate", super: "super", gen: "gen",
+        };
+        const expectedProps = [expected, { ...expected, optionalURL: "optional" }];
+        expect(JSON.parse(tsOut)).toEqual(expectedProps);
+        expect(JSON.parse(pythonOut)).toEqual(expectedProps);
+      }
     }
   });
 }

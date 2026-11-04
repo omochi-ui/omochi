@@ -1,0 +1,21 @@
+{
+  "catalogId": "urn:test:catalog-property-names",
+  "title": "Property Names Catalog",
+  "components": {
+    "Named": {
+      "type": "object",
+      "properties": {
+        "sourceURL": {"type": "string"},
+        "data_key": {"type": "string"},
+        "type": {"type": "string"},
+        "match": {"type": "string"},
+        "self": {"type": "string"},
+        "crate": {"type": "string"},
+        "super": {"type": "string"},
+        "gen": {"type": "string"},
+        "optionalURL": {"type": "string"}
+      },
+      "required": ["sourceURL", "data_key", "type", "match", "self", "crate", "super", "gen"]
+    }
+  }
+}

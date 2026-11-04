@@ -278,6 +278,75 @@ mod generated_catalog;
 #[rustfmt::skip]
 mod generated_scalar_catalog;
 
+#[allow(dead_code, unused_imports)]
+#[path = "fixtures/catalog-property-names/expected.rs"]
+#[rustfmt::skip]
+mod generated_property_names;
+
+#[tokio::test]
+async fn catalog_rust_fields_serialize_with_the_original_property_names() {
+    use generated_property_names::NamedProps;
+    use omochi_ui::ComponentProps;
+    use serde_json::json;
+
+    let root = tempfile::tempdir().unwrap();
+    let source = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let schema: serde_json::Value = serde_json::from_slice(include_bytes!(
+        "../../../spec/fixtures/catalog-property-names.json"
+    ))
+    .unwrap();
+    let output = command(root.path())
+        .args(["generate", "catalog", "--catalog"])
+        .arg(source.join("../../spec/fixtures/catalog-property-names.json"))
+        .arg("--rust")
+        .arg(root.path().join("catalog.rs"))
+        .output()
+        .await
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    // Compile the exact current CLI output, then check its public conversion.
+    assert_eq!(
+        std::fs::read(root.path().join("catalog.rs")).unwrap(),
+        include_bytes!("fixtures/catalog-property-names/expected.rs")
+    );
+    let props = NamedProps {
+        source_url: "source".into(),
+        data_key: "data".into(),
+        r#type: "type".into(),
+        r#match: "match".into(),
+        self_: "self".into(),
+        crate_: "crate".into(),
+        super_: "super".into(),
+        r#gen: "gen".into(),
+        optional_url: None,
+    };
+    let expected = json!({
+        "sourceURL": "source", "data_key": "data", "type": "type", "match": "match",
+        "self": "self", "crate": "crate", "super": "super", "gen": "gen"
+    });
+    assert_eq!(json!(props.clone().into_props()), expected);
+    for key in schema["components"]["Named"]["required"]
+        .as_array()
+        .unwrap()
+    {
+        assert!(expected.get(key.as_str().unwrap()).is_some());
+    }
+    let mut expected_optional = expected.as_object().unwrap().clone();
+    expected_optional.insert("optionalURL".into(), json!("optional"));
+    assert_eq!(
+        NamedProps {
+            optional_url: Some("optional".into()),
+            ..props
+        }
+        .into_props(),
+        expected_optional
+    );
+}
+
 #[tokio::test]
 async fn catalog_scalar_enums_compile_and_serialize_with_their_json_types() {
     use generated_scalar_catalog::{ScalarProps, ScalarTone};

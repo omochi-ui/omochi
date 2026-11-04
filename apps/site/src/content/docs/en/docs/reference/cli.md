@@ -292,6 +292,12 @@ enums use `String`. These wider types preserve JSON values but do not restrict
 values to the declared enum members. Rust string variant names that collide after
 sanitization receive numeric suffixes.
 
+Rust fields use snake case and explicitly preserve the catalog's original JSON
+property names, including acronyms and underscores. Rust keywords use raw
+identifiers (for example, `r#type`); `self`, `super` and `crate` receive a trailing
+underscore. If a property cannot form a Rust identifier or multiple properties
+map to the same Rust field, generation fails before writing any output.
+
 ## Ports and storage
 
 | Resource | Default |
