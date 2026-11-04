@@ -138,8 +138,8 @@ fn upper_first(s: &str) -> String {
 fn resolve(
     value: &Value,
     document: &Value,
-    base: &Path,
-    stack: &BTreeSet<String>,
+    document_path: &Path,
+    stack: &BTreeSet<(PathBuf, String)>,
     depth: usize,
 ) -> Result<Value> {
     if depth > 128 {
@@ -148,7 +148,7 @@ fn resolve(
     if let Some(array) = value.as_array() {
         return array
             .iter()
-            .map(|v| resolve(v, document, base, stack, depth + 1))
+            .map(|v| resolve(v, document, document_path, stack, depth + 1))
             .collect::<Result<Vec<_>>>()
             .map(Value::Array);
     }
@@ -164,7 +164,10 @@ fn resolve(
             None
         } else {
             Some(
-                base.join(filename)
+                document_path
+                    .parent()
+                    .context("schema document has no parent directory")?
+                    .join(filename)
                     .canonicalize()
                     .with_context(|| format!("unresolved schema reference {reference}"))?,
             )
@@ -176,7 +179,8 @@ fn resolve(
         } else {
             document
         };
-        let key = format!("{}:{reference}", base.display());
+        let target_path = path.as_deref().unwrap_or(document_path);
+        let key = (target_path.to_path_buf(), fragment.to_owned());
         let mut target_stack = stack.clone();
         if !target_stack.insert(key) {
             bail!("circular schema reference: {reference}");
@@ -190,13 +194,7 @@ fn resolve(
         resolved
             .as_object()
             .context("schema reference must resolve to an object")?;
-        let target = resolve(
-            resolved,
-            doc,
-            path.as_deref().and_then(Path::parent).unwrap_or(base),
-            &target_stack,
-            depth + 1,
-        )?;
+        let target = resolve(resolved, doc, target_path, &target_stack, depth + 1)?;
         // Siblings belong to the referring document, including relative refs.
         let siblings = Value::Object(
             object
@@ -205,12 +203,17 @@ fn resolve(
                 .map(|(key, value)| (key.clone(), value.clone()))
                 .collect(),
         );
-        let siblings = resolve(&siblings, document, base, stack, depth + 1)?;
+        let siblings = resolve(&siblings, document, document_path, stack, depth + 1)?;
         return Ok(compose_reference(target, siblings));
     }
     object
         .iter()
-        .map(|(k, v)| Ok((k.clone(), resolve(v, document, base, stack, depth + 1)?)))
+        .map(|(k, v)| {
+            Ok((
+                k.clone(),
+                resolve(v, document, document_path, stack, depth + 1)?,
+            ))
+        })
         .collect::<Result<Map<_, _>>>()
         .map(Value::Object)
 }
@@ -852,13 +855,7 @@ pub fn generate(options: Options) -> Result<()> {
     let file = options.catalog.canonicalize()?;
     let raw = std::fs::read(&file)?;
     let parsed: Value = serde_json::from_slice(&raw)?;
-    let resolved = resolve(
-        &parsed,
-        &parsed,
-        file.parent().unwrap(),
-        &BTreeSet::new(),
-        0,
-    )?;
+    let resolved = resolve(&parsed, &parsed, &file, &BTreeSet::new(), 0)?;
     let model = model(
         resolved,
         options.name.as_deref(),
@@ -969,7 +966,14 @@ mod tests {
             "properties": {"value": {"$ref": "#/$defs/choice"}, "relative": {"$ref": "sibling.json"}},
             "required": ["other"]
         });
-        let resolved = resolve(&document, &document, temp.path(), &BTreeSet::new(), 0).unwrap();
+        let resolved = resolve(
+            &document,
+            &document,
+            &temp.path().join("input.json"),
+            &BTreeSet::new(),
+            0,
+        )
+        .unwrap();
         assert_eq!(
             resolved["allOf"][0]["properties"]["value"]["enum"],
             json!(["a", "b"])
@@ -993,6 +997,66 @@ mod tests {
         assert_eq!(
             ty(&properties["value"], Language::Ts).unwrap(),
             r#"("a" | "b") & ("b" | "c")"#
+        );
+    }
+
+    #[test]
+    fn reference_cycles_use_canonical_target_documents_and_fragments() {
+        let temp = tempfile::tempdir().unwrap();
+        let input = temp.path().join("input.json");
+        let external = temp.path().join("external.json");
+        std::fs::create_dir(temp.path().join("nested")).unwrap();
+        for reference in [
+            "#/$defs/value",
+            "./input.json#/$defs/value",
+            "nested/../input.json#/$defs/value",
+            "external.json#/$defs/value",
+        ] {
+            let document = json!({"$defs": {"value": {"$ref": reference}}});
+            std::fs::write(&input, document.to_string()).unwrap();
+            std::fs::write(
+                &external,
+                r##"{"$defs":{"value":{"$ref":"./input.json#/$defs/value"}}}"##,
+            )
+            .unwrap();
+            let error = resolve(
+                &document,
+                &document,
+                &input.canonicalize().unwrap(),
+                &BTreeSet::new(),
+                0,
+            )
+            .unwrap_err();
+            assert!(
+                error.to_string().contains("circular schema reference"),
+                "{reference}: {error}"
+            );
+        }
+    }
+
+    #[test]
+    fn acyclic_reference_chains_still_enforce_the_depth_limit() {
+        let temp = tempfile::tempdir().unwrap();
+        for index in 0..130 {
+            let document = if index == 129 {
+                json!({"type": "string"})
+            } else {
+                json!({"$ref": format!("{}.json", index + 1)})
+            };
+            std::fs::write(
+                temp.path().join(format!("{index}.json")),
+                document.to_string(),
+            )
+            .unwrap();
+        }
+        let input = temp.path().join("0.json").canonicalize().unwrap();
+        let document = serde_json::from_slice(&std::fs::read(&input).unwrap()).unwrap();
+        let error = resolve(&document, &document, &input, &BTreeSet::new(), 0).unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("schema reference nesting exceeds 128"),
+            "{error}"
         );
     }
 

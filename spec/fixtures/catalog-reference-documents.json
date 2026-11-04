@@ -1,0 +1,21 @@
+{
+  "catalogId": "urn:test:catalog-reference-documents",
+  "title": "ReferenceDocuments",
+  "$defs": {
+    "value": {
+      "$ref": "catalog-reference-value.json#/$defs/entry"
+    }
+  },
+  "components": {
+    "Reference": {
+      "properties": {
+        "value": {
+          "$ref": "#/$defs/value"
+        }
+      },
+      "required": [
+        "value"
+      ]
+    }
+  }
+}

@@ -4,7 +4,7 @@ import { copyFile, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/pro
 import { tmpdir } from "node:os";
 import { delimiter, join, resolve } from "node:path";
 
-for (const fixture of ["catalog-arrays", "catalog-enums", "catalog-property-names", "catalog-python-keys", "catalog-allof", "catalog-required", "catalog-required-only", "catalog-intersections", "catalog-component-allof", "catalog-overlapping-properties", "catalog-ref-siblings", "catalog-adjacent-constraints"]) {
+for (const fixture of ["catalog-reference-documents", "catalog-arrays", "catalog-enums", "catalog-property-names", "catalog-python-keys", "catalog-allof", "catalog-required", "catalog-required-only", "catalog-intersections", "catalog-component-allof", "catalog-overlapping-properties", "catalog-ref-siblings", "catalog-adjacent-constraints"]) {
   test(`native ${fixture} bindings preserve JSON types`, {
     skip: !process.env.OMOCHI_NATIVE_TEST,
   }, async (t) => {

@@ -342,6 +342,42 @@ async fn catalog_required_only_preserves_unconstrained_required_values() {
 }
 
 #[allow(dead_code, unused_imports)]
+#[path = "fixtures/catalog-reference-documents/expected.rs"]
+#[rustfmt::skip]
+mod generated_reference_documents;
+
+#[tokio::test]
+async fn catalog_same_directory_reference_documents_resolve_and_compile() {
+    use generated_reference_documents::ReferenceProps;
+    use omochi_ui::ComponentProps;
+    use serde_json::json;
+
+    let root = tempfile::tempdir().unwrap();
+    let source = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let output = command(root.path())
+        .args(["generate", "catalog", "--catalog"])
+        .arg(source.join("../../spec/fixtures/catalog-reference-documents.json"))
+        .arg("--rust")
+        .arg(root.path().join("catalog.rs"))
+        .output()
+        .await
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        std::fs::read(root.path().join("catalog.rs")).unwrap(),
+        include_bytes!("fixtures/catalog-reference-documents/expected.rs")
+    );
+    let props = ReferenceProps {
+        value: "label".into(),
+    };
+    assert_eq!(json!(props.into_props()), json!({"value": "label"}));
+}
+
+#[allow(dead_code, unused_imports)]
 #[path = "fixtures/catalog-ref-siblings/expected.rs"]
 #[rustfmt::skip]
 mod generated_ref_siblings;
