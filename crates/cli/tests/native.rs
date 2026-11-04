@@ -1295,6 +1295,68 @@ async fn catalog_scalar_enums_compile_and_serialize_with_their_json_types() {
 }
 
 #[tokio::test]
+async fn catalog_id_injection_is_inert_when_generated_python_is_imported() {
+    let root = tempfile::tempdir().unwrap();
+    let source = root.path().join("catalog.json");
+    for key in ["catalogId", "$id"] {
+        for (prefix, terminator) in [
+            ("demo", "\n"),
+            ("demo", "\r"),
+            ("demo", "\r\n"),
+            ("coding: unicode_escape", "\\n"),
+            ("coding=unicode_escape", "\\n"),
+        ] {
+            let id = format!(
+                "{prefix}{terminator}print(\"CATALOG_ID_EXECUTED\"){terminator}#\u{2028}\u{2029}"
+            );
+            std::fs::write(
+                &source,
+                serde_json::json!({key: id, "components": {}}).to_string(),
+            )
+            .unwrap();
+            let output = command(root.path())
+                .args(["generate", "catalog", "--catalog"])
+                .arg(&source)
+                .args(["--name", "InjectionCatalog", "--python"])
+                .arg(root.path().join("generated_catalog.py"))
+                .output()
+                .await
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+            let output = Command::new("python3")
+                .current_dir(root.path())
+                .env(
+                    "PYTHONPATH",
+                    Path::new(env!("CARGO_MANIFEST_DIR"))
+                        .join("../../packages/sdk/python/src"),
+                )
+                .args([
+                    "-B",
+                    "-c",
+                    "import json, generated_catalog; print(json.dumps(generated_catalog.INJECTIONCATALOG.id))",
+                ])
+                .output()
+                .await
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+            // Injected print output must not precede the exact runtime ID.
+            assert_eq!(
+                serde_json::from_slice::<String>(&output.stdout).unwrap(),
+                id
+            );
+        }
+    }
+}
+
+#[tokio::test]
 async fn catalog_generation_runs_without_bun_or_state_and_check_detects_stale_output() {
     let root = tempfile::tempdir().unwrap();
     let source = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/catalog");
