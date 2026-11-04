@@ -33,6 +33,7 @@ pub(crate) struct State {
     pub snapshot: Arc<A2uiSnapshot>,
     pub scopes: BTreeMap<String, Scope>,
     pub events: omochi_protocol::fanout::Sender<HubEvent>,
+    pub scoped: Option<CancellationToken>,
 }
 #[derive(Clone)]
 pub struct Backend {
@@ -59,6 +60,7 @@ impl Backend {
                 snapshot: Arc::new(A2uiSnapshot::new()),
                 scopes: BTreeMap::new(),
                 events,
+                scoped: None,
             })),
             commands,
             resources: Arc::new(AtomicBool::new(false)),

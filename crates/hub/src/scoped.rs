@@ -364,8 +364,14 @@ impl Hub {
             bail!("Hub stopped")
         }
         let stop = self.stop.child_token();
+        // Replace under the backend's state lock so concurrent subscriptions
+        // capture their snapshot and event cursor in the same order as ownership.
+        // Browser subscriptions remain independent of the native renderer.
         let (views, events) = if let Some(backend) = &self.standalone {
-            let state = backend.state.lock().await;
+            let mut state = backend.state.lock().await;
+            if exclusive && let Some(previous) = state.scoped.replace(stop.clone()) {
+                previous.cancel();
+            }
             (
                 VecDeque::from([SnapshotView {
                     snapshot: state.snapshot.clone(),
@@ -535,6 +541,156 @@ pub(crate) mod tests {
                 .await
                 .is_err()
         );
+    }
+
+    #[tokio::test]
+    async fn stdio_resubscribe_expires_old_operations_and_preserves_the_replacement() {
+        use base64::{Engine, engine::general_purpose::STANDARD};
+        use futures_util::{SinkExt, StreamExt};
+        use tokio_util::codec::{Framed, LinesCodec};
+
+        let (sdk, bridge) = tokio::io::duplex(65536);
+        let (input, output) = tokio::io::split(bridge);
+        let (hub, backend) = Hub::attach_stdio(input, output);
+        let mut sdk = Framed::new(sdk, LinesCodec::new());
+        let mut events = hub.subscribe().await.events;
+        sdk.send(json!({"omochi":"resources/1","kind":"hello"}).to_string())
+            .await
+            .unwrap();
+        sdk.send(
+            json!({"version":"v0.9","createSurface":{"surfaceId":"main","catalogId":"test"}})
+                .to_string(),
+        )
+        .await
+        .unwrap();
+        events.recv().await.unwrap();
+
+        let mut first = hub.subscribe_scoped().await.unwrap();
+        let first_stop = first.cancellation_token();
+        let batch = first.next_batch().await.unwrap();
+        let stale = batch.handle.clone().unwrap();
+        #[cfg(feature = "browser")]
+        let (browser_one, browser_two) = (
+            hub.subscribe_browser().await.unwrap(),
+            hub.subscribe_browser().await.unwrap(),
+        );
+        // Concurrent requests still leave exactly one active native renderer.
+        let state = hub.standalone.as_ref().unwrap().state.lock().await;
+        let second_hub = hub.clone();
+        let second = tokio::spawn(async move { second_hub.subscribe_scoped().await.unwrap() });
+        let third_hub = hub.clone();
+        let third = tokio::spawn(async move { third_hub.subscribe_scoped().await.unwrap() });
+        tokio::task::yield_now().await;
+        drop(state);
+        let (second, third) = tokio::join!(second, third);
+        let (mut second, mut third) = (second.unwrap(), third.unwrap());
+        assert!(first_stop.is_cancelled());
+        assert!(stale.is_cancelled());
+        assert!(first.acknowledge(batch.sequence).is_err());
+        assert!(first.next_batch().await.is_err());
+        let second_cancelled = second.cancellation_token().is_cancelled();
+        let third_cancelled = third.cancellation_token().is_cancelled();
+        assert_ne!(second_cancelled, third_cancelled);
+        let (replacement, superseded) = if second_cancelled {
+            (&mut third, &mut second)
+        } else {
+            (&mut second, &mut third)
+        };
+        assert!(superseded.next_batch().await.is_err());
+        #[cfg(feature = "browser")]
+        {
+            assert!(!browser_one.cancellation_token().is_cancelled());
+            assert!(!browser_two.cancellation_token().is_cancelled());
+        }
+        assert!(
+            stale
+                .action(json!({"version":"v0.9","action":{"name":"stale"}}))
+                .await
+                .is_err()
+        );
+        assert!(
+            stale
+                .resource(json!({"op":"stat","resource":"a".repeat(32)}))
+                .await
+                .is_err()
+        );
+        assert!(matches!(
+            stale
+                .image(
+                    &format!("omochi://resources/{}", "a".repeat(32)),
+                    CancellationToken::new(),
+                )
+                .await,
+            Err(crate::images::ImageError::Unavailable)
+        ));
+
+        let update = json!({"version":"v0.9","updateDataModel":{"surfaceId":"main","path":"/value","value":2}});
+        sdk.send(update.to_string()).await.unwrap();
+        events.recv().await.unwrap();
+        let batch = replacement.next_batch().await.unwrap();
+        let fresh = batch.handle.clone().unwrap();
+        replacement.acknowledge(batch.sequence).unwrap();
+        let end = replacement.next_batch().await.unwrap();
+        assert!(end.snapshot_end);
+        replacement.acknowledge(end.sequence).unwrap();
+        let delta = replacement.next_batch().await.unwrap();
+        assert!(!delta.snapshot);
+        assert_eq!(delta.message.as_deref().unwrap(), &update);
+        replacement.acknowledge(delta.sequence).unwrap();
+        fresh
+            .action(json!({"version":"v0.9","action":{"name":"fresh"}}))
+            .await
+            .unwrap();
+        let action: Value = serde_json::from_str(
+            &tokio::time::timeout(Duration::from_secs(1), sdk.next())
+                .await
+                .unwrap()
+                .unwrap()
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(action["action"], json!({"surfaceId":"main","name":"fresh"}));
+
+        let mut png = std::io::Cursor::new(Vec::new());
+        image::DynamicImage::new_rgba8(2, 3)
+            .write_to(&mut png, image::ImageFormat::Png)
+            .unwrap();
+        let bytes = png.into_inner();
+        let child = tokio::spawn(async move {
+            while let Some(Ok(line)) = sdk.next().await {
+                let request: Value = serde_json::from_str(&line).unwrap();
+                let mut response = json!({"omochi":"resources/1","kind":"response","id":request["id"],"status":200});
+                if request["op"] == "stat" {
+                    response["size"] = bytes.len().into();
+                    response["mime"] = "image/png".into();
+                } else {
+                    assert_eq!(request["op"], "read");
+                    let start = request["offset"].as_u64().unwrap() as usize;
+                    let length = request["length"].as_u64().unwrap() as usize;
+                    response["data"] = STANDARD.encode(&bytes[start..start + length]).into();
+                }
+                sdk.send(response.to_string()).await.unwrap();
+            }
+        });
+        let response = fresh
+            .resource(json!({"op":"stat","resource":"a".repeat(32)}))
+            .await
+            .unwrap();
+        assert_eq!(response["status"], 200);
+        let image = fresh
+            .image(
+                &format!("omochi://resources/{}", "a".repeat(32)),
+                CancellationToken::new(),
+            )
+            .await
+            .unwrap();
+        assert_eq!((image.width, image.height), (2, 3));
+        // Dropping an older subscription must not cancel its successor.
+        drop(first);
+        assert!(!fresh.is_cancelled());
+        hub.shutdown();
+        backend.await.unwrap().unwrap();
+        child.await.unwrap();
     }
 
     #[tokio::test]
