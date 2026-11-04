@@ -145,13 +145,6 @@ fn resolve(
     if depth > 128 {
         bail!("schema reference nesting exceeds 128");
     }
-    if let Some(array) = value.as_array() {
-        return array
-            .iter()
-            .map(|v| resolve(v, document, document_path, stack, depth + 1))
-            .collect::<Result<Vec<_>>>()
-            .map(Value::Array);
-    }
     let Some(object) = value.as_object() else {
         return Ok(value.clone());
     };
@@ -209,10 +202,54 @@ fn resolve(
     object
         .iter()
         .map(|(k, v)| {
-            Ok((
-                k.clone(),
-                resolve(v, document, document_path, stack, depth + 1)?,
-            ))
+            // Schema maps contain arbitrary names, which may themselves be
+            // keywords such as `default`, `examples`, or even `$ref`.
+            let child = match k.as_str() {
+                "components" | "$defs" | "definitions" | "properties" | "patternProperties"
+                | "dependentSchemas" | "dependencies"
+                    if v.is_object() =>
+                {
+                    Value::Object(
+                        v.as_object()
+                            .unwrap()
+                            .iter()
+                            .map(|(name, schema)| {
+                                Ok((
+                                    name.clone(),
+                                    resolve(schema, document, document_path, stack, depth + 2)?,
+                                ))
+                            })
+                            .collect::<Result<Map<_, _>>>()?,
+                    )
+                }
+                "allOf" | "anyOf" | "oneOf" | "prefixItems" | "items" if v.is_array() => {
+                    Value::Array(
+                        v.as_array()
+                            .unwrap()
+                            .iter()
+                            .map(|schema| {
+                                resolve(schema, document, document_path, stack, depth + 2)
+                            })
+                            .collect::<Result<Vec<_>>>()?,
+                    )
+                }
+                "items"
+                | "additionalItems"
+                | "additionalProperties"
+                | "unevaluatedItems"
+                | "unevaluatedProperties"
+                | "contains"
+                | "propertyNames"
+                | "not"
+                | "if"
+                | "then"
+                | "else"
+                | "contentSchema" => resolve(v, document, document_path, stack, depth + 1)?,
+                // Annotation and validation data (default/examples/enum/const),
+                // and unknown extension values, are not embedded schemas.
+                _ => v.clone(),
+            };
+            Ok((k.clone(), child))
         })
         .collect::<Result<Map<_, _>>>()
         .map(Value::Object)
@@ -935,6 +972,120 @@ mod tests {
     fn fixture() -> PathBuf {
         Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/catalog")
     }
+    #[test]
+    fn reference_resolution_preserves_literal_json_data() {
+        let literal = json!({
+            "$ref": "missing.json",
+            "properties": {"nested": {"$ref": "#/missing"}},
+            "allOf": [{"$ref": "also-missing.json"}]
+        });
+        let document = json!({
+            "$defs": {"text": {"type": "string"}},
+            "default": literal,
+            "examples": [literal],
+            "enum": [literal],
+            "const": literal,
+            "x-extension": literal,
+            "properties": {
+                "default": {"$ref": "#/$defs/text", "default": literal},
+                "examples": {"$ref": "#/$defs/text", "examples": [literal]},
+                "$ref": {"$ref": "#/$defs/text"},
+                "value": {"type": "object", "default": literal, "examples": [literal]}
+            }
+        });
+        let resolved = resolve(
+            &document,
+            &document,
+            Path::new("input.json"),
+            &BTreeSet::new(),
+            0,
+        )
+        .unwrap();
+        for keyword in ["default", "examples", "enum", "const", "x-extension"] {
+            assert_eq!(resolved[keyword], document[keyword], "{keyword}");
+        }
+        for name in ["default", "examples", "$ref"] {
+            assert_eq!(resolved["properties"][name]["type"], "string", "{name}");
+        }
+        assert_eq!(resolved["properties"]["value"]["default"], literal);
+        assert_eq!(
+            resolved["properties"]["value"]["examples"],
+            json!([literal])
+        );
+    }
+
+    #[test]
+    fn reference_resolution_visits_schema_positions() {
+        let reference = json!({"$ref": "#/$defs/text"});
+        let mut document = json!({"$defs": {"text": {"type": "string"}}});
+        let maps = [
+            "components",
+            "definitions",
+            "properties",
+            "patternProperties",
+            "dependentSchemas",
+            "dependencies",
+        ];
+        let arrays = ["allOf", "anyOf", "oneOf", "prefixItems"];
+        let singles = [
+            "items",
+            "additionalItems",
+            "additionalProperties",
+            "unevaluatedItems",
+            "unevaluatedProperties",
+            "contains",
+            "propertyNames",
+            "not",
+            "if",
+            "then",
+            "else",
+            "contentSchema",
+        ];
+        for keyword in maps {
+            document[keyword] = json!({"default": reference});
+        }
+        for keyword in arrays {
+            document[keyword] = json!([reference]);
+        }
+        for keyword in singles {
+            document[keyword] = reference.clone();
+        }
+        document["dependencies"]["names"] = json!(["default", "examples"]);
+        let resolved = resolve(
+            &document,
+            &document,
+            Path::new("input.json"),
+            &BTreeSet::new(),
+            0,
+        )
+        .unwrap();
+        for keyword in maps {
+            assert_eq!(resolved[keyword]["default"]["type"], "string", "{keyword}");
+        }
+        for keyword in arrays {
+            assert_eq!(resolved[keyword][0]["type"], "string", "{keyword}");
+        }
+        for keyword in singles {
+            assert_eq!(resolved[keyword]["type"], "string", "{keyword}");
+        }
+        assert_eq!(
+            resolved["dependencies"]["names"],
+            json!(["default", "examples"])
+        );
+        document["items"] = json!([reference, false]);
+        document["additionalProperties"] = json!(false);
+        let resolved = resolve(
+            &document,
+            &document,
+            Path::new("input.json"),
+            &BTreeSet::new(),
+            0,
+        )
+        .unwrap();
+        assert_eq!(resolved["items"], json!([{"type": "string"}, false]));
+        assert_eq!(resolved["additionalProperties"], false);
+    }
+
     #[test]
     fn ordinary_conjunction_normalization_is_idempotent_and_keeps_enum_types_compact() {
         let fixture: Value = serde_json::from_str(include_str!(

@@ -1,0 +1,23 @@
+{
+  "catalogId": "urn:test:catalog-annotation-data",
+  "title": "AnnotationData",
+  "$defs": {
+    "text": { "type": "string" }
+  },
+  "x-extension": { "$ref": "missing-extension.json" },
+  "components": {
+    "Annotation": {
+      "properties": {
+        "value": {
+          "type": "object",
+          "default": { "$ref": "missing-default.json" },
+          "examples": [{ "$ref": "missing-example.json", "enum": [{ "$ref": "missing-enum.json" }] }],
+          "const": { "$ref": "missing-constant.json" }
+        },
+        "default": { "$ref": "#/$defs/text" },
+        "examples": { "type": "array", "items": { "$ref": "#/$defs/text" } }
+      },
+      "required": ["value", "default", "examples"]
+    }
+  }
+}
