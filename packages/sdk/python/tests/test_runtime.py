@@ -53,6 +53,29 @@ class RuntimeTests(unittest.TestCase):
         self.assertEqual(asyncio.run(runtime.invoke("set", {"value": 7})), [])
         self.assertEqual(state["value"], 7)
 
+    def test_boolean_to_number_updates_action_input(self):
+        app = App({"value": False})
+
+        @app.action("set", schema=schema.union(schema.boolean(), schema.integer()))
+        async def set_value(input, context):
+            pass
+
+        @app.surface("main")
+        def main(ui, current):
+            ui.button("Set", set_value.call(current["value"]))
+
+        runtime = app.build()
+        runtime.render()
+        messages = asyncio.run(runtime.update(lambda current: current.update(value=0)))
+        expected = [{"version": "v0.9", "updateComponents": {
+            "surfaceId": "main", "components": [{
+                "id": "action:set", "component": "Button",
+                "action": {"event": {"name": "set", "context": {"input": 0}}},
+                "child": "action:set:label",
+            }],
+        }}]
+        self.assertEqual(json.dumps(messages, sort_keys=True), json.dumps(expected, sort_keys=True))
+
     def test_external_update_renders_all_surfaces(self):
         state = {"value": 0}; app = App(state)
         @app.surface("one")

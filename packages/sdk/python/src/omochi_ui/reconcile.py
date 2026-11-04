@@ -76,8 +76,24 @@ def _flatten(surface_id: str, root: Node) -> dict[str, dict[str, Any]]:
     return result
 
 
+def _json_equal(before: Any, after: Any) -> bool:
+    # Python bool is an int subclass, but JSON booleans are not numbers.
+    # Keep equivalent int/float values equal within the JSON number type.
+    if isinstance(before, bool) or isinstance(after, bool):
+        return type(before) is type(after) and before == after
+    if isinstance(before, dict) and isinstance(after, dict):
+        return before.keys() == after.keys() and all(
+            _json_equal(before[key], after[key]) for key in before
+        )
+    if isinstance(before, list) and isinstance(after, list):
+        return len(before) == len(after) and all(
+            _json_equal(left, right) for left, right in zip(before, after)
+        )
+    return before == after
+
+
 def _data_diff(before: Any, after: Any, path: str = "") -> list[tuple[str, bool, Any]]:
-    if before == after:
+    if _json_equal(before, after):
         return []
     if isinstance(before, dict) and isinstance(after, dict):
         changes: list[tuple[str, bool, Any]] = []
@@ -135,7 +151,7 @@ class Reconciler:
                 },
             ])
         else:
-            changed = [value for key, value in components.items() if previous.components.get(key) != value]
+            changed = [value for key, value in components.items() if not _json_equal(previous.components.get(key), value)]
             if changed:
                 messages.append({
                     "version": PROTOCOL_VERSION,
@@ -151,7 +167,7 @@ class Reconciler:
                 after = declaration.locals.get(key)
                 path = f"/$local/{key.replace('~', '~0').replace('/', '~1')}"
                 update = {"surfaceId": surface_id, "path": path}
-                if after is not None and (before is None or before.get("resetKey") != after.get("resetKey")):
+                if after is not None and (before is None or not _json_equal(before.get("resetKey"), after.get("resetKey"))):
                     update["value"] = deepcopy(after["initial"])
                 elif after is not None:
                     continue
