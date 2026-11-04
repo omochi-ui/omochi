@@ -29,6 +29,21 @@ function declaration(value: JsonValue): Declaration {
   };
 }
 
+test("undefined reset keys match omitted keys and differ from null", () => {
+  const reconciler = new Reconciler();
+  const render = (local: LocalDeclaration) => reconciler.render({
+    ...declaration("unchanged"), locals: { form: local },
+  });
+  const reset: A2UIMessage[] = [
+    { version: "v0.9", updateDataModel: { surfaceId: "main", path: "/$local/form", value: "new" } },
+  ];
+  render({ initial: "old", resetKey: undefined });
+  assert.deepEqual(render({ initial: "new" }), []);
+  assert.deepEqual(render({ initial: "new", resetKey: undefined }), []);
+  assert.deepEqual(render({ initial: "new", resetKey: null }), reset);
+  assert.deepEqual(render({ initial: "new", resetKey: undefined }), reset);
+});
+
 for (const scenario of fixture.localResetCases) {
   test(`reconciles local reset key presence: ${scenario.name}`, () => {
     const reconciler = new Reconciler();

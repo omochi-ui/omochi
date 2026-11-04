@@ -2,6 +2,34 @@
   "name": "JSON type and local reset key reconciliation",
   "localResetCases": [
     {
+      "name": "reordered object reset key",
+      "before": {"initial": "old", "resetKey": {"a": 1, "b": 2}},
+      "after": {"initial": "new", "resetKey": {"b": 2, "a": 1}},
+      "expectedMessages": []
+    },
+    {
+      "name": "reordered nested object reset key",
+      "before": {"initial": "old", "resetKey": {"nested": [{"a": 1, "__proto__": {"x": false, "y": null}}], "constructor": 2}},
+      "after": {"initial": "new", "resetKey": {"constructor": 2, "nested": [{"__proto__": {"y": null, "x": false}, "a": 1}]}},
+      "expectedMessages": []
+    },
+    {
+      "name": "reordered array reset key",
+      "before": {"initial": "old", "resetKey": [1, 2]},
+      "after": {"initial": "new", "resetKey": [2, 1]},
+      "expectedMessages": [
+        {"version": "v0.9", "updateDataModel": {"surfaceId": "main", "path": "/$local/form", "value": "new"}}
+      ]
+    },
+    {
+      "name": "changed own prototype key",
+      "before": {"initial": "old", "resetKey": {"__proto__": {"a": 1}}},
+      "after": {"initial": "new", "resetKey": {"__proto__": {"a": 2}}},
+      "expectedMessages": [
+        {"version": "v0.9", "updateDataModel": {"surfaceId": "main", "path": "/$local/form", "value": "new"}}
+      ]
+    },
+    {
       "name": "omitted to null",
       "before": {"initial": "old"},
       "after": {"initial": "new", "resetKey": null},
@@ -31,6 +59,18 @@
     }
   ],
   "cases": [
+    {
+      "name": "reordered object properties",
+      "before": {"a": 1, "b": 2},
+      "after": {"b": 2, "a": 1},
+      "expectedMessages": []
+    },
+    {
+      "name": "reordered nested object properties",
+      "before": {"nested": [{"a": 1, "b": 2}], "other": {"x": null, "y": false}},
+      "after": {"other": {"y": false, "x": null}, "nested": [{"b": 2, "a": 1}]},
+      "expectedMessages": []
+    },
     {
       "name": "false to zero",
       "before": false,

@@ -10,7 +10,20 @@ interface SurfaceSnapshot {
 }
 
 const clone = <T>(value: T): T => structuredClone(value);
-const equal = (left: unknown, right: unknown): boolean => JSON.stringify(left) === JSON.stringify(right);
+
+function equal(left: JsonValue | undefined, right: JsonValue | undefined): boolean {
+  if (left === right) return true;
+  if (left === null || right === null || typeof left !== "object" || typeof right !== "object") return false;
+  if (Array.isArray(left)) {
+    return Array.isArray(right) && left.length === right.length
+      && left.every((value, index) => equal(value, right[index]));
+  }
+  if (Array.isArray(right)) return false;
+  const keys = Object.keys(left);
+  return keys.length === Object.keys(right).length
+    && keys.every((key) => Object.hasOwn(right, key) && equal(left[key], right[key]));
+}
+
 // Component ids are surface-scoped and A2UI requires the root id to be "root".
 const componentId = (_surfaceId: string, key: string): string => key;
 
