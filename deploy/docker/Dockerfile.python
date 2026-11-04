@@ -1,0 +1,9 @@
+FROM python:3.12-slim-bookworm
+RUN groupadd --gid 10001 omochi && useradd --uid 10001 --gid 10001 --create-home omochi \
+    && install -d -o 10001 -g 10001 -m 0700 /run/omochi /run/omochi/python-example
+COPY packages/sdk/python /tmp/sdk
+RUN pip install --no-cache-dir /tmp/sdk && rm -rf /tmp/sdk
+COPY examples/python/app.py /app/app.py
+ENV XDG_RUNTIME_DIR=/run OMOCHI_SERVICE=python-example PYTHONUNBUFFERED=1
+USER 10001:10001
+CMD ["python", "/app/app.py"]

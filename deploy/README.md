@@ -3,6 +3,7 @@
 | Component | Configuration and instructions |
 | --- | --- |
 | `app.omochi.fyi` dashboard | [apps/dashboard](../apps/dashboard/README.md): Cloudflare Workers; run `bunx wrangler deploy` there |
+| Docker | [Docker Compose](docker/README.md): local hub + Python example, native GHCR images |
 | Production iroh relay | [relay](relay/README.md): iroh-relay, systemd and monitoring templates |
 
 The hosted dashboard serves browser assets. Saved boards, app state and share

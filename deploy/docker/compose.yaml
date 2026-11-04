@@ -1,0 +1,31 @@
+services:
+  hub:
+    image: ghcr.io/omochi-ui/omochi:${OMOCHI_VERSION:?Set OMOCHI_VERSION to a published native version}
+    init: true
+    stop_grace_period: 10s
+    ports:
+      - "127.0.0.1:${OMOCHI_PORT:-5555}:5555"
+    tmpfs:
+      - /run/omochi:uid=10001,gid=10001,mode=0700
+    volumes:
+      - python-runtime:/run/omochi/python-example
+      - config:/var/lib/omochi
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:5555/services"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+  python:
+    image: omochi-python-local:dev
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile.python
+    init: true
+    stop_grace_period: 10s
+    tmpfs:
+      - /run/omochi:uid=10001,gid=10001,mode=0700
+    volumes:
+      - python-runtime:/run/omochi/python-example
+volumes:
+  python-runtime:
+  config:

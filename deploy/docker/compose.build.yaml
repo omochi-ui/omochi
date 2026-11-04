@@ -1,0 +1,7 @@
+services:
+  hub:
+    image: omochi-local:${OMOCHI_VERSION:-dev}
+    pull_policy: build
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile

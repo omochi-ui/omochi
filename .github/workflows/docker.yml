@@ -1,0 +1,121 @@
+name: Docker
+on:
+  pull_request:
+    paths-ignore: ['apps/site/**']
+  push:
+    branches: [main]
+    paths-ignore: ['apps/site/**']
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing native-vX.Y.Z tag on main
+        required: true
+        type: string
+      dry_run:
+        type: boolean
+        default: true
+permissions:
+  contents: read
+concurrency:
+  group: docker-${{ github.event.release.tag_name || inputs.tag || github.ref }}
+  cancel-in-progress: false
+jobs:
+  prepare:
+    if: github.event_name != 'release' || (startsWith(github.event.release.tag_name, 'native-v') && !github.event.release.prerelease)
+    runs-on: ubuntu-22.04
+    outputs:
+      commit: ${{ steps.metadata.outputs.commit }}
+      version: ${{ steps.metadata.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.tag || github.event.release.tag_name || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+      - if: github.event_name == 'release' || github.event_name == 'workflow_dispatch'
+        run: bun run release:native:check "$RELEASE_TAG"
+        env:
+          RELEASE_TAG: ${{ inputs.tag || github.event.release.tag_name }}
+      - id: metadata
+        run: |
+          echo "commit=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          bun -e 'console.log("version=" + Bun.TOML.parse(await Bun.file("crates/Cargo.toml").text()).workspace.package.version)' >> "$GITHUB_OUTPUT"
+  build:
+    needs: prepare
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-22.04
+            arch: amd64
+          - os: ubuntu-22.04-arm
+            arch: arm64
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.prepare.outputs.commit }}
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: deploy/docker/Dockerfile
+          load: true
+          tags: omochi-local:dev
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.version=${{ needs.prepare.outputs.version }}
+            org.opencontainers.image.revision=${{ needs.prepare.outputs.commit }}
+          cache-from: type=gha,scope=docker-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=docker-${{ matrix.arch }}
+      - run: docker compose -f deploy/docker/compose.yaml -f deploy/docker/compose.build.yaml build python
+        env:
+          OMOCHI_VERSION: dev
+      - run: bun scripts/smoke-docker.ts
+      - if: github.event_name == 'release' || github.event_name == 'workflow_dispatch'
+        run: docker save omochi-local:dev -o /tmp/hub.tar
+      - if: github.event_name == 'release' || github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v7
+        with:
+          name: docker-${{ matrix.arch }}
+          path: /tmp/hub.tar
+          retention-days: 3
+  publish:
+    needs: [prepare, build]
+    if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && !inputs.dry_run)
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: docker-*
+          path: images
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Publish tested architectures and manifest
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          for arch in amd64 arm64; do
+            docker load -i "images/docker-$arch/hub.tar"
+            docker tag omochi-local:dev "ghcr.io/omochi-ui/omochi:$VERSION-$arch"
+            docker push "ghcr.io/omochi-ui/omochi:$VERSION-$arch"
+          done
+          docker buildx imagetools create -t "ghcr.io/omochi-ui/omochi:$VERSION" "ghcr.io/omochi-ui/omochi:$VERSION-amd64" "ghcr.io/omochi-ui/omochi:$VERSION-arm64"
+          docker buildx imagetools inspect "ghcr.io/omochi-ui/omochi:$VERSION"
