@@ -7,7 +7,7 @@ import { Button } from './Button.js';
 import { Icon } from './Icon.js';
 import { restoreDialogFocus } from './dialogs.js';
 import { referenceId, type Dashboard, type Panel } from './contracts.js';
-import { placePanel, resizePanel, reorderPanels, type ResizeEdge } from './layout.js';
+import { appendPanel, placePanel, resizePanel, reorderPanels, type ResizeEdge } from './layout.js';
 import { desiredServices, groupByNode, splitSurfaceId, type ServiceView } from './services.js';
 import { BOARD_FILE_LIMIT, exportBoard, parseBoard, type SourceLabel } from './board-codec.js';
 import { SessionFault } from '@omochi-ui/core/browser';
@@ -237,7 +237,10 @@ export function DashboardWorkspace({ environment, connectionUi, renderSharing }:
     cancelGesture();
   };
   const reorder = (id: string, direction: -1 | 1) => {
-    setUndo(null); setDraft(d => d ? { ...d, panels: reorderPanels(d.panels, id, direction) } : d);
+    if (!draft) return;
+    const panels = reorderPanels(draft.panels, id, direction);
+    if (panels === draft.panels) return;
+    setUndo(null); setDraft({ ...draft, panels });
     setMessage({ key: direction < 0 ? 'announcement.up' : 'announcement.down' });
   };
   const removePanel = (panel: Panel) => {
@@ -251,9 +254,11 @@ export function DashboardWorkspace({ environment, connectionUi, renderSharing }:
     const surface = splitSurfaceId(id);
     const reference = { nodeId: service.node.id, serviceId: service.id.slice(service.node.id.length + 1), surfaceId: surface.surfaceId };
     if (draft.panels.some(p => referenceId(p.reference) === id)) return;
-    const panel: Panel = { id: crypto.randomUUID(), title: `${service.name} · ${surface.surfaceId}`, reference,
-      x: 0, y: Math.max(0, ...draft.panels.map(p => p.y + p.h)), w: 6, h: 6 };
-    setUndo(null); setDraft({ ...draft, panels: [...draft.panels, panel] });
+    const panel: Panel = { id: crypto.randomUUID(), title: `${service.name} · ${surface.surfaceId}`.slice(0, 200), reference,
+      x: 0, y: 0, w: 6, h: 6 };
+    const panels = appendPanel(draft.panels, panel);
+    if (panels === draft.panels) return;
+    setUndo(null); setDraft({ ...draft, panels });
     closePicker(); setMessage({ key: 'announcement.added' });
   };
   const panels = [...(active?.panels ?? [])].sort((a, b) => a.y - b.y || a.x - b.x);

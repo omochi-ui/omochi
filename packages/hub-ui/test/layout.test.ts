@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict';
 import { test } from '@omochi-ui/core/testing';
-import { placePanel } from '../src/layout.js';
+import { appendPanel, placePanel, reorderPanels } from '../src/layout.js';
 import { overlaps, type Panel } from '../src/contracts.js';
+import { validateBoardInput } from '../src/board-codec.js';
 const panel = (id: string, x: number, y: number): Panel => ({ id, title: id, x, y, w: 6, h: 6,
-  reference: { nodeId: 'aaaaaaaaaaaaaaaa', serviceId: id, surfaceId: 'main' } });
+  reference: { nodeId: 'a'.repeat(64), serviceId: id, surfaceId: 'main' } });
 test('moving a panel pushes collisions down without moving adjacent columns', () => {
   const a = panel('a', 0, 0), b = panel('b', 0, 6), c = panel('c', 6, 0);
   const result = placePanel([a, b, c], { ...b, y: 0 });
@@ -43,6 +44,7 @@ test('mobile reorder preserves sizes and packs rows without overlap', async () =
   const { reorderPanels } = await import('../src/layout.js');
   const initial = [panel('a', 0, 0), { ...panel('b', 6, 0), h: 3 }, { ...panel('c', 0, 6), w: 12 }];
   const result = reorderPanels(initial, 'c', -1);
+  validate(result);
   assert.deepEqual(result.map(p => p.id), ['a', 'c', 'b']);
   assert.deepEqual(result.map(p => [p.x, p.y]), [[0, 0], [0, 6], [0, 12]]);
   for (const p of result) {
@@ -51,4 +53,54 @@ test('mobile reorder preserves sizes and packs rows without overlap', async () =
     for (const q of result) if (p !== q) assert.equal(overlaps(p, q), false);
   }
   assert.equal(reorderPanels(initial, 'a', -1), initial);
+});
+
+function validate(panels: Panel[]): void {
+  assert.deepEqual(validateBoardInput({ name: 'Layout', panels }).panels, panels);
+}
+
+test('mobile reorder keeps the valid draft when repacking would exceed the stored row limit', () => {
+  let x = 0, y = 0;
+  const initial = [7, 5, 7, 5, ...Array<number>(132).fill(12)].map((w, index) => {
+    if (x + w > 12) { y += 750; x = 0; }
+    const next = { ...panel(String(index), x, y), w, h: 750 };
+    x += w;
+    return next;
+  });
+  assert.equal(Math.max(...initial.map(p => p.y)), 99750);
+  validate(initial);
+  const result = reorderPanels(initial, '2', -1);
+  validate(result);
+  assert.equal(result, initial);
+});
+
+test('appending preserves bottom placement including the maximum allowed start row', () => {
+  for (const bottom of [6, 100000]) {
+    const initial = [{ ...panel('a', 0, bottom - 6), w: 12 }];
+    const result = appendPanel(initial, panel('b', 0, 0));
+    validate(result);
+    assert.deepEqual(result, [...initial, panel('b', 0, bottom)]);
+  }
+});
+
+test('appending finds bounded free space when the bottom exceeds the stored row limit', () => {
+  for (const width of [6, 12]) {
+    const initial = [{ ...panel('a', 0, 0), w: width }, { ...panel('b', 0, 100000), w: 12, h: 1 }];
+    validate(initial);
+    const result = appendPanel(initial, panel('c', 0, 0));
+    validate(result);
+    assert.deepEqual(result.slice(0, -1), initial);
+    assert.deepEqual(result.at(-1), width === 6 ? panel('c', 6, 0) : panel('c', 0, 6));
+  }
+});
+
+test('appending keeps the valid draft when no bounded placement or panel capacity remains', () => {
+  const full = Array.from({ length: 101 }, (_, index) => ({ ...panel(String(index), 0, index * 1000), w: 12, h: 1000 }));
+  const maximum = Array.from({ length: 200 }, (_, index) => panel(String(index), 0, index * 6));
+  for (const initial of [full, maximum]) {
+    validate(initial);
+    const result = appendPanel(initial, panel('new', 0, 0));
+    validate(result);
+    assert.equal(result, initial);
+  }
 });

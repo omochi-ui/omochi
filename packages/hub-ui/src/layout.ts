@@ -31,7 +31,7 @@ export function resizePanel(panel: Panel, edge: ResizeEdge, dx: number, dy: numb
   return { ...panel, x, y, w, h };
 }
 
-/** Explicit mobile reorder repacks rows; merely changing viewport never writes layout. */
+/** Explicit mobile reorder repacks rows, retaining the draft if it exceeds storage bounds. */
 export function reorderPanels(panels: Panel[], id: string, direction: -1 | 1): Panel[] {
   const ordered = [...panels].sort((a, b) => a.y - b.y || a.x - b.x);
   const index = ordered.findIndex(panel => panel.id === id);
@@ -39,10 +39,27 @@ export function reorderPanels(panels: Panel[], id: string, direction: -1 | 1): P
   if (index < 0 || target < 0 || target >= ordered.length) return panels;
   [ordered[index], ordered[target]] = [ordered[target]!, ordered[index]!];
   let x = 0, y = 0, height = 0;
-  return ordered.map(panel => {
+  const result: Panel[] = [];
+  for (const panel of ordered) {
     if (x + panel.w > 12) { y += height; x = 0; height = 0; }
-    const placed = { ...panel, x, y };
+    if (y > 100000) return panels;
+    result.push({ ...panel, x, y });
     x += panel.w; height = Math.max(height, panel.h);
-    return placed;
-  });
+  }
+  return result;
+}
+
+/** Append below the layout or into free space; retain the draft if no capacity remains. */
+export function appendPanel(panels: Panel[], panel: Panel): Panel[] {
+  if (panels.length >= 200) return panels;
+  const bottom = Math.max(0, ...panels.map(p => p.y + p.h));
+  if (bottom <= 100000) return [...panels, { ...panel, x: 0, y: bottom }];
+  const rows = [0, ...new Set(panels.map(p => p.y + p.h))].filter(y => y <= 100000).sort((a, b) => a - b);
+  for (const y of rows) {
+    for (let x = 0; x + panel.w <= 12; x++) {
+      const next = { ...panel, x, y };
+      if (!panels.some(p => overlaps(p, next))) return [...panels, next];
+    }
+  }
+  return panels;
 }
