@@ -88,6 +88,181 @@ List<Json> modalComponents() => [
 ];
 
 void main() {
+  for (final axis in ['Column', 'Row']) {
+    for (final weights in <List<num>>[
+      [1, 2],
+      [1.0, 2.0],
+      [0.5, 1.25],
+    ]) {
+      testWidgets('$axis allocates numeric weights $weights proportionally', (
+        tester,
+      ) async {
+        final fixture = LayoutFixture();
+        await fixture.mount(tester, [
+          {
+            'id': 'root',
+            'component': axis,
+            'children': ['header', 'one', 'two'],
+          },
+          textComponent('header', 'H'),
+          {...textComponent('one', 'One'), 'weight': weights[0]},
+          {...textComponent('two', 'Two'), 'weight': weights[1]},
+        ]);
+        double extent(String id) {
+          final size = tester.getSize(component(id));
+          return axis == 'Column' ? size.height : size.width;
+        }
+
+        final remaining = axis == 'Column'
+            ? 300 - extent('header') - 16
+            : 320 - extent('header') - 32;
+        expect(
+          extent('one'),
+          closeTo(remaining * weights[0] / (weights[0] + weights[1]), .01),
+        );
+        expect(extent('one') + extent('two'), closeTo(remaining, .01));
+        expect(tester.takeException(), isNull);
+        await fixture.close(tester);
+      });
+    }
+
+    for (final asMap in [false, true]) {
+      testWidgets('$axis fractional template follows bindings (map=$asMap)', (
+        tester,
+      ) async {
+        final fixture = LayoutFixture();
+        Json model(List<String> labels) => {
+          'rows': asMap
+              ? {
+                  for (final label in labels) label: {'label': label},
+                }
+              : [
+                  for (final label in labels) {'label': label},
+                ],
+        };
+        await fixture.mount(tester, [
+          {
+            'id': 'root',
+            'component': axis,
+            'children': {'path': '/rows', 'componentId': 'item'},
+          },
+          {
+            ...textComponent('item', {'path': 'label'}),
+            'weight': 0.5,
+          },
+        ], data: model(['A', 'B']));
+        void expectSizes(int count) {
+          expect(component('item'), findsNWidgets(count));
+          for (final element in component('item').evaluate()) {
+            final size = tester.getSize(
+              find.byElementPredicate((e) => e == element),
+            );
+            expect(
+              axis == 'Column' ? size.height : size.width,
+              closeTo((axis == 'Column' ? 300 : 320) / count, .01),
+            );
+          }
+        }
+
+        expectSizes(2);
+        fixture.client.onMessage(
+          dataMessage(counterId, model(['B', 'C', 'D'])),
+        );
+        await tester.pumpAndSettle();
+        expect(find.text('A'), findsNothing);
+        expect(find.text('B'), findsOneWidget);
+        expectSizes(3);
+        expect(tester.takeException(), isNull);
+        await fixture.close(tester);
+      });
+    }
+  }
+
+  for (final direction in TextDirection.values) {
+    for (final justify in [
+      'start',
+      'center',
+      'end',
+      'spaceBetween',
+      'spaceAround',
+      'spaceEvenly',
+    ]) {
+      testWidgets('Row $justify alignment follows $direction', (tester) async {
+        final fixture = LayoutFixture();
+        await fixture.mount(tester, [
+          {
+            'id': 'root',
+            'component': 'Row',
+            'justify': justify,
+            'align': 'end',
+            'children': ['a', 'b'],
+          },
+          textComponent('a', 'A'),
+          textComponent('b', 'B'),
+        ], direction: direction);
+        final root = tester.getRect(component('root'));
+        final first = tester.getRect(component('a'));
+        final last = tester.getRect(component('b'));
+        final free = root.width - first.width - last.width - 16;
+        final leading = switch (justify) {
+          'center' => free / 2,
+          'end' => free,
+          'spaceAround' => free / 4,
+          'spaceEvenly' => free / 3,
+          _ => 0.0,
+        };
+        expect(
+          direction == TextDirection.ltr
+              ? first.left - root.left
+              : root.right - first.right,
+          closeTo(leading, .01),
+        );
+        expect(first.bottom, root.bottom);
+        expect(last.bottom, root.bottom);
+        expect(
+          direction == TextDirection.ltr
+              ? last.left - first.right
+              : first.left - last.right,
+          greaterThanOrEqualTo(16 - .01),
+        );
+        expect(tester.takeException(), isNull);
+        await fixture.close(tester);
+      });
+    }
+  }
+
+  for (final explicit in [false, true]) {
+    testWidgets(
+      'Row preserves ${explicit ? 'tight' : 'loose'} flexible width',
+      (tester) async {
+        final fixture = LayoutFixture();
+        await fixture.mount(tester, [
+          {
+            'id': 'root',
+            'component': 'Row',
+            'children': ['weighted', 'items'],
+          },
+          {...textComponent('weighted', 'W'), 'weight': 1.0},
+          {
+            'id': 'items',
+            'component': 'List',
+            'direction': 'horizontal',
+            if (explicit) 'weight': 1.0,
+            'children': ['body'],
+          },
+          textComponent('body', 'X'),
+        ]);
+        expect(tester.getSize(component('weighted')).width, 152);
+        expect(
+          tester.getSize(component('items')).width,
+          explicit ? equals(152) : lessThan(152),
+        );
+        expect(tester.takeException(), isNull);
+        await fixture.close(tester);
+      },
+    );
+  }
+
   for (final wrapper in [
     'direct',
     'card',

@@ -53,13 +53,13 @@ final nativeColumn = CatalogItem(
 
     Widget child(String id, DataContext context, {Key? key}) {
       final component = item.getComponent(id);
-      final explicit = component?.properties['weight'] as int?;
+      final explicit = (component?.properties['weight'] as num?)?.toDouble();
       final implicit =
           item.getCatalogItem(component?.type ?? '')?.isImplicitlyFlexible ??
           false;
       return _ColumnChild(
         key: key,
-        weight: math.max(0, explicit ?? (implicit ? 1 : 0)),
+        weight: math.max(0.0, explicit ?? (implicit ? 1 : 0)),
         tight: explicit != null,
         boundedHeight: needsBoundedHeight(id),
         child: item.buildChild(id, context),
@@ -129,7 +129,7 @@ final nativeColumn = CatalogItem(
 );
 
 class _ColumnData extends ContainerBoxParentData<RenderBox> {
-  int weight = 0;
+  double weight = 0;
   bool tight = false;
   bool boundedHeight = false;
 }
@@ -142,7 +142,7 @@ class _ColumnChild extends ParentDataWidget<_ColumnData> {
     required this.boundedHeight,
     required super.child,
   });
-  final int weight;
+  final double weight;
   final bool tight, boundedHeight;
 
   @override
@@ -217,7 +217,7 @@ class _RenderColumn extends RenderBox
     );
 
     var used = config.spacing * math.max(0, children.length - 1);
-    var totalWeight = 0;
+    var totalWeight = 0.0;
     var width = 0.0;
     // Measure only non-flex children, using real layout rather than intrinsics.
     for (final child in children) {

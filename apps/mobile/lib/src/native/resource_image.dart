@@ -11,6 +11,7 @@ import 'client_api.dart';
 import 'column.dart';
 import 'image_budget.dart';
 import 'modal.dart';
+import 'row.dart';
 
 Catalog nativeCatalog(
   GatewayImageRequest Function(String, String) read, {
@@ -21,6 +22,7 @@ Catalog nativeCatalog(
   newItems: [
     nativeButton,
     nativeColumn,
+    nativeRow,
     modals.catalogItem,
     CatalogItem(
       name: BasicCatalogItems.text.name,
