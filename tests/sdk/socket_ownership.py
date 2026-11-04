@@ -1,7 +1,8 @@
-"""Cross-process SDK ownership regression. Build TS and Rust fixtures before running.
+"""Cross-process publisher ownership regression. Build the TS SDK before running.
 
-Runs Node, Bun, Python and Rust against the same runtime directory. Every transition
-uses stdin/stdout barriers, with timeouts only to detect hangs.
+Runs Node, Bun, Python, Rust SDK and native utility publishers against the same
+runtime directory. Every transition uses stdin/stdout barriers, with timeouts
+only to detect hangs.
 """
 from __future__ import annotations
 
@@ -88,20 +89,29 @@ def main():
                             "--no-run", "--message-format=json"], cwd=ROOT, check=True, text=True, capture_output=True)
     executable = next(item["executable"] for line in built.stdout.splitlines()
                       if (item := json.loads(line)).get("executable"))
+    utility_built = subprocess.run(["cargo", "test", "--locked", "--manifest-path", "crates/Cargo.toml",
+                                   "-p", "omochi-utils", "--lib", "--no-run", "--message-format=json"],
+                                  cwd=ROOT, check=True, text=True, capture_output=True)
+    utility_executable = next(item["executable"] for line in utility_built.stdout.splitlines()
+                              if (item := json.loads(line)).get("executable"))
     commands = {
         "node": ["node", "tests/sdk/socket-owner.mjs"],
         "bun": ["bun", "tests/sdk/socket-owner.mjs"],
         "python": [sys.executable, __file__, "--child"],
         "rust": [executable, "--exact", "ownership_process_fixture", "--ignored", "--nocapture"],
+        "native-utility": [utility_executable, "--exact", "local::tests::ownership_process_fixture",
+                           "--ignored", "--nocapture"],
     }
     children = []
     try:
         with tempfile.TemporaryDirectory(prefix="omochi-owner-") as temporary:
             root = Path(temporary)
-            # Pause an owner after stale recovery but before bind. Every SDK must
+            # Pause an owner after stale recovery but before bind. Every publisher must
             # reject even though the socket is absent, and leave its directory intact.
             (root / "demo").mkdir()
             with (root / ".demo.lock~").open("a") as lock:
+                os.fchmod(lock.fileno(), 0o600)
+                lock_inode = os.fstat(lock.fileno()).st_ino
                 fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
                 for command in commands.values():
                     contender = Owner(command, root)
@@ -124,7 +134,7 @@ def main():
             winner = racers[results.index("READY")]
             winner.command()
             assert winner.read() == "CLOSED"
-            # Each SDK owns in turn. Others finish rejected close() while it remains
+            # Each publisher owns in turn. Others finish rejected close() while it remains
             # reachable. SIGKILL leaves a real stale socket and kernel-released lock.
             previous = winner
             for name, command in commands.items():
@@ -143,11 +153,21 @@ def main():
                     assert contender.read() == "REJECTED"
                     contender.finish()
                     connectable(root)
-                owner.process.kill()
-                owner.process.wait(timeout=15)
+                owner.command()
+                assert owner.read() == "CLOSED"
+                replacement = Owner(command, root)
+                children.append(replacement)
+                replacement.command()
+                assert replacement.read() == "READY", name
+                owner.command()  # Every publisher's obsolete close/Drop is harmless.
+                owner.finish()
+                connectable(root)
+                replacement.process.kill()
+                replacement.process.wait(timeout=15)
                 assert (root / "demo/a2ui.sock").exists()
-                print(f"{name}: cross-SDK exclusion and crash recovery passed")
-            # Recover the final crashed Rust owner as well.
+                assert (root / ".demo.lock~").stat().st_ino == lock_inode
+                print(f"{name}: publisher exclusion, obsolete cleanup and crash recovery passed")
+            # Recover the final crashed native utility owner as well.
             final = Owner(commands["node"], root)
             children.append(final)
             final.command()
@@ -157,6 +177,7 @@ def main():
             assert final.read() == "CLOSED"
             final.command()
             final.finish()
+            assert (root / ".demo.lock~").stat().st_ino == lock_inode
     finally:
         for child in children:
             child.dispose()
