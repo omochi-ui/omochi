@@ -439,6 +439,7 @@ class HubSession extends ChangeNotifier {
 
   @override
   void dispose() {
+    if (_disposed) return;
     _disposed = true;
     unawaited(
       _stop().catchError((Object failure) {

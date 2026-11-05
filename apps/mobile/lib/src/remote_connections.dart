@@ -4,21 +4,26 @@ import 'package:flutter/material.dart';
 
 import 'app.dart';
 import 'messages.dart';
+import 'hub_session.dart';
+import 'remote/repository.dart';
 import 'remote/controller.dart';
 import 'remote/models.dart';
+import 'remote/invitation_routing.dart';
 
 class RemoteConnections extends StatefulWidget {
   const RemoteConnections({
     super.key,
     this.invitation,
     this.restore = false,
-    this.links = const Stream<Uri>.empty(),
+    this.invitationRouting,
     this.controller,
+    this.repository,
   });
   final String? invitation;
   final bool restore;
-  final Stream<Uri> links;
+  final InvitationRouting? invitationRouting;
   final RemoteConnectionsController? controller;
+  final RemoteRepository? repository;
 
   @override
   State<RemoteConnections> createState() => _RemoteConnectionsState();
@@ -26,13 +31,25 @@ class RemoteConnections extends StatefulWidget {
 
 class _RemoteConnectionsState extends State<RemoteConnections> {
   late final controller =
-      widget.controller ?? RemoteConnectionsController.native();
+      widget.controller ??
+      RemoteConnectionsController(
+        widget.repository ?? NativeRemoteRepository.mobile(),
+      );
   bool adding = false;
+  int addGeneration = 0;
+  InvitationRoute? invitationRoute;
+  Future<void>? opening;
+  HubSession? activeSession;
+  bool closingRemote = false;
 
   @override
   void initState() {
     super.initState();
     controller.addListener(changed);
+    invitationRoute = widget.invitationRouting?.enter(
+      handleInvitation,
+      mayLeave: closeRemote,
+    );
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) unawaited(initialize());
     });
@@ -45,6 +62,8 @@ class _RemoteConnectionsState extends State<RemoteConnections> {
   @override
   void dispose() {
     controller.removeListener(changed);
+    final route = invitationRoute;
+    if (route != null) widget.invitationRouting?.leave(route);
     if (widget.controller == null) controller.dispose();
     super.dispose();
   }
@@ -69,6 +88,7 @@ class _RemoteConnectionsState extends State<RemoteConnections> {
 
   Future<void> add([String? initial]) async {
     if (adding || controller.busy) return;
+    final generation = ++addGeneration;
     setState(() => adding = true);
     try {
       final text = TextEditingController(text: initial);
@@ -139,24 +159,68 @@ class _RemoteConnectionsState extends State<RemoteConnections> {
         }
       });
     } finally {
-      if (mounted) setState(() => adding = false);
+      if (mounted && generation == addGeneration) {
+        setState(() => adding = false);
+      }
     }
   }
 
+  Future<bool> closeRemote() async {
+    final opened = opening;
+    if (opened == null) return true;
+    closingRemote = true;
+    try {
+      final route = ModalRoute.of(context);
+      Navigator.of(context).popUntil((candidate) => candidate == route);
+      // The local Hub must stay suspended until the remote identity is released.
+      await opened;
+      return mounted;
+    } finally {
+      closingRemote = false;
+    }
+  }
+
+  Future<void> handleInvitation(String input) async {
+    final session = activeSession;
+    if (session != null &&
+        !(await (session.remoteLeaveGuard?.call() ?? Future.value(true)))) {
+      return;
+    }
+    if (!mounted || !await closeRemote() || !mounted) return;
+    await add(input);
+  }
+
   Future<void> open(RemoteSource source, {String? invitation}) async {
-    await controller.open(
+    if (adding) setState(() => adding = false);
+    final opened = controller.open(
       source,
       invitation: invitation,
       present: (session) async {
-        if (!mounted) return;
-        await Navigator.of(context).push(
-          MaterialPageRoute<void>(
-            builder: (_) => MobileHome(links: widget.links, session: session),
-          ),
-        );
+        if (!mounted || closingRemote) return;
+        activeSession = session;
+        try {
+          await Navigator.of(context).push(
+            MaterialPageRoute<void>(
+              builder: (_) => MobileHome(
+                links: const Stream<Uri>.empty(),
+                session: session,
+                invitationRouting: widget.invitationRouting,
+                remoteRepository: controller.repository,
+                onHubInvitation: handleInvitation,
+              ),
+            ),
+          );
+        } finally {
+          activeSession = null;
+        }
       },
     );
-    if (mounted) await controller.load();
+    opening = opened;
+    try {
+      await opened;
+    } finally {
+      opening = null;
+    }
   }
 
   String accessLabel(BuildContext context, RemoteAccessMode mode) =>

@@ -12,6 +12,7 @@ import 'native/protocol.dart';
 import 'remote_connections.dart';
 import 'remote_boards.dart';
 import 'remote/navigation_controller.dart';
+import 'remote/invitation_routing.dart';
 import 'remote/boards_repository.dart';
 import 'remote/repository.dart';
 
@@ -33,9 +34,19 @@ class MobileApp extends StatelessWidget {
 }
 
 class MobileHome extends StatefulWidget {
-  const MobileHome({super.key, required this.links, this.session});
+  const MobileHome({
+    super.key,
+    required this.links,
+    this.session,
+    this.invitationRouting,
+    this.remoteRepository,
+    this.onHubInvitation,
+  });
   final HubSession? session;
   final Stream<Uri> links;
+  final InvitationRouting? invitationRouting;
+  final RemoteRepository? remoteRepository;
+  final Future<void> Function(String)? onHubInvitation;
   @override
   State<MobileHome> createState() => _MobileHomeState();
 }
@@ -44,8 +55,12 @@ class _MobileHomeState extends State<MobileHome> with WidgetsBindingObserver {
   late final hub = widget.session ?? HubSession();
   late final navigation = HubNavigationController(
     hub,
-    NativeRemoteRepository.mobile(),
+    widget.remoteRepository ?? NativeRemoteRepository.mobile(),
   );
+  late final invitationRouting =
+      widget.invitationRouting ?? InvitationRouting(invite);
+  late final InvitationRoute invitationRoute;
+  Future<void>? connectionsRoute;
   StreamSubscription<Uri>? subscription;
   String? pending;
   String? selected;
@@ -68,11 +83,25 @@ class _MobileHomeState extends State<MobileHome> with WidgetsBindingObserver {
         if (mounted) notice(describeFailure(e));
       }),
     );
-    subscription = widget.links.listen((uri) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) unawaited(invite(uri.toString()));
-      });
-    }, onError: (Object e) => notice(describeFailure(e)));
+    invitationRoute = invitationRouting.enter(
+      (input) =>
+          widget.onHubInvitation?.call(input) ?? showHubConnections(input),
+      mayLeave: () => hub.remoteLeaveGuard?.call() ?? Future.value(true),
+    );
+    if (widget.invitationRouting == null) {
+      subscription = widget.links.listen((uri) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) {
+            unawaited(
+              invitationRouting
+                  .dispatch(uri.toString())
+                  .catchError((Object e) => notice(describeFailure(e))),
+            );
+          }
+        });
+        WidgetsBinding.instance.ensureVisualUpdate();
+      }, onError: (Object e) => notice(describeFailure(e)));
+    }
   }
 
   void changed() {
@@ -114,7 +143,7 @@ class _MobileHomeState extends State<MobileHome> with WidgetsBindingObserver {
     await navigation.ready;
     if (!mounted) return;
     final route = ModalRoute.of(context);
-    await navigation.choose(
+    final choosing = navigation.choose(
       prepareRoute: () =>
           Navigator.of(context).popUntil((candidate) => candidate == route),
       present: () => Navigator.of(context).push(
@@ -122,21 +151,23 @@ class _MobileHomeState extends State<MobileHome> with WidgetsBindingObserver {
           builder: (_) => RemoteConnections(
             invitation: input,
             restore: restore,
-            links: widget.links,
+            invitationRouting: invitationRouting,
+            repository: navigation.repository,
           ),
         ),
       ),
     );
+    connectionsRoute = choosing;
+    try {
+      await choosing;
+    } finally {
+      connectionsRoute = null;
+    }
   }
 
   Future<void> invite(String input) async {
-    final uri = Uri.tryParse(input);
-    if (uri != null &&
-        ((uri.scheme == 'omochi' && ['share', 'owner'].contains(uri.host)) ||
-            (uri.scheme == 'https' &&
-                (uri.fragment.startsWith('share:') ||
-                    uri.fragment.startsWith('owner:'))))) {
-      await showHubConnections(input);
+    if (isHubInvitation(input)) {
+      await invitationRouting.dispatch(input);
       return;
     }
     GatewayInvitation invitation;
@@ -154,6 +185,17 @@ class _MobileHomeState extends State<MobileHome> with WidgetsBindingObserver {
     }
     pending = key;
     try {
+      await navigation.ready;
+      if (!mounted) return;
+      final choosing = connectionsRoute;
+      if (choosing != null) {
+        if (!await invitationRouting.mayReturnToLocal() || !mounted) return;
+        final route = ModalRoute.of(context);
+        Navigator.of(context).popUntil((candidate) => candidate == route);
+        // Pair only after remote shutdown and local endpoint resumption.
+        await choosing;
+      }
+      if (!mounted || !hub.canManageGateways) return;
       final accepted = await showDialog<bool>(
         context: context,
         builder: (context) => AlertDialog(
@@ -254,6 +296,7 @@ class _MobileHomeState extends State<MobileHome> with WidgetsBindingObserver {
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     subscription?.cancel();
+    invitationRouting.leave(invitationRoute);
     navigation.removeListener(changed);
     navigation.dispose();
     hub.removeListener(changed);
