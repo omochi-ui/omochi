@@ -3,9 +3,33 @@ use super::*;
 use omochi_downstream_core::RenderFrame;
 use omochi_protocol::{read_frame, write_frame};
 use omochi_transport::{Endpoint, EndpointAddr, EndpointConnection, RecvStream, SendStream};
-use std::{io, time::Duration};
-use tokio::io::{AsyncRead, AsyncReadExt};
+use std::{future::Future, io, time::Duration};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite};
 const IO: Duration = Duration::from_secs(10);
+
+/// Dialing, opening the enrollment stream and exchanging authentication share
+/// one deadline. A peer must not retain the identity lease using stream credit
+/// or write backpressure after its authenticated QUIC connection is established.
+async fn enrollment_exchange<W: AsyncWrite + Unpin, R: AsyncRead + Unpin>(
+    open: impl Future<Output = Result<(W, R)>>,
+    link: &Link,
+    deadline: tokio::time::Instant,
+) -> Result<()> {
+    tokio::time::timeout_at(deadline, async {
+        let (mut tx, mut rx) = open.await?;
+        write_frame(
+            &mut tx,
+            &json!({"version":1,"grantId":link.grant_id,"secret":link.secret}),
+        )
+        .await?;
+        let accepted: Value = read_frame(&mut rx)
+            .await?
+            .with_context(|| Fault::EnrollmentUnknown)?;
+        anyhow::ensure!(accepted["accepted"] == true, Fault::EnrollmentRejected);
+        Ok(())
+    })
+    .await?
+}
 
 /// Idle subscriptions may wait indefinitely. Once a frame begins, its entire
 /// remainder shares one deadline; trickling bytes must not extend it.
@@ -202,24 +226,7 @@ impl Client {
                     connection.close(0u32.into(), b"recovered");
                 }
                 if recovered.is_err() {
-                    let alpn = if link.mode == Mode::Owner {
-                        b"omochi/owner-enroll/1".as_slice()
-                    } else {
-                        b"omochi/dashboard-enroll/1".as_slice()
-                    };
-                    let connection =
-                        tokio::time::timeout(IO, endpoint.connect(link.address()?, alpn)).await??;
-                    let (mut tx, mut rx) = connection.open_bi().await?;
-                    write_frame(
-                        &mut tx,
-                        &json!({"version":1,"grantId":link.grant_id,"secret":link.secret}),
-                    )
-                    .await?;
-                    let accepted: Value = tokio::time::timeout(IO, read_frame(&mut rx))
-                        .await??
-                        .with_context(|| Fault::EnrollmentUnknown)?;
-                    connection.close(0u32.into(), b"enrolled");
-                    anyhow::ensure!(accepted["accepted"] == true, Fault::EnrollmentRejected);
+                    Self::enroll_at(&endpoint, &link, link.address()?).await?;
                 }
             }
             Self::open(&endpoint, &link).await
@@ -265,6 +272,20 @@ impl Client {
         }));
         Ok(welcome)
     }
+    async fn enroll_at(endpoint: &Endpoint, link: &Link, address: EndpointAddr) -> Result<()> {
+        let deadline = tokio::time::Instant::now() + IO;
+        let alpn = if link.mode == Mode::Owner {
+            b"omochi/owner-enroll/1".as_slice()
+        } else {
+            b"omochi/dashboard-enroll/1".as_slice()
+        };
+        let connection =
+            tokio::time::timeout_at(deadline, endpoint.connect(address, alpn)).await??;
+        let result =
+            enrollment_exchange(async { Ok(connection.open_bi().await?) }, link, deadline).await;
+        connection.close(0u32.into(), b"enrollment complete");
+        result
+    }
     pub(super) async fn open(
         endpoint: &Endpoint,
         link: &Link,
@@ -309,6 +330,297 @@ mod deadline_tests {
     async fn poll_once<F: Future>(future: Pin<&mut F>) -> Poll<F::Output> {
         let mut future = future;
         std::future::poll_fn(|cx| Poll::Ready(future.as_mut().poll(cx))).await
+    }
+
+    fn enrollment_link(mode: Mode) -> Link {
+        Link {
+            version: 1,
+            hub_id: omochi_transport::SecretKey::generate().public().to_string(),
+            relay_urls: vec!["https://relay.example/".into()],
+            grant_id: uuid::Uuid::nil().to_string(),
+            mode,
+            secret: "cd".repeat(32),
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn enrollment_stream_open_uses_the_remaining_dial_deadline() {
+        let link = enrollment_link(Mode::Owner);
+        let deadline = tokio::time::Instant::now() + IO;
+        // Dialing has already spent part of the single authentication budget.
+        tokio::time::advance(Duration::from_secs(3)).await;
+        let (_release, opened) =
+            tokio::sync::oneshot::channel::<(tokio::io::DuplexStream, tokio::io::DuplexStream)>();
+        let exchange = enrollment_exchange(async { Ok(opened.await?) }, &link, deadline);
+        tokio::pin!(exchange);
+        assert!(poll_once(exchange.as_mut()).await.is_pending());
+        tokio::time::advance(Duration::from_secs(6)).await;
+        assert!(poll_once(exchange.as_mut()).await.is_pending());
+        tokio::time::advance(Duration::from_secs(1)).await;
+        let Poll::Ready(result) = poll_once(exchange.as_mut()).await else {
+            panic!("lack of bidirectional stream credit must expire at the dial deadline");
+        };
+        assert_eq!(
+            normalize_error(result.unwrap_err()).downcast_ref::<Fault>(),
+            Some(&Fault::Timeout)
+        );
+        assert!(_release.is_closed());
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn enrollment_write_backpressure_does_not_extend_the_open_deadline() {
+        let link = enrollment_link(Mode::Invite);
+        let deadline = tokio::time::Instant::now() + IO;
+        let (release, opened) = tokio::sync::oneshot::channel();
+        let exchange = enrollment_exchange(async { Ok(opened.await?) }, &link, deadline);
+        tokio::pin!(exchange);
+        assert!(poll_once(exchange.as_mut()).await.is_pending());
+        tokio::time::advance(Duration::from_secs(8)).await;
+        let (stream, mut peer) = tokio::io::duplex(1);
+        let (rx, tx) = tokio::io::split(stream);
+        release.send((tx, rx)).unwrap();
+        assert!(poll_once(exchange.as_mut()).await.is_pending());
+        // The one-byte window lets the request start but prevents write_frame
+        // from finishing. A trickle of new credit must not reset the deadline.
+        assert_eq!(peer.read_u8().await.unwrap(), 0);
+        assert!(poll_once(exchange.as_mut()).await.is_pending());
+        tokio::time::advance(Duration::from_secs(1)).await;
+        assert_eq!(peer.read_u8().await.unwrap(), 0);
+        assert!(poll_once(exchange.as_mut()).await.is_pending());
+        tokio::time::advance(Duration::from_secs(1)).await;
+        let Poll::Ready(result) = poll_once(exchange.as_mut()).await else {
+            panic!("enrollment writes must share the stream-open deadline");
+        };
+        assert_eq!(
+            normalize_error(result.unwrap_err()).downcast_ref::<Fault>(),
+            Some(&Fault::Timeout)
+        );
+        // Cancellation drops the write half, so the peer gets EOF rather than
+        // retaining a stream that can later complete enrollment.
+        assert_eq!(peer.read_u8().await.unwrap(), 0);
+        assert_eq!(peer.read(&mut [0]).await.unwrap(), 0);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn enrollment_reply_cannot_start_a_fresh_deadline_after_open_and_write() {
+        let link = enrollment_link(Mode::Owner);
+        let deadline = tokio::time::Instant::now() + IO;
+        tokio::time::advance(Duration::from_secs(8)).await;
+        let (stream, mut peer) = tokio::io::duplex(1024);
+        let (rx, tx) = tokio::io::split(stream);
+        let exchange = enrollment_exchange(async { Ok((tx, rx)) }, &link, deadline);
+        tokio::pin!(exchange);
+        assert!(poll_once(exchange.as_mut()).await.is_pending());
+        let request: Value = read_frame(&mut peer).await.unwrap().unwrap();
+        assert_eq!(
+            request,
+            json!({"version":1,"grantId":link.grant_id,"secret":link.secret})
+        );
+        tokio::time::advance(Duration::from_secs(1)).await;
+        // A partial reply also cannot reset the remaining authentication time.
+        peer.write_all(&[0]).await.unwrap();
+        assert!(poll_once(exchange.as_mut()).await.is_pending());
+        tokio::time::advance(Duration::from_secs(1)).await;
+        let Poll::Ready(result) = poll_once(exchange.as_mut()).await else {
+            panic!("the enrollment reply must finish within the original deadline");
+        };
+        assert_eq!(
+            normalize_error(result.unwrap_err()).downcast_ref::<Fault>(),
+            Some(&Fault::Timeout)
+        );
+    }
+
+    #[tokio::test]
+    async fn enrollment_alpns_accept_reject_and_close_the_exact_identity_connection() {
+        tokio::time::timeout(IO, async {
+            for mode in [Mode::Owner, Mode::Invite] {
+                for accepted in [true, false] {
+                    let server =
+                        omochi_transport::bind(omochi_transport::SecretKey::generate(), true, None)
+                            .await
+                            .unwrap();
+                    server.set_alpns(vec![if mode == Mode::Owner {
+                        b"omochi/owner-enroll/1".to_vec()
+                    } else {
+                        b"omochi/dashboard-enroll/1".to_vec()
+                    }]);
+                    let endpoint =
+                        omochi_transport::bind(omochi_transport::SecretKey::generate(), true, None)
+                            .await
+                            .unwrap();
+                    let link = Link {
+                        hub_id: server.id().to_string(),
+                        ..enrollment_link(mode)
+                    };
+                    let (result, ()) =
+                        tokio::join!(Client::enroll_at(&endpoint, &link, server.addr()), async {
+                            let connection = server.accept().await.unwrap().await.unwrap();
+                            assert_eq!(connection.remote_id(), endpoint.id());
+                            let (mut tx, mut rx) = connection.accept_bi().await.unwrap();
+                            let request: Value = read_frame(&mut rx).await.unwrap().unwrap();
+                            assert_eq!(
+                                request,
+                                json!({"version":1,"grantId":link.grant_id,"secret":link.secret})
+                            );
+                            write_frame(&mut tx, &json!({"accepted":accepted}))
+                                .await
+                                .unwrap();
+                            tx.finish().unwrap();
+                            connection.closed().await;
+                        });
+                    if accepted {
+                        result.unwrap();
+                    } else {
+                        assert_eq!(
+                            result.unwrap_err().downcast_ref::<Fault>(),
+                            Some(&Fault::EnrollmentRejected)
+                        );
+                    }
+                    endpoint.close().await;
+                    server.close().await;
+                }
+            }
+        })
+        .await
+        .unwrap();
+    }
+
+    #[tokio::test]
+    async fn enrollment_timeout_preserves_the_pending_identity_for_ordinary_recovery() {
+        tokio::time::timeout(IO * 3, async {
+            let server =
+                omochi_transport::bind(omochi_transport::SecretKey::generate(), true, None)
+                    .await
+                    .unwrap();
+            server.set_alpns(vec![
+                b"omochi/owner-enroll/1".to_vec(),
+                b"omochi/owner/1".to_vec(),
+            ]);
+            let link = Link {
+                hub_id: server.id().to_string(),
+                ..enrollment_link(Mode::Owner)
+            };
+            let store = Arc::new(CallbackStore::new());
+            let client = Client::default();
+            let pending_raw;
+            // Exercise actual registration persistence, stopping at the session
+            // lock immediately before transport binding. No relay is required.
+            let active = client.active.write().await;
+            {
+                let registering = client.connect(
+                    Command::Register {
+                        invitation: format!(
+                            "omochi://owner/{}",
+                            base64::engine::general_purpose::URL_SAFE_NO_PAD
+                                .encode(serde_json::to_vec(&link).unwrap())
+                        ),
+                        save: true,
+                    },
+                    store.clone(),
+                );
+                tokio::pin!(registering);
+                assert!(poll_once(registering.as_mut()).await.is_pending());
+                let read: Value =
+                    serde_json::from_str(&store.requests.lock().unwrap().pop_front().unwrap())
+                        .unwrap();
+                assert_eq!(read["op"], "read");
+                assert!(store.reply(
+                    read["id"].as_u64().unwrap(),
+                    json!({"ok":true,"value":null})
+                ));
+                assert!(poll_once(registering.as_mut()).await.is_pending());
+                let commit: Value =
+                    serde_json::from_str(&store.requests.lock().unwrap().pop_front().unwrap())
+                        .unwrap();
+                assert_eq!(commit["op"], "commit");
+                assert_eq!(commit["expected"], Value::Null);
+                pending_raw = commit["replacement"].as_str().unwrap().to_owned();
+                assert!(store.reply(
+                    commit["id"].as_u64().unwrap(),
+                    json!({"outcome":"committed"})
+                ));
+                assert!(poll_once(registering.as_mut()).await.is_pending());
+            }
+            drop(active);
+            let profile: Profile = serde_json::from_str(&pending_raw).unwrap();
+            let key = profile.key().unwrap();
+            assert_eq!(profile.records.len(), 1);
+            assert!(!profile.records[0].accepted);
+            assert_eq!(profile.records[0].link.id(), link.id());
+            assert_eq!(profile.records[0].link.secret, "0".repeat(64));
+
+            let endpoint = omochi_transport::bind(key.clone(), true, None)
+                .await
+                .unwrap();
+            let registering = tokio::spawn({
+                let endpoint = endpoint.clone();
+                let link = link.clone();
+                let address = server.addr();
+                async move { Client::enroll_at(&endpoint, &link, address).await }
+            });
+            let peer = server.accept().await.unwrap().await.unwrap();
+            assert_eq!(peer.remote_id(), key.public());
+            let (_reply, mut request) = peer.accept_bi().await.unwrap();
+            let request: Value = read_frame(&mut request).await.unwrap().unwrap();
+            assert_eq!(request["secret"], link.secret);
+            // The hub may already have bound the grant when its reply stalls.
+            // Cross the timer tick as well as the remaining deadline.
+            tokio::time::pause();
+            tokio::time::advance(IO + Duration::from_millis(1)).await;
+            let error = registering.await.unwrap().unwrap_err();
+            assert_eq!(
+                normalize_error(error).downcast_ref::<Fault>(),
+                Some(&Fault::Timeout)
+            );
+            tokio::time::resume();
+            peer.closed().await;
+            endpoint.close().await;
+            assert!(store.requests.lock().unwrap().is_empty());
+            assert!(store.pending.lock().unwrap().is_empty());
+
+            // Reload exactly the committed pending profile after the timeout.
+            let (recovered, _) = {
+                let loading = Profile::load(&store);
+                tokio::pin!(loading);
+                assert!(poll_once(loading.as_mut()).await.is_pending());
+                let read: Value =
+                    serde_json::from_str(&store.requests.lock().unwrap().pop_front().unwrap())
+                        .unwrap();
+                assert!(store.reply(
+                    read["id"].as_u64().unwrap(),
+                    json!({"ok":true,"value":pending_raw})
+                ));
+                let Poll::Ready(loaded) = poll_once(loading.as_mut()).await else {
+                    panic!("the pending registration must remain readable after timeout");
+                };
+                loaded.unwrap()
+            };
+            assert!(!recovered.records[0].accepted);
+            let endpoint = omochi_transport::bind(recovered.key().unwrap(), true, None)
+                .await
+                .unwrap();
+            let (opened, peer) = tokio::join!(
+                Client::open_at(&endpoint, &recovered.records[0].link, server.addr()),
+                async {
+                    let connection = server.accept().await.unwrap().await.unwrap();
+                    assert_eq!(connection.remote_id(), key.public());
+                    let (mut tx, mut rx) = connection.accept_bi().await.unwrap();
+                    let hello: Value = read_frame(&mut rx).await.unwrap().unwrap();
+                    assert_eq!(hello, json!({"version":1,"grantId":link.grant_id}));
+                    write_frame(&mut tx, &json!({"kind":"ownerWelcome","services":[]}))
+                        .await
+                        .unwrap();
+                    (connection, tx, rx)
+                }
+            );
+            let (connection, _, _, _) = opened.unwrap();
+            connection.close(0u32.into(), b"recovered");
+            peer.0.closed().await;
+            endpoint.close().await;
+            server.close().await;
+        })
+        .await
+        .unwrap();
     }
 
     #[tokio::test(start_paused = true)]
