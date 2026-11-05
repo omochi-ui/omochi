@@ -61,7 +61,7 @@ Other bidirectional streams accept one request, followed by a response and FIN:
   ending with `{kind:"imageEnd"}`. Publication removal cancels active fetching.
   Arbitrary client-provided resource IDs/URLs are never permission declarations.
 
-There are at most 16 connections per listener and 8 in-flight request streams per
+There are at most 128 connections per listener and 8 in-flight request streams per
 connection. Native image concurrency/byte/pixel limits and scoped snapshot queue
 limits continue to apply. Requests and actions are never replayed after loss.
 Connection loss or source replacement invalidates leases. Changes to the board

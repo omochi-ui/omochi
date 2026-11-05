@@ -381,7 +381,7 @@ The major bounds belong to different layers and must remain distinct:
 | Gateway snapshot / fanout | 16 MiB snapshot; fanout independently bounds message count and 16 MiB of encoded data; each materialized replay frame must also fit 4 MiB |
 | Native action/publication queues | 8 MiB retained through processing |
 | SDK resource registry defaults | 1 GiB per resource, 4 GiB total; reads at most 24576 bytes |
-| Downstream listener | 16 connections; 8 in-flight request streams per connection |
+| Downstream listener | 128 connections; 8 in-flight request streams per connection |
 | Scoped image pipeline | 8 MiB encoded/decompressed response bound, 4 M pixels per image; client image storage budget 32 MiB and two concurrent fetch/decode operations |
 | Mobile embedded/external adapters | 2 Gateways / 8 services; these limits do not apply to hosted browser owner sessions |
 

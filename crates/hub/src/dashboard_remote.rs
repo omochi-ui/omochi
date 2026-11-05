@@ -26,6 +26,8 @@ pub const ALPN: &[u8] = b"omochi/dashboard/2";
 pub const OWNER_ALPN: &[u8] = b"omochi/owner/1";
 pub const OWNER_ENROLL_ALPN: &[u8] = b"omochi/owner-enroll/1";
 const IO_TIMEOUT: Duration = Duration::from_secs(10);
+// Bound active sessions and unauthenticated handshakes across all downstream roles.
+const MAX_CONNECTIONS: usize = 128;
 #[derive(Clone, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct Hello {
@@ -188,7 +190,7 @@ pub fn listen(
                 .map_err(api_error)?;
         }
         let mut owner_epoch = hub.stop.child_token();
-        let capacity = Arc::new(Semaphore::new(16));
+        let capacity = Arc::new(Semaphore::new(MAX_CONNECTIONS));
         let mut sessions = JoinSet::new();
         let mut generation = {
             let copy = shares.clone();
