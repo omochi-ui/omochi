@@ -100,6 +100,9 @@ All v1 sharing links and registered identity grants are retired. Under the share
 lock, a recognized v1 store is replaced with an empty v2 store and an incremented
 generation. Unknown or malformed storage remains an error. Reissue all links.
 Owner v1 links, owner enrollment and Gateway trust are unaffected.
+Native profile loading validates and removes recognized v1 `invite`/`public`
+records with compare-and-exchange, preserving the existing identity, owner
+records and v2 shares. Unrecognized or malformed profile data remains an error.
 
 Browsers keep bearer context in tab-scoped sessionStorage, without enrolling or
 saving an identity grant. Native clients retain bearer credentials in protected
