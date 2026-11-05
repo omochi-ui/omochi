@@ -11,7 +11,7 @@ sidebar:
 npx @omochi-ui/cli hub
 ```
 
-HubがローカルGatewayも自動起動します。 http://127.0.0.1:5555/ を開き、別のターミナルでツールを起動して、**Add view**からダッシュボードへ追加します。[インストール](../../start/installation/)すると`omochi-ui`と`omochi-utils`を直接実行できます。
+HubがローカルGatewayも自動起動します。 **http://127.0.0.1:5555/** を開き、別のターミナルでツールを起動して、**Add view**からダッシュボードへ追加します。[インストール](../../start/installation/)すると`omochi-ui`と`omochi-utils`を直接実行できます。
 
 ```sh
 npx @omochi-ui/utils button --name "Build" -- bun run build
