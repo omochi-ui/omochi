@@ -8,7 +8,7 @@
     "verify": "node scripts/verify.mjs",
     "build": "vite build",
     "preview": "vite preview --host 127.0.0.1",
-    "deploy": "wrangler deploy --config dist/mobile_site/wrangler.json",
+    "deploy": "wrangler deploy --config dist/omochi_mobile/wrangler.json",
     "cf-typegen": "wrangler types --env-interface CloudflareBindings"
   },
   "dependencies": {

@@ -3,7 +3,7 @@ import { unstable_dev } from 'wrangler';
 
 // Exercise the built Worker and its assets without Cloudflare credentials.
 const dev = await unstable_dev(undefined, {
-  config: 'dist/mobile_site/wrangler.json',
+  config: 'dist/omochi_mobile/wrangler.json',
   local: true,
   ip: '127.0.0.1',
   port: 0,
