@@ -47,7 +47,7 @@ mod invitation_tests {
     }
     #[test]
     fn invitation_modes_and_secrets_are_checked() {
-        let value = json!({"version":1,"hubId":SecretKey::generate().public().to_string(),"grantId":uuid::Uuid::nil(),"relayUrls":["https://relay.example/"],"mode":"owner","secret":"cd".repeat(32)});
+        let value = json!({"version":1,"hubId":SecretKey::generate().public().to_string(),"grantId":uuid::Uuid::nil().to_string(),"relayUrls":["https://relay.example/"],"mode":"owner","secret":"cd".repeat(32)});
         let payload = URL_SAFE_NO_PAD.encode(serde_json::to_vec(&value).unwrap());
         assert!(Link::parse(&format!("omochi://owner/{payload}")).is_ok());
         assert!(Link::parse(&format!("https://app.omochi.fyi/#owner:{payload}")).is_ok());
