@@ -59,6 +59,137 @@ mod invitation_tests {
 #[cfg(test)]
 mod wire_tests {
     use super::*;
+
+    async fn cancellation_fixture() -> (
+        Arc<Client>,
+        omochi_transport::Endpoint,
+        omochi_transport::EndpointConnection,
+        omochi_transport::SendStream,
+        omochi_transport::RecvStream,
+    ) {
+        let server = omochi_transport::bind(SecretKey::generate(), true, None)
+            .await
+            .unwrap();
+        server.set_alpns(vec![b"omochi/dashboard/1".to_vec()]);
+        let endpoint = omochi_transport::bind(SecretKey::generate(), true, None)
+            .await
+            .unwrap();
+        let link = Link {
+            version: 1,
+            hub_id: server.id().to_string(),
+            relay_urls: vec!["https://relay.example/".into()],
+            grant_id: uuid::Uuid::nil().to_string(),
+            mode: Mode::Public,
+            secret: "cd".repeat(32),
+        };
+        let (opened, peer) = tokio::join!(
+            Client::open_at(&endpoint, &link, server.addr()),
+            async {
+                let connection = server.accept().await.unwrap().await.unwrap();
+                let (mut tx, mut rx) = connection.accept_bi().await.unwrap();
+                let _: Value = read_frame(&mut rx).await.unwrap().unwrap();
+                write_frame(&mut tx, &json!({"kind":"welcome","board":{"id":"board","panels":[]},"permissions":{"interact":false,"editLayout":false}})).await.unwrap();
+                (connection, tx, rx)
+            }
+        );
+        let (connection, tx, rx, _) = opened.unwrap();
+        let client = Arc::new(Client::default());
+        *client.active.write().await = Some(Arc::new(Active {
+            endpoint,
+            connection,
+            stream: AsyncMutex::new((tx, rx)),
+            state: AsyncMutex::new(SessionState::new(Mode::Public, Default::default()).unwrap()),
+            tokens: Mutex::default(),
+            stop: CancellationToken::new(),
+        }));
+        (client, server, peer.0, peer.1, peer.2)
+    }
+
+    #[tokio::test]
+    async fn cancelling_an_image_stops_only_its_stream_and_preserves_polling() {
+        tokio::time::timeout(std::time::Duration::from_secs(10), async {
+            let (client, server, peer, mut updates, mut acks) = cancellation_fixture().await;
+            let store = Arc::new(CallbackStore::new());
+            write_frame(&mut updates, &json!({"kind":"message","message":{"version":"v0.9","createSurface":{"surfaceId":"node~counter/main"}},"lease":"lease-1","sequence":"1"})).await.unwrap();
+            client.execute(Command::Next { ack: None }, store.clone(), CancellationToken::new()).await.unwrap();
+            let lease = client.lease_token("lease-1").await.unwrap();
+
+            let polling = tokio::spawn({
+                let client = client.clone();
+                let store = store.clone();
+                async move { client.execute(Command::Next { ack: Some("1".into()) }, store, CancellationToken::new()).await }
+            });
+            let ack: Value = read_frame(&mut acks).await.unwrap().unwrap();
+            assert_eq!(ack, json!({"ack":"1"}));
+
+            let cancel = CancellationToken::new();
+            let image = tokio::spawn({
+                let client = client.clone();
+                let store = store.clone();
+                let cancel = cancel.clone();
+                async move { client.execute(Command::Rpc { value: Rpc::Image { lease: "lease-1".into(), uri: "image://counter/icon".into() } }, store, cancel).await }
+            });
+            let (image_reply, mut image_request) = peer.accept_bi().await.unwrap();
+            let request: Value = read_frame(&mut image_request).await.unwrap().unwrap();
+            assert_eq!(request["op"], "image");
+            cancel.cancel();
+            let error = image.await.unwrap().unwrap_err();
+            assert_eq!(error.downcast_ref::<Fault>(), Some(&Fault::Cancelled));
+            assert!(image_reply.stopped().await.unwrap().is_some());
+            assert!(peer.close_reason().is_none());
+            assert!(!lease.is_cancelled());
+            assert!(!client.active.read().await.as_ref().unwrap().stop.is_cancelled());
+
+            write_frame(&mut updates, &json!({"kind":"snapshotEnd","sequence":"2"})).await.unwrap();
+            assert_eq!(polling.await.unwrap().unwrap()["kind"], "snapshotEnd");
+
+            let ping = client.execute(Command::Rpc { value: Rpc::Ping {} }, store, CancellationToken::new());
+            let reply = async {
+                let (mut tx, mut rx) = peer.accept_bi().await.unwrap();
+                let request: Value = read_frame(&mut rx).await.unwrap().unwrap();
+                assert_eq!(request["op"], "ping");
+                write_frame(&mut tx, &json!({"kind":"pong"})).await.unwrap();
+                tx.finish().unwrap();
+            };
+            let (result, ()) = tokio::join!(ping, reply);
+            assert_eq!(result.unwrap(), json!({"kind":"pong"}));
+            client.close().await;
+            server.close().await;
+        }).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn cancelling_poll_or_other_rpc_still_closes_the_session() {
+        tokio::time::timeout(std::time::Duration::from_secs(10), async {
+            for command in [
+                Command::Next { ack: None },
+                Command::Rpc {
+                    value: Rpc::Ping {},
+                },
+            ] {
+                let (client, server, peer, _updates, _acks) = cancellation_fixture().await;
+                let cancel = CancellationToken::new();
+                let pending = tokio::spawn({
+                    let client = client.clone();
+                    let cancel = cancel.clone();
+                    async move {
+                        client
+                            .execute(command, Arc::new(CallbackStore::new()), cancel)
+                            .await
+                    }
+                });
+                cancel.cancel();
+                let error = pending.await.unwrap().unwrap_err();
+                assert_eq!(error.downcast_ref::<Fault>(), Some(&Fault::Cancelled));
+                assert!(client.active.read().await.is_none());
+                peer.closed().await;
+                server.close().await;
+            }
+        })
+        .await
+        .unwrap();
+    }
+
     #[tokio::test]
     async fn malformed_peer_json_is_a_terminal_protocol_fault() {
         let server = omochi_transport::bind(SecretKey::generate(), true, None)

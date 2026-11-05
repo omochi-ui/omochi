@@ -61,8 +61,21 @@ impl Client {
         store: Arc<CallbackStore>,
         cancel: CancellationToken,
     ) -> Result<Value> {
+        let image_request = matches!(
+            &request,
+            Command::Rpc {
+                value: Rpc::Image { .. }
+            }
+        );
         let result = tokio::select! {
-            _ = cancel.cancelled() => { self.close().await; Err(Fault::Cancelled.into()) },
+            _ = cancel.cancelled() => {
+                // Images own independent RPC streams; dropping their futures stops
+                // those streams without invalidating the renderer's active session.
+                if !image_request {
+                    self.close().await;
+                }
+                Err(Fault::Cancelled.into())
+            },
             result = self.execute_command(request, store) => result,
         };
         result.map_err(normalize_error)
