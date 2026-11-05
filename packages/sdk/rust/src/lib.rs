@@ -1,3 +1,4 @@
+pub mod data_path;
 #[cfg(feature = "runtime")]
 mod input_json;
 #[doc(hidden)]

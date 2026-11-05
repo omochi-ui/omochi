@@ -106,6 +106,8 @@ impl SessionState {
                     }
                     effect.lease = Some(lease.into());
                 }
+                // Reject sparse expansion before materializing an untrusted patch.
+                omochi_ui::data_path::validate(message).map_err(|_| Fault::ProtocolError)?;
                 // Materialize a candidate so validation and limits never partially commit.
                 let mut snapshot = self.snapshot.clone();
                 snapshot.apply(message).map_err(|_| Fault::ProtocolError)?;
@@ -181,5 +183,93 @@ impl SessionState {
         self.pending = None;
         self.snapshot = omochi_ui::A2uiSnapshot::new();
         std::mem::take(&mut self.leases).into_values().collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::{Value, json};
+
+    fn data_frame(sequence: &str, path: Value, lease: &str) -> RenderFrame {
+        RenderFrame::Message {
+            sequence: sequence.into(),
+            message: json!({
+                "version": "v0.9",
+                "updateDataModel": {"surfaceId": "node~app/main", "path": path, "value": "new"}
+            }),
+            lease: Some(lease.into()),
+        }
+    }
+
+    #[test]
+    fn unsafe_data_paths_are_rejected_before_materialization_without_committing_state() {
+        let mut state = SessionState::new(Mode::Owner, Permissions::default()).unwrap();
+        state.accept(&RenderFrame::Message {
+            sequence: "1".into(),
+            message: json!({"version": "v0.9", "createSurface": {"surfaceId": "node~app/main"}}),
+            lease: Some("old".into()),
+        }).unwrap();
+        state.acknowledge("1").unwrap();
+        state
+            .accept(&data_frame("2", json!("/kept"), "old"))
+            .unwrap();
+        state.acknowledge("2").unwrap();
+        let before = state.snapshot.messages();
+
+        for path in [
+            json!("/999999999"),
+            json!("/60000/60000"),
+            json!("/9999999999999999999999999"),
+            json!("/x".repeat(128)),
+            json!("/constructor/x"),
+            json!("/x/__proto__"),
+            json!("/prototype"),
+            json!(42),
+        ] {
+            assert_eq!(
+                state
+                    .accept(&data_frame("3", path.clone(), "replacement"))
+                    .unwrap_err(),
+                Fault::ProtocolError,
+                "{path}"
+            );
+            assert_eq!(state.snapshot.messages(), before);
+            assert_eq!(state.previous, 2);
+            assert_eq!(state.pending_ack(), None);
+            assert_eq!(state.phase(), Phase::Snapshot);
+            assert_eq!(
+                state.leases.get("node~app/main").map(String::as_str),
+                Some("old")
+            );
+        }
+
+        // The rejected frames consume neither their sequence nor replacement lease.
+        let applied = state
+            .accept(&data_frame("3", json!("/accepted"), "replacement"))
+            .unwrap();
+        assert_eq!(applied.invalidated_leases, ["old"]);
+        assert_eq!(state.pending_ack(), Some("3"));
+    }
+
+    #[test]
+    fn data_paths_at_the_sparse_allocation_budget_remain_accepted() {
+        for path in ["/100000", "/50000/50000"] {
+            let mut state = SessionState::new(Mode::Owner, Permissions::default()).unwrap();
+            state.accept(&RenderFrame::Message {
+                sequence: "1".into(),
+                message: json!({"version": "v0.9", "createSurface": {"surfaceId": "node~app/main"}}),
+                lease: Some("lease".into()),
+            }).unwrap();
+            state.acknowledge("1").unwrap();
+            state
+                .accept(&data_frame("2", json!(path), "lease"))
+                .unwrap();
+            let messages = state.snapshot.messages();
+            assert_eq!(
+                messages[1]["updateDataModel"]["value"].pointer(path),
+                Some(&json!("new"))
+            );
+        }
     }
 }
