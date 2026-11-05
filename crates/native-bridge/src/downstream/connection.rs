@@ -3,28 +3,49 @@ use super::*;
 use omochi_downstream_core::RenderFrame;
 use omochi_protocol::{read_frame, write_frame};
 use omochi_transport::{Endpoint, EndpointAddr, EndpointConnection, RecvStream, SendStream};
-use std::time::Duration;
+use std::{io, time::Duration};
+use tokio::io::{AsyncRead, AsyncReadExt};
 const IO: Duration = Duration::from_secs(10);
 
-async fn receive(connection: &EndpointConnection, reader: &mut RecvStream) -> Result<Value> {
-    match read_frame(reader).await {
-        Ok(Some(value)) => Ok(value),
-        failure => {
-            if matches!(connection.close_reason(), Some(omochi_transport::ConnectionError::ApplicationClosed(reason)) if u64::from(reason.error_code) == 1)
-            {
-                bail!(Fault::NotAuthorized);
-            }
-            if failure.is_err_and(|error| {
-                matches!(
-                    error.kind(),
-                    std::io::ErrorKind::InvalidData | std::io::ErrorKind::UnexpectedEof
-                )
-            }) {
-                bail!(Fault::ProtocolError);
-            }
-            bail!(Fault::NetworkUnavailable)
-        }
+/// Idle subscriptions may wait indefinitely. Once a frame begins, its entire
+/// remainder shares one deadline; trickling bytes must not extend it.
+async fn read_with_partial_deadline<R: AsyncRead + Unpin>(
+    reader: &mut R,
+) -> io::Result<Option<Value>> {
+    let mut first = [0];
+    if reader.read(&mut first).await? == 0 {
+        return Ok(None);
     }
+    // Replay the first byte through the common decoder so framing limits and
+    // malformed/truncated-frame handling stay identical to other transports.
+    let mut frame = first.as_slice().chain(reader);
+    tokio::time::timeout(IO, read_frame(&mut frame))
+        .await
+        .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "partial frame deadline exceeded"))?
+}
+
+fn receive_fault(failure: io::Result<Option<Value>>, not_authorized: bool) -> Result<Value> {
+    match failure {
+        Ok(Some(value)) => Ok(value),
+        _ if not_authorized => bail!(Fault::NotAuthorized),
+        Err(error) => match error.kind() {
+            io::ErrorKind::InvalidData | io::ErrorKind::UnexpectedEof => {
+                bail!(Fault::ProtocolError)
+            }
+            io::ErrorKind::TimedOut => bail!(Fault::Timeout),
+            _ => bail!(Fault::NetworkUnavailable),
+        },
+        Ok(None) => bail!(Fault::NetworkUnavailable),
+    }
+}
+
+async fn receive<R: AsyncRead + Unpin>(
+    connection: &EndpointConnection,
+    reader: &mut R,
+) -> Result<Value> {
+    let failure = read_with_partial_deadline(reader).await;
+    let not_authorized = matches!(connection.close_reason(), Some(omochi_transport::ConnectionError::ApplicationClosed(reason)) if u64::from(reason.error_code) == 1);
+    receive_fault(failure, not_authorized)
 }
 
 pub(super) struct Active {
@@ -56,7 +77,7 @@ impl Active {
             write_frame(&mut stream.0, &json!({"ack": ack})).await?;
             self.state.lock().await.acknowledge(&ack)?;
         }
-        let value: Value = tokio::select! { _ = self.stop.cancelled() => bail!(Fault::ScopeExpired), value = receive(&self.connection, &mut stream.1) => value? };
+        let value = self.receive_next(&mut stream.1).await?;
         let frame: RenderFrame =
             serde_json::from_value(value.clone()).map_err(|_| Fault::ProtocolError)?;
         let effect = self.state.lock().await.accept(&frame)?;
@@ -70,6 +91,23 @@ impl Active {
             tokens.entry(lease).or_insert_with(CancellationToken::new);
         }
         Ok(value)
+    }
+    async fn receive_next<R: AsyncRead + Unpin>(&self, reader: &mut R) -> Result<Value> {
+        let received = tokio::select! { _ = self.stop.cancelled() => bail!(Fault::ScopeExpired), value = receive(&self.connection, reader) => value };
+        if received
+            .as_ref()
+            .is_err_and(|error| error.downcast_ref::<Fault>() == Some(&Fault::Timeout))
+        {
+            // The decoder has consumed a partial frame. Neither another poll nor
+            // a successful ping can make this stream usable again.
+            self.stop.cancel();
+            self.state.lock().await.close();
+            for token in self.tokens.lock().unwrap().values() {
+                token.cancel();
+            }
+            self.connection.close(0u32.into(), b"partial frame timeout");
+        }
+        received
     }
     pub(super) async fn image(&self, request: Rpc) -> Result<Value> {
         let value = serde_json::to_value(&request)?;
@@ -259,5 +297,211 @@ impl Client {
             Ok((connection, tx, rx, welcome))
         })
         .await?
+    }
+}
+
+#[cfg(test)]
+mod deadline_tests {
+    use super::*;
+    use std::{future::Future, pin::Pin, task::Poll};
+    use tokio::io::AsyncWriteExt;
+
+    async fn poll_once<F: Future>(future: Pin<&mut F>) -> Poll<F::Output> {
+        let mut future = future;
+        std::future::poll_fn(|cx| Poll::Ready(future.as_mut().poll(cx))).await
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn idle_render_stream_waits_without_starting_the_frame_deadline() {
+        let (mut tx, mut rx) = tokio::io::duplex(256);
+        let read = read_with_partial_deadline(&mut rx);
+        tokio::pin!(read);
+        assert!(poll_once(read.as_mut()).await.is_pending());
+        tokio::time::advance(IO * 3).await;
+        assert!(poll_once(read.as_mut()).await.is_pending());
+
+        let expected = json!({"kind":"snapshotEnd","sequence":"1"});
+        write_frame(&mut tx, &expected).await.unwrap();
+        let Poll::Ready(result) = poll_once(read.as_mut()).await else {
+            panic!("a complete frame must be readable after a long idle interval");
+        };
+        assert_eq!(result.unwrap(), Some(expected));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn partial_header_and_body_share_a_fixed_ten_second_deadline() {
+        for prefix in [vec![0], vec![0, 0, 0, 4, b'n']] {
+            let (mut tx, mut rx) = tokio::io::duplex(256);
+            tx.write_all(&prefix).await.unwrap();
+            let read = read_with_partial_deadline(&mut rx);
+            tokio::pin!(read);
+            assert!(poll_once(read.as_mut()).await.is_pending());
+
+            tokio::time::advance(IO - Duration::from_secs(1)).await;
+            tx.write_all(&[0]).await.unwrap();
+            assert!(poll_once(read.as_mut()).await.is_pending());
+            tokio::time::advance(Duration::from_secs(1)).await;
+            let Poll::Ready(result) = poll_once(read.as_mut()).await else {
+                panic!("a partial frame must time out even when another byte arrives");
+            };
+            let error = receive_fault(result, false).unwrap_err();
+            assert_eq!(error.downcast_ref::<Fault>(), Some(&Fault::Timeout));
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn completing_a_frame_allows_another_idle_interval() {
+        let (mut tx, mut rx) = tokio::io::duplex(256);
+        tx.write_all(&[0]).await.unwrap();
+        {
+            let read = read_with_partial_deadline(&mut rx);
+            tokio::pin!(read);
+            assert!(poll_once(read.as_mut()).await.is_pending());
+            tokio::time::advance(IO - Duration::from_secs(1)).await;
+            tx.write_all(&[0, 0, 4, b'n', b'u', b'l', b'l'])
+                .await
+                .unwrap();
+            let Poll::Ready(result) = poll_once(read.as_mut()).await else {
+                panic!("a complete frame before the deadline must succeed");
+            };
+            assert_eq!(result.unwrap(), Some(Value::Null));
+        }
+        let read = read_with_partial_deadline(&mut rx);
+        tokio::pin!(read);
+        assert!(poll_once(read.as_mut()).await.is_pending());
+        tokio::time::advance(IO * 3).await;
+        assert!(poll_once(read.as_mut()).await.is_pending());
+        write_frame(&mut tx, &json!({"next":true})).await.unwrap();
+        let Poll::Ready(result) = poll_once(read.as_mut()).await else {
+            panic!("the next frame must have its own deadline");
+        };
+        assert_eq!(result.unwrap(), Some(json!({"next":true})));
+    }
+
+    #[tokio::test]
+    async fn partial_render_timeout_expires_the_session_and_cannot_resume() {
+        // Establish transport handles with the real clock. The deadline itself
+        // uses a controlled reader, so QUIC scheduling cannot race clock advances.
+        let server = omochi_transport::bind(omochi_transport::SecretKey::generate(), true, None)
+            .await
+            .unwrap();
+        let endpoint = omochi_transport::bind(omochi_transport::SecretKey::generate(), true, None)
+            .await
+            .unwrap();
+        let (connection, peer) = tokio::join!(
+            endpoint.connect(server.addr(), omochi_protocol::ALPN),
+            async { server.accept().await.unwrap().await.unwrap() }
+        );
+        let connection = connection.unwrap();
+        let (mut tx, rx) = connection.open_bi().await.unwrap();
+        write_frame(&mut tx, &Value::Null).await.unwrap();
+        let (_updates, mut commands) = peer.accept_bi().await.unwrap();
+        assert_eq!(
+            read_frame::<_, Value>(&mut commands).await.unwrap(),
+            Some(Value::Null)
+        );
+        let lease = CancellationToken::new();
+        let active = Arc::new(Active {
+            endpoint,
+            connection,
+            stream: AsyncMutex::new((tx, rx)),
+            state: AsyncMutex::new(SessionState::new(Mode::Public, Default::default()).unwrap()),
+            tokens: Mutex::new(BTreeMap::from([("lease-1".into(), lease.clone())])),
+            stop: CancellationToken::new(),
+        });
+        let client = Client::default();
+        *client.active.write().await = Some(active.clone());
+        tokio::time::pause();
+        let (mut tx, mut rx) = tokio::io::duplex(256);
+        tx.write_all(&[0, 0, 0, 4, b'n']).await.unwrap();
+        let received = tokio::task::unconstrained(active.receive_next(&mut rx));
+        tokio::pin!(received);
+        assert!(poll_once(received.as_mut()).await.is_pending());
+        // Pausing after transport setup need not land on Tokio's millisecond
+        // timer tick. Cross that tick as well as the partial-frame deadline.
+        tokio::time::advance(IO + Duration::from_millis(1)).await;
+        let Poll::Ready(result) = poll_once(received.as_mut()).await else {
+            panic!("partial render data must stop the active subscription at its deadline");
+        };
+        assert_eq!(
+            result.unwrap_err().downcast_ref::<Fault>(),
+            Some(&Fault::Timeout)
+        );
+        assert!(active.stop.is_cancelled());
+        assert!(lease.is_cancelled());
+        assert!(active.connection.close_reason().is_some());
+        assert_eq!(
+            active
+                .state
+                .lock()
+                .await
+                .authorize(&Rpc::Ping {})
+                .unwrap_err(),
+            Fault::ScopeExpired
+        );
+        assert_eq!(
+            active.next(None).await.unwrap_err().downcast_ref::<Fault>(),
+            Some(&Fault::ScopeExpired)
+        );
+        assert_eq!(
+            client
+                .execute(
+                    Command::Rpc {
+                        value: Rpc::Ping {}
+                    },
+                    Arc::new(CallbackStore::new()),
+                    CancellationToken::new()
+                )
+                .await
+                .unwrap_err()
+                .downcast_ref::<Fault>(),
+            Some(&Fault::ScopeExpired)
+        );
+        tokio::time::resume();
+        active.endpoint.close().await;
+        server.close().await;
+    }
+
+    #[tokio::test]
+    async fn frame_errors_keep_protocol_faults_and_authorization_precedence() {
+        for bytes in [
+            vec![0],
+            vec![0, 0, 0, 2, b'{'],
+            vec![0; 4],
+            vec![255; 4],
+            vec![0, 0, 0, 1, b'{'],
+        ] {
+            let result = read_with_partial_deadline(&mut bytes.as_slice()).await;
+            assert_eq!(
+                receive_fault(result, false)
+                    .unwrap_err()
+                    .downcast_ref::<Fault>(),
+                Some(&Fault::ProtocolError)
+            );
+        }
+        for kind in [
+            io::ErrorKind::UnexpectedEof,
+            io::ErrorKind::InvalidData,
+            io::ErrorKind::TimedOut,
+        ] {
+            assert_eq!(
+                receive_fault(Err(io::Error::from(kind)), true)
+                    .unwrap_err()
+                    .downcast_ref::<Fault>(),
+                Some(&Fault::NotAuthorized)
+            );
+        }
+        assert_eq!(
+            receive_fault(Ok(None), false)
+                .unwrap_err()
+                .downcast_ref::<Fault>(),
+            Some(&Fault::NetworkUnavailable)
+        );
+        assert_eq!(
+            receive_fault(Ok(None), true)
+                .unwrap_err()
+                .downcast_ref::<Fault>(),
+            Some(&Fault::NotAuthorized)
+        );
     }
 }
