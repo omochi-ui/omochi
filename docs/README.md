@@ -12,7 +12,7 @@ current contracts and experimental specifications.
 | Topic | Start here |
 | --- | --- |
 | Repository setup and verification | [Contributing](../CONTRIBUTING.md) |
-| Components, source layout and trust boundaries | [Architecture](architecture.md) |
+| Whole-codebase implementation specification: runtime, modules, protocols, storage and verification | [Architecture and implementation specification](architecture.md) |
 | Gateway, owner and shared-client connections | [Remote access overview](dashboard-remote-access.md) |
 | Hosted dashboard sharing and recovery | [Sharing guide](dashboard-sharing.md) |
 | Dashboard layout and board view | [Dashboard UI](dashboard-ui.md) |

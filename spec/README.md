@@ -1,5 +1,9 @@
 # Specification index
 
+Start with the [whole-codebase implementation specification](../docs/architecture.md)
+for runtime semantics, module ownership, data flows, persistence and verification.
+The contracts below define the individual protocol boundaries in detail.
+
 These contracts describe separate boundaries. Gateway enrollment does not grant
 dashboard owner access, and a dashboard share does not enroll its recipient at a
 Gateway. See the [remote access overview](../docs/dashboard-remote-access.md) for

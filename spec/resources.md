@@ -5,10 +5,10 @@ its surface. IDs are 16 random bytes, lowercase hex (32 characters). They are op
 not file paths or cross-service addresses. Applications never embed node IDs or ports.
 
 A2UI remains v0.9. Resource control frames are separate JSON objects on the existing
-stdio, Unix JSONL, or WebSocket connection. Gateway protocol **3** is required; upgrade
-hub and gateway together. Old SDKs without a resource announcement still serve A2UI,
-but resource HTTP requests return 501. No announcement or resource bytes enter A2UI
-snapshots or broadcast to other browsers.
+stdio, Unix JSONL, or WebSocket connection. Native Hub/Gateway transport uses
+[Gateway v4](gateway-v4.md); upgrade hub and gateway together. Old SDKs without a
+resource announcement still serve A2UI, but resource HTTP requests return 501.
+No announcement or resource bytes enter A2UI snapshots or broadcast to other browsers.
 
 The SDK announces `{"omochi":"resources/1","kind":"hello"}` on each connection.
 A request has `omochi`, `kind: "request"`, `id`, `op`, and `resource`. Request IDs
@@ -22,12 +22,17 @@ response adds canonical padded base64 `data`. Errors: 400 invalid request, 404
 unknown/released resource, 416 out-of-range read, 500 storage error, 501 unsupported,
 503 unavailable/busy, 504 timeout. There is no push stream: consumers pull chunks.
 
-Hub requests additionally carry `service` to the gateway. Each upstream connection
-has its own broker, fresh request IDs, at most 8 pending requests, and a 15-second
-per-request timeout. Gateway strips the service field before forwarding. Disconnect
-rejects outstanding requests; late responses are discarded. HTTP backpressure stops
-additional reads; abort cancels local pending work and stops subsequent reads. A
-forwarded read already in flight may finish (at most 24 KiB); it is never broadcast.
+Native Hub requests open a Gateway v4 resource stream with
+`{kind:"resource",service,generation}`. The stream carries one request and response;
+the service/generation route is separate from the SDK resource frame. Gateway
+adds `omochi`, `kind` and a fresh request ID before forwarding to the service's
+shared SDK connection. That connection keeps at most 8 pending resource requests,
+with a 15-second request timeout. The stdio preview uses the same pending-request
+bound and timeout; the Hub's Gateway stream exchange has a 20-second outer timeout.
+Disconnect rejects outstanding requests; late responses are discarded. HTTP
+backpressure stops additional reads; abort cancels local pending work and stops
+subsequent reads. A forwarded read already in flight may finish (at most 24 KiB);
+it is never broadcast.
 
 TypeScript and Python SDK receivers, and the Rust Unix server transport, keep serving
 resource requests while an action handler runs. Their pending application-message
@@ -48,9 +53,17 @@ ranges), If-Range, 206 and 416. Multiple ranges are ignored and return the full 
 There is no HTTP cache (`no-store`). The server streams bounded chunks, not whole files.
 The browser handles codecs; omochi does not transcode or implement live streaming.
 
-Media routes apply Origin/Fetch Metadata checks. Remote transport uses the same pinned
-mTLS and revocation as A2UI. SVG is sandboxed with `default-src 'none'`; all resources
+Media routes apply Origin/Fetch Metadata checks. Remote Gateway transport uses
+the same authenticated iroh EndpointId, peer-role authorization, service generation
+and revocation as A2UI. SVG is sandboxed with `default-src 'none'`; all resources
 use `nosniff`. Requests can only read an application's registered IDs.
+
+Hosted owner/share clients do not receive a general resource HTTP proxy. Their
+image requests require a live Surface lease and publication, and use the native
+image validation policy; downstream audio/video is unavailable. Local browser
+images may use the separate [images/1 subscription](hub-browser-images.md).
+See [dashboard sharing](dashboard-sharing-v1.md) and
+[owner connections](owner-connection-v1.md) for downstream authorization.
 
 Registries copy data into private temporary storage at registration. They default to
 1 GiB per resource and 4 GiB total. Registration rejects unknown MIME types unless
