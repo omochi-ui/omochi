@@ -134,6 +134,10 @@ impl Client {
         let save = !register || link.mode != Mode::Public || requested_save;
         if save {
             if !profile.records.iter().any(|r| r.link.id() == link.id()) {
+                anyhow::ensure!(
+                    profile.records.len() < profile::MAX_RECORDS,
+                    Fault::CapacityExceeded
+                );
                 profile.records.push(Record {
                     link: Link {
                         secret: if link.mode == Mode::Public {
