@@ -18,8 +18,8 @@ base64 = "0.23.1"
 iroh.workspace = true
 tokio.workspace = true
 anyhow.workspace = true
-omochi-protocol = { path = "../protocol", version = "=0.2.1" }
-omochi-mdns = { path = "../mdns", version = "=0.2.1" }
+omochi-protocol = { path = "../protocol", version = "=0.3.0" }
+omochi-mdns = { path = "../mdns", version = "=0.3.0" }
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
 fs2 = { version = "0.4.3", optional = true }

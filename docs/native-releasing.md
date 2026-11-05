@@ -1,6 +1,6 @@
 # Native npm and crates.io releases
 
-Native services release independently as `native-v0.2.0`. SDK/browser packages
+Native services release independently as `native-vX.Y.Z`. SDK/browser packages
 retain their existing `vX.Y.Z` release train. The native version is owned by
 `crates/Cargo.toml`; generated npm manifests use that same version.
 No registry publication happens when running ordinary build/package/test commands.
@@ -79,6 +79,39 @@ a release; the bundle manifest records source-tree cleanliness separately from
 Cargo's generated-asset VCS dirty flag.
 
 ## GitHub Actions and registry setup
+
+### First publication of the new crates
+
+The next SDK/browser release is `v0.2.0`; the next native release is
+`native-v0.3.0`. Publish these two new crates locally before configuring their
+trusted publishers. Commit the version and lockfile changes first and use that
+same commit for both release tags: Cargo archives include the source commit,
+and CI rejects an existing version with different bytes. Then run from the
+repository root:
+
+```sh
+cargo publish --manifest-path packages/sdk/rust/macros/Cargo.toml --locked
+cargo publish --manifest-path crates/Cargo.toml -p omochi-mdns --locked
+```
+
+These commands publish only `omochi-ui-macros 0.2.0` and `omochi-mdns 0.3.0`.
+Both depend only on existing third-party crates, so neither needs the other
+Omochi releases to be published first. Use local Cargo credentials for this
+initial publication; no CI bootstrap token is needed for these two crates.
+
+After publication, configure each crate's trusted publisher with GitHub owner
+`omochi-ui`, repository `omochi`, and environment `crates-io`:
+
+| Crate | Workflow filename |
+| --- | --- |
+| `omochi-ui-macros` | `release.yml` |
+| `omochi-mdns` | `native-release.yml` |
+
+Then publish SDK `0.2.0` before native `0.3.0`, whose crates pin that SDK version.
+The SDK workflow checks the macro checksum and skips an identical already
+published macro crate; the native publisher does the same for the mDNS crate.
+
+### Registry workflows
 
 `.github/workflows/native-release.yml` builds and tests four platform archives,
 installs the npm tarballs outside the checkout with install scripts disabled,

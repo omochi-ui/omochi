@@ -12,10 +12,10 @@ anyhow.workspace = true
 tokio.workspace = true
 serde_json.workspace = true
 serde.workspace = true
-omochi-transport = { path = "../transport", version = "=0.2.1" }
-omochi-protocol = { path = "../protocol", version = "=0.2.1" }
-omochi-local-discovery = { path = "../discovery", version = "=0.2.1" }
-omochi-ui = { path = "../../packages/sdk/rust", version = "=0.1.3" }
+omochi-transport = { path = "../transport", version = "=0.3.0" }
+omochi-protocol = { path = "../protocol", version = "=0.3.0" }
+omochi-local-discovery = { path = "../discovery", version = "=0.3.0" }
+omochi-ui = { path = "../../packages/sdk/rust", version = "=0.2.0" }
 futures-util = { version = "0.3", features = ["sink"] }
 tokio-util = { version = "0.7", features = ["codec", "rt"] }
 [dev-dependencies]
