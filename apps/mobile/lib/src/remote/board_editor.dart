@@ -97,6 +97,7 @@ class _BoardEditorState extends State<BoardEditor> {
     ValueChanged<String> change, {
     bool number = false,
   }) => TextFormField(
+    enabled: !controller.busy,
     initialValue: value,
     decoration: InputDecoration(labelText: label),
     keyboardType: number ? TextInputType.number : TextInputType.text,
@@ -208,8 +209,9 @@ class _BoardEditorState extends State<BoardEditor> {
                                 ),
                               if (widget.repository.owner)
                                 TextButton(
-                                  onPressed: () =>
-                                      controller.removePanel(panel),
+                                  onPressed: controller.busy
+                                      ? null
+                                      : () => controller.removePanel(panel),
                                   child: Text(
                                     messagesFor(context).remoteRemovePanel,
                                   ),
@@ -223,7 +225,7 @@ class _BoardEditorState extends State<BoardEditor> {
               ),
               if (widget.repository.owner)
                 TextButton(
-                  onPressed: addPanel,
+                  onPressed: controller.busy ? null : addPanel,
                   child: Text(messagesFor(context).remoteAddPanel),
                 ),
             ],

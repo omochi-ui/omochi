@@ -146,6 +146,66 @@ void main() {
     },
   );
 
+  for (final operation in ['save', 'failed save', 'reload', 'delete']) {
+    test('draft mutations wait for pending $operation', () async {
+      final client = BoardClient('owner');
+      final controller = BoardEditorController(
+        RemoteBoardsRepository(client),
+        board(),
+      );
+      addTearDown(controller.dispose);
+      controller.rename('Submitted');
+      final panel = controller.panels.single;
+      final response = Completer<Object?>();
+      client.response = response.future;
+      final pending = operation == 'reload'
+          ? controller.reload()
+          : controller.save(delete: operation == 'delete');
+      expect(controller.busy, true);
+
+      controller.rename('Unsubmitted');
+      controller.renamePanel(panel, 'Unsubmitted panel');
+      for (final dimension in PanelDimension.values) {
+        controller.resizePanel(panel, dimension, '2');
+      }
+      controller.addPanel('node~service/surface');
+      controller.removePanel(panel);
+      await controller.reload();
+      expect(await controller.save(), false);
+      expect(client.commands, hasLength(1));
+      expect(controller.name, 'Submitted');
+      expect(controller.panels, [panel]);
+      expect(panel.snapshot().toJson(), board().panels.single.toJson());
+      expect(controller.dirty, true);
+
+      if (operation == 'failed save') {
+        response.completeError(
+          BridgeException('NetworkUnavailable', 'Offline'),
+        );
+      } else {
+        response.complete(operation == 'reload' ? board().toJson() : null);
+      }
+      await pending;
+      expect(controller.busy, false);
+      expect(controller.dirty, operation == 'failed save');
+      controller.rename('Next draft');
+      controller.renamePanel(controller.panels.single, 'Next panel');
+      controller.resizePanel(
+        controller.panels.single,
+        PanelDimension.width,
+        '6',
+      );
+      expect(controller.panels.single.title, 'Next panel');
+      expect(controller.panels.single.w, 6);
+      controller.addPanel('node~service/surface');
+      controller.removePanel(controller.panels.first);
+      expect(controller.name, 'Next draft');
+      expect(controller.panels, hasLength(1));
+      expect(controller.panels.single.reference.surfaceId, 'surface');
+      expect(controller.dirty, true);
+    });
+  }
+
   test('disposing a controller ignores an outstanding refresh', () async {
     final client = BoardClient('owner');
     final response = Completer<Object?>();
@@ -203,40 +263,99 @@ void main() {
     expect((await repository.list()).single.name, 'Saved');
   });
 
-  testWidgets('successful save leaves the editor without an unsaved dialog', (
-    tester,
-  ) async {
-    final client = BoardClient('owner');
-    final session = HubSession();
-    addTearDown(session.dispose);
-    await tester.pumpWidget(
-      MaterialApp(
-        home: Builder(
-          builder: (context) => TextButton(
-            onPressed: () => Navigator.of(context).push(
-              MaterialPageRoute<void>(
-                builder: (_) => BoardEditor(
-                  repository: RemoteBoardsRepository(client),
-                  session: session,
-                  board: board(),
+  for (final succeeds in [true, false]) {
+    testWidgets(
+      'editor locks mutations until pending save completes ($succeeds)',
+      (tester) async {
+        final client = BoardClient('owner');
+        final response = Completer<Object?>();
+        client.response = response.future;
+        final session = HubSession();
+        addTearDown(session.dispose);
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Builder(
+              builder: (context) => TextButton(
+                onPressed: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => BoardEditor(
+                      repository: RemoteBoardsRepository(client),
+                      session: session,
+                      board: board(),
+                    ),
+                  ),
                 ),
+                child: const Text('Open'),
               ),
             ),
-            child: const Text('Open'),
           ),
-        ),
-      ),
+        );
+        await tester.tap(find.text('Open'));
+        await tester.pumpAndSettle();
+        await tester.enterText(find.byType(TextFormField).first, 'Saved');
+        await tester.pump();
+        await tester.tap(find.text('Save'));
+        await tester.pump();
+        expect(client.commands.single['value']['name'], 'Saved');
+        final fields = tester.widgetList<TextFormField>(
+          find.byType(TextFormField),
+        );
+        expect(fields, hasLength(6));
+        for (final field in fields) {
+          expect(field.enabled, false);
+        }
+        for (final label in ['Save', 'Add panel', 'Remove panel']) {
+          final button = tester.widget<TextButton>(
+            find.widgetWithText(TextButton, label),
+          );
+          expect(button.onPressed, isNull);
+        }
+        expect(
+          tester
+              .widget<IconButton>(
+                find.widgetWithIcon(IconButton, Icons.delete_outline),
+              )
+              .onPressed,
+          isNull,
+        );
+
+        if (succeeds) {
+          response.complete(null);
+        } else {
+          response.completeError(
+            BridgeException('NetworkUnavailable', 'Offline'),
+          );
+        }
+        await tester.pumpAndSettle();
+        if (succeeds) {
+          expect(find.text('Open'), findsOneWidget);
+          expect(find.text('Discard unsaved changes?'), findsNothing);
+          expect(session.remoteLeaveGuard, isNull);
+        } else {
+          expect(find.text('Saved'), findsOneWidget);
+          for (final field in tester.widgetList<TextFormField>(
+            find.byType(TextFormField),
+          )) {
+            expect(field.enabled, true);
+          }
+          for (final label in ['Save', 'Add panel', 'Remove panel']) {
+            expect(
+              tester
+                  .widget<TextButton>(find.widgetWithText(TextButton, label))
+                  .onPressed,
+              isNotNull,
+            );
+          }
+          await tester.enterText(
+            find.byType(TextFormField).first,
+            'Retry draft',
+          );
+          expect(find.text('Retry draft'), findsOneWidget);
+        }
+        await tester.pumpWidget(const SizedBox());
+      },
     );
-    await tester.tap(find.text('Open'));
-    await tester.pumpAndSettle();
-    await tester.enterText(find.byType(TextFormField).first, 'Saved');
-    await tester.pump();
-    await tester.tap(find.text('Save'));
-    await tester.pumpAndSettle();
-    expect(find.text('Open'), findsOneWidget);
-    expect(find.text('Discard unsaved changes?'), findsNothing);
-    expect(session.remoteLeaveGuard, isNull);
-  });
+  }
 
   testWidgets('board editor uses ARB and follows locale changes', (
     tester,

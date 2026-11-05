@@ -143,7 +143,8 @@ class PanelDraft {
   );
 }
 
-/// Flutter owns the editable draft; failed writes never replace it.
+/// Flutter owns the editable draft; remote operations lock it until completion.
+/// Failed writes never replace the draft.
 class BoardEditorController extends ChangeNotifier {
   BoardEditorController(
     this.repository,
@@ -177,22 +178,25 @@ class BoardEditorController extends ChangeNotifier {
   }
 
   void rename(String value) {
+    if (busy || _disposed) return;
     name = value;
     _changed();
   }
 
   void renamePanel(PanelDraft panel, String value) {
+    if (busy || _disposed) return;
     panel.title = value;
     _changed();
   }
 
   void resizePanel(PanelDraft panel, PanelDimension dimension, String value) {
+    if (busy || _disposed) return;
     panel.setDimension(dimension, int.tryParse(value));
     _changed();
   }
 
   void addPanel(String surfaceId) {
-    if (!repository.owner) return;
+    if (busy || _disposed || !repository.owner) return;
     final reference = SurfaceReference.fromSurfaceId(surfaceId);
     final rows = _panels.fold(
       0,
@@ -217,7 +221,7 @@ class BoardEditorController extends ChangeNotifier {
   }
 
   void removePanel(PanelDraft panel) {
-    if (!repository.owner) return;
+    if (busy || _disposed || !repository.owner) return;
     _panels.remove(panel);
     _changed();
   }
