@@ -1,9 +1,12 @@
-# HTTPS invitation handoff (not deployed)
+# HTTPS invitation handoff (blocked on store support)
 
 Keep `app.omochi.fyi` as the web dashboard. The future native handoff is
 `https://mobile.omochi.fyi/open#g:PAYLOAD`, `#share:PAYLOAD`, or `#owner:PAYLOAD`.
-The app already accepts these HTTPS invitation strings through paste/custom
-handoff. OS automatic HTTPS delivery is not enabled by this change.
+The landing page at `mobile.omochi.fyi/` can be deployed independently through
+[apps/mobile-site](../../mobile-site/README.md). Store support is currently
+blocked, so native HTTPS handoff has not been activated and does not work.
+`/open` and the OS association JSON files are not served. The app already accepts
+these HTTPS invitation strings through paste/custom handoff.
 
 Before activation:
 
@@ -31,4 +34,5 @@ Before activation:
    On iOS test from Notes and from the app.omochi.fyi button in Safari.
 
 The root `/` and other web paths must remain outside the app association.
-DNS, hosting and signed-device verification are a separate release step.
+Landing-page deployment does not enable native HTTPS handoff. Store support,
+production domain association and signed-device verification remain release work.

@@ -222,4 +222,6 @@ identityを使って登録結果不明から回復します。
 
 C ABIはversion 2です。FlutterとRustライブラリーを一緒に再ビルドしてください。
 HTTPS直接起動の設定雛形と公開手順は [deeplinks](deeplinks/README.md) にあります。
-自動起動のドメイン関連付けと本番配信はまだ有効化していません。
+`mobile.omochi.fyi` のLPは [mobile-site](../mobile-site/README.md) からデプロイできます。
+現在はストア対応ができないため、HTTPSリンクからのアプリ直接起動は有効化しておらず、動作しません。
+`/open` とOS関連付け用JSONはまだ配信していません。招待の貼り付け・カスタムURIによる受け渡しは利用できます。

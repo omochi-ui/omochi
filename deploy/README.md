@@ -4,12 +4,13 @@
 | --- | --- |
 | `omochi.fyi` site | [apps/site](../apps/site/README.md): Cloudflare Workers, published by the Site workflow |
 | `app.omochi.fyi` dashboard | [apps/dashboard](../apps/dashboard/README.md): Cloudflare Workers, published by the Dashboard workflow |
+| `mobile.omochi.fyi` landing page | [apps/mobile-site](../apps/mobile-site/README.md): Cloudflare Workers, published by the Mobile Site workflow |
 | Docker | [Docker Compose](docker/README.md): local hub + Python example, native GHCR images |
 | Production iroh relay | [relay](relay/README.md): iroh-relay, systemd and monitoring templates |
 
 ## GitHub Actions setup
 
-Both web workflows build and validate on relevant pull requests and `main`
+All web workflows build and validate on relevant pull requests and `main`
 pushes. Only a successful `main` run can deploy, including a manual
 `workflow_dispatch` run selecting `main`. Each deploy job downloads its own
 workflow's build artifact and uses the **cloudflare-workers** GitHub environment.
@@ -19,7 +20,7 @@ in-progress deployment. PR checks can cancel older checks for the same PR.
 1. In the GitHub repository, open **Settings → Environments → cloudflare-workers**
    (create the environment if needed).
 2. Add these **environment secrets**:
-   - `CLOUDFLARE_ACCOUNT_ID`: the account managing the `omochi.fyi` zone and both Workers.
+   - `CLOUDFLARE_ACCOUNT_ID`: the account managing the `omochi.fyi` zone and its Workers.
    - `CLOUDFLARE_API_TOKEN`: a token with the **Edit Cloudflare Workers** permissions,
      scoped to that account and zone. See Cloudflare's
      [GitHub Actions authentication guide](https://developers.cloudflare.com/workers/ci-cd/external-cicd/github-actions/).
@@ -27,10 +28,10 @@ in-progress deployment. PR checks can cancel older checks for the same PR.
    environment approval rules apply to the deploy jobs, not the build jobs.
 4. For **omochi-site**, disconnect the existing Workers Builds repository connection
    in Cloudflare under **Workers & Pages → omochi-site → Settings → Builds → Disconnect**.
-   Do the same for **omochi-dashboard** if it has a connection. This prevents two
+   Do the same for **omochi-dashboard** and **mobile-site** if they have connections. This prevents two
    systems publishing the same Worker; keep the Workers and their custom domains.
    See [disconnecting builds](https://developers.cloudflare.com/workers/ci-cd/builds/#disconnecting-builds).
-5. Merge the workflows to `main`, then run **Site** and **Dashboard** from the
+5. Merge the workflows to `main`, then run **Site**, **Dashboard** and **Mobile Site** from the
    Actions tab on `main` to verify the first automated deployments. Later pushes
    affecting each app trigger its workflow automatically.
 

@@ -1,0 +1,7 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "mobile-site",
+  "compatibility_date": "2025-08-03",
+  "main": "./src/index.tsx",
+  "routes": [{ "pattern": "mobile.omochi.fyi", "custom_domain": true }]
+}

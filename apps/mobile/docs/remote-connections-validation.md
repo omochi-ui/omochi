@@ -112,5 +112,7 @@ The test editor can export a narrow-screen screenshot with
 Not established by these checks: iOS device delivery, full Android enrollment, Apple provisioning,
 Windows/macOS builds, public relay/separate-network enrollment, and end-to-end
 remote owner/share revocation against a separately running production Hub.
-These remain release acceptance work. HTTPS OS associations and domain deployment
-are intentionally deferred; see ../deeplinks/README.md.
+These remain release acceptance work. The `mobile.omochi.fyi` landing page can
+be deployed independently. Store support is currently blocked, so HTTPS OS
+associations are not activated and HTTPS links do not launch the native app;
+see [the handoff guide](../deeplinks/README.md).

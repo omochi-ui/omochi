@@ -1,0 +1,23 @@
+{
+  "name": "@omochi-ui/mobile-site",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "check": "bun check -p tsconfig.json",
+    "verify": "node scripts/verify.mjs",
+    "build": "vite build",
+    "preview": "vite preview --host 127.0.0.1",
+    "deploy": "wrangler deploy --config dist/mobile_site/wrangler.json",
+    "cf-typegen": "wrangler types --env-interface CloudflareBindings"
+  },
+  "dependencies": {
+    "hono": "^4.13.16"
+  },
+  "devDependencies": {
+    "@cloudflare/vite-plugin": "^1.44.0",
+    "vite": "^8.1.4",
+    "vite-ssr-components": "^0.8.0",
+    "wrangler": "4.156.2"
+  }
+}

@@ -3,9 +3,9 @@ name: CI
 on:
   push:
     branches: [main]
-    paths-ignore: ['apps/site/**', '.github/workflows/site.yml']
+    paths-ignore: ['apps/site/**', '.github/workflows/site.yml', 'apps/mobile-site/**', '.github/workflows/mobile-site.yml']
   pull_request:
-    paths-ignore: ['apps/site/**', '.github/workflows/site.yml']
+    paths-ignore: ['apps/site/**', '.github/workflows/site.yml', 'apps/mobile-site/**', '.github/workflows/mobile-site.yml']
   workflow_dispatch:
 
 permissions:
