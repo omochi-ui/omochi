@@ -58,11 +58,11 @@ test('revoked scopes cancel pending references and late decode results; encoded 
   assert(sent.some(message => message.kind === 'release'));
   autoReply = true;
   globalThis.fetch = (async () => new Response(new Uint8Array([1]), { headers })) as unknown as typeof fetch;
-  let decode: ((bitmap: ImageBitmap) => void) | undefined;
-  globalThis.createImageBitmap = () => new Promise<ImageBitmap>(resolve => { decode = resolve; });
+  let decoding!: (finish: (bitmap: ImageBitmap) => void) => void;
+  const started = new Promise<(bitmap: ImageBitmap) => void>(resolve => { decoding = resolve; });
+  globalThis.createImageBitmap = () => new Promise<ImageBitmap>(resolve => { decoding(resolve); });
   const late = images.scope('one')!.load('https://example.com/two', cancel.signal);
-  for (let tick = 0; !decode && tick < 100; tick++) await Bun.sleep(1);
-  assert(decode);
+  const decode = await started;
   images.update('one', 'third');
   let closed = 0;
   decode({ width: 2, height: 3, close: () => { closed++; } } as ImageBitmap);
@@ -102,15 +102,22 @@ test('scope/caller cancellation interrupts a stalled Response body without waiti
   t.after(() => { globalThis.createImageBitmap = original; });
   let cancelled = 0, decodes = 0;
   globalThis.createImageBitmap = async () => { decodes++; throw new Error('Unexpected decode'); };
-  const images = new BrowserImages(async () => new Response(new ReadableStream({ cancel() { cancelled++; } }), { headers }));
+  let reading!: () => void;
+  const images = new BrowserImages(async () => new Response(new ReadableStream({
+    pull() { reading(); },
+    cancel() { cancelled++; },
+  }, { highWaterMark: 0 }), { headers }));
   t.after(() => images.close());
   for (const viaScope of [false, true]) {
     images.update('main', crypto.randomUUID()); const cancel = new AbortController();
+    const started = new Promise<void>(resolve => { reading = resolve; });
     const image = images.scope('main')!.load('omochi://resources/' + 'a'.repeat(32), cancel.signal);
-    // Allow the loader to return and the body reader to attach its abort listener.
-    for (let turn = 0; turn < 10; turn++) await Promise.resolve();
+    // With no prefetch, pull starts only once the loader actually reads the body.
+    await started;
     if (viaScope) images.update('main', null); else cancel.abort();
     await assert.rejects(image);
+    assert.equal(images.diagnostics().loading, 0);
+    assert.equal(images.diagnostics().decodedBytes, 0);
   }
   assert.equal(cancelled, 2); assert.equal(decodes, 0);
 });

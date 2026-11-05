@@ -1,4 +1,4 @@
-import { expect } from "bun:test";
+import { expect, jest } from "bun:test";
 import { test, waitFor, type TestContext } from "@omochi-ui/core/testing";
 import { mkdtemp, rm, stat, readFile } from "node:fs/promises";
 import { createConnection, createServer } from "node:net";
@@ -26,6 +26,30 @@ async function appFor(t: TestContext, waitMs?: number) {
   return app;
 }
 
+function observeQueue(t: TestContext, queue: ApprovalQueue) {
+  const previous = queue.onChange;
+  const listeners = new Set<() => void>();
+  queue.onChange = () => {
+    previous();
+    for (const listener of [...listeners]) listener();
+  };
+  t.after(() => { queue.onChange = previous; });
+  return (condition: () => boolean) => new Promise<void>((resolve) => {
+    const check = () => {
+      if (!condition()) return;
+      listeners.delete(check);
+      resolve();
+    };
+    listeners.add(check);
+    check();
+  });
+}
+
+function useFakeClock(t: TestContext) {
+  jest.useFakeTimers();
+  t.after(() => { jest.useRealTimers(); });
+}
+
 test("concurrent calls have independent IDs, one decision each, and bounded history", async (t) => {
   const queue = new ApprovalQueue();
   t.after(() => queue.close());
@@ -50,7 +74,11 @@ test("concurrent calls have independent IDs, one decision each, and bounded hist
 test("timeout, cancellation, and shutdown abstain and disable late decisions", async (t) => {
   const queue = new ApprovalQueue(20);
   t.after(() => queue.close());
+  useFakeClock(t);
   const timed = queue.submit(request);
+  jest.advanceTimersByTime(19);
+  expect(queue.pending.has(timed.id)).toBe(true);
+  jest.advanceTimersByTime(1);
   expect((await timed.result).outcome).toBe("abstain");
   expect(queue.decide(timed.id, "approve")).toBe(false);
   const cancelled = queue.submit(request);
@@ -127,32 +155,66 @@ test("browser actions cross A2UI and resolve only the selected hook socket", asy
   expect(app.queue.history).toHaveLength(2);
 });
 
-test("client timeout and interruption remove pending actions; malformed actions do not kill the app", async (t) => {
+test("client timeout removes the accepted request and disables late decisions", async (t) => {
   const app = await appFor(t);
-  const timed = requestApproval(request, { socketPath: app.socketPath, timeoutMs: 40 });
-  await waitFor(() => app.queue.pending.size === 1);
+  const changed = observeQueue(t, app.queue);
+  useFakeClock(t);
+  const accepted = changed(() => app.queue.pending.size === 1);
+  const timed = requestApproval(request, { socketPath: app.socketPath, timeoutMs: 1000 });
+  await accepted;
   const id = [...app.queue.pending.keys()][0]!;
-  expect((await timed).outcome).toBe("abstain");
-  await waitFor(() => app.queue.pending.size === 0);
+  const removed = changed(() => app.queue.pending.size === 0);
+  jest.advanceTimersByTime(999);
+  expect(await Promise.race([timed, Promise.resolve("pending")])).toBe("pending");
+  expect(app.queue.pending.has(id)).toBe(true);
+  jest.advanceTimersByTime(1);
+  expect((await timed).reason).toBe("Approval timed out.");
+  await removed;
+  expect(app.queue.history[0]!.reason).toBe("Hook disconnected.");
   await app.runtime.invoke("decide", { id, outcome: "approve" });
+  expect(app.queue.history[0]!.outcome).toBe("abstain");
+});
+
+test("client interruption removes pending actions; malformed actions do not kill the app", async (t) => {
+  const app = await appFor(t);
+  const changed = observeQueue(t, app.queue);
   await expect(app.runtime.invoke("decide", null)).rejects.toThrow("expected object");
-  await expect(app.runtime.invoke("decide", { id, outcome: "invalid" })).rejects.toThrow("union");
+  await expect(app.runtime.invoke("decide", { id: "missing", outcome: "invalid" })).rejects.toThrow("union");
   const controller = new AbortController();
+  const accepted = changed(() => app.queue.pending.size === 1);
   const aborted = requestApproval(request, { socketPath: app.socketPath, signal: controller.signal });
-  await waitFor(() => app.queue.pending.size === 1);
+  await accepted;
+  const removed = changed(() => app.queue.pending.size === 0);
   controller.abort();
   expect((await aborted).reason).toBe("Hook cancelled.");
-  await waitFor(() => app.queue.pending.size === 0);
+  await removed;
   expect(app.queue.history.every((item) => item.outcome === "abstain")).toBe(true);
 });
 
-test("service deadline and shutdown release hook connections with abstention", async (t) => {
-  const app = await appFor(t, 40);
-  expect((await requestApproval(request, { socketPath: app.socketPath })).reason).toBe("Approval timed out.");
+test("service deadline releases an accepted hook connection with abstention", async (t) => {
+  const app = await appFor(t, 1000);
+  const changed = observeQueue(t, app.queue);
+  useFakeClock(t);
+  const accepted = changed(() => app.queue.pending.size === 1);
   const pending = requestApproval(request, { socketPath: app.socketPath });
-  await waitFor(() => app.queue.pending.size === 1);
+  await accepted;
+  jest.advanceTimersByTime(999);
+  expect(app.queue.pending.size).toBe(1);
+  jest.advanceTimersByTime(1);
+  expect((await pending).reason).toBe("Approval timed out.");
+  expect(app.queue.pending.size).toBe(0);
+  expect(app.queue.history[0]!.reason).toBe("Approval timed out.");
+});
+
+test("shutdown releases accepted hook connections with a service-stopped response", async (t) => {
+  const app = await appFor(t);
+  const changed = observeQueue(t, app.queue);
+  const accepted = changed(() => app.queue.pending.size === 1);
+  const pending = requestApproval(request, { socketPath: app.socketPath });
+  await accepted;
   await app.close();
-  expect((await pending).outcome).toBe("abstain");
+  expect((await pending).reason).toBe("Service stopped.");
+  expect(app.queue.pending.size).toBe(0);
   expect((await requestApproval(request, { socketPath: app.socketPath })).outcome).toBe("abstain");
 });
 

@@ -705,7 +705,11 @@ pub extern "C" fn omochi_hub_release(id: u64) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::time::Duration;
+    use std::{future::Future, pin::Pin, task::Poll, time::Duration};
+
+    async fn poll_once<F: Future>(mut future: Pin<&mut F>) -> Poll<F::Output> {
+        std::future::poll_fn(|cx| Poll::Ready(future.as_mut().poll(cx))).await
+    }
 
     fn submit(session: &Arc<Session>, value: Value) -> u64 {
         let id = session.submit(value.to_string().as_bytes());
@@ -792,7 +796,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn storage_callbacks_are_async_and_close_waits_for_dispatched_save() {
+    async fn storage_callbacks_return_start_and_close_results_after_dispatched_save() {
         let session = Arc::new(Session::new());
         let start = submit(&session, json!({"op":"start","online":false}));
         let read = poll(&session).await;
@@ -808,7 +812,9 @@ mod tests {
         let document: Value = serde_json::from_str(write["replacement"].as_str().unwrap()).unwrap();
         assert!(document["secret"].is_string());
         let close = submit(&session, json!({"op":"close"}));
-        tokio::time::sleep(Duration::from_millis(20)).await;
+        tokio::time::timeout(Duration::from_secs(5), session.store.stopping.cancelled())
+            .await
+            .expect("close must reach storage shutdown before the save is answered");
         assert!(!session.closed.load(Ordering::Acquire));
         assert!(session.poll().is_none());
         session.store.reply(
@@ -826,6 +832,45 @@ mod tests {
             BTreeMap::from([(start, ()), (close, ())])
         );
         stopped(&session).await;
+        assert!(session.closed.load(Ordering::Acquire));
+        assert!(session.native.read().await.is_none());
+    }
+
+    #[tokio::test]
+    async fn close_stays_pending_until_dispatched_save_settles() {
+        let session = Arc::new(Session::new());
+        let start = session.execute(Command::Start { online: false }, CancellationToken::new());
+        tokio::pin!(start);
+        assert!(poll_once(start.as_mut()).await.is_pending());
+        let read = poll(&session).await;
+        assert_eq!(read["op"], "read");
+        assert!(session.store.reply(
+            read["id"].as_u64().unwrap(),
+            json!({"ok":true,"value":null}),
+        ));
+        assert!(poll_once(start.as_mut()).await.is_pending());
+        let write = poll(&session).await;
+        assert_eq!(write["op"], "commit");
+
+        // Drive Close on this test task, rather than assuming its background
+        // task has run after a delay. The unfinished Start owns the native lock.
+        let close = session.execute(Command::Close, CancellationToken::new());
+        tokio::pin!(close);
+        assert!(poll_once(close.as_mut()).await.is_pending());
+        assert!(session.store.stopping.is_cancelled());
+        assert!(!session.closed.load(Ordering::Acquire));
+        assert!(session.poll().is_none());
+        assert!(session.store.reply(
+            write["id"].as_u64().unwrap(),
+            json!({"outcome":"committed"}),
+        ));
+        let (started, closed) = tokio::time::timeout(Duration::from_secs(10), async {
+            tokio::join!(start, close)
+        })
+        .await
+        .expect("start and close must settle after the save response");
+        started.unwrap();
+        closed.unwrap();
         assert!(session.closed.load(Ordering::Acquire));
         assert!(session.native.read().await.is_none());
     }

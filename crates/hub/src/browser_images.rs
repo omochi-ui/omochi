@@ -337,7 +337,10 @@ mod tests {
             json!({"omochi":"images/1","kind":"image","id":id,"handle":handle,"uri":uri}),
         )
         .await;
-        recv(socket).await["reference"].as_str().unwrap().into()
+        let response = recv(socket).await;
+        assert_eq!(response["kind"], "image");
+        assert_eq!(response["id"], id);
+        response["reference"].as_str().unwrap().into()
     }
 
     async fn connect_browser(
@@ -442,6 +445,42 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn image_requests_progress_without_ack_and_ack_releases_the_next_batch() {
+        let hub = Hub::new();
+        crate::scoped::tests::install(&hub, Default::default()).await;
+        let (mut socket, server, _root) = connect_browser(&hub).await;
+        let mut batch = recv(&mut socket).await;
+        assert_eq!(batch["kind"], "update");
+        assert!(batch["message"].get("createSurface").is_some());
+        for id in 0..2 {
+            // A real control response is the synchronization point. An update
+            // interleaved before this response would violate the ACK boundary.
+            send(&mut socket, json!({"omochi":"images/1","kind":"image","id":id,"handle":"invalid","uri":"https://example.com/a.png"})).await;
+            assert_eq!(
+                recv(&mut socket).await,
+                json!({"omochi":"images/1","kind":"image","id":id,"error":"Image scope expired"})
+            );
+            let previous = batch["sequence"].as_u64().unwrap();
+            send(
+                &mut socket,
+                json!({"omochi":"images/1","kind":"ack","sequence":previous}),
+            )
+            .await;
+            batch = recv(&mut socket).await;
+            assert_eq!(batch["kind"], "update");
+            assert_eq!(batch["sequence"], previous + 1);
+            if id == 0 {
+                assert!(batch["message"].get("updateDataModel").is_some());
+            } else {
+                assert_eq!(batch["snapshotEnd"], true);
+            }
+        }
+        socket.close(None).await.unwrap();
+        hub.shutdown();
+        server.await.unwrap().unwrap();
+    }
+
+    #[tokio::test]
     async fn stdio_images_are_scoped_one_use_and_do_not_change_the_legacy_protocol() {
         let root = tempfile::tempdir().unwrap();
         let (sdk, bridge) = tokio::io::duplex(65536);
@@ -517,12 +556,6 @@ mod tests {
         assert_eq!(update["kind"], "update");
         assert_eq!(update["message"]["reference"], "forged");
         let first_handle = update["handle"].as_str().unwrap().to_owned();
-        // Without an ACK no next batch may be queued at the browser boundary.
-        assert!(
-            tokio::time::timeout(Duration::from_millis(20), first.next())
-                .await
-                .is_err()
-        );
         let (mut second, _) = tokio_tungstenite::connect_async(format!("ws://{address}/?images=1"))
             .await
             .unwrap();
