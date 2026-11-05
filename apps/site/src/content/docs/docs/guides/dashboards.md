@@ -19,7 +19,7 @@ OMOCHI_SERVICE=python-example uv run --project examples/python examples/python/a
 bun run omochi-ui hub
 ```
 
-**http://127.0.0.1:5555/**でダッシュボードを作り、Surfaceを追加して保存します。同梱のアプリは`OMOCHI_SERVICE`があるとUnixソケットで公開します。Hubは必要ならローカルGatewayを起動しますが、検出対象のアプリ自体は起動しません。
+http://127.0.0.1:5555/ でダッシュボードを作り、Surfaceを追加して保存します。同梱のアプリは`OMOCHI_SERVICE`があるとUnixソケットで公開します。Hubは必要ならローカルGatewayを起動しますが、検出対象のアプリ自体は起動しません。
 
 ## upでプロセスを構成
 
