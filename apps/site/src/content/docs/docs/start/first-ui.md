@@ -55,7 +55,7 @@ bun run --filter @omochi-ui/dev-server dev
 bun run omochi-ui dev -- uv run --project examples/python examples/python/app.py
 ```
 
-**http://127.0.0.1:5173/**を開き、温度を変更して**Run**を押します。ブラウザが入力値を確定し、PythonのActionが状態を更新すると、結果がSurfaceに表示されます。
+**http://127.0.0.1:5173/** を開き、温度を変更して**Run**を押します。ブラウザが入力値を確定し、PythonのActionが状態を更新すると、結果がSurfaceに表示されます。
 
 プレビュー画面とブリッジは別のサーバーです。ブリッジの既定ポートは5555、画面は5173です。quickstartのHubも5555を使うので、先に停止してください。
 
