@@ -7,7 +7,7 @@ test('downstream facade delegates application and acknowledgement and frees stat
   const f = fixture();
   let raw!: FakeDownstreamState;
   f.module.DownstreamState = class extends FakeDownstreamState { constructor() { super(); raw = this; } };
-  const state = createTransportFacade(f.module).createDownstreamState('invite', { interact: true, editLayout: false });
+  const state = createTransportFacade(f.module).createDownstreamState('share', { interact: true, editLayout: false });
   expect(state.accept({ kind: 'snapshotEnd', sequence: '18446744073709551615' }).sequence).toBe('18446744073709551615');
   expect(raw.acknowledgements).toEqual([]);
   state.acknowledge('18446744073709551615');

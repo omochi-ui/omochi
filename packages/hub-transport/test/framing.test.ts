@@ -15,7 +15,7 @@ test('pure identity functions need no endpoint/relay and reject malformed seeds 
 
 test('framed JSON streams retain exact byte counts without a gateway opening envelope', async () => {
   const f = fixture(); const endpoint = await createTransportFacade(f.module).openEndpoint('0'.repeat(64), []);
-  const connection = await endpoint.connect('{}', 'omochi/dashboard/1', signal());
+  const connection = await endpoint.connect('{}', 'omochi/dashboard/2', signal());
   const stream = await connection.open(signal());
   assert.deepEqual(JSON.parse(f.endpoint.connections[0]!.headers[0]!), { kind: 'stream' });
   const raw = f.endpoint.connections[0]!.streams[0]!;
@@ -33,7 +33,7 @@ test('invalid bridge output and partial-frame timeout discard the whole stream',
   for (const input of ['bad JSON', JSON.stringify({ json: '{}', wireBytes: 0 }),
     JSON.stringify({ json: '{}', wireBytes: 4194305 }), JSON.stringify({ json: '{}', wireBytes: 1, extra: true })]) {
     const f = fixture(); const endpoint = await createTransportFacade(f.module).openEndpoint('0'.repeat(64), []);
-    const connection = await endpoint.connect('{}', 'omochi/dashboard/1', signal());
+    const connection = await endpoint.connect('{}', 'omochi/dashboard/2', signal());
     const stream = await connection.open(signal());
     const raw = f.endpoint.connections[0]!.streams[0]!;
     const received = stream.receive(signal()); raw.read!.resolve(input);
@@ -42,7 +42,7 @@ test('invalid bridge output and partial-frame timeout discard the whole stream',
     await endpoint.close(); assert.equal(raw.cancels, 1); assert.equal(raw.frees, 1);
   }
   const f = fixture(); const endpoint = await createTransportFacade(f.module).openEndpoint('0'.repeat(64), []);
-  const connection = await endpoint.connect('{}', 'omochi/dashboard/1', signal());
+  const connection = await endpoint.connect('{}', 'omochi/dashboard/2', signal());
   const stream = await connection.open(signal());
   const raw = f.endpoint.connections[0]!.streams[0]!;
   const received = stream.receive(signal()); raw.read!.reject('Timeout');
@@ -52,7 +52,7 @@ test('invalid bridge output and partial-frame timeout discard the whole stream',
 
 test('application close identity is preserved while raw remote reason text is never exposed', async () => {
   const f = fixture(); const endpoint = await createTransportFacade(f.module).openEndpoint('0'.repeat(64), []);
-  const connection = await endpoint.connect('{}', 'omochi/dashboard/1', signal());
+  const connection = await endpoint.connect('{}', 'omochi/dashboard/2', signal());
   f.endpoint.connections[0]!.end.resolve(JSON.stringify({ code: '1', reason: 'untrusted secret from remote' }));
   assert.deepEqual(await connection.closed(), { code: '1', reason: 'Not authorized' });
   await endpoint.close();

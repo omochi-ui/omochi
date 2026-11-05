@@ -20,7 +20,9 @@ export function installNativeInvitationButton(document: Document, fragment: stri
   container.append(link);
   const note = document.createElement('p');
   note.style.cssText = 'margin:0 16px 16px;text-align:center';
-  note.textContent = navigator.language.startsWith('ja')
+  note.textContent = fragment.startsWith('#share:')
+    ? (navigator.language.startsWith('ja') ? 'この共有リンクはアプリでも同じ権限で利用できます。' : 'This sharing link grants the same permissions in the app.')
+    : navigator.language.startsWith('ja')
     ? 'ブラウザーで登録済みの招待は引き継げません。アプリには新しい招待を発行してください。'
     : 'An invitation already registered in a browser cannot be transferred. Issue a new invitation for the app.';
   container.append(note);

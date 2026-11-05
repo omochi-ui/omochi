@@ -116,7 +116,7 @@
   "remoteRemovePanel": "Remove panel",
   "remoteAddPanel": "Add panel",
   "remoteCreateShare": "Create share",
-  "remotePublicReadOnly": "Public (read only)",
+  "remotePublicReadOnly": "Shared link",
   "remoteAllowInteraction": "Allow interaction",
   "remoteAllowLayout": "Allow layout editing",
   "remoteCreate": "Create",
@@ -148,12 +148,12 @@
   "remoteConnectOwner": "Owner access",
   "remoteConnectShared": "Shared dashboard",
   "remoteConnectOwnerExplanation": "Full dashboard and sharing control.",
-  "remoteConnectSharedExplanation": "Access follows the permissions granted by the Hub.",
+  "remoteConnectSharedExplanation": "Anyone with this link, including forwarded copies, can use the permissions granted by the Hub.",
   "remoteConnectViewOnce": "View once",
   "remoteConnectSave": "Save connection",
   "remoteHubThisDevice": "This device’s Hub",
   "remoteHubAdd": "Add Hub connection",
   "remoteHubPending": "Pending",
   "remoteHubInvite": "Shared access",
-  "remoteHubPublic": "Public read-only"
+  "remoteHubPublic": "Shared link"
 }

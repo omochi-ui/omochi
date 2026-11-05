@@ -116,7 +116,7 @@
   "remoteRemovePanel": "パネルを削除",
   "remoteAddPanel": "パネルを追加",
   "remoteCreateShare": "共有を作成",
-  "remotePublicReadOnly": "公開（閲覧のみ）",
+  "remotePublicReadOnly": "共有リンク",
   "remoteAllowInteraction": "操作を許可",
   "remoteAllowLayout": "レイアウト編集を許可",
   "remoteCreate": "作成",
@@ -131,12 +131,12 @@
   "remoteConnectOwner": "オーナー接続",
   "remoteConnectShared": "共有ダッシュボード",
   "remoteConnectOwnerExplanation": "全ボードの編集と共有管理が可能になります。",
-  "remoteConnectSharedExplanation": "接続先Hubが付与した権限で利用します。",
+  "remoteConnectSharedExplanation": "リンクの転送先も含め、リンクを知っている全員がHubの許可した範囲で利用できます。",
   "remoteConnectViewOnce": "一時閲覧",
   "remoteConnectSave": "接続を保存",
   "remoteHubThisDevice": "この端末のHub",
   "remoteHubAdd": "Hub接続を追加",
   "remoteHubPending": "承認待ち",
   "remoteHubInvite": "共有接続",
-  "remoteHubPublic": "公開・閲覧専用"
+  "remoteHubPublic": "共有リンク"
 }

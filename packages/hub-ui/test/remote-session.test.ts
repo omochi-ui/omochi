@@ -46,7 +46,7 @@ class FakeConnection implements Connection {
   response: (request: Record<string, unknown>, stream: FakeStream) => void = (_request, stream) => stream.push({ kind: 'ok' });
   constructor(public view: SharedView, messages: unknown[] = []) {
     this.control.onSend = value => {
-      if (value.version !== 1) return;
+      if (value.version !== 2) return;
       this.control.push({ kind: 'welcome', ...view });
       messages.forEach((message, i) => this.control.push({ kind: 'message', message, lease: 'lease1', sequence: String(i + 1) }));
       this.control.push({ kind: 'snapshotEnd', sequence: String(messages.length + 1) });
@@ -226,7 +226,7 @@ test('an unauthorized Surface retracts partial state and never requests an HTTP 
 });
 
 test('sharing links reject unknown authority, invalid relay hints and malformed wrappers before connection', () => {
-  const value = { version: 1, hubId, grantId, mode: 'public', secret: '0'.repeat(64), relayUrls: ['https://relay.example/'] };
+  const value = { version: 2, hubId, grantId, mode: 'share', secret: '0'.repeat(64), relayUrls: ['https://relay.example/'] };
   const encode = (v: unknown) => '#share:' + btoa(JSON.stringify(v)).replaceAll('+', '-').replaceAll('/', '_').replaceAll('=', '');
   assert.deepEqual(parseShareLink(encode(value)), value);
   for (const invalid of [{ ...value, endpoint: 'elsewhere' }, { ...value, relayUrls: ['http://relay.example'] }, { ...value, mode: 'owner' }, { ...value, secret: 'short' }, { ...value, hubId: 'old-id' }]) assert.throws(() => parseShareLink(encode(invalid)), { code: 'InvalidInvitation' });

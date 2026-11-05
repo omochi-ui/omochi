@@ -17,7 +17,7 @@ pub struct Link {
 impl Link {
     pub(super) fn validate(&self) -> Result<()> {
         anyhow::ensure!(
-            self.version == 1
+            self.version == if self.mode == Mode::Owner { 1 } else { 2 }
                 && self.hub_id.len() == 64
                 && self
                     .hub_id

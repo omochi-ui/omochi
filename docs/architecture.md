@@ -51,7 +51,7 @@ aggregation is an opt-in implementation under `experiments/browser-dashboard`.
 | Panel | Board-local ID | Title, `{nodeId, serviceId, surfaceId}` reference and `{x,y,w,h}` geometry |
 | Gateway trust | Authenticated peer ID plus registered role | Permits a Hub to use the Gateway's exposed services |
 | Owner grant | Hub-local record bound to a client EndpointId | Full Hub UI/control authority, with owner enrollment/revocation kept local |
-| Share grant | Hub-local record for one saved board | Identity-bound interaction/layout permissions, or a readonly public bearer link |
+| Share grant | Hub-local record for one saved board | Bearer links with independent interaction/layout permissions |
 | Surface lease/handle | Issued by a live subscription | Opaque authority for actions/images during that Surface and authorization lifetime |
 | Resource | SDK registry's random 32-character hex ID | Immutable registered media addressed as `omochi://resources/<id>` |
 
@@ -252,14 +252,14 @@ own ALPN, distinct from ordinary traffic:
 | Boundary | Enrollment ALPN | Ordinary ALPN |
 | --- | --- | --- |
 | Hub enrolling at Gateway | `omochi/pair/1` | `omochi/gateway/4` |
-| Client enrolling for a board share | `omochi/dashboard-enroll/1` | `omochi/dashboard/1` |
+| Client using a board link | None (bearer credential) | `omochi/dashboard/2` |
 | Client enrolling as Hub owner | `omochi/owner-enroll/1` | `omochi/owner/1` |
 
 Gateway invitations use `omochi://invite/<base64url-json>` or HTTPS `#g:` links;
 owner/share links use `#owner:` and `#share:`. Identity enrollment secrets expire
 after 180 seconds and bind the first redeeming authenticated identity. Successful
-bound grants outlive invitation expiry. Public shares remain reusable readonly
-bearer credentials. Enrollment success is persisted before it is acknowledged;
+bound grants outlive invitation expiry. Sharing v2 uses reusable bearer credentials with independent interaction and
+layout-editing permissions. All v1 sharing grants must be reissued. Enrollment success is persisted before it is acknowledged;
 unknown outcomes and pending local saves need explicit recovery.
 
 A remote owner can manage boards, presets, shares, connection diagnostics and
@@ -295,7 +295,7 @@ Rust mDNS otherwise. Discovery advertises public addressing data only.
 
 The exact framing, limits and recovery rules are in
 [Gateway v4](../spec/gateway-v4.md),
-[dashboard sharing](../spec/dashboard-sharing-v1.md) and
+[dashboard sharing](../spec/dashboard-sharing-v2.md) and
 [owner connection](../spec/owner-connection-v1.md).
 
 ## Boards and dashboard clients

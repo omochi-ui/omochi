@@ -26,7 +26,7 @@ fn common_retry_policy_stops_terminal_and_ambiguous_storage_failures() {
 
 #[test]
 fn readonly_permissions_and_snapshot_completion_are_explicit() {
-    let mut state = SessionState::new(Mode::Public, Permissions::default()).unwrap();
+    let mut state = SessionState::new(Mode::Share, Permissions::default()).unwrap();
     state.accept(&create("1", "lease")).unwrap();
     assert_eq!(
         state.authorize(&Rpc::Action {
@@ -165,7 +165,7 @@ fn typed_contracts_preserve_wire_names_and_reject_unknown_operations() {
     for value in [
         json!({"method":"next","ack":"18446744073709551615"}),
         json!({"method":"register","invitation":"link","save":false}),
-        json!({"method":"rpc","value":{"op":"control","command":{"method":"shareCreate","board_id":"b","public":false,"permissions":{"interact":true,"editLayout":false}}}}),
+        json!({"method":"rpc","value":{"op":"control","command":{"method":"shareCreate","board_id":"b","permissions":{"interact":true,"editLayout":false}}}}),
     ] {
         let command: Command = serde_json::from_value(value.clone()).unwrap();
         assert_eq!(serde_json::to_value(command).unwrap(), value);
@@ -179,12 +179,12 @@ fn typed_contracts_preserve_wire_names_and_reject_unknown_operations() {
     );
     assert!(
         SessionState::new(
-            Mode::Public,
+            Mode::Share,
             Permissions {
                 interact: true,
                 edit_layout: false
             }
         )
-        .is_err()
+        .is_ok()
     );
 }

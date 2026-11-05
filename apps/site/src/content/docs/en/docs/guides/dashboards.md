@@ -33,30 +33,17 @@ See [CLI options](../../reference/cli/) and [configuration](../../reference/conf
 
 ## Share a saved dashboard
 
-Start the native Hub with `omochi-ui hub --remote`, save the dashboard and open
-**Share dashboard**. The hosted client at `https://app.omochi.fyi/` connects to
-that Hub over iroh; keep the Hub running.
+Start `omochi-ui hub --remote`, save a board and open **Share dashboard**.
+Create a link with independent app-interaction and layout-editing permissions;
+both are disabled by default. Anyone holding a forwarded copy has the same
+permissions. No browser enrollment is required. Keep the Hub and source apps
+running. Links expose the current board's complete view state and published images.
 
-| Share mode | Access |
-| --- | --- |
-| **Invite one browser** | One enrolled identity; optional app interaction and layout editing |
-| **Anyone with the link** | Reusable readonly bearer link; forwarding it grants access |
+Editors may change names, titles, positions and sizes. Adding/removing views,
+changing sources, deleting boards and managing shares require owner authority.
+To change permissions, revoke and reissue the link. Revocation applies to every
+holder of that link, including connected clients. Delivered data cannot be recalled.
 
-Identity invitations expire after three minutes; accepted access lasts until
-revoked. Issue a separate invitation per recipient. Layout editors can change
-names, titles, positions and sizes. Adding/removing views, changing sources,
-deleting the board and managing shares require owner access. Interaction may
-change application state.
-
-Shares follow the saved board: owner additions become visible, removals withdraw
-views, and deletion ends access. Recipients see the permitted Surfaces' complete
-state and published images. Unavailable sources remain unavailable.
-
-Use **Revoke access…** to remove an identity grant or an entire public link.
-Revocation waits for live listener teardown; an acknowledgement error remains an
-error after durable removal. Forgetting a browser connection does not revoke it
-on the Hub.
-
-For full management, use [owner access](../remote/#connect-from-a-hosted-browser).
-The [sharing guide](https://github.com/omochi-ui/omochi/blob/main/docs/dashboard-sharing.md)
-explains browser identity, storage failures, reconnect and Flutter clients.
+All v1 public links and identity shares must be reissued after upgrade. Owner
+enrollment and Gateway trust are unchanged. See the
+[sharing guide](https://github.com/omochi-ui/omochi/blob/main/docs/dashboard-sharing.md).

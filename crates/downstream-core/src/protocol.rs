@@ -88,8 +88,7 @@ impl std::error::Error for Fault {}
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Mode {
-    Invite,
-    Public,
+    Share,
     Owner,
 }
 
@@ -135,7 +134,6 @@ pub enum ControlCommand {
     SharesList {},
     ShareCreate {
         board_id: String,
-        public: bool,
         permissions: Permissions,
     },
     ShareRevoke {
@@ -215,12 +213,7 @@ impl Welcome {
                 interact: true,
                 edit_layout: true,
             }),
-            (Self::Shared { permissions, .. }, Mode::Public)
-                if permissions.interact || permissions.edit_layout =>
-            {
-                Err(Fault::ProtocolError)
-            }
-            (Self::Shared { permissions, .. }, Mode::Invite | Mode::Public) => Ok(*permissions),
+            (Self::Shared { permissions, .. }, Mode::Share) => Ok(*permissions),
             _ => Err(Fault::ProtocolError),
         }
     }

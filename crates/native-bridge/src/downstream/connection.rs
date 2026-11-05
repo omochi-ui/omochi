@@ -193,7 +193,7 @@ impl Client {
             _ => bail!(Fault::InvalidRequest),
         };
         // Persist the identity and pending grant before enrollment can bind it.
-        let save = !register || link.mode != Mode::Public || requested_save;
+        let save = !register || link.mode != Mode::Share || requested_save;
         if save {
             if !profile.records.iter().any(|r| r.link.id() == link.id()) {
                 anyhow::ensure!(
@@ -202,7 +202,7 @@ impl Client {
                 );
                 profile.records.push(Record {
                     link: Link {
-                        secret: if link.mode == Mode::Public {
+                        secret: if link.mode == Mode::Share {
                             link.secret.clone()
                         } else {
                             "0".repeat(64)
@@ -219,7 +219,7 @@ impl Client {
         self.close().await;
         let endpoint = omochi_transport::bind(profile.key()?, false, None).await?;
         let result = async {
-            if register && link.mode != Mode::Public {
+            if register && link.mode != Mode::Share {
                 // A normal connection first recovers a previous successful redemption.
                 let recovered = Self::open(&endpoint, &link).await;
                 if let Ok((connection, _, _, _)) = &recovered {
@@ -277,7 +277,7 @@ impl Client {
         let alpn = if link.mode == Mode::Owner {
             b"omochi/owner-enroll/1".as_slice()
         } else {
-            b"omochi/dashboard-enroll/1".as_slice()
+            return Err(Fault::InvalidInvitation.into());
         };
         let connection =
             tokio::time::timeout_at(deadline, endpoint.connect(address, alpn)).await??;
@@ -301,12 +301,12 @@ impl Client {
             let alpn = if link.mode == Mode::Owner {
                 b"omochi/owner/1".as_slice()
             } else {
-                b"omochi/dashboard/1".as_slice()
+                b"omochi/dashboard/2".as_slice()
             };
             let connection = endpoint.connect(address, alpn).await?;
             let (mut tx, mut rx) = connection.open_bi().await?;
-            let hello = if link.mode == Mode::Public {
-                json!({"version":1,"grantId":link.grant_id,"secret":link.secret})
+            let hello = if link.mode == Mode::Share {
+                json!({"version":2,"grantId":link.grant_id,"secret":link.secret})
             } else {
                 json!({"version":1,"grantId":link.grant_id})
             };
@@ -369,7 +369,7 @@ mod deadline_tests {
 
     #[tokio::test(start_paused = true)]
     async fn enrollment_write_backpressure_does_not_extend_the_open_deadline() {
-        let link = enrollment_link(Mode::Invite);
+        let link = enrollment_link(Mode::Owner);
         let deadline = tokio::time::Instant::now() + IO;
         let (release, opened) = tokio::sync::oneshot::channel();
         let exchange = enrollment_exchange(async { Ok(opened.await?) }, &link, deadline);
@@ -433,7 +433,7 @@ mod deadline_tests {
     #[tokio::test]
     async fn enrollment_alpns_accept_reject_and_close_the_exact_identity_connection() {
         tokio::time::timeout(IO, async {
-            for mode in [Mode::Owner, Mode::Invite] {
+            for mode in [Mode::Owner] {
                 for accepted in [true, false] {
                     let server =
                         omochi_transport::bind(omochi_transport::SecretKey::generate(), true, None)
@@ -717,7 +717,7 @@ mod deadline_tests {
             endpoint,
             connection,
             stream: AsyncMutex::new((tx, rx)),
-            state: AsyncMutex::new(SessionState::new(Mode::Public, Default::default()).unwrap()),
+            state: AsyncMutex::new(SessionState::new(Mode::Share, Default::default()).unwrap()),
             tokens: Mutex::new(BTreeMap::from([("lease-1".into(), lease.clone())])),
             stop: CancellationToken::new(),
         });

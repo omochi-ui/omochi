@@ -164,7 +164,6 @@ async fn shares(
     #[serde(rename_all = "camelCase", deny_unknown_fields)]
     struct Create {
         board_id: String,
-        public: bool,
         permissions: crate::sharing::Permissions,
     }
     let method = request.method().clone();
@@ -211,7 +210,6 @@ async fn shares(
     let value = control
         .execute(crate::control::Command::ShareCreate {
             board_id: input.board_id,
-            public: input.public,
             permissions: input.permissions,
         })
         .await?;
@@ -566,7 +564,8 @@ mod tests {
                 .status(),
             403
         );
-        let public = json!({"boardId":created["id"], "public":true, "permissions":{"interact":false,"editLayout":false}});
+        let public =
+            json!({"boardId":created["id"], "permissions":{"interact":false,"editLayout":false}});
         assert_eq!(
             client
                 .post(&shares_url)

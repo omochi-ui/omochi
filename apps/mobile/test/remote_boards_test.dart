@@ -80,7 +80,7 @@ void main() {
   test(
     'draft remains independent and only structured conflict enables reload',
     () async {
-      final client = BoardClient('invite');
+      final client = BoardClient('share');
       final original = board();
       final controller = BoardEditorController(
         RemoteBoardsRepository(client),
@@ -222,24 +222,23 @@ void main() {
   });
 
   test(
-    'public shares strip permissions and shared boards use welcome metadata',
+    'links preserve permissions and shared boards use welcome metadata',
     () async {
       final owner = BoardClient('owner');
       final repository = RemoteBoardsRepository(owner);
       expect(
         await repository.createShare(
           boardId: 'board',
-          public: true,
           interact: true,
           editLayout: true,
         ),
         'omochi://share/link',
       );
       expect(owner.commands.single['permissions'], {
-        'interact': false,
-        'editLayout': false,
+        'interact': true,
+        'editLayout': true,
       });
-      final client = BoardClient('public')
+      final client = BoardClient('share')
         ..welcome = RemoteWelcome(board: board());
       final shared = RemoteBoardsRepository(client);
       expect((await shared.list()).single.name, 'Counter board');
@@ -249,7 +248,7 @@ void main() {
   );
 
   test('shared save updates the board used by subsequent reads', () async {
-    final client = BoardClient('invite')
+    final client = BoardClient('share')
       ..welcome = RemoteWelcome(board: board());
     client.latest = RemoteBoard(
       id: 'board',
@@ -397,7 +396,7 @@ void main() {
       tester.view.devicePixelRatio = 1;
       addTearDown(tester.view.resetPhysicalSize);
       addTearDown(tester.view.resetDevicePixelRatio);
-      final client = BoardClient('invite');
+      final client = BoardClient('share');
       client.welcome = const RemoteWelcome(
         permissions: RemotePermissions(editLayout: true),
       );

@@ -304,7 +304,6 @@ class SharesController extends ChangeNotifier {
 
   Future<String?> create({
     required String boardId,
-    required bool public,
     required bool interact,
     required bool editLayout,
   }) async {
@@ -315,7 +314,6 @@ class SharesController extends ChangeNotifier {
     try {
       final link = await repository.createShare(
         boardId: boardId,
-        public: public,
         interact: interact,
         editLayout: editLayout,
       );

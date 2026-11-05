@@ -244,7 +244,7 @@ class AppMessagesEn extends AppMessages {
   String get remoteCreateShare => 'Create share';
 
   @override
-  String get remotePublicReadOnly => 'Public (read only)';
+  String get remotePublicReadOnly => 'Shared link';
 
   @override
   String get remoteAllowInteraction => 'Allow interaction';
@@ -293,7 +293,7 @@ class AppMessagesEn extends AppMessages {
 
   @override
   String get remoteConnectSharedExplanation =>
-      'Access follows the permissions granted by the Hub.';
+      'Anyone with this link, including forwarded copies, can use the permissions granted by the Hub.';
 
   @override
   String get remoteConnectViewOnce => 'View once';
@@ -314,5 +314,5 @@ class AppMessagesEn extends AppMessages {
   String get remoteHubInvite => 'Shared access';
 
   @override
-  String get remoteHubPublic => 'Public read-only';
+  String get remoteHubPublic => 'Shared link';
 }

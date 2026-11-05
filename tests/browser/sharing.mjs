@@ -43,14 +43,10 @@ async function savedConnections(page) {
     finally { db.close(); }
   })()`);
 }
-async function createLink(mode, interact = false, edit = false) {
+async function createLink(interact = false, edit = false) {
   await click(browser, 'Share dashboard');
-  await until(async () => await browser.evaluate('!!document.querySelector(\'select[aria-label="Access type"]\')&&!document.querySelector(\'select[aria-label="Access type"]\').disabled'), 'share dialog');
-  await browser.evaluate(`(()=>{const select=document.querySelector('select[aria-label="Access type"]');select.value=${JSON.stringify(mode)};select.dispatchEvent(new Event('change',{bubbles:true}))})()`);
-  if (mode === 'invite') {
-    await until(async () => await browser.evaluate('document.querySelectorAll(".share-dialog input[type=checkbox]").length===2'), 'permission toggles');
-    await browser.evaluate(`(()=>{const inputs=document.querySelectorAll('.share-dialog input[type=checkbox]');if(inputs[0].checked!==${interact})inputs[0].click();if(inputs[1].checked!==${edit})inputs[1].click()})()`);
-  }
+  await until(async () => await browser.evaluate('document.querySelectorAll(".share-dialog input[type=checkbox]").length===2&&!document.querySelector(".share-dialog input[type=checkbox]").matches(":disabled")'), 'permission toggles');
+  await browser.evaluate(`(()=>{const inputs=document.querySelectorAll('.share-dialog input[type=checkbox]');if(inputs[0].checked!==${interact})inputs[0].click();if(inputs[1].checked!==${edit})inputs[1].click()})()`);
   await click(browser, 'Create sharing link');
   await until(async () => await browser.evaluate('document.querySelector("#sharing-link")?.value.startsWith("https:")'), 'created sharing link');
   const url = await browser.evaluate('document.querySelector("#sharing-link").value');
@@ -77,7 +73,7 @@ try {
   browser.onEvent(event => { if (event.method === 'Runtime.consoleAPICalled' && event.params.type === 'error') (report.consoleErrors ??= []).push(event.params.args.map(arg => arg.description ?? arg.value)); });
   await navigate(browser, ready.ownerUrl); await live(browser);
   passed('local owner uses the native HTTP/WS dashboard with two real SDK sources');
-  const publicLink = await createLink('public');
+  const publicLink = await createLink();
   const viewer = await browser.tab(); await navigate(viewer, publicLink.url); await live(viewer);
   passed('public URL opens both permitted live views without identity registration');
   passed('public UI hides owner controls and disables app interaction', await viewer.evaluate(`!Array.from(document.querySelectorAll('button')).some(b=>b.getClientRects().length&&['Edit dashboard','Delete dashboard','Create dashboard','Share dashboard'].includes(b.textContent.trim()))&&document.querySelector('[data-panel-id="p0"] input[type="text"]')?.matches(':disabled')`));
@@ -89,7 +85,7 @@ try {
   await viewer.evaluate("void (window.savedSurface=document.querySelector('.omochi-surface'))");
   await language(viewer, 'ja');
   passed('hosted Japanese switching preserves the live surface and readonly permissions', await viewer.evaluate("window.savedSurface===document.querySelector('.omochi-surface')&&document.body.textContent.includes('アプリは操作できません。')&&document.querySelector('[data-panel-id=\"p0\"] input[type=\"text\"]').matches(':disabled')"));
-  const japaneseScreenshot = await viewer.command('Page.captureScreenshot', { format: 'png', captureBeyondViewport: true });
+  const japaneseScreenshot = await viewer.command('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false });
   await writeFile(path.join(output, 'shared-ja.png'), Buffer.from(japaneseScreenshot.data, 'base64'));
   await viewer.command('Page.reload');
   await until(async () => await viewer.evaluate("document.documentElement.lang==='ja'&&document.querySelectorAll('[data-surface]').length===2"), 'hosted Japanese preference persists');
@@ -108,145 +104,25 @@ try {
   passed('nested HTTPS assets have exact CSP/MIME/cache headers and gzip');
   passed('static host has no API or missing-asset fallback', await viewer.evaluate(`(async()=>{for(const path of ['api/dashboards','missing.js'])if((await fetch(new URL(path,document.baseURI),{headers:{'X-Omochi-Asset-Audit':'1'}})).status!==404)return false;return true})()`));
 
-  const secondPublic = await createLink('public');
+  const secondPublic = await createLink();
   await warmNavigate(viewer, secondPublic.url); await live(viewer);
   await until(async () => await viewer.evaluate(`JSON.parse(sessionStorage.getItem('omochi.shared.public'))?.grantId===${JSON.stringify(secondPublic.id)}`), 'new public link context');
   await warmNavigate(viewer, publicLink.url); await live(viewer);
   await until(async () => await viewer.evaluate(`JSON.parse(sessionStorage.getItem('omochi.shared.public'))?.grantId===${JSON.stringify(publicLink.id)}`), 'original public link context');
   passed('same-document public navigation switches bearer context and clears both fragments');
 
-  const invite = await createLink('invite', true, true);
-  recipient = await browser.tab(); await navigate(recipient, publicLink.url); await live(recipient);
-  await warmNavigate(recipient, invite.url);
-  await until(async()=>await recipient.evaluate('!!document.querySelector("[data-browser-id]")'),'durable invitation profile');
-  passed('warm public-to-invitation navigation waits for explicit approval', !(await (await fetch(`${ready.ownerUrl}api/shares`)).json()).find(grant => grant.id === invite.id).peer && await recipient.evaluate('document.querySelectorAll("[data-surface]").length===0'));
-  const invitedBrowserId = await recipient.evaluate("document.querySelector('[data-browser-id]').textContent");
-  await language(recipient, 'ja');
-  passed('Japanese invitation screen preserves browser identity before enrollment', await recipient.evaluate(`document.body.textContent.includes('ダッシュボードへの招待を承認')&&document.querySelector('[data-browser-id]').textContent===${JSON.stringify(invitedBrowserId)}`));
-  await language(recipient, 'en');
-  await recipient.evaluate(`(async()=>{
-    const module=await import(new URL('./iroh/iroh.js',document.baseURI).href);
-    const connect=module.RawEndpoint.prototype.connect;
-    window.__enrollCalls=0;window.__connectCalls=0;
-    module.RawEndpoint.prototype.connect=async function(address,alpn,operation){
-      window.__connectCalls++;
-      if(alpn==='omochi/dashboard-enroll/1'){
-        window.__enrollCalls++;
-        await new Promise(resolve=>{window.__releaseEnrollment=resolve});
-      }
-      return connect.call(this,address,alpn,operation);
-    };
-    const close=module.RawEndpoint.prototype.close;
-    window.__closedEndpoints=0;
-    module.RawEndpoint.prototype.close=async function(){
-      await close.call(this);
-      if(window.__holdClose)await new Promise(resolve=>{
-        window.__releaseClose=()=>{window.__holdClose=false;resolve()};
-      });
-      window.__closedEndpoints++;
-    };
-    const put=IDBObjectStore.prototype.put;
-    window.__failShareSave=true;
-    IDBObjectStore.prototype.put=function(value,...rest){
-      if(this.name==='shares'&&value.state==='accepted'&&window.__failShareSave)throw new DOMException('fixture quota','QuotaExceededError');
-      return put.call(this,value,...rest);
-    };
-  })()`);
-  await click(recipient, 'Accept invitation');
-  await until(async()=>await recipient.evaluate('typeof window.__releaseEnrollment==="function"'), 'enrollment in flight');
-  await warmNavigate(recipient, invite.url);
-  await recipient.evaluate('window.__releaseEnrollment()');
-  await until(async()=>await recipient.evaluate(`!!${button('Retry connection save')}`),'local acceptance save recovery');
-  passed('failed acceptance save exposes local-only recovery without rendering live data', await recipient.evaluate('document.querySelectorAll("[data-surface]").length===0&&window.__enrollCalls===1'));
-  await warmNavigate(recipient, invite.url);
-  passed('duplicate warm invitation preserves pending acceptance and local save recovery', await recipient.evaluate(`!!${button('Retry connection save')}&&window.__enrollCalls===1`));
-  await warmNavigate(recipient, secondPublic.url);
-  passed('a different warm link waits for local acceptance save recovery', await recipient.evaluate(`!!${button('Retry connection save')}&&sessionStorage.getItem('omochi.shared.public')===null`));
-  await recipient.evaluate('window.__failShareSave=false');await click(recipient,'Retry connection save');await live(recipient);
-  await until(async()=>await recipient.evaluate(`JSON.parse(sessionStorage.getItem('omochi.shared.public'))?.grantId===${JSON.stringify(secondPublic.id)}`), 'queued public navigation after recovery');
-  passed('save retry does not redeem another invitation',await recipient.evaluate('window.__enrollCalls===1'));
-  await warmNavigate(recipient, invite.url);await click(recipient,'Accept invitation');await live(recipient);
-  const savedBeforeForget = await savedConnections(recipient);
-  assert.equal(savedBeforeForget.length, 1);
-  await click(recipient, 'Forget local connection…');
-  await until(async()=>await recipient.evaluate(`!!document.querySelector('dialog[open] #confirm-title')`), 'forget confirmation');
-  passed('forget confirmation names its target and explains that access is not revoked', await recipient.evaluate(`document.querySelector('dialog[open] #confirm-title').textContent.includes(${JSON.stringify(savedBeforeForget[0].name)})&&document.querySelector('dialog[open]').textContent.includes('hub access remain')`));
-  assert.deepEqual(await savedConnections(recipient), savedBeforeForget);
-  await click(recipient, 'Cancel');
-  await until(async()=>await recipient.evaluate(`document.activeElement?.textContent==='Forget local connection…'`), 'forget cancellation restores focus');
-  assert.deepEqual(await savedConnections(recipient), savedBeforeForget);
-  await click(recipient, 'Forget local connection…');
-  await until(async()=>await recipient.evaluate(`!!document.querySelector('dialog[open] #confirm-title')`), 'forget confirmation before Escape');
-  await recipient.command('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 });
-  await recipient.command('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 });
-  await until(async()=>await recipient.evaluate(`!document.querySelector('dialog[open]')&&document.activeElement?.textContent==='Forget local connection…'`), 'forget escape restores focus');
-  assert.deepEqual(await savedConnections(recipient), savedBeforeForget);
-  passed('cancel and Escape preserve the saved connection');
-  await language(recipient, 'ja');
-  await click(recipient, '保存済みの接続を削除…');
-  await until(async()=>await recipient.evaluate(`!!document.querySelector('dialog[open] #confirm-title')`), 'Japanese forget confirmation');
-  const forgetScreenshot = await recipient.command('Page.captureScreenshot', { format: 'png', captureBeyondViewport: true });
-  await writeFile(path.join(output, 'forget-connection-ja.png'), Buffer.from(forgetScreenshot.data, 'base64'));
-  await click(recipient, '接続情報を削除');
-  await until(async()=>!(await savedConnections(recipient)).length, 'confirmed local deletion');
-  await until(async()=>await recipient.evaluate(`document.activeElement?.textContent==='保存済みのハブ接続'`), 'focus after deleting the last connection');
-  await language(recipient, 'en'); await live(recipient);
-  const remainingGrants = await (await fetch(`${ready.ownerUrl}api/shares`)).json();
-  passed('confirmed forget deletes only local connection data and keeps the live grant', remainingGrants.some(grant=>grant.id===invite.id&&grant.peer===invitedBrowserId));
-  await warmNavigate(recipient, invite.url); await click(recipient, 'Accept invitation'); await live(recipient);
-  passed('the original invitation restores a forgotten connection with the same identity', (await savedConnections(recipient)).length===1&&await recipient.evaluate(`document.querySelector('[data-browser-id]').dataset.browserId===${JSON.stringify(invitedBrowserId)}`));
-  const other = await browser.tab();await navigate(other,invite.url);
-  await until(async()=>await other.evaluate(`!!document.querySelector('[data-error-code="OwnerBusy"]')`),'competing identity owner');await other.close();
-  passed('a second identity tab reports active ownership without opening another endpoint');
-  passed('identity invitation enrolls explicitly and opens the shared board');
-  const identity = await recipient.evaluate('document.querySelector("[data-browser-id]").dataset.browserId');
-  await until(async () => await recipient.evaluate('!!document.querySelector(\'[data-panel-id="p0"] input[type="text"]\')'), 'form draft');
-  await recipient.evaluate(`(()=>{const input=document.querySelector('[data-panel-id="p0"] input[type="text"]');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,'shared form draft');input.dispatchEvent(new Event('input',{bubbles:true}))})()`);
-  await click(recipient, 'Increment 0');
-  await until(async () => await recipient.evaluate('document.body.textContent.includes("App 0 count: 1")&&document.body.textContent.includes("Received: shared form draft")'), 'real SDK form action and update');
-  passed('authorized app action sends form drafts and updates the real SDK exactly once');
-  await live(viewer); await until(async () => await viewer.evaluate('document.body.textContent.includes("App 0 count: 1")'), 'readonly live update');
-  passed('readonly recipient receives live updates from another authorized client');
-  await click(recipient, 'Edit dashboard');
-  passed('shared editor cannot add or remove source panels', await recipient.evaluate('!document.querySelector("#add-view")&&!Array.from(document.querySelectorAll("button")).some(b=>b.getClientRects().length&&b.getAttribute("aria-label")?.startsWith("Remove "))'));
-  await recipient.evaluate(`(()=>{const input=document.querySelector('#dashboard-name');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,'Edited by recipient');input.dispatchEvent(new Event('input',{bubbles:true}))})()`);
-  await recipient.evaluate(`document.querySelector('.subtitle').textContent='Translated editing status'`);
-  await click(recipient, 'Disconnect shared dashboard');
-  await until(async()=>await recipient.evaluate(`!!document.querySelector('dialog[open] #confirm-title')`),'state-based disconnect confirmation');
-  await click(recipient, 'Cancel');
-  assert.equal(await recipient.evaluate(`!!document.querySelector('.dashboard-name')`),true);
-  passed('disconnect cancellation retains edits even when the status copy changes');
-  const endpointsBeforeCancel = await recipient.evaluate('window.__closedEndpoints');
-  await warmNavigate(recipient, secondPublic.url);
-  await until(async()=>await recipient.evaluate(`!!document.querySelector('dialog[open] #confirm-title')`),'state-based disconnect confirmation');
-  await click(recipient, 'Cancel');
-  assert.equal(await recipient.evaluate(`!!document.querySelector('.dashboard-name')`),true);
-  passed('warm link cancellation retains the session and unsaved draft', await recipient.evaluate(`document.querySelector('#dashboard-name').value==='Edited by recipient'&&window.__closedEndpoints===${endpointsBeforeCancel}&&sessionStorage.getItem('omochi.shared.public')===null`));
-  await click(recipient, 'Save dashboard');
-  await until(async () => (await board()).name === 'Edited by recipient', 'shared editor persisted native board');
-  passed('permitted shared layout save reaches native revisioned repository');
-  await until(async () => await viewer.evaluate('document.querySelector("h1")?.textContent==="Edited by recipient"'), 'saved board propagation');
-  passed('saved owner/shared changes propagate to existing viewers');
-  await click(recipient, 'Edit dashboard');
-  await recipient.evaluate(`(()=>{const input=document.querySelector('#dashboard-name');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,'Discarded warm draft');input.dispatchEvent(new Event('input',{bubbles:true}))})()`);
-  await warmNavigate(recipient, secondPublic.url);
-  await until(async()=>await recipient.evaluate(`!!document.querySelector('dialog[open] #confirm-title')`), 'warm switch discard confirmation');
-  const warmScreenshot = await recipient.command('Page.captureScreenshot', {format: 'png', captureBeyondViewport: true});
-  await writeFile(path.join(output, 'warm-link-discard.png'), Buffer.from(warmScreenshot.data, 'base64'));
-  const beforeSwitch = await recipient.evaluate('({closed:window.__closedEndpoints,connections:window.__connectCalls})');
-  assert.equal(typeof beforeSwitch.closed, 'number');
-  await recipient.evaluate('window.__holdClose=true');
-  await click(recipient, 'Discard changes');
-  await until(async()=>await recipient.evaluate('typeof window.__releaseClose==="function"'), 'previous endpoint closing');
-  passed('warm navigation waits for endpoint teardown before starting another connection', await recipient.evaluate(`window.__connectCalls===${beforeSwitch.connections}&&sessionStorage.getItem('omochi.shared.public')===null`));
-  await recipient.evaluate('window.__releaseClose()'); await live(recipient);
-  await until(async()=>await recipient.evaluate(`JSON.parse(sessionStorage.getItem('omochi.shared.public'))?.grantId===${JSON.stringify(secondPublic.id)}&&!${button('Edit dashboard')}`), 'confirmed public replacement');
-  passed('confirmed warm navigation joins the old endpoint before readonly replacement', await recipient.evaluate(`window.__closedEndpoints>${beforeSwitch.closed}`));
-  assert.equal((await board()).name, 'Edited by recipient');
-  await warmNavigate(recipient, invite.url); await click(recipient, 'Accept invitation'); await live(recipient);
-  passed('warm return to identity access reuses the same profile without re-enrollment', await recipient.evaluate(`window.__enrollCalls===1&&document.querySelector('[data-browser-id]').dataset.browserId===${JSON.stringify(identity)}`));
+  const enabledLink = await createLink(true, true);
+  recipient = await browser.tab(); await navigate(recipient, enabledLink.url); await live(recipient);
+  passed('operation-enabled link opens without enrollment', await recipient.evaluate(`!!${button('Edit dashboard')}&&!document.querySelector('[data-panel-id="p0"] input[type="text"]').matches(':disabled')`));
+  const forwarded = await browser.tab(); await navigate(forwarded, enabledLink.url); await live(forwarded);
+  passed('forwarded link grants the same permissions to another endpoint', await forwarded.evaluate(`!!${button('Edit dashboard')}`));
+  await click(recipient,'Increment 0');await until(async()=>await recipient.evaluate('document.body.textContent.includes("App 0 count: 1")'),'shared action');
+  await click(recipient,'Edit dashboard');
+  await recipient.evaluate(`(()=>{const e=document.querySelector('#dashboard-name');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(e,'Edited by recipient');e.dispatchEvent(new Event('input',{bubbles:true}));})()`);
+  await click(recipient,'Save dashboard');
+  await until(async()=>(await board()).name==='Edited by recipient','shared layout save');
   await recipient.command('Page.reload'); await live(recipient);
-  passed('reload restores durable browser identity without another invitation', await recipient.evaluate(`document.querySelector('[data-browser-id]').dataset.browserId===${JSON.stringify(identity)}`));
+  passed('operation-enabled link reload retains its permissions', await recipient.evaluate(`!!${button('Edit dashboard')}`));
   if (!productionRelay) {
   child.stdin.write('{"op":"relay-stop"}\n');await until(()=>messages.some(m=>m.kind==='relay-stopped'),'relay stopped');
   await until(async()=>await recipient.evaluate('document.querySelectorAll("[data-surface]").length===0'),'loss retracts stale views',90000);
@@ -257,7 +133,7 @@ try {
     passed('hosted browser shares authenticate through the deployed production relay');
   }
   passed(productionRelay ? 'opening shares never replays app actions' : 'reconnect never replays app actions',await recipient.evaluate('document.body.textContent.includes("App 0 count: 1")'));
-  await click(recipient,'Increment 0');await until(async()=>await recipient.evaluate('document.body.textContent.includes("App 0 count: 2")'),'post-reconnect action');passed(productionRelay ? 'registered app actions remain usable through the production relay' : 'registered app actions resume after fresh snapshots');
+  await click(recipient,'Increment 0');await until(async()=>await recipient.evaluate('document.body.textContent.includes("App 0 count: 2")'),'post-reconnect action');passed(productionRelay ? 'shared app actions remain usable through the production relay' : 'shared app actions resume after fresh snapshots');
   const current = await board(); await update({ ...current, panels: [current.panels[0]] }); await live(viewer, 1); await live(recipient, 1);
   passed('owner panel removal withdraws that view from all existing shares');
   const conflict = await fetch(`${ready.ownerUrl}api/dashboards/${ready.boardId}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(current) });
@@ -265,26 +141,22 @@ try {
   const revoke = await fetch(`${ready.ownerUrl}api/shares/${publicLink.id}`, { method: 'DELETE' }); assert.equal(revoke.status, 200);
   await until(async () => await viewer.evaluate('document.querySelectorAll("[data-surface]").length===0'), 'public link revocation');
   await live(recipient, 1);
-  passed('public link revocation retracts access while independent identity grant remains usable');
-  const screenshot = await recipient.command('Page.captureScreenshot', { format: 'png', captureBeyondViewport: true }); await writeFile(path.join(output, 'shared-editor.png'), Buffer.from(screenshot.data, 'base64'));
-  const response = await fetch(`${ready.ownerUrl}api/shares/${invite.id}`, { method: 'DELETE' }); assert.equal(response.status, 200);
-  await until(async () => await recipient.evaluate('document.querySelectorAll("[data-surface]").length===0'), 'identity grant revocation');
-  passed('identity revocation stops the registered browser');
+  passed('public link revocation retracts access while an independent link remains usable');
+  await recipient.command('Page.bringToFront');
+  const screenshot = await recipient.command('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false }); await writeFile(path.join(output, 'shared-editor.png'), Buffer.from(screenshot.data, 'base64'));
+  const response = await fetch(`${ready.ownerUrl}api/shares/${enabledLink.id}`, { method: 'DELETE' }); assert.equal(response.status, 200);
+  await until(async () => await recipient.evaluate('document.querySelectorAll("[data-surface]").length===0'), 'link revocation');
+  passed('revoking one link stops every endpoint using it');
   const invalid = new URL(publicLink.url); const bad = JSON.parse(Buffer.from(invalid.hash.slice(7),'base64url').toString()); bad.secret='0'.repeat(64); invalid.hash='#share:'+Buffer.from(JSON.stringify(bad)).toString('base64url');
   const denied = await browser.tab();await navigate(denied,invalid.href);
   await until(async()=>await denied.evaluate(`!!document.querySelector('[data-error-code="NotAuthorized"]')`),'invalid public secret rejection');
   passed('an invalid public bearer never renders a board',await denied.evaluate('document.querySelectorAll("[data-surface]").length===0'));await denied.close();
-  await recipient.evaluate(`(async()=>{const request=indexedDB.open('omochi.hub-client.v1',1);const db=await new Promise((resolve,reject)=>{request.onsuccess=()=>resolve(request.result);request.onerror=()=>reject()});await new Promise((resolve,reject)=>{const tx=db.transaction('identity','readwrite');tx.oncomplete=resolve;tx.onabort=reject;tx.objectStore('identity').put({id:'default',secretHex:'corrupt',endpointId:'b'.repeat(64)})});db.close()})()`);
-  await recipient.command('Page.reload');await until(async()=>await recipient.evaluate(`!!document.querySelector('[data-error-code="StorageCorrupt"]')`),'corrupt identity recovery screen');
-  await click(recipient,'Reset browser identity…');await click(recipient,'Confirm identity reset');
-  await until(async()=>await recipient.evaluate('!!document.querySelector("[data-browser-id]")'),'new explicit identity');
-  passed('corrupt identity requires explicit reset and never silently restores trust',await recipient.evaluate(`document.querySelector('[data-browser-id]').dataset.browserId!==${JSON.stringify(identity)}&&document.querySelectorAll('[data-surface]').length===0`));
-  passed('local identity reset preserves the hub-owned board',(await board()).name==='Edited by recipient');
-
+  await until(async () => await forwarded.evaluate('document.querySelectorAll("[data-surface]").length===0'), 'forwarded link revoked');
+  await forwarded.close();
   await recipient.close();
-  const layoutInvite = await createLink('invite', false, true);
-  recipient = await browser.tab(); await navigate(recipient, layoutInvite.url);
-  await click(recipient, 'Accept invitation'); await live(recipient, 1);
+  const layoutLink = await createLink(false, true);
+  recipient = await browser.tab(); await navigate(recipient, layoutLink.url);
+  await live(recipient, 1);
   passed('layout editing without app interaction is described without claiming the dashboard is readonly', await recipient.evaluate(`document.body.textContent.includes('App controls are disabled.')&&document.body.textContent.includes('You can edit names, positions and sizes.')&&!document.body.textContent.includes('Readonly dashboard')&&!!${button('Edit dashboard')}&&document.querySelector('[data-panel-id="p0"] input[type="text"]').matches(':disabled')`));
   await language(recipient, 'ja');
   passed('Japanese distinguishes layout editing from app interaction', await recipient.evaluate(`document.body.textContent.includes('アプリは操作できません。')&&document.body.textContent.includes('名前・位置・サイズを編集できます。')&&!document.body.textContent.includes('閲覧専用のダッシュボード')`));
@@ -301,7 +173,7 @@ try {
   await warmNavigate(recipient,registration.url);
   await until(async()=>await recipient.evaluate(`!!${button('Accept invitation')}`), 'warm owner confirmation');
   passed('idle warm owner link clears the fragment without enrolling', !(await (await fetch(`${ready.ownerUrl}api/owners`)).json()).find(grant => grant.id === ownerPayload.grantId).peer);
-  const ownerScreenshot = await recipient.command('Page.captureScreenshot', {format: 'png', captureBeyondViewport: true});
+  const ownerScreenshot = await recipient.command('Page.captureScreenshot', {format: 'png', captureBeyondViewport: false});
   await writeFile(path.join(output, 'warm-owner-invitation.png'), Buffer.from(ownerScreenshot.data, 'base64'));
   await click(recipient,'Accept invitation');
   await until(async()=>await recipient.evaluate("document.querySelector('.connection-status')?.textContent.includes('Hub connected')&&Array.from(document.querySelectorAll('button')).some(b=>b.textContent.trim()==='Edit dashboard')"),'owner connection');
@@ -312,7 +184,7 @@ try {
   await until(async()=>await recipient.evaluate("document.querySelector('h1')?.textContent==='Remote owner board'"),'owner creates dashboard');
   passed('remote owner creates a native hub-owned dashboard');
   await click(recipient,'Share dashboard');
-  await until(async()=>await recipient.evaluate("!!document.querySelector('select[aria-label=\"Access type\"]')"),'owner share management');
+  await until(async()=>await recipient.evaluate("document.querySelectorAll('.share-dialog input[type=checkbox]').length===2"),'owner share management');
   await click(recipient,'Close sharing');
   passed('remote owner has the same share management screen');
   await recipient.command('Page.reload');
@@ -332,7 +204,7 @@ try {
   const diagnosticPage = recipient ?? browser;
   if (diagnosticPage) {
     report.diagnostics = await diagnosticPage.evaluate(`({text:document.body.innerText,status:document.querySelector('.connection-status')?.textContent, codes:Array.from(document.querySelectorAll('[data-error-code]')).map(e=>e.dataset.errorCode), surfaces:document.querySelectorAll('[data-surface]').length, inputs:Array.from(document.querySelectorAll('input')).map(e=>({type:e.type,label:e.getAttribute('aria-label'),disabled:e.matches(':disabled')}))})`).catch(() => ({}));
-    const screenshot = await diagnosticPage.command('Page.captureScreenshot', {format:'png',captureBeyondViewport:true}).catch(() => null);
+    const screenshot = await diagnosticPage.command('Page.captureScreenshot', {format:'png',captureBeyondViewport:false}).catch(() => null);
     if(screenshot) await writeFile(path.join(output,'failure.png'),Buffer.from(screenshot.data,'base64'));
   }
 }

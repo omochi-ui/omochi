@@ -39,7 +39,6 @@ pub enum Command {
     SharesList,
     ShareCreate {
         board_id: String,
-        public: bool,
         permissions: crate::sharing::Permissions,
     },
     ShareRevoke {
@@ -72,11 +71,11 @@ impl HubControl {
     pub async fn shared_layout(
         &self,
         id: String,
-        peer: String,
+        secret: String,
         value: Value,
     ) -> Result<crate::dashboards::Dashboard, ApiError> {
         let boards = self.boards.clone();
-        storage(move || boards.shares().edit_layout(&boards, &id, &peer, value)).await
+        storage(move || boards.shares().edit_layout(&boards, &id, &secret, value)).await
     }
     pub fn board(
         &self,
@@ -214,13 +213,12 @@ impl HubControl {
             Command::SharesList => Ok(json!(self.boards.shares().list()?)),
             Command::ShareCreate {
                 board_id,
-                public,
                 permissions,
             } => {
                 let (grant, secret) =
                     self.boards
                         .shares()
-                        .create(&self.boards, &board_id, public, permissions)?;
+                        .create(&self.boards, &board_id, permissions)?;
                 Ok(json!({"url":self.hub.share_link(&grant,&secret),"grant":grant,"secret":secret}))
             }
         }
@@ -252,7 +250,7 @@ mod tests {
             .unwrap();
         let (share, _) = boards
             .shares()
-            .create(&boards, &board.id, true, Permissions::default())
+            .create(&boards, &board.id, Permissions::default())
             .unwrap();
         let (owner, secret) = boards.owners().create().unwrap();
         let peer = "a".repeat(64);

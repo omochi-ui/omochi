@@ -186,7 +186,7 @@ and have no authentication or TLS.
 | [SDK guide](https://omochi.fyi/en/docs/guides/sdks/) | Python, TypeScript, Rust, components, and transports |
 | [CLI reference](https://omochi.fyi/en/docs/reference/cli/) | Commands, flags, defaults, and troubleshooting |
 | [Discovery and dashboards](https://omochi.fyi/en/docs/guides/remote/) | Local services, remote access, and routing |
-| [Hosted dashboard sharing](docs/dashboard-sharing.md) | Hub-client iroh access, identity invitations and readonly public links |
+| [Hosted dashboard sharing](docs/dashboard-sharing.md) | Hub-client iroh access, permissioned bearer links |
 | [Mobile and desktop app](apps/mobile/README.md) | Flutter/GenUI, embedded Rust Hub and external-Hub owner/share connections |
 | [Docker](deploy/docker/README.md) | Run the hub and Python example with Compose; native images on GHCR |
 | [Deployment](deploy/README.md) | app.omochi.fyi static hosting, hub setup and relay operation |

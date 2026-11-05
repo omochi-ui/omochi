@@ -22,8 +22,7 @@ use tokio::{
 };
 use tokio_util::sync::CancellationToken;
 
-pub const ALPN: &[u8] = b"omochi/dashboard/1";
-pub const ENROLL_ALPN: &[u8] = b"omochi/dashboard-enroll/1";
+pub const ALPN: &[u8] = b"omochi/dashboard/2";
 pub const OWNER_ALPN: &[u8] = b"omochi/owner/1";
 pub const OWNER_ENROLL_ALPN: &[u8] = b"omochi/owner-enroll/1";
 const IO_TIMEOUT: Duration = Duration::from_secs(10);
@@ -136,7 +135,7 @@ impl Hub {
         if info["relayUrls"].as_array()?.is_empty() {
             return None;
         }
-        let payload = json!({"version":1,"hubId":info["hubId"],"relayUrls":info["relayUrls"],"grantId":grant.id,"mode":if grant.public {"public"}else{"invite"},"secret":secret});
+        let payload = json!({"version":2,"hubId":info["hubId"],"relayUrls":info["relayUrls"],"grantId":grant.id,"mode":"share","secret":secret});
         Some(format!(
             "{}#share:{}",
             info["webUrl"].as_str()?,
@@ -156,7 +155,6 @@ pub fn listen(
 
     endpoint.set_alpns(vec![
         ALPN.to_vec(),
-        ENROLL_ALPN.to_vec(),
         OWNER_ALPN.to_vec(),
         OWNER_ENROLL_ALPN.to_vec(),
     ]);
@@ -268,7 +266,7 @@ async fn serve(
     let hello: Hello = tokio::time::timeout(IO_TIMEOUT, read_frame_limited(&mut rx, 16 * 1024))
         .await??
         .context("Missing authentication")?;
-    if hello.version != 1
+    if hello.version != if connection.alpn() == ALPN { 2 } else { 1 }
         || hello.grant_id.len() > 100
         || hello.secret.as_ref().is_some_and(|s| {
             s.len() != 64
@@ -280,21 +278,14 @@ async fn serve(
         bail!("Invalid authentication");
     }
     let shares = boards.shares();
-    if connection.alpn() == ENROLL_ALPN || connection.alpn() == OWNER_ENROLL_ALPN {
+    if connection.alpn() == OWNER_ENROLL_ALPN {
         let id = hello.grant_id;
         let secret = hello.secret.context("Missing invitation")?;
-        let owner = connection.alpn() == OWNER_ENROLL_ALPN;
         let owners = boards.owners();
-        let other = shares.clone();
-        let accepted = omochi_transport::blocking::run(move || {
-            if owner {
-                owners.redeem(&id, &secret, &peer).map(|_| ())
-            } else {
-                other.redeem(&id, &secret, &peer).map(|_| ())
-            }
-        })
-        .await?
-        .is_ok();
+        let accepted =
+            omochi_transport::blocking::run(move || owners.redeem(&id, &secret, &peer).map(|_| ()))
+                .await?
+                .is_ok();
         tokio::time::timeout(
             IO_TIMEOUT,
             write_frame(&mut tx, &json!({"accepted":accepted})),
@@ -488,7 +479,7 @@ async fn request(
             Request::Layout {value}=> {
                 if session.owner {bail!("Use owner control");}
                 let control=crate::control::HubControl{hub:session.hub.clone(),boards:session.boards.clone()};
-                let result=control.shared_layout(session.hello.grant_id.clone(),session.peer.clone(),value).await;
+                let result=control.shared_layout(session.hello.grant_id.clone(),session.hello.secret.clone().context("Missing share credential")?,value).await;
                 match result {Ok(board)=>Ok(json!({"kind":"board","board":board})),Err(e)=>Ok(error(match e.0 {409=>"Conflict",403=>"NotAuthorized",400|413=>"InvalidBoard",404=>"NotFound",_=>"StorageUnavailable"}))}
             },
             Request::Image {lease,uri}=> {
@@ -547,7 +538,7 @@ mod tests {
         let (mut tx, mut rx) = connection.open_bi().await.unwrap();
         write_frame(
             &mut tx,
-            &json!({"version":1,"grantId":grant.id,"secret":secret}),
+            &json!({"version":2,"grantId":grant.id,"secret":secret}),
         )
         .await
         .unwrap();
@@ -582,8 +573,8 @@ mod tests {
             let hub=Hub::new();let (surface,mut actions)=crate::scoped::tests::install(&hub,Default::default()).await;
             let dir=tempfile::tempdir().unwrap();let boards=DashboardStore::open(dir.path().join("state")).unwrap();
             let board=boards.mutate(None,json!({"name":"Shared","panels":[{"id":"p","title":"Panel","reference":{"nodeId":"a".repeat(64),"serviceId":"app","surfaceId":"main"},"x":0,"y":0,"w":4,"h":4}]}),false).unwrap().unwrap();
-            let shares=boards.shares();let (public,secret)=shares.create(&boards,&board.id,true,Permissions::default()).unwrap();
-            let (private,invite)=shares.create(&boards,&board.id,false,Permissions{interact:true,edit_layout:true}).unwrap();
+            let shares=boards.shares();let (public,secret)=shares.create(&boards,&board.id,Permissions::default()).unwrap();
+            let (private,invite)=shares.create(&boards,&board.id,Permissions{interact:true,edit_layout:true}).unwrap();
             let server=omochi_transport::bind(key(),true,None).await.unwrap();let address=server.addr();let listener=listen(hub.clone(),boards.clone(),server).unwrap();
             let client=omochi_transport::bind(key(),true,None).await.unwrap();
             let (connection,mut tx,mut rx,welcome)=connect(&client,address.clone(),&public,Some(&secret)).await;
@@ -596,11 +587,10 @@ mod tests {
             assert_eq!(req(&connection,json!({"op":"image","lease":lease,"uri":"omochi://resources/00000000000000000000000000000000"})).await["code"],"NotAuthorized");
             // Invitations cannot be sent to the ordinary listener as authority.
             let rejected=client.connect(address.clone(),ALPN).await.unwrap();let (mut t,mut r)=rejected.open_bi().await.unwrap();write_frame(&mut t,&json!({"version":1,"grantId":private.id,"secret":invite})).await.unwrap();assert!(read_frame::<_,Value>(&mut r).await.is_err());
-            let enrollment=client.connect(address.clone(),ENROLL_ALPN).await.unwrap();let (mut t,mut r)=enrollment.open_bi().await.unwrap();write_frame(&mut t,&json!({"version":1,"grantId":private.id,"secret":invite})).await.unwrap();assert_eq!(read_frame::<_,Value>(&mut r).await.unwrap().unwrap()["accepted"],true);
             // Adding another identity grant must not interrupt existing public viewers.
             assert_eq!(req(&connection,json!({"op":"ping"})).await["kind"],"ok");
             connection.close(0u32.into(),b"test complete");
-            let (registered,mut t,mut r,_)=connect(&client,address.clone(),&private,None).await;
+            let (registered,mut t,mut r,_)=connect(&client,address.clone(),&private,Some(&invite)).await;
             let frames=snapshot(&mut t,&mut r).await;let lease=frames.iter().find_map(|f|f["lease"].as_str()).unwrap();
             assert_eq!(req(&registered,json!({"op":"action","lease":lease,"message":{"version":"v0.9","action":{"surfaceId":"forged/target","name":"click"}}})).await["kind"],"ok");
             assert_eq!(actions.recv().await.unwrap().into_parts().0.message["action"]["surfaceId"],"main");
@@ -612,7 +602,7 @@ mod tests {
             assert_eq!(welcome["board"]["name"],"Edited");snapshot(&mut t,&mut r).await;
             shares.revoke_live(&public.id).await.unwrap();
             assert!(tokio::time::timeout(Duration::from_secs(1),live.closed()).await.is_ok());
-            let (queued,mut t,mut r,_)=connect(&client,target,&private,None).await;
+            let (queued,mut t,mut r,_)=connect(&client,target,&private,Some(&invite)).await;
             let frames=snapshot(&mut t,&mut r).await;let lease=frames.iter().find_map(|f|f["lease"].as_str()).unwrap();
             assert_eq!(req(&queued,json!({"op":"action","lease":lease,"message":{"version":"v0.9","action":{"surfaceId":surface,"name":"queued"}}})).await["kind"],"ok");
             let (pending,_charge)=actions.recv().await.unwrap().into_parts();
@@ -630,7 +620,7 @@ mod tests {
             let dir = tempfile::tempdir().unwrap();
             let boards = DashboardStore::open(dir.path().join("state")).unwrap();
             let board = boards.mutate(None,json!({"name":"Board","panels":[]}),false).unwrap().unwrap();
-            let (public, secret) = boards.shares().create(&boards,&board.id,true,Permissions::default()).unwrap();
+            let (public, secret) = boards.shares().create(&boards,&board.id,Permissions::default()).unwrap();
             let owners = boards.owners();
             let (owner, token) = owners.create().unwrap();
             let client = omochi_transport::bind(key(),true,None).await.unwrap();

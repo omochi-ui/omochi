@@ -75,8 +75,7 @@ Hub's validation policy; remote audio/video adapters are unavailable.
 The hosted dashboard connects to a running native Hub with separate owner/share
 grants. The Hub owns saved dashboards and permissions; its static web host serves
 assets. Owners manage all boards and shares and can register Gateways. Identity
-shares may allow interaction and layout editing on one saved board; public links
-are readonly. Gateway trust and Hub grants have separate enrollment and revocation.
+links may independently allow interaction and layout editing on one saved board. Gateway trust and Hub grants have separate enrollment and revocation.
 
 The Flutter app can select its embedded Rust Hub for direct Gateway access or
 connect to an external Hub as an owner/shared client, suspending the embedded Hub

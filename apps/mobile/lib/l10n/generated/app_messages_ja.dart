@@ -235,7 +235,7 @@ class AppMessagesJa extends AppMessages {
   String get remoteCreateShare => '共有を作成';
 
   @override
-  String get remotePublicReadOnly => '公開（閲覧のみ）';
+  String get remotePublicReadOnly => '共有リンク';
 
   @override
   String get remoteAllowInteraction => '操作を許可';
@@ -282,7 +282,8 @@ class AppMessagesJa extends AppMessages {
   String get remoteConnectOwnerExplanation => '全ボードの編集と共有管理が可能になります。';
 
   @override
-  String get remoteConnectSharedExplanation => '接続先Hubが付与した権限で利用します。';
+  String get remoteConnectSharedExplanation =>
+      'リンクの転送先も含め、リンクを知っている全員がHubの許可した範囲で利用できます。';
 
   @override
   String get remoteConnectViewOnce => '一時閲覧';
@@ -303,5 +304,5 @@ class AppMessagesJa extends AppMessages {
   String get remoteHubInvite => '共有接続';
 
   @override
-  String get remoteHubPublic => '公開・閲覧専用';
+  String get remoteHubPublic => '共有リンク';
 }

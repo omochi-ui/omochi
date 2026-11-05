@@ -171,8 +171,7 @@ mod wasm {
         pub fn new(mode: &str, permissions: &str) -> Result<DownstreamState, JsValue> {
             let mode = match mode {
                 "owner" => omochi_downstream_core::Mode::Owner,
-                "public" => omochi_downstream_core::Mode::Public,
-                "invite" => omochi_downstream_core::Mode::Invite,
+                "share" => omochi_downstream_core::Mode::Share,
                 _ => return Err(JsValue::from_str("InvalidRequest")),
             };
             let permissions = serde_json::from_str(permissions)
@@ -295,8 +294,7 @@ mod wasm {
                 return rejected(Fault::Cancelled);
             }
             if ![
-                "omochi/dashboard-enroll/1",
-                "omochi/dashboard/1",
+                "omochi/dashboard/2",
                 "omochi/owner/1",
                 "omochi/owner-enroll/1",
             ]

@@ -114,7 +114,7 @@ mod tests {
             .unwrap();
         let shares = boards.shares();
         let (grant, secret) = shares
-            .create(&boards, &board.id, true, Permissions::default())
+            .create(&boards, &board.id, Permissions::default())
             .unwrap();
         let lease = Lease::register(&shares).unwrap();
         assert!(

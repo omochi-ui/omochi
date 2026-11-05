@@ -1,7 +1,7 @@
 import '../models.dart';
 import 'board_models.dart';
 
-enum RemoteAccessMode { invite, public, owner }
+enum RemoteAccessMode { share, owner }
 
 class RemoteSource {
   const RemoteSource({

@@ -516,7 +516,7 @@ abstract class AppMessages {
   /// No description provided for @remotePublicReadOnly.
   ///
   /// In en, this message translates to:
-  /// **'Public (read only)'**
+  /// **'Shared link'**
   String get remotePublicReadOnly;
 
   /// No description provided for @remoteAllowInteraction.
@@ -606,7 +606,7 @@ abstract class AppMessages {
   /// No description provided for @remoteConnectSharedExplanation.
   ///
   /// In en, this message translates to:
-  /// **'Access follows the permissions granted by the Hub.'**
+  /// **'Anyone with this link, including forwarded copies, can use the permissions granted by the Hub.'**
   String get remoteConnectSharedExplanation;
 
   /// No description provided for @remoteConnectViewOnce.
@@ -648,7 +648,7 @@ abstract class AppMessages {
   /// No description provided for @remoteHubPublic.
   ///
   /// In en, this message translates to:
-  /// **'Public read-only'**
+  /// **'Shared link'**
   String get remoteHubPublic;
 }
 

@@ -138,7 +138,7 @@ class _RemoteConnectionsState extends State<RemoteConnections> {
                 onPressed: () => Navigator.pop(context),
                 child: Text(messagesFor(context).cancel),
               ),
-              if (source.mode == RemoteAccessMode.public)
+              if (source.mode == RemoteAccessMode.share)
                 TextButton(
                   onPressed: () => Navigator.pop(context, false),
                   child: Text(messagesFor(context).remoteConnectViewOnce),
@@ -151,7 +151,7 @@ class _RemoteConnectionsState extends State<RemoteConnections> {
           ),
         );
         if (save == null || !mounted) return;
-        if (source.mode == RemoteAccessMode.public && !save) {
+        if (source.mode == RemoteAccessMode.share && !save) {
           await open(source, invitation: input);
         } else {
           await controller.register(input, save: save);
@@ -226,8 +226,7 @@ class _RemoteConnectionsState extends State<RemoteConnections> {
   String accessLabel(BuildContext context, RemoteAccessMode mode) =>
       switch (mode) {
         RemoteAccessMode.owner => messagesFor(context).remoteConnectOwner,
-        RemoteAccessMode.invite => messagesFor(context).remoteHubInvite,
-        RemoteAccessMode.public => messagesFor(context).remoteHubPublic,
+        RemoteAccessMode.share => messagesFor(context).remoteHubPublic,
       };
 
   @override

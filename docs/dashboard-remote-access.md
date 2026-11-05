@@ -20,7 +20,7 @@ SDK apps -- Unix JSONL --> Gateway -- iroh --> Flutter app's embedded Rust Hub
 | Use apps on this machine | `omochi-ui hub` | Local HTTP owner; a local Gateway starts if needed |
 | Add a remote machine's apps | `gateway --remote --pair`, then import on the Hub | That Hub is trusted for the Gateway's exposed services, actions and resources |
 | Manage a Hub from a hosted browser | `hub --remote`, then **Register owner browser** locally | All dashboards, app interaction, layout/source changes, sharing and Gateway registration |
-| Share one saved dashboard | **Share dashboard** on a remote-enabled Hub | Selected board; identity grants may allow interaction/layout editing; public links are readonly |
+| Share one saved dashboard | **Share dashboard** on a remote-enabled Hub | Selected board; links may independently allow interaction and layout editing |
 | Use apps directly from the Flutter app | Accept a Gateway invitation with **Add to this device** | Embedded Hub is trusted at that Gateway |
 | Use an external Hub from the Flutter app | Open/paste an owner or share invitation | The external Hub's owner/share permissions |
 
@@ -59,20 +59,20 @@ link. `--web-url HTTPS_BASE` selects a self-hosted static client instead of
 `https://app.omochi.fyi/`; it does not change the local HTTP bind or Origin policy.
 
 Owner links use `#owner:` and are issued/revoked only through local owner
-administration. Identity share invitations use `#share:` and bind one recipient;
-public share links are reusable bearer credentials. Share editing permits names,
+administration. Sharing v2 links use `#share:` and reusable bearer credentials, with independent
+interaction and layout-editing permissions. Forwarded copies carry the same access. Share editing permits names,
 titles, positions and sizes, while adding/removing views and changing sources
 requires owner authority. Each share follows the saved board's current membership.
 
 Browser identity is committed to IndexedDB before enrollment. Secrets from owner
-and identity invitations are not saved. One tab owns the endpoint through Web
+invitations are not saved. One tab owns the endpoint through Web
 Locks. Public-link reload context is kept in that tab's sessionStorage.
 Forgetting a local record does not revoke server-side access. Revocation succeeds
 only after live listener teardown is acknowledged; failure remains an error after
 durable grant removal.
 
 Use the [sharing guide](dashboard-sharing.md) for setup and recovery, and the
-[sharing](../spec/dashboard-sharing-v1.md) and
+[sharing](../spec/dashboard-sharing-v2.md) and
 [owner](../spec/owner-connection-v1.md) contracts for exact operations.
 
 ## Flutter client

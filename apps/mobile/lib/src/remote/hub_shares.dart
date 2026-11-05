@@ -31,7 +31,7 @@ class _HubSharesState extends State<HubShares> {
 
   Future<void> create() async {
     String? board = widget.boards.firstOrNull?.id;
-    bool public = false, interact = false, layout = false;
+    bool interact = false, layout = false;
     final accepted = await showDialog<bool>(
       context: context,
       builder: (context) => StatefulBuilder(
@@ -48,12 +48,8 @@ class _HubSharesState extends State<HubShares> {
                 ],
                 onChanged: (value) => set(() => board = value),
               ),
-              CheckboxListTile(
-                title: Text(messagesFor(context).remotePublicReadOnly),
-                value: public,
-                onChanged: (value) => set(() => public = value!),
-              ),
-              if (!public) ...[
+              Text(messagesFor(context).remoteConnectSharedExplanation),
+              ...[
                 CheckboxListTile(
                   title: Text(messagesFor(context).remoteAllowInteraction),
                   value: interact,
@@ -85,7 +81,6 @@ class _HubSharesState extends State<HubShares> {
     if (accepted != true || !mounted) return;
     final link = await controller.create(
       boardId: board!,
-      public: public,
       interact: interact,
       editLayout: layout,
     );
@@ -118,16 +113,14 @@ class _HubSharesState extends State<HubShares> {
             ListTile(
               title: Text(share.id),
               subtitle: Text(
-                share.public
-                    ? messagesFor(context).remotePublicReadOnly
-                    : messagesFor(context).remoteSharePermissions(
-                        share.interact
-                            ? messagesFor(context).remoteAllowed
-                            : messagesFor(context).remoteDenied,
-                        share.editLayout
-                            ? messagesFor(context).remoteAllowed
-                            : messagesFor(context).remoteDenied,
-                      ),
+                messagesFor(context).remoteSharePermissions(
+                  share.interact
+                      ? messagesFor(context).remoteAllowed
+                      : messagesFor(context).remoteDenied,
+                  share.editLayout
+                      ? messagesFor(context).remoteAllowed
+                      : messagesFor(context).remoteDenied,
+                ),
               ),
               trailing: IconButton(
                 icon: const Icon(Icons.link_off),

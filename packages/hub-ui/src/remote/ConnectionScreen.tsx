@@ -77,8 +77,8 @@ function Connections({ transport, takeLink, bootstrapError, subscribeFragment = 
       if (!(await disconnect()) || operation.current.signal.aborted) return;
       const next = incoming.link;
       currentLink.current = next; setLink(next);
-      cache(PUBLIC_CONTEXT, next.mode === 'public' ? JSON.stringify(next) : '');
-      if (next.mode === 'public') {
+      cache(PUBLIC_CONTEXT, next.mode === 'share' ? JSON.stringify(next) : '');
+      if (next.mode === 'share') {
         const identity = await transport.generateIdentity();
         activate({ ...next, name: t('connection.defaultName') }, identity.secretHex, next.secret);
       } else if (!state.current.profile) await loadProfile();
@@ -90,7 +90,7 @@ function Connections({ transport, takeLink, bootstrapError, subscribeFragment = 
     let disposed = false; operation.current = new AbortController();
     working.current = true; setBusy(true);
     const start = async () => {
-      if (link?.mode === 'public') {
+      if (link?.mode === 'share') {
         cache(PUBLIC_CONTEXT, JSON.stringify(link));
         const identity = await transport.generateIdentity();
         if (!disposed) await connect({ ...link, name: t('connection.defaultName') }, identity.secretHex, link.secret);
@@ -123,9 +123,9 @@ function Connections({ transport, takeLink, bootstrapError, subscribeFragment = 
   const controls = <section className="shared-connections" aria-label={t('connection.label')}>
     {error && <p role="alert" data-error-code={error.code}>{t(`sessionError.${error.code}`)}</p>}
     {profile && <p>{t('connection.browserId')} <code data-browser-id={profile.identity.endpointId}>{profile.identity.endpointId}</code></p>}
-    {(link?.mode === 'invite' || link?.mode === 'owner') && !proof && <section><h2>{link.mode === 'owner' ? t('owner.register') : t('connection.acceptTitle')}</h2>{link.mode === 'owner' && <p>{t('connection.ownerHelp')}</p>}{link.mode !== 'owner' && <p>{t('connection.inviteHelp')}</p>}<Button className="primary" disabled={busy || !profile} onClick={() => { void run(async () => { if (!profile) return; if (!(await disconnect())) return; const accepted = await acceptInvitation(transport, profile, link, operation.current.signal); await saveProof(accepted); }); }}>{t('connection.accept')}</Button></section>}
+    {link?.mode === 'owner' && !proof && <section><h2>{link.mode === 'owner' ? t('owner.register') : t('connection.acceptTitle')}</h2>{link.mode === 'owner' && <p>{t('connection.ownerHelp')}</p>}{link.mode !== 'owner' && <p>{t('connection.inviteHelp')}</p>}<Button className="primary" disabled={busy || !profile} onClick={() => { void run(async () => { if (!profile) return; if (!(await disconnect())) return; const accepted = await acceptInvitation(transport, profile, link, operation.current.signal); await saveProof(accepted); }); }}>{t('connection.accept')}</Button></section>}
     {proof && <section><p role="status">{t('connection.saveFailed')}</p><Button disabled={busy} onClick={() => { void run(() => saveProof(proof)); }}>{t('connection.retrySave')}</Button></section>}
-    {link?.mode === 'public' && <p>{t('connection.publicHelp')}</p>}
+    {link?.mode === 'share' && <p>{t('connection.publicHelp')}</p>}
     {profile && !link && !proof && <><h2 ref={connectionsHeading} tabIndex={-1}>{t('connection.yours')}</h2>{!records.length && <p>{t('connection.empty')}</p>}{records.map(record => <article className="notice" key={record.id}><span>{record.name}{record.owner && t('connection.ownerSuffix')}<small>{record.state === 'pending' ? t('connection.pending') : record.owner ? t('connection.ownerAccess') : t('connection.shareAccess')}</small></span><Button disabled={busy} onClick={() => { void run(async () => { if (record.state === 'pending') await saveProof(await recoverShare(transport, profile, record, operation.current.signal)); else await connect(record, profile.identity.secretHex); }); }}>{record.state === 'pending' ? t('connection.retryAccess') : t('connection.connect')}</Button><Button disabled={busy} onClick={event => { forgetTrigger.current = event.currentTarget; setForgetRecord(record); }}>{t('connection.forget')}</Button></article>)}</>}
     {live && <Button disabled={busy} onClick={() => { void run(async () => { if (!(await disconnect())) return; cache(PUBLIC_CONTEXT, ''); setLink(null); if (profile) setRecords(await profile.shares()); else setAttempt(v => v + 1); }); }}>{t('connection.disconnect')}</Button>}
     {live && <Button disabled={busy} onClick={() => { void live.source.retry(); }}>{t('connection.retry')}</Button>}

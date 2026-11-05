@@ -1,5 +1,6 @@
 {
-  "startedAt": "2026-11-03T07:20:26.827Z",
+  "startedAt": "2026-11-05T17:58:01.169Z",
+  "relay": "controlled-loopback",
   "checks": [
     "local owner uses the native HTTP/WS dashboard with two real SDK sources",
     "public URL opens both permitted live views without identity registration",
@@ -8,135 +9,36 @@
     "actual SDK PNG pixels pass scoped native resource delivery",
     "bearer fragment is removed from browser history",
     "public viewing does not create an enrolled browser profile",
+    "hosted Japanese switching preserves the live surface and readonly permissions",
     "public link reload restores only its per-tab bearer context",
     "nested HTTPS assets have exact CSP/MIME/cache headers and gzip",
     "static host has no API or missing-asset fallback",
-    "failed acceptance save exposes local-only recovery without rendering live data",
-    "save retry does not redeem another invitation",
-    "a second identity tab reports active ownership without opening another endpoint",
-    "identity invitation enrolls explicitly and opens the shared board",
-    "authorized app action sends form drafts and updates the real SDK exactly once",
-    "readonly recipient receives live updates from another authorized client",
-    "shared editor cannot add or remove source panels",
-    "permitted shared layout save reaches native revisioned repository",
-    "saved owner/shared changes propagate to existing viewers",
-    "reload restores durable browser identity without another invitation",
+    "same-document public navigation switches bearer context and clears both fragments",
+    "operation-enabled link opens without enrollment",
+    "forwarded link grants the same permissions to another endpoint",
+    "operation-enabled link reload retains its permissions",
     "controlled relay reconnects fresh snapshots within 90 seconds",
     "reconnect never replays app actions",
-    "registered app actions resume after fresh snapshots",
+    "shared app actions resume after fresh snapshots",
     "owner panel removal withdraws that view from all existing shares",
     "native revision conflict remains enforced",
-    "public link revocation retracts access while independent identity grant remains usable",
-    "identity revocation stops the registered browser",
+    "public link revocation retracts access while an independent link remains usable",
+    "revoking one link stops every endpoint using it",
     "an invalid public bearer never renders a board",
-    "corrupt identity requires explicit reset and never silently restores trust",
-    "local identity reset preserves the hub-owned board",
+    "layout editing without app interaction is described without claiming the dashboard is readonly",
+    "Japanese distinguishes layout editing from app interaction",
+    "malformed warm owner invitation is cleared without losing the profile",
+    "idle warm owner link clears the fragment without enrolling",
+    "owner enrollment opens the existing dashboard with full owner controls",
+    "remote owner creates a native hub-owned dashboard",
+    "remote owner has the same share management screen",
+    "owner identity reconnects without retaining its invitation secret",
+    "local owner revocation tears down the remote owner connection",
+    "revoked owner access shows recovery instructions without claiming automatic reconnection",
     "no static host app-data/API fallback",
     "no unhandled browser exceptions"
   ],
   "errors": [],
   "browser": "Chrome/156.0.8078.73",
-  "recoveryMilliseconds": 6746,
-  "scope": "Local controlled TLS relay and static HTTPS host, two real SDK services/gateways, production native hub listener; no deployment claim",
-  "versions": {
-    "bun": "1.4.3",
-    "rustc": "rustc 1.99.0 (b940084d7 2026-09-28)",
-    "wasmBindgen": "0.2.130",
-    "iroh": "1.4.1"
-  },
-  "assets": [
-    {
-      "path": "assets/ConnectionScreen-C4KGW_te.js",
-      "bytes": 301742,
-      "gzipBytes": 105268,
-      "sha256": "c9d0991cf937a9562972dab89a98029490100f7dc4eb4a299140d041056bdf3d"
-    },
-    {
-      "path": "assets/browser-DLoeksP-.js",
-      "bytes": 73471,
-      "gzipBytes": 18461,
-      "sha256": "dd10513485daffb3eb491b7523fa79d5d0fdd5bb56db4ada9f4af240f7cce84e"
-    },
-    {
-      "path": "assets/client-DRrBuG7L.js",
-      "bytes": 182318,
-      "gzipBytes": 56759,
-      "sha256": "9d00b11df18487439d88f5cbe5459cc3fc13f1b74d7d717f851e186dc329da19"
-    },
-    {
-      "path": "assets/dist-Byzvor7P.js",
-      "bytes": 6193,
-      "gzipBytes": 1977,
-      "sha256": "26962a9b34246490fd04da9343889951aae8aea2b90ea80a9146e5b1586034ad"
-    },
-    {
-      "path": "assets/index-BvnSaSJm.js",
-      "bytes": 4530,
-      "gzipBytes": 2074,
-      "sha256": "a99f0b3ac41c11573e62717779a55c5fe73407e5c528aff2c3135cd18e189795"
-    },
-    {
-      "path": "assets/link-BcHNrA1T.js",
-      "bytes": 1579,
-      "gzipBytes": 843,
-      "sha256": "5f248d82384e18a0210e01af8910b334773b71e5044488e855b1d92492ad9069"
-    },
-    {
-      "path": "assets/react-CS0tywjs.js",
-      "bytes": 7521,
-      "gzipBytes": 2898,
-      "sha256": "9d4fa3a66f2eb6b67aeaacb30940865e891026d79443a20a5d1fe15ca7a4f8fe"
-    },
-    {
-      "path": "assets/styles-BF4Hplqa.css",
-      "bytes": 1440,
-      "gzipBytes": 534,
-      "sha256": "4f9f262825c7b888faff30296c4a2f365ca120bbbc139a05ba2c57675d23334b"
-    },
-    {
-      "path": "assets/styles-DIIxQ5mP.css",
-      "bytes": 12780,
-      "gzipBytes": 3201,
-      "sha256": "f438d764c07a08c1c9b4ee8d24fde93ed41132b040e9bdc8e5223ae8b7d7143b"
-    },
-    {
-      "path": "index.html",
-      "bytes": 325,
-      "gzipBytes": 248,
-      "sha256": "04ba467f07754a1e76fb6887434ca0e206a2e9d90b291d3405d44e8fcb39a8e1"
-    },
-    {
-      "path": "iroh/iroh.d.ts",
-      "bytes": 7701,
-      "gzipBytes": 1620,
-      "sha256": "9225ccd881c6bf90430d8eb1d71dae5b6e98e68392a5af927a4550c717eac023"
-    },
-    {
-      "path": "iroh/iroh.js",
-      "bytes": 52881,
-      "gzipBytes": 9152,
-      "sha256": "abb8e3e48593459c97413c0db6081f272c74c354bbe3b25d3465734694578e19"
-    },
-    {
-      "path": "iroh/iroh_bg.wasm",
-      "bytes": 5073004,
-      "gzipBytes": 1362922,
-      "sha256": "4bff7505785ec11d38d0655749572f2997f5163b7c95e771616dff89aad1d310"
-    },
-    {
-      "path": "iroh/iroh_bg.wasm.d.ts",
-      "bytes": 4698,
-      "gzipBytes": 775,
-      "sha256": "8cf1e3530696ed7e98216538a9e71e5d27e9a856811c2667577a286a87d94326"
-    }
-  ],
-  "staticBase": "/dashboard/",
-  "verification": [
-    "bun run test",
-    "bun run test:python",
-    "bun run test:rust",
-    "bun run test:renderer-package",
-    "bun run release:check",
-    "SHARING_RESULTS=/tmp/omochi-sharing-final bun run test:dashboard-sharing"
-  ]
+  "recoveryMilliseconds": 12048
 }

@@ -31,7 +31,7 @@ mod tests {
 
     #[test]
     fn owner_and_share_snapshots_accept_three_gateways_and_nine_services() {
-        for mode in [Mode::Owner, Mode::Invite, Mode::Public] {
+        for mode in [Mode::Owner, Mode::Share] {
             let mut state = new_state(mode, Permissions::default()).unwrap();
             for index in 0..9 {
                 let effect = state.accept(&create(index)).unwrap();

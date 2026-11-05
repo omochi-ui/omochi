@@ -17,7 +17,6 @@ abstract interface class BoardsRepository {
   Future<List<RemoteShare>> shares();
   Future<String> createShare({
     required String boardId,
-    required bool public,
     required bool interact,
     required bool editLayout,
   });
@@ -95,18 +94,13 @@ class RemoteBoardsRepository implements BoardsRepository {
   @override
   Future<String> createShare({
     required String boardId,
-    required bool public,
     required bool interact,
     required bool editLayout,
   }) async {
     final result = await client.control({
       'method': 'shareCreate',
       'board_id': boardId,
-      'public': public,
-      'permissions': {
-        'interact': !public && interact,
-        'editLayout': !public && editLayout,
-      },
+      'permissions': {'interact': interact, 'editLayout': editLayout},
     }) as Json;
     return result['url'] as String;
   }

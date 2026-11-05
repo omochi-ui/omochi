@@ -99,14 +99,14 @@ export class RemoteHubSession implements LiveSession {
       try {
         this.status('Connecting…');
         this.endpoint = await this.transport.openEndpoint(this.options.secretHex, this.options.source.relayUrls);
-        const connection = await this.endpoint.connect(address(this.options.source), this.options.owner ? 'omochi/owner/1' : 'omochi/dashboard/1', operationSignal(this.lifetime.signal));
+        const connection = await this.endpoint.connect(address(this.options.source), this.options.owner ? 'omochi/owner/1' : 'omochi/dashboard/2', operationSignal(this.lifetime.signal));
         this.connection = connection;
         if (connection.remoteId !== this.options.source.hubId) throw new SessionFault('NotAuthorized');
         let stream: Stream;
         let first: Record<string, unknown>;
         try {
           stream = await connection.open(operationSignal(this.lifetime.signal));
-          const hello = { version: 1, grantId: this.options.source.grantId, ...(this.options.publicSecret ? { secret: this.options.publicSecret } : {}) };
+          const hello = { version: this.options.owner ? 1 : 2, grantId: this.options.source.grantId, ...(this.options.publicSecret ? { secret: this.options.publicSecret } : {}) };
           await stream.send(JSON.stringify(hello), operationSignal(this.lifetime.signal));
           first = await receive(stream, operationSignal(this.lifetime.signal));
         } catch (error) {
@@ -116,13 +116,12 @@ export class RemoteHubSession implements LiveSession {
         if (this.options.owner && first.kind !== 'ownerWelcome') throw new SessionFault('ProtocolError');
         const view: SharedView = this.options.owner ? { board: { id: '', revision: 1, name: '', panels: [] }, permissions: { interact: true, editLayout: true } } : parseWelcome(first);
         if (this.options.owner) { const services = ownerServices(first.services); if ( Object.keys(first).sort().join(',') !== 'kind,services') throw new SessionFault('ProtocolError'); this.emit({ kind: 'services', services }); }
-        if (this.options.publicSecret && (view.permissions.interact || view.permissions.editLayout)) throw new SessionFault('ProtocolError');
         const admitted = new Set(view.board.panels.map(panel => `${panel.reference.nodeId}~${panel.reference.serviceId}/${panel.reference.surfaceId}`));
         const attempt = ++this.epoch;
         const scope = this.scope.signal;
         const isCurrent = () => this.connection === connection && !scope.aborted && !this.lifetime.signal.aborted;
         let heartbeatPending = false;
-        const wireState = this.transport.createDownstreamState(this.options.owner ? 'owner' : this.options.publicSecret ? 'public' : 'invite', view.permissions);
+        const wireState = this.transport.createDownstreamState(this.options.owner ? 'owner' : 'share', view.permissions);
         this.wireState = wireState;
         let ready = false, bytes = 0;
         let messages: A2uiMessage[] = [];

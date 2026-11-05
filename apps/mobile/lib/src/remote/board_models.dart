@@ -96,18 +96,16 @@ class RemoteShare {
   const RemoteShare({
     required this.id,
     required this.boardId,
-    required this.public,
     required this.interact,
     required this.editLayout,
   });
   final String id, boardId;
-  final bool public, interact, editLayout;
+  final bool interact, editLayout;
   factory RemoteShare.fromJson(Json value) {
     final permissions = value['permissions'] as Json;
     return RemoteShare(
       id: value['id'] as String,
       boardId: value['boardId'] as String,
-      public: value['public'] as bool,
       interact: permissions['interact'] as bool,
       editLayout: permissions['editLayout'] as bool,
     );

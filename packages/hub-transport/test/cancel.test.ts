@@ -6,7 +6,7 @@ import { deferred, fixture, signal } from './fixtures.js';
 async function connected() {
   const f = fixture();
   const endpoint = await createTransportFacade(f.module).openEndpoint('0'.repeat(64), []);
-  const connection = await endpoint.connect('{}', 'omochi/dashboard/1', signal());
+  const connection = await endpoint.connect('{}', 'omochi/dashboard/2', signal());
   const stream = await connection.open(signal());
   return { ...f, endpoint, connection, stream, raw: f.endpoint.connections[0]!.streams[0]!, rawConnection: f.endpoint.connections[0]! };
 }
@@ -47,7 +47,7 @@ test('cancel/close are idempotent and a pre-aborted read never starts Rust I/O',
 test('closing an endpoint cancels and joins an in-flight dial without creating orphan connections', async () => {
   const f = fixture(); f.endpoint.connectGate = deferred();
   const endpoint = await createTransportFacade(f.module).openEndpoint('0'.repeat(64), []);
-  const connecting = endpoint.connect('{}', 'omochi/dashboard/1', signal());
+  const connecting = endpoint.connect('{}', 'omochi/dashboard/2', signal());
   await endpoint.close();
   await assert.rejects(connecting, { code: 'Cancelled' });
   assert.equal(f.endpoint.cancelled.length, 1); assert.equal(f.endpoint.frees, 1);
@@ -56,13 +56,13 @@ test('closing an endpoint cancels and joins an in-flight dial without creating o
 test('closing a connection cancels pending stream open, while a fulfilled late dial is also disposed', async () => {
   const f = fixture();
   const endpoint = await createTransportFacade(f.module).openEndpoint('0'.repeat(64), []);
-  const connection = await endpoint.connect('{}', 'omochi/dashboard/1', signal());
+  const connection = await endpoint.connect('{}', 'omochi/dashboard/2', signal());
   const raw = f.endpoint.connections[0]!; raw.openGate = deferred();
   const opening = connection.open(signal());
   await connection.close();
   await assert.rejects(opening, { code: 'Cancelled' });
   assert.equal(raw.cancelled.length, 1); assert.equal(raw.frees, 1);
-  const late = endpoint.connect('{}', 'omochi/dashboard/1', signal());
+  const late = endpoint.connect('{}', 'omochi/dashboard/2', signal());
   await endpoint.close();
   await assert.rejects(late, { code: 'Cancelled' });
   assert.equal(f.endpoint.connections[1]!.frees, 1);
@@ -72,7 +72,7 @@ test('an immediate signal abort reaches the operation registered before its firs
   const f = fixture(); f.endpoint.connectGate = deferred();
   const endpoint = await createTransportFacade(f.module).openEndpoint('0'.repeat(64), []);
   const cancel = new AbortController();
-  const connecting = endpoint.connect('{}', 'omochi/dashboard/1', cancel.signal);
+  const connecting = endpoint.connect('{}', 'omochi/dashboard/2', cancel.signal);
   cancel.abort();
   await assert.rejects(connecting, { code: 'Cancelled' });
   assert.equal(f.endpoint.cancelled.length, 1);

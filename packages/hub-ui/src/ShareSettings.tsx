@@ -4,7 +4,7 @@ import { localizedError } from './localized-error.js';
 import { useTranslation } from 'react-i18next';
 import { useEffect, useRef, useState } from 'react';
 import { Button } from './Button.js';
-interface Grant { id: string; boardId: string; public: boolean; peer: string | null; invitationExpiresAt: number; permissions: { interact: boolean; editLayout: boolean } }
+interface Grant { id: string; boardId: string; permissions: { interact: boolean; editLayout: boolean } }
 interface Host { hubId?: string; relayUrls?: string[]; enabled?: boolean }
 import type { SharingRepository } from './sharing-repository.js';
 /** Owner-only UI. Shared clients are not given an owner repository or this entry. */
@@ -14,7 +14,7 @@ export function ShareSettings({ boardId, repository }: { boardId: string; reposi
   const dialog = useRef<HTMLDialogElement>(null), linkText = useRef<HTMLTextAreaElement>(null);
   const [open, setOpen] = useState(false), [busy, setBusy] = useState(false), [error, setError] = useState<Error | null>(null);
   const [host, setHost] = useState<Host | null>(null), [grants, setGrants] = useState<Grant[]>([]);
-  const [mode, setMode] = useState<'invite' | 'public'>('invite'), [interact, setInteract] = useState(false), [editLayout, setEditLayout] = useState(false);
+  const [interact, setInteract] = useState(false), [editLayout, setEditLayout] = useState(false);
   const [link, setLink] = useState<{ id: string; url: string } | null>(null), [confirm, setConfirm] = useState<string | null>(null), [message, setMessage] = useState<TranslationMessage | null>(null);
   const refresh = async () => {
     const [info, records] = await Promise.all([request('/api/sharing'), request('/api/shares')]);
@@ -34,15 +34,12 @@ export function ShareSettings({ boardId, repository }: { boardId: string; reposi
       {!ready && <p role="status">{host?.enabled === false ? t('share.enable') : t('share.waiting')}</p>}
       <fieldset disabled={busy || !ready}>
         <legend>{t('share.create')}</legend>
-        <label>{t('share.access')} <select aria-label={t('share.access')} value={mode} onChange={e => setMode(e.target.value as 'invite' | 'public')}><option value="invite">{t('share.invite')}</option><option value="public">{t('share.anyone')}</option></select></label>
-        {mode === 'invite' ? <>
-          <p>{t('share.inviteHelp')}</p>
-          <label><input type="checkbox" checked={interact} onChange={e => setInteract(e.target.checked)} /> {t('share.interact')}</label>
-          <label><input type="checkbox" checked={editLayout} onChange={e => setEditLayout(e.target.checked)} /> {t('share.edit')}</label>
-          <p>{t('share.permissionsHelp')}</p>
-        </> : <p>{t('share.publicHelp')}</p>}
+        <p>{t('share.publicHelp')}</p>
+        <label><input type="checkbox" checked={interact} onChange={e => setInteract(e.target.checked)} /> {t('share.interact')}</label>
+        <label><input type="checkbox" checked={editLayout} onChange={e => setEditLayout(e.target.checked)} /> {t('share.edit')}</label>
+        <p>{t('share.permissionsHelp')}</p>
         <Button className="primary" onClick={() => { void run(async () => {
-          const result = await request('/api/shares', 'POST', { boardId, public: mode === 'public', permissions: { interact: mode === 'invite' && interact, editLayout: mode === 'invite' && editLayout } }) as { grant: Grant; url?: string };
+          const result = await request('/api/shares', 'POST', { boardId, permissions: { interact, editLayout } }) as { grant: Grant; url?: string };
           if (typeof result.url !== 'string' || !result.url.startsWith('https:')) { await refresh(); throw new SharingFault('relayUnavailable'); }
           setLink({ id: result.grant.id, url: result.url }); setMessage({ key: 'share.created' }); await refresh();
         }); }}>{t('share.createLink')}</Button>
@@ -51,7 +48,7 @@ export function ShareSettings({ boardId, repository }: { boardId: string; reposi
       <h3>{t('share.existing')}</h3>
       {!grants.length && <p>{t('share.empty')}</p>}
       {grants.map(grant => <article className="notice" key={grant.id} data-share-id={grant.id}>
-        <span>{grant.public ? t('share.public') : grant.peer ? t('share.registered') : t('share.pending')}{!grant.public && <small>{grant.peer ?? (grant.invitationExpiresAt * 1000 <= Date.now() ? t('share.expired') : t('share.acceptance'))}</small>}{grant.permissions.interact && <small>{t('share.interactionAllowed')}</small>}{grant.permissions.editLayout && <small>{t('share.editingAllowed')}</small>}</span>
+        <span>{t('share.public')}{grant.permissions.interact && <small>{t('share.interactionAllowed')}</small>}{grant.permissions.editLayout && <small>{t('share.editingAllowed')}</small>}</span>
         <Button className="danger" disabled={busy} onClick={() => setConfirm(grant.id)}>{t('share.revoke')}</Button>
       </article>)}
       {confirm && <section role="group" aria-label={t('share.confirmLabel')}><p>{t('share.confirmHelp')}</p><Button className="danger" disabled={busy} onClick={() => { void run(async () => { await request(`/api/shares/${encodeURIComponent(confirm)}`, 'DELETE'); if (link?.id === confirm) setLink(null); setConfirm(null); setMessage({ key: 'share.revoked' }); await refresh(); }); }}>{t('share.confirm')}</Button><Button disabled={busy} onClick={() => setConfirm(null)}>{t('share.cancel')}</Button></section>}

@@ -26,15 +26,13 @@ address lookup or relay access.
 Open the local dashboard, save a board and select **Share dashboard**. Wait for
 the hub's relay address, then choose:
 
-- **Invite one browser**: optionally allow app interaction and/or editing names,
-  positions and sizes. The first accepting browser identity is registered. Issue
-  a separate invitation per recipient. Invitations expire after 3 minutes;
-  accepted access lasts until revoked.
-- **Anyone with the link**: reusable readonly access with no identity enrollment.
-  Anyone receiving a forwarded URL can use it.
+Create a reusable sharing link. App interaction and layout editing can be allowed
+independently; both are disabled by default. Anyone with the link, including
+forwarded copies, receives the same permissions. To change permissions, revoke
+the link and issue a new one. Links remain usable until revoked.
 
 Copy the URL when created; only its credential digest is stored on the hub.
-Both modes expose the permitted Surfaces' complete state and published images.
+Links expose the permitted Surfaces' complete state and published images.
 Shared editors cannot add/remove views, change source references, delete the
 board or manage shares. App interaction can change application business state.
 
@@ -42,7 +40,7 @@ Shares follow the saved board: owner additions become visible, removals withdraw
 views and deletion withdraws the board. Concurrent saves retain native revision
 conflicts and unsaved drafts. Disconnected sources remain unavailable.
 
-**Revoke access…** revokes one registered recipient or an entire public link.
+**Revoke access…** revokes an entire sharing link.
 Success waits for live listeners to stop old sessions and queued work. A timeout
 remains an error while removal stays durable. Already delivered bytes and
 dispatched actions cannot be recalled; refresh the list after an error and check
@@ -50,25 +48,19 @@ unresponsive hub processes.
 
 ## Browser identity and recovery
 
-Invitation material is removed from history before UI/transport imports. Private
-invitation secrets are not saved. Links opened in an already running tab are
-also captured and cleared immediately. Switching waits for current acceptance
-or local save recovery, confirms discarding unsaved edits, and closes the previous
-connection before opening the next. Owner and identity invitations still require
-explicit acceptance; reopening the pending invitation does not restart it.
-Identity is committed to IndexedDB before enrollment; pending connections keep the same identity after a lost reply.
-**Retry existing access** checks authorization without redeeming another invite.
-**Retry connection save** retries only the local transaction after a save failure.
+Sharing secrets are removed from history before UI/transport imports. Warm link
+navigation confirms discarding unsaved edits and closes the previous connection
+before opening the next. Reload restores bearer context only from that tab's
+sessionStorage. If storage is denied, reopen the original URL.
 
-One registered tab owns the endpoint through Web Locks. Another tab reports
-`OwnerBusy`; close the active owner or retry after its exit. Corrupt identity
-requires explicit reset. Reset/forget removes only local records, leaving boards
-and hub grants intact. Ask the owner to revoke old access after losing identity.
-Changing the hosted origin or clearing storage requires new enrollment.
+Owner enrollment still uses a durable browser identity in IndexedDB, owned by
+one tab through Web Locks. Owner invitations require explicit acceptance and
+expire after three minutes. Local forget/reset does not revoke Hub authority.
 
-Public reload keeps bearer context only in that tab's sessionStorage. If storage
-is denied, reopen the original URL. Registered access needs IndexedDB and Web
-Locks; initial support is desktop Linux Chrome/Chromium 156+ in a secure context.
+All v1 sharing links and identity registrations are retired on upgrade. The Hub
+clears v1 sharing records under the lock and advances its generation. Reissue
+links; no old identity grant is converted to bearer authority. Owner grants and
+Gateway trust are retained.
 
 Images use scoped native fetch/validation and bounded browser decoding. A
 canonical complete URI in authoritative Surface state publishes an image;
@@ -76,7 +68,7 @@ arbitrary IDs, constructed URLs or embedded Markdown destinations alone do not.
 Unavailable images and remote audio/video show explicit unavailable states;
 local media behavior is preserved.
 
-See the [protocol](../spec/dashboard-sharing-v1.md),
+See the [protocol](../spec/dashboard-sharing-v2.md),
 [local acceptance](dashboard-sharing-acceptance.md) and
 [Workers deployment guide](../apps/dashboard/README.md).
 
@@ -143,6 +135,5 @@ It stores external-client identity separately in OS-protected storage. Explicitl
 saved public shares retain their bearer credential there; this differs from the
 browser's tab-scoped sessionStorage behavior.
 
-Use a new identity invitation for the app; an already redeemed browser grant
-does not transfer to the app's identity. Local forget does not revoke Hub access.
+Use the same v2 sharing link in browsers and the app. Local forget does not revoke Hub access.
 See the [remote connection validation record](../apps/mobile/docs/remote-connections-validation.md).

@@ -178,8 +178,9 @@ mod tests {
         let mut raw = Some(original.clone());
         let store = Arc::new(CallbackStore::new());
         let client = Client::default();
-        for mode in [Mode::Owner, Mode::Invite, Mode::Public] {
+        for mode in [Mode::Owner, Mode::Share] {
             let link = Link {
+                version: if mode == Mode::Owner { 1 } else { 2 },
                 grant_id: uuid::Uuid::from_u128(MAX_RECORDS as u128).to_string(),
                 mode,
                 ..profile.records[0].link.clone()

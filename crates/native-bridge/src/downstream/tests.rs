@@ -19,7 +19,7 @@ fn typed_owner_commands_match_the_existing_server_contract() {
         json!({"method":"connections"}),
         json!({"method":"sharing"}),
         json!({"method":"sharesList"}),
-        json!({"method":"shareCreate","board_id":"board","public":false,"permissions":{"interact":true,"editLayout":false}}),
+        json!({"method":"shareCreate","board_id":"board","permissions":{"interact":true,"editLayout":false}}),
         json!({"method":"shareRevoke","id":"share"}),
     ] {
         let typed: ControlCommand = serde_json::from_value(value.clone()).unwrap();
@@ -70,7 +70,7 @@ mod wire_tests {
         let server = omochi_transport::bind(SecretKey::generate(), true, None)
             .await
             .unwrap();
-        server.set_alpns(vec![b"omochi/dashboard/1".to_vec()]);
+        server.set_alpns(vec![b"omochi/dashboard/2".to_vec()]);
         let endpoint = omochi_transport::bind(SecretKey::generate(), true, None)
             .await
             .unwrap();
@@ -79,7 +79,7 @@ mod wire_tests {
             hub_id: server.id().to_string(),
             relay_urls: vec!["https://relay.example/".into()],
             grant_id: uuid::Uuid::nil().to_string(),
-            mode: Mode::Public,
+            mode: Mode::Share,
             secret: "cd".repeat(32),
         };
         let (opened, peer) = tokio::join!(
@@ -98,7 +98,7 @@ mod wire_tests {
             endpoint,
             connection,
             stream: AsyncMutex::new((tx, rx)),
-            state: AsyncMutex::new(SessionState::new(Mode::Public, Default::default()).unwrap()),
+            state: AsyncMutex::new(SessionState::new(Mode::Share, Default::default()).unwrap()),
             tokens: Mutex::default(),
             stop: CancellationToken::new(),
         }));
@@ -309,7 +309,7 @@ mod wire_tests {
         let server = omochi_transport::bind(SecretKey::generate(), true, None)
             .await
             .unwrap();
-        server.set_alpns(vec![b"omochi/dashboard/1".to_vec()]);
+        server.set_alpns(vec![b"omochi/dashboard/2".to_vec()]);
         let endpoint = omochi_transport::bind(SecretKey::generate(), true, None)
             .await
             .unwrap();
@@ -319,7 +319,7 @@ mod wire_tests {
             hub_id: server.id().to_string(),
             relay_urls: vec!["https://relay.example/".into()],
             grant_id: uuid::Uuid::nil().to_string(),
-            mode: Mode::Public,
+            mode: Mode::Share,
             secret: "cd".repeat(32),
         };
         let serving = tokio::spawn(async move {
@@ -364,7 +364,7 @@ mod wire_tests {
             stream: AsyncMutex::new((tx, rx)),
             state: AsyncMutex::new(
                 SessionState::new(
-                    Mode::Public,
+                    Mode::Share,
                     serde_json::from_value(welcome["permissions"].clone()).unwrap(),
                 )
                 .unwrap(),

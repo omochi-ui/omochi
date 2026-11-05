@@ -1,5 +1,5 @@
 import { SessionFault, isValidNodeId } from '@omochi-ui/core/browser';
-export interface ShareLink { version: 1; hubId: string; relayUrls: string[]; grantId: string; mode: 'invite' | 'public' | 'owner'; secret: string }
+export interface ShareLink { version: 1 | 2; hubId: string; relayUrls: string[]; grantId: string; mode: 'share' | 'owner'; secret: string }
 export interface SavedShare { owner?: true; hubId: string; relayUrls: string[]; grantId: string; name: string }
 const uuid = (id: unknown): id is string => typeof id === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(id);
 export function relays(value: unknown): value is string[] {
@@ -21,7 +21,7 @@ export function parseShareLink(fragment: string): ShareLink {
     if (!/^[A-Za-z0-9_-]+$/.test(encoded) || encoded.length % 4 === 1) throw 0;
     const bytes = Uint8Array.from(atob(encoded.replaceAll('-', '+').replaceAll('_', '/')), c => c.charCodeAt(0));
     const value = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes)) as ShareLink;
-    if (!value || typeof value !== 'object' || Object.keys(value).sort().join(',') !== 'grantId,hubId,mode,relayUrls,secret,version' || value.version !== 1 || !isValidNodeId(value.hubId) || !uuid(value.grantId) || !relays(value.relayUrls) || !(owner ? value.mode === 'owner' : ['invite', 'public'].includes(value.mode)) || typeof value.secret !== 'string' || !/^[0-9a-f]{64}$/.test(value.secret)) throw 0;
+    if (!value || typeof value !== 'object' || Object.keys(value).sort().join(',') !== 'grantId,hubId,mode,relayUrls,secret,version' || value.version !== (owner ? 1 : 2) || !isValidNodeId(value.hubId) || !uuid(value.grantId) || !relays(value.relayUrls) || !(owner ? value.mode === 'owner' : value.mode === 'share') || typeof value.secret !== 'string' || !/^[0-9a-f]{64}$/.test(value.secret)) throw 0;
     return structuredClone(value);
   } catch { throw new SessionFault('InvalidInvitation'); }
 }

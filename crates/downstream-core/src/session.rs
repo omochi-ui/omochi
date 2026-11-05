@@ -40,9 +40,6 @@ impl SessionState {
         permissions: Permissions,
         source_limits: SourceLimits,
     ) -> Result<Self, Fault> {
-        if mode == Mode::Public && (permissions.interact || permissions.edit_layout) {
-            return Err(Fault::ProtocolError);
-        }
         Ok(Self {
             mode,
             permissions,
