@@ -1,4 +1,6 @@
 //! Small, standalone browser bridge. Native tests compile only pure wire logic.
+#[cfg(any(test, target_arch = "wasm32"))]
+mod downstream;
 #[cfg(target_arch = "wasm32")]
 #[path = "../../../crates/transport/src/relay.rs"]
 mod relay;
@@ -175,7 +177,7 @@ mod wasm {
             };
             let permissions = serde_json::from_str(permissions)
                 .map_err(|_| JsValue::from_str("ProtocolError"))?;
-            let state = omochi_downstream_core::SessionState::new(mode, permissions)
+            let state = super::downstream::new_state(mode, permissions)
                 .map_err(|e| JsValue::from_str(e.code()))?;
             Ok(Self { state })
         }

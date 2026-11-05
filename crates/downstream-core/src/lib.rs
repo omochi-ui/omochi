@@ -3,7 +3,7 @@
 pub mod protocol;
 pub mod session;
 pub use protocol::*;
-pub use session::SessionState;
+pub use session::{SessionState, SourceLimits};
 
 #[cfg(test)]
 mod tests;

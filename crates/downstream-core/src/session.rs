@@ -2,11 +2,29 @@
 use crate::protocol::{AppliedFrame, Fault, Mode, Permissions, Phase, RenderFrame, Rpc};
 use std::collections::{BTreeMap, BTreeSet};
 
+/// Adapter-specific source admission limits, independent of frame, lease and byte budgets.
+/// `None` allows any source count within those shared resource budgets.
+#[derive(Clone, Copy, Debug)]
+pub struct SourceLimits {
+    pub gateways: Option<usize>,
+    pub services: Option<usize>,
+}
+impl Default for SourceLimits {
+    fn default() -> Self {
+        // Preserve the native mobile admission contract unless an adapter opts out.
+        Self {
+            gateways: Some(2),
+            services: Some(8),
+        }
+    }
+}
+
 /// Accept validates a frame; acknowledge is called only after the renderer applied it.
 /// Rejected frames leave all state intact. The adapter owns cancellation for returned leases.
 pub struct SessionState {
     mode: Mode,
     permissions: Permissions,
+    source_limits: SourceLimits,
     phase: Phase,
     previous: u64,
     pending: Option<String>,
@@ -15,12 +33,20 @@ pub struct SessionState {
 }
 impl SessionState {
     pub fn new(mode: Mode, permissions: Permissions) -> Result<Self, Fault> {
+        Self::with_source_limits(mode, permissions, SourceLimits::default())
+    }
+    pub fn with_source_limits(
+        mode: Mode,
+        permissions: Permissions,
+        source_limits: SourceLimits,
+    ) -> Result<Self, Fault> {
         if mode == Mode::Public && (permissions.interact || permissions.edit_layout) {
             return Err(Fault::ProtocolError);
         }
         Ok(Self {
             mode,
             permissions,
+            source_limits,
             phase: Phase::Snapshot,
             previous: 0,
             pending: None,
@@ -120,7 +146,15 @@ impl SessionState {
                     .iter()
                     .filter_map(|id| id.split_once('~').map(|v| v.0))
                     .collect::<BTreeSet<_>>();
-                if nodes.len() > 2 || services.len() > 8 {
+                if self
+                    .source_limits
+                    .gateways
+                    .is_some_and(|limit| nodes.len() > limit)
+                    || self
+                        .source_limits
+                        .services
+                        .is_some_and(|limit| services.len() > limit)
+                {
                     return Err(Fault::CapacityExceeded);
                 }
                 let bytes = snapshot
@@ -190,6 +224,45 @@ impl SessionState {
 mod tests {
     use super::*;
     use serde_json::{Value, json};
+
+    #[test]
+    fn default_admission_preserves_two_gateways_and_eight_services() {
+        let mut state = SessionState::new(Mode::Owner, Permissions::default()).unwrap();
+        let create = |sequence: usize, surface: &str| RenderFrame::Message {
+            sequence: sequence.to_string(),
+            message: json!({"version": "v0.9", "createSurface": {"surfaceId": surface}}),
+            lease: Some(format!("lease{sequence}")),
+        };
+        // The third Gateway is rejected even while the service budget has room.
+        for index in 0..2 {
+            state
+                .accept(&create(index + 1, &format!("node{index}~app{index}/main")))
+                .unwrap();
+            state.acknowledge(&(index + 1).to_string()).unwrap();
+        }
+        assert_eq!(
+            state.accept(&create(3, "node2~app2/main")).unwrap_err(),
+            Fault::CapacityExceeded
+        );
+        for index in 2..8 {
+            state
+                .accept(&create(
+                    index + 1,
+                    &format!("node{}~app{index}/main", index % 2),
+                ))
+                .unwrap();
+            state.acknowledge(&(index + 1).to_string()).unwrap();
+        }
+        let before = state.snapshot.messages();
+        assert_eq!(
+            state.accept(&create(9, "node0~app8/main")).unwrap_err(),
+            Fault::CapacityExceeded
+        );
+        assert_eq!(state.snapshot.messages(), before);
+        assert_eq!(state.previous, 8);
+        assert_eq!(state.pending_ack(), None);
+        assert_eq!(state.close().len(), 8);
+    }
 
     fn data_frame(sequence: &str, path: Value, lease: &str) -> RenderFrame {
         RenderFrame::Message {

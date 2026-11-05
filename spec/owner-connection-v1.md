@@ -56,6 +56,10 @@ Several Hub records may be saved; only one identity connection is active at a
 time. Switching joins the previous session and confirms discard of unsaved
 edits. Local forget/reset does not revoke server-side authority.
 
+Browser owner and share sessions admit Hub Surfaces across Gateways and services
+within the shared frame, lease and snapshot byte budgets. The mobile adapter's
+2 Gateway / 8 service admission limit does not apply to the browser.
+
 Board adapters poll committed board state once per second for invalidation,
 including cross-process changes; requests do not overlap, late results after
 unsubscribe are ignored, and editor drafts are not replaced. Revisions detect
