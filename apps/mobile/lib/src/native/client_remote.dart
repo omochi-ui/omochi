@@ -1,68 +1,110 @@
 import 'dart:async';
-import 'dart:typed_data';
 
 import '../models.dart';
+import '../remote/board_models.dart';
+import '../remote/models.dart';
+import '../remote/repository.dart';
 import 'bridge.dart';
 import 'client_api.dart';
 import 'protocol.dart';
 import 'store.dart';
 
-/// One downstream session owns every lease and renderer callback.
-class RemoteClient extends GatewayClient {
+/// Connection controller. Native transport owns the bridge and identity lease;
+/// this controller owns Flutter scheduling and captured renderer handles.
+class RemoteClient extends HubClient {
   RemoteClient(
-    this.store,
+    NativeHubStore store,
     this.source,
     this.onMessage,
     this.onRetract,
     this.onEvent, {
     this.invitation,
-  });
-  String? invitation;
-  final NativeHubStore store;
-  final Json source;
+    RemoteRepository? repository,
+  }) : repository = repository ?? NativeRemoteRepository(store);
+  final RemoteRepository repository;
+  final RemoteSource source;
+  final String? invitation;
   final void Function(Json) onMessage;
   final void Function(String) onRetract, onEvent;
-  SharedHubBridge? _bridge;
-  Future<void> Function()? _release;
+  RemoteTransport? _transport;
+  Future<RemoteTransport>? _openingTransport;
+  Future<void>? _starting, _closing;
+  Future<void> _transitions = Future.value();
   Timer? _heartbeat, _retry;
   int _epoch = 0;
-  bool _disposed = false;
-  bool _closed = false, _suspended = false, _recovering = false;
+  bool _disposed = false, _closed = false, _suspended = false;
   final Map<String, _RemoteSurface> _surfaces = {};
-  Json? welcome;
+  RemoteWelcome? welcome;
+  RemoteConnectionState state = RemoteConnectionState.disconnected;
   @override
-  String? identity;
+  String? get identity => null;
   @override
-  bool online = true;
+  bool get online => true;
   @override
-  List<GatewayPeer> peers = [];
+  List<GatewayPeer> get peers => const [];
   @override
   List<HubService> services = [];
   @override
-  List<Json> connections = [];
+  List<Json> get connections => [
+    {
+      'id': source.hubId,
+      'name': source.mode.name,
+      'status': state == RemoteConnectionState.connected
+          ? 'Connected'
+          : 'Disconnected',
+    },
+  ];
   @override
   bool get usesScopedSurfaces => true;
   @override
   GatewaySurface? surfaceFor(String id) => _surfaces[id];
-  Future<dynamic> command(Json value) =>
-      _bridge!.request({'op': 'remote', 'request': value});
-  Future<Json> rpc(Json value) async =>
-      await command({'method': 'rpc', 'value': value}) as Json;
-  Future<dynamic> control(Json value) async =>
+  bool get owner => source.mode == RemoteAccessMode.owner;
+  bool get interact => owner || welcome?.permissions.interact == true;
+  bool get editLayout => owner || welcome?.permissions.editLayout == true;
+  void updateSharedBoard(RemoteBoard board) {
+    final current = welcome;
+    if (current == null) return;
+    welcome = RemoteWelcome(
+      services: current.services,
+      permissions: current.permissions,
+      board: board,
+    );
+    _emit();
+  }
+
+  /// Only repository adapters use this wire seam. Widgets use typed methods.
+  Future<Json> rpc(Json value) => _connection.rpc(value);
+  Future<Object?> control(Json value) async =>
       (await rpc({'op': 'control', 'command': value}))['value'];
-  bool get owner => source['mode'] == 'owner';
-  bool get interact => owner || welcome?['permissions']?['interact'] == true;
-  bool get editLayout =>
-      owner || welcome?['permissions']?['editLayout'] == true;
+  RemoteTransport get _connection =>
+      _transport ??
+      (throw BridgeException('ScopeExpired', 'Connection has not started'));
+  void _emit() {
+    if (!_closed && !_disposed) notifyListeners();
+  }
+
+  Future<void> _transition(Future<void> Function() operation) {
+    final result = _transitions.then((_) async {
+      await _starting;
+      if (!_closed) await operation();
+    });
+    _transitions = result.then<void>(
+      (_) {},
+      onError: (Object _, StackTrace _) {},
+    );
+    return result;
+  }
+
   @override
-  Future<void> start() async {
-    _release = await store.acquireIdentityLease();
+  Future<void> start() => _starting ??= _start();
+  Future<void> _start() async {
+    if (_closed) throw StateError('Connection has stopped');
+    final transport = await (_openingTransport = repository.open());
     if (_closed) {
-      await _release?.call();
-      _release = null;
+      await transport.close();
       throw StateError('Connection stopped during startup');
     }
-    _bridge = SharedHubBridge(store);
+    _transport = transport;
     try {
       await _connect();
     } catch (_) {
@@ -74,35 +116,37 @@ class RemoteClient extends GatewayClient {
   Future<void> _connect() async {
     _clear();
     final epoch = _epoch;
-    welcome = await command(
-      invitation == null
-          ? {'method': 'connect', 'id': source['id']}
-          : {'method': 'register', 'invitation': invitation, 'save': false},
-    ) as Json;
+    state = RemoteConnectionState.connecting;
+    _emit();
+    final value = await _connection.connect(source, invitation: invitation);
     if (_closed || _suspended || epoch != _epoch) return;
-    _services(welcome!['services']);
-    connections = [
-      {'id': source['hubId'], 'name': source['mode'], 'status': 'Connected'},
-    ];
-    notifyListeners();
-    _heartbeat = Timer.periodic(const Duration(seconds: 10), (_) async {
-      try {
-        final result = await rpc({'op': 'ping'});
-        if (epoch == _epoch) _services(result['services']);
-      } catch (_) {
-        if (epoch == _epoch) unawaited(_lost());
-      }
-    });
+    welcome = value;
+    services = value.services;
+    state = RemoteConnectionState.connected;
+    _emit();
+    _scheduleHeartbeat(epoch);
     unawaited(_render(epoch));
   }
 
-  void _services(dynamic value) {
-    if (value is List) {
-      services = value
-          .map((s) => HubService.fromJson(Map<String, dynamic>.from(s as Map)))
-          .toList();
-    }
-    notifyListeners();
+  void _scheduleHeartbeat(int epoch) {
+    if (_closed || _suspended || epoch != _epoch) return;
+    _heartbeat = Timer(const Duration(seconds: 10), () async {
+      try {
+        final result = await rpc({'op': 'ping'});
+        if (epoch != _epoch || _closed || _suspended) return;
+        if (owner && result['services'] is List) {
+          services = (result['services'] as List)
+              .map(
+                (s) => HubService.fromJson(Map<String, dynamic>.from(s as Map)),
+              )
+              .toList();
+        }
+        _emit();
+        _scheduleHeartbeat(epoch);
+      } catch (e) {
+        await _failed(e, epoch);
+      }
+    });
   }
 
   void _clear() {
@@ -117,51 +161,79 @@ class RemoteClient extends GatewayClient {
     welcome = null;
   }
 
-  Future<void> _lost() async {
-    if (_closed || _suspended || _recovering) return;
-    _recovering = true;
-    _clear();
-    connections = [
-      {'id': source['hubId'], 'status': 'Disconnected'},
-    ];
-    notifyListeners();
-    try {
-      await command({'method': 'disconnect'});
-    } finally {
-      _recovering = false;
-    }
-    if (!_closed && !_suspended) {
-      _retry = Timer(const Duration(seconds: 3), () => unawaited(_reconnect()));
-    }
+  bool _terminal(Object error) {
+    if (error is! BridgeException) return false;
+    if (error.retryable case final bool retryable) return !retryable;
+    // Older bridge builds omit policy; preserve exact-code compatibility.
+    return const {
+      'CapacityExceeded',
+      'ProtocolError',
+      'NotAuthorized',
+      'InvalidInvitation',
+      'NotFound',
+      'StorageCorrupt',
+      'StorageUnavailable',
+      'StorageOutcomeUnknown',
+      'RenderError',
+      'BridgeTerminated',
+    }.contains(error.code);
   }
 
-  Future<void> _reconnect() async {
+  Future<void> _failed(Object error, int epoch) async {
+    if (_closed || _suspended || epoch != _epoch) return;
+    final terminal = _terminal(error);
+    _clear();
+    final failureEpoch = _epoch;
+    state = terminal
+        ? RemoteConnectionState.failed
+        : RemoteConnectionState.disconnected;
+    onEvent('$error');
+    _emit();
+    await _transition(() async {
+      try {
+        await _connection.disconnect();
+      } catch (e) {
+        if (!_closed) onEvent('$e');
+      }
+      if (!terminal && !_suspended && failureEpoch == _epoch) _scheduleRetry();
+    });
+  }
+
+  void _scheduleRetry() {
     if (_closed || _suspended) return;
+    _retry?.cancel();
+    _retry = Timer(const Duration(seconds: 3), () => unawaited(_reconnect()));
+  }
+
+  Future<void> _reconnect() => _transition(() async {
+    if (_suspended) return;
     try {
       await _connect();
     } catch (e) {
+      if (_closed || _suspended) return;
+      _clear();
+      state = _terminal(e)
+          ? RemoteConnectionState.failed
+          : RemoteConnectionState.disconnected;
       onEvent('$e');
-      if ('$e'.contains('NotAuthorized')) {
-        _clear();
-        connections = [
-          {'id': source['hubId'], 'status': 'Disconnected'},
-        ];
-        notifyListeners();
-        await command({'method': 'disconnect'});
-      } else {
-        await _lost();
+      _emit();
+      try {
+        await _connection.disconnect();
+      } catch (e) {
+        onEvent('$e');
       }
+      if (state != RemoteConnectionState.failed) _scheduleRetry();
     }
-  }
+  });
 
   Future<void> _render(int epoch) async {
     String? ack;
     try {
       while (!_closed && !_suspended && epoch == _epoch) {
-        final frame = await command({'method': 'next', 'ack': ?ack}) as Json;
-        if (epoch != _epoch) return;
-        if (frame['kind'] == 'message') {
-          final message = Map<String, dynamic>.from(frame['message'] as Map);
+        final frame = await _connection.next(ack: ack);
+        if (epoch != _epoch || _closed || _suspended) return;
+        if (frame.kind == RemoteFrameKind.message) {
+          final message = frame.message!;
           final body = [
             'createSurface',
             'updateComponents',
@@ -172,17 +244,17 @@ class RemoteClient extends GatewayClient {
           if (message.containsKey('deleteSurface')) {
             _surfaces.remove(id);
           } else {
-            _surfaces[id] = _RemoteSurface(
-              this,
-              id,
-              frame['lease'] as String,
-              epoch,
-            );
+            _surfaces[id] = _RemoteSurface(this, id, frame.lease!, epoch);
           }
-          onMessage(message);
+          try {
+            onMessage(message); // ACK only after synchronous application.
+          } catch (e) {
+            throw BridgeException('RenderError', '$e', retryable: false);
+          }
           if (!owner) {
-            final routes = _surfaces.keys.map(channelOf).toSet();
-            services = routes
+            services = _surfaces.keys
+                .map(channelOf)
+                .toSet()
                 .map(
                   (id) => HubService.fromJson({
                     'id': id,
@@ -191,75 +263,66 @@ class RemoteClient extends GatewayClient {
                   }),
                 )
                 .toList();
-            notifyListeners();
+            _emit();
           }
         }
-        ack = frame['sequence'] as String;
+        ack = frame.sequence;
         await Future<void>.delayed(Duration.zero);
       }
     } catch (e) {
-      if (epoch == _epoch && !_closed && !_suspended) {
-        onEvent('$e');
-        if ([
-          'CapacityExceeded',
-          'ProtocolError',
-          'NotAuthorized',
-        ].any((code) => '$e'.contains(code))) {
-          _clear();
-          connections = [
-            {'id': source['hubId'], 'status': 'Disconnected'},
-          ];
-          notifyListeners();
-          await command({'method': 'disconnect'});
-        } else {
-          await _lost();
-        }
-      }
+      await _failed(e, epoch);
     }
   }
 
   @override
-  Future<void> suspend() async {
+  Future<void> suspend() {
     _suspended = true;
     _clear();
-    await command({'method': 'disconnect'});
+    state = RemoteConnectionState.suspended;
+    _emit();
+    return _transition(() => _connection.disconnect());
   }
 
   @override
-  Future<void> resume() async {
+  Future<void> resume() => _transition(() async {
     if (!_suspended) return;
     _suspended = false;
-    await _reconnect();
-  }
-
+    try {
+      await _connect();
+    } catch (e) {
+      _clear();
+      state = _terminal(e)
+          ? RemoteConnectionState.failed
+          : RemoteConnectionState.disconnected;
+      onEvent('$e');
+      _emit();
+      if (state != RemoteConnectionState.failed) _scheduleRetry();
+    }
+  });
   @override
   void retry(String id) {
-    unawaited(_lost());
+    _retry?.cancel();
+    unawaited(_reconnect());
   }
 
   @override
-  Future<void> pair(String invitation) async =>
-      throw StateError('Use Connections to add a gateway');
-  @override
-  Future<void> forget(String id) async =>
-      throw StateError('Use Connections to forget a Hub');
-  @override
-  Future<void> setOnline(bool value) async =>
-      throw StateError('Remote Hub requires Internet relays');
-  @override
-  Future<void> send(Json message) async =>
-      throw StateError('Surface lease required');
-  @override
-  Future<Uint8List> resource(String route, String id) async =>
-      throw StateError('Surface lease required');
-  @override
-  Future<void> close() async {
+  Future<void> close() => _closing ??= _close().catchError((Object e) {
+    _closing = null;
+    throw e;
+  });
+  Future<void> _close() async {
     if (_disposed) return;
     _closed = true;
     _clear();
-    await _bridge?.close();
-    await _release?.call();
-    _release = null;
+    state = RemoteConnectionState.closed;
+    RemoteTransport? pending;
+    try {
+      pending = await _openingTransport;
+    } catch (_) {
+      // A failed acquisition owns no transport. Its startup Future reports it.
+    }
+    await (_transport ?? pending)?.close();
+    _transport = null;
     _disposed = true;
     super.dispose();
   }
@@ -278,39 +341,29 @@ class _RemoteSurface implements GatewaySurface {
     if (client._closed ||
         epoch != client._epoch ||
         client._surfaces[surfaceId]?.lease != lease) {
-      throw StateError('Surface handle expired');
+      throw BridgeException('ScopeExpired', 'Surface handle expired');
     }
   }
 
   @override
   Future<void> send(Json message) async {
     check();
-    if (!client.interact) throw StateError('NotAuthorized');
+    if (!client.interact) {
+      throw BridgeException('NotAuthorized', 'Interaction is not allowed');
+    }
     await client.rpc({'op': 'action', 'lease': lease, 'message': message});
   }
 
   @override
   GatewayImageRequest image(String uri) {
     check();
-    bool cancelled = false;
-    final call = client._bridge!.call({
-      'op': 'remote',
-      'request': {
-        'method': 'rpc',
-        'value': {'op': 'image', 'lease': lease, 'uri': uri},
-      },
-    });
-    final bytes = call.result.then((value) {
-      check();
-      if (cancelled) throw StateError('Cancelled');
-      return client._bridge!.imageBytes(
-        value as Json,
-        () => cancelled || client._closed || epoch != client._epoch,
-      );
-    });
-    return GatewayImageRequest(bytes, () {
-      cancelled = true;
-      call.cancel();
-    });
+    return client._connection.image(
+      lease,
+      uri,
+      () =>
+          client._closed ||
+          epoch != client._epoch ||
+          client._surfaces[surfaceId]?.lease != lease,
+    );
   }
 }

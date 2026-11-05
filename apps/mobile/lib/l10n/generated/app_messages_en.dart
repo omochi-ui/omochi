@@ -159,4 +159,160 @@ class AppMessagesEn extends AppMessages {
   @override
   String get forgetLocalExplanation =>
       'Remove the registration from this device. Revoking this device on the gateway is a separate operation.';
+
+  @override
+  String get remoteBoards => 'Boards';
+
+  @override
+  String get remotePresets => 'Presets';
+
+  @override
+  String get remoteSharing => 'Sharing';
+
+  @override
+  String get remoteConnections => 'Connections';
+
+  @override
+  String get remoteSharingConfiguration => 'Sharing configuration';
+
+  @override
+  String get remoteSharingEnabled => 'Sharing is enabled';
+
+  @override
+  String get remoteSharingDisabled => 'Sharing is disabled';
+
+  @override
+  String remoteRevision(int revision) {
+    return 'Revision $revision';
+  }
+
+  @override
+  String get remoteDiscardChanges => 'Discard unsaved changes?';
+
+  @override
+  String get remoteKeepEditing => 'Keep editing';
+
+  @override
+  String get remoteDiscard => 'Discard';
+
+  @override
+  String get remoteDeleteBoard => 'Delete board?';
+
+  @override
+  String get remoteDelete => 'Delete';
+
+  @override
+  String get remoteSave => 'Save';
+
+  @override
+  String get remoteInvalidValue => 'Enter a valid value';
+
+  @override
+  String get remoteChooseSurface => 'Choose Surface';
+
+  @override
+  String get remoteEditBoard => 'Edit board';
+
+  @override
+  String get remoteReloadBoard => 'Reload board';
+
+  @override
+  String get remoteName => 'Name';
+
+  @override
+  String get remoteTitle => 'Title';
+
+  @override
+  String get remoteColumn => 'Column';
+
+  @override
+  String get remoteRow => 'Row';
+
+  @override
+  String get remoteWidth => 'Width (columns)';
+
+  @override
+  String get remoteHeight => 'Height (rows)';
+
+  @override
+  String get remoteRemovePanel => 'Remove panel';
+
+  @override
+  String get remoteAddPanel => 'Add panel';
+
+  @override
+  String get remoteCreateShare => 'Create share';
+
+  @override
+  String get remotePublicReadOnly => 'Public (read only)';
+
+  @override
+  String get remoteAllowInteraction => 'Allow interaction';
+
+  @override
+  String get remoteAllowLayout => 'Allow layout editing';
+
+  @override
+  String get remoteCreate => 'Create';
+
+  @override
+  String get remoteShareLink => 'Share link';
+
+  @override
+  String get remoteReadOnly => 'Read only';
+
+  @override
+  String remoteSharePermissions(String interact, String layout) {
+    return 'Interaction: $interact, layout editing: $layout';
+  }
+
+  @override
+  String get remoteAllowed => 'Allowed';
+
+  @override
+  String get remoteDenied => 'Not allowed';
+
+  @override
+  String get remoteHubConnections => 'Hub connections';
+
+  @override
+  String get remoteConnectTitle => 'Connect to a Hub';
+
+  @override
+  String get remoteConnectInvitation => 'Invitation link';
+
+  @override
+  String get remoteConnectOwner => 'Owner access';
+
+  @override
+  String get remoteConnectShared => 'Shared dashboard';
+
+  @override
+  String get remoteConnectOwnerExplanation =>
+      'Full dashboard and sharing control.';
+
+  @override
+  String get remoteConnectSharedExplanation =>
+      'Access follows the permissions granted by the Hub.';
+
+  @override
+  String get remoteConnectViewOnce => 'View once';
+
+  @override
+  String get remoteConnectSave => 'Save connection';
+
+  @override
+  String get remoteHubThisDevice => 'This device’s Hub';
+
+  @override
+  String get remoteHubAdd => 'Add Hub connection';
+
+  @override
+  String get remoteHubPending => 'Pending';
+
+  @override
+  String get remoteHubInvite => 'Shared access';
+
+  @override
+  String get remoteHubPublic => 'Public read-only';
 }

@@ -14,6 +14,8 @@ function environment(t: TestContext) {
   } } });
   t.after(() => { if (oldDB) Object.defineProperty(globalThis, 'indexedDB', oldDB); else Reflect.deleteProperty(globalThis, 'indexedDB'); if (oldNav) Object.defineProperty(globalThis, 'navigator', oldNav); else Reflect.deleteProperty(globalThis, 'navigator'); });
   const transport: BrowserTransport = {
+    createDownstreamState() { throw new Error('Storage never creates render state'); },
+    isRetryable() { throw new Error('Storage never classifies session failures'); },
     async generateIdentity() { generated++; return { secretHex: '0'.repeat(64), endpointId: 'b'.repeat(64) }; },
     async identityFromSecret(secretHex) { derived++; if (!/^[a-f0-9]{64}$/.test(secretHex)) throw new SessionFault('StorageCorrupt'); return { secretHex, endpointId: 'b'.repeat(64) }; },
     async openEndpoint() { endpoints++; throw new Error('Storage never opens endpoints'); },

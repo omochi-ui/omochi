@@ -284,13 +284,14 @@ impl Session {
         match command {
             Command::Remote { request } => {
                 use base64::Engine;
-                let image = request["value"]["op"] == "image";
+                let image_lease = request.image_lease().map(str::to_owned);
+                let image = image_lease.is_some();
                 let permit = if image {
                     Some(
                         self.image_slots
                             .clone()
                             .try_acquire_owned()
-                            .context("Image reader busy")?,
+                            .map_err(|_| omochi_downstream_core::Fault::CapacityExceeded)?,
                     )
                 } else {
                     None
@@ -298,9 +299,7 @@ impl Session {
                 let token = if image {
                     Some(
                         self.downstream
-                            .lease_token(
-                                request["value"]["lease"].as_str().context("ScopeExpired")?,
-                            )
+                            .lease_token(image_lease.as_deref().unwrap())
                             .await?,
                     )
                 } else {
@@ -311,9 +310,17 @@ impl Session {
                     .execute(request, self.store.clone(), cancel)
                     .await?;
                 if let Some(permit) = permit {
-                    anyhow::ensure!(!token.as_ref().unwrap().is_cancelled(), "ScopeExpired");
+                    anyhow::ensure!(
+                        !token.as_ref().unwrap().is_cancelled(),
+                        omochi_downstream_core::Fault::ScopeExpired
+                    );
                     let bytes = base64::engine::general_purpose::STANDARD
-                        .decode(value["data"].as_str().context("InvalidImage")?)?;
+                        .decode(
+                            value["data"]
+                                .as_str()
+                                .ok_or(omochi_downstream_core::Fault::InvalidImage)?,
+                        )
+                        .map_err(|_| omochi_downstream_core::Fault::InvalidImage)?;
                     value.as_object_mut().unwrap().remove("data");
                     let id = self.next_id();
                     value["blob"] = id.into();
@@ -495,7 +502,11 @@ impl Session {
             let result = session.execute(command, cancel).await;
             let reply = match result {
                 Ok(value) => json!({"kind":"result","id":id,"ok":true,"value":value}),
-                Err(error) => json!({"kind":"result","id":id,"ok":false,"error":error.to_string()}),
+                Err(error) => {
+                    let code = error.downcast_ref::<omochi_downstream_core::Fault>().map(|fault| fault.code());
+                    let retryable = error.downcast_ref::<omochi_downstream_core::Fault>().map(|fault| fault.retryable());
+                    json!({"kind":"result","id":id,"ok":false,"error":error.to_string(),"errorCode":code,"retryable":retryable})
+                },
             };
             session.commands.lock().unwrap().remove(&id);
             session.enqueue(Reply {
@@ -511,19 +522,39 @@ impl Session {
 #[derive(Deserialize)]
 #[serde(tag = "op", rename_all = "snake_case", deny_unknown_fields)]
 enum Command {
-    Remote { request: Value },
-    Start { online: bool },
+    Remote {
+        request: omochi_downstream_core::Command,
+    },
+    Start {
+        online: bool,
+    },
     State,
-    Pair { invitation: String },
-    Forget { id: String },
-    Retry { id: String },
+    Pair {
+        invitation: String,
+    },
+    Forget {
+        id: String,
+    },
+    Retry {
+        id: String,
+    },
     Reload,
     Suspend,
-    Resume { online: bool },
+    Resume {
+        online: bool,
+    },
     Subscribe,
-    Next { ack: Option<u64> },
-    Action { handle: u64, message: Value },
-    Image { handle: u64, uri: String },
+    Next {
+        ack: Option<u64>,
+    },
+    Action {
+        handle: u64,
+        message: Value,
+    },
+    Image {
+        handle: u64,
+        uri: String,
+    },
     Close,
 }
 
@@ -715,6 +746,8 @@ mod tests {
         let result = poll(&session).await;
         assert_eq!(result["ok"], false);
         assert_eq!(result["error"], "StorageCorrupt");
+        assert_eq!(result["errorCode"], "StorageCorrupt");
+        assert_eq!(result["retryable"], false);
         assert!(session.poll().is_none());
         submit(&session, json!({"op":"close"}));
         assert_eq!(poll(&session).await["ok"], true);
@@ -751,6 +784,8 @@ mod tests {
         let result = poll(&session).await;
         assert_eq!(result["ok"], false);
         assert_eq!(result["error"], "StorageOutcomeUnknown");
+        assert_eq!(result["errorCode"], "StorageOutcomeUnknown");
+        assert_eq!(result["retryable"], false);
         submit(&session, json!({"op":"close"}));
         assert_eq!(poll(&session).await["ok"], true);
         stopped(&session).await;

@@ -26,4 +26,13 @@ export interface WasmModule {
   generate_identity(): string;
   identity_from_secret(secret: string): string;
   RawEndpoint: { create(secret: string, relays: string): Promise<RawEndpoint> };
+  DownstreamState: { new(mode: string, permissions: string): RawDownstreamState };
+  downstream_retryable(code: string): boolean;
+}
+
+export interface RawDownstreamState {
+  accept(frame: string): string;
+  acknowledge(sequence: string): void;
+  close(): void;
+  free(): void;
 }

@@ -1,17 +1,11 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 import 'app.dart';
-import 'hub_session.dart';
-import 'models.dart';
-import 'native/bridge.dart';
-import 'native/client_remote.dart';
-import 'native/store.dart';
-
-String remoteText(BuildContext context, String en, String ja) =>
-    Localizations.localeOf(context).languageCode == 'ja' ? ja : en;
+import 'messages.dart';
+import 'remote/controller.dart';
+import 'remote/models.dart';
 
 class RemoteConnections extends StatefulWidget {
   const RemoteConnections({
@@ -19,227 +13,201 @@ class RemoteConnections extends StatefulWidget {
     this.invitation,
     this.restore = false,
     this.links = const Stream<Uri>.empty(),
+    this.controller,
   });
   final String? invitation;
   final bool restore;
   final Stream<Uri> links;
+  final RemoteConnectionsController? controller;
+
   @override
   State<RemoteConnections> createState() => _RemoteConnectionsState();
 }
 
 class _RemoteConnectionsState extends State<RemoteConnections> {
-  final store = NativeHubStore(namespace: 'omochi.mobile.remote.v1');
-  List<Json> records = [];
-  String? error;
-  bool busy = false;
-  Future<T> withBridge<T>(Future<T> Function(SharedHubBridge) work) async {
-    final release = await store.acquireIdentityLease();
-    SharedHubBridge? bridge;
-    try {
-      bridge = SharedHubBridge(store);
-      return await work(bridge);
-    } finally {
-      await bridge?.close();
-      await release();
-    }
-  }
+  late final controller =
+      widget.controller ?? RemoteConnectionsController.native();
+  bool adding = false;
 
-  Future<dynamic> command(Json value) => withBridge(
-    (bridge) => bridge.request({'op': 'remote', 'request': value}),
-  );
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback(
-      (_) => unawaited(initialize()),
-    );
+    controller.addListener(changed);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) unawaited(initialize());
+    });
   }
 
-  Future<void> initialize() async {
-    await load();
+  void changed() {
+    if (mounted) setState(() {});
+  }
+
+  @override
+  void dispose() {
+    controller.removeListener(changed);
+    if (widget.controller == null) controller.dispose();
+    super.dispose();
+  }
+
+  Future<void> initialize() => observe(() async {
+    await controller.load();
     if (!mounted) return;
     if (widget.invitation != null) {
       await add(widget.invitation);
     } else if (widget.restore) {
-      final selected = await SharedPreferencesAsync().getString(
-        'omochi.mobile.selectedHub',
-      );
-      final source = records.where((r) => r['id'] == selected).firstOrNull;
+      final source = await controller.selectedSource();
       if (source != null && mounted) await open(source);
     }
-  }
+  });
 
-  Future<void> load() async {
+  // Controller state carries failures; event handlers still observe the Future.
+  Future<void> observe(Future<void> Function() work) async {
     try {
-      final value = await command({'method': 'list'}) as List;
-      if (mounted) setState(() => records = value.cast<Json>());
-    } catch (e) {
-      if (mounted) setState(() => error = '$e');
-    }
+      await work();
+    } catch (_) {}
   }
 
   Future<void> add([String? initial]) async {
-    if (busy) return;
-    final text = TextEditingController(text: initial);
-    final input = await showDialog<String>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text(remoteText(context, 'Connect to a Hub', 'Hubへ接続')),
-        content: TextField(
-          controller: text,
-          autofocus: true,
-          decoration: InputDecoration(
-            labelText: remoteText(context, 'Invitation link', '招待リンク'),
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: Text(remoteText(context, 'Cancel', 'キャンセル')),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, text.text),
-            child: Text(remoteText(context, 'Continue', '続ける')),
-          ),
-        ],
-      ),
-    );
-    await Future<void>.delayed(const Duration(milliseconds: 300));
-    text.dispose();
-    if (input == null || !mounted) return;
-    setState(() => busy = true);
+    if (adding || controller.busy) return;
+    setState(() => adding = true);
     try {
-      final metadata =
-          await command({'method': 'parse', 'invitation': input}) as Json;
-      if (!mounted) return;
-      final save = await showDialog<bool>(
+      final text = TextEditingController(text: initial);
+      final input = await showDialog<String>(
         context: context,
         builder: (context) => AlertDialog(
-          title: Text(
-            metadata['mode'] == 'owner'
-                ? remoteText(context, 'Owner access', 'オーナー接続')
-                : remoteText(context, 'Shared dashboard', '共有ダッシュボード'),
-          ),
-          content: Text(
-            '${metadata['hubId']}\n\n${metadata['mode'] == 'owner' ? remoteText(context, 'Full dashboard and sharing control.', '全ボードの編集と共有管理が可能になります。') : remoteText(context, 'Access follows the permissions granted by the Hub.', '接続先Hubが付与した権限で利用します。')}',
+          title: Text(messagesFor(context).remoteConnectTitle),
+          content: TextField(
+            controller: text,
+            autofocus: true,
+            decoration: InputDecoration(
+              labelText: messagesFor(context).remoteConnectInvitation,
+            ),
           ),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context),
-              child: Text(remoteText(context, 'Cancel', 'キャンセル')),
+              child: Text(messagesFor(context).cancel),
             ),
-            if (metadata['mode'] == 'public')
-              TextButton(
-                onPressed: () => Navigator.pop(context, false),
-                child: Text(remoteText(context, 'View once', '一時閲覧')),
-              ),
             FilledButton(
-              onPressed: () => Navigator.pop(context, true),
-              child: Text(remoteText(context, 'Save connection', '接続を保存')),
+              onPressed: () => Navigator.pop(context, text.text),
+              child: Text(messagesFor(context).continueButton),
             ),
           ],
         ),
       );
-      if (save == null) return;
-      // The registration bridge ends its endpoint before the renderer acquires the identity.
-      if (metadata['mode'] == 'public' && !save) {
-        await open(metadata, invitation: input);
-      } else {
-        await command({
-          'method': 'register',
-          'invitation': input,
-          'save': save,
-        });
-        await load();
-        if (mounted) await open(metadata);
-      }
-    } catch (e) {
-      if (mounted) setState(() => error = '$e');
+      // The closing dialog animation still reads its text controller.
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+      text.dispose();
+      if (input == null || !mounted) return;
+      await observe(() async {
+        final source = await controller.parse(input);
+        if (!mounted) return;
+        final save = await showDialog<bool>(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: Text(
+              source.mode == RemoteAccessMode.owner
+                  ? messagesFor(context).remoteConnectOwner
+                  : messagesFor(context).remoteConnectShared,
+            ),
+            content: Text(
+              '${source.hubId}\n\n${source.mode == RemoteAccessMode.owner ? messagesFor(context).remoteConnectOwnerExplanation : messagesFor(context).remoteConnectSharedExplanation}',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: Text(messagesFor(context).cancel),
+              ),
+              if (source.mode == RemoteAccessMode.public)
+                TextButton(
+                  onPressed: () => Navigator.pop(context, false),
+                  child: Text(messagesFor(context).remoteConnectViewOnce),
+                ),
+              FilledButton(
+                onPressed: () => Navigator.pop(context, true),
+                child: Text(messagesFor(context).remoteConnectSave),
+              ),
+            ],
+          ),
+        );
+        if (save == null || !mounted) return;
+        if (source.mode == RemoteAccessMode.public && !save) {
+          await open(source, invitation: input);
+        } else {
+          await controller.register(input, save: save);
+          if (mounted) await open(source);
+        }
+      });
     } finally {
-      if (mounted) setState(() => busy = false);
+      if (mounted) setState(() => adding = false);
     }
   }
 
-  Future<void> open(Json source, {String? invitation}) async {
-    final session = HubSession(
-      gatewayClientFactory:
-          ({
-            required store,
-            required onMessage,
-            required onRetract,
-            required onEvent,
-          }) => RemoteClient(
-            this.store,
-            source,
-            onMessage,
-            onRetract,
-            onEvent,
-            invitation: invitation,
+  Future<void> open(RemoteSource source, {String? invitation}) async {
+    await controller.open(
+      source,
+      invitation: invitation,
+      present: (session) async {
+        if (!mounted) return;
+        await Navigator.of(context).push(
+          MaterialPageRoute<void>(
+            builder: (_) => MobileHome(links: widget.links, session: session),
           ),
+        );
+      },
     );
-    if (!mounted) return;
-    if (invitation == null) {
-      await SharedPreferencesAsync().setString(
-        'omochi.mobile.selectedHub',
-        source['id'] as String,
-      );
-    }
-    if (!mounted) return;
-    await Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (_) => MobileHome(links: widget.links, session: session),
-      ),
-    );
-    await session.stopNative();
-    await load();
+    if (mounted) await controller.load();
   }
+
+  String accessLabel(BuildContext context, RemoteAccessMode mode) =>
+      switch (mode) {
+        RemoteAccessMode.owner => messagesFor(context).remoteConnectOwner,
+        RemoteAccessMode.invite => messagesFor(context).remoteHubInvite,
+        RemoteAccessMode.public => messagesFor(context).remoteHubPublic,
+      };
 
   @override
-  Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(
-      title: Text(remoteText(context, 'Hub connections', 'Hub接続')),
-    ),
-    body: ListView(
-      children: [
-        if (error != null) ListTile(title: Text(error!)),
-        ListTile(
-          title: Text(remoteText(context, 'This device’s Hub', 'この端末のHub')),
-          onTap: () async {
-            await SharedPreferencesAsync().remove('omochi.mobile.selectedHub');
-            if (context.mounted) Navigator.pop(context);
-          },
-        ),
-        for (final record in records)
+  Widget build(BuildContext context) {
+    final busy = adding || controller.busy;
+    return Scaffold(
+      appBar: AppBar(title: Text(messagesFor(context).remoteHubConnections)),
+      body: ListView(
+        children: [
+          if (controller.error != null)
+            ListTile(title: Text(describeFailure(controller.error!))),
           ListTile(
-            title: Text('${record['mode']} · ${record['hubId']}'),
-            subtitle: Text(
-              '${record['grantId']}${record['accepted'] == true ? '' : ' · Pending'}',
-            ),
+            title: Text(messagesFor(context).remoteHubThisDevice),
             onTap: busy
                 ? null
-                : () async {
-                    try {
-                      await open(record);
-                    } catch (e) {
-                      if (mounted) setState(() => error = '$e');
-                    }
-                  },
-            trailing: IconButton(
-              icon: const Icon(Icons.delete_outline),
-              onPressed: busy
-                  ? null
-                  : () async {
-                      await command({'method': 'forget', 'id': record['id']});
-                      await load();
-                    },
-            ),
+                : () => observe(() async {
+                    await controller.select(null);
+                    if (context.mounted) Navigator.pop(context);
+                  }),
           ),
-        ListTile(
-          leading: const Icon(Icons.add_link),
-          title: Text(remoteText(context, 'Add Hub connection', 'Hub接続を追加')),
-          onTap: busy ? null : () => add(),
-        ),
-      ],
-    ),
-  );
+          for (final source in controller.records)
+            ListTile(
+              title: Text(
+                '${accessLabel(context, source.mode)} · ${source.hubId}',
+              ),
+              subtitle: Text(
+                '${source.grantId}${source.accepted ? '' : ' · ${messagesFor(context).remoteHubPending}'}',
+              ),
+              onTap: busy ? null : () => observe(() => open(source)),
+              trailing: IconButton(
+                tooltip: messagesFor(context).forget,
+                icon: const Icon(Icons.delete_outline),
+                onPressed: busy
+                    ? null
+                    : () => observe(() => controller.forget(source.id)),
+              ),
+            ),
+          ListTile(
+            leading: const Icon(Icons.add_link),
+            title: Text(messagesFor(context).remoteHubAdd),
+            onTap: busy ? null : () => add(),
+          ),
+        ],
+      ),
+    );
+  }
 }

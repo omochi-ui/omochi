@@ -23,8 +23,22 @@ export interface BrowserTransport {
   generateIdentity(): Promise<BrowserIdentity>;
   identityFromSecret(secretHex: string): Promise<BrowserIdentity>;
   openEndpoint(secretHex: string, relays: readonly string[]): Promise<Endpoint>;
+  createDownstreamState(mode: 'invite' | 'public' | 'owner', permissions: { interact: boolean; editLayout: boolean }): DownstreamState;
+  isRetryable(code: SessionErrorCode): boolean;
 }
-const codes = new Set<SessionErrorCode>(['ProtocolError', 'CapacityExceeded', 'Cancelled', 'Timeout', 'StorageCorrupt', 'NetworkUnavailable']);
+export interface AppliedDownstreamFrame {
+  sequence: string;
+  surface: string | null;
+  lease: string | null;
+  invalidatedLeases: string[];
+  snapshotEnd: boolean;
+}
+export interface DownstreamState {
+  accept(frame: Record<string, unknown>): AppliedDownstreamFrame;
+  acknowledge(sequence: string): void;
+  close(): void;
+}
+const codes = new Set<SessionErrorCode>(['ProtocolError', 'CapacityExceeded', 'Cancelled', 'Timeout', 'StorageCorrupt', 'NetworkUnavailable', 'ScopeExpired', 'NotAuthorized']);
 function fault(error: unknown): SessionFault {
   if (error instanceof SessionFault) return error;
   return new SessionFault(typeof error === 'string' && codes.has(error as SessionErrorCode) ? error as SessionErrorCode : 'NetworkUnavailable');
@@ -224,6 +238,26 @@ class OwnedEndpoint implements Endpoint {
 /** Injectable FFI seam for lifecycle tests; production uses loadBrowserTransport. */
 export function createTransportFacade(module: WasmModule): BrowserTransport {
   return {
+    isRetryable(code) { return module.downstream_retryable(code); },
+    createDownstreamState(mode, permissions) {
+      let raw: import('./ffi.js').RawDownstreamState;
+      try { raw = new module.DownstreamState(mode, JSON.stringify(permissions)); } catch (error) { throw fault(error); }
+      let closed = false;
+      return {
+        accept(frame) {
+          if (closed) throw new SessionFault('ScopeExpired');
+          try {
+            const value = parsed(raw.accept(JSON.stringify(frame)));
+            if (typeof value.sequence !== 'string' || (value.surface !== null && typeof value.surface !== 'string') ||
+                (value.lease !== null && typeof value.lease !== 'string') || !Array.isArray(value.invalidatedLeases) ||
+                !value.invalidatedLeases.every(lease => typeof lease === 'string') || typeof value.snapshotEnd !== 'boolean') throw new SessionFault('ProtocolError');
+            return value as unknown as AppliedDownstreamFrame;
+          } catch (error) { throw fault(error); }
+        },
+        acknowledge(sequence) { if (closed) throw new SessionFault('ScopeExpired'); try { raw.acknowledge(sequence); } catch (error) { throw fault(error); } },
+        close() { if (closed) return; closed = true; try { raw.close(); } finally { raw.free(); } },
+      };
+    },
     async generateIdentity() { try { return identity(module.generate_identity()); } catch (error) { throw fault(error); } },
     async identityFromSecret(secretHex) {
       if (!isValidNodeId(secretHex)) throw new SessionFault('StorageCorrupt');

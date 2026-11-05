@@ -153,6 +153,51 @@ mod wasm {
     use wasm_bindgen::prelude::*;
     use wasm_bindgen_futures::future_to_promise;
 
+    #[wasm_bindgen]
+    pub fn downstream_retryable(code: &str) -> bool {
+        omochi_downstream_core::Fault::retryable_code(code)
+    }
+
+    /// The same pure acknowledgement and lease rules used by the native adapter.
+    #[wasm_bindgen]
+    pub struct DownstreamState {
+        state: omochi_downstream_core::SessionState,
+    }
+    #[wasm_bindgen]
+    impl DownstreamState {
+        #[wasm_bindgen(constructor)]
+        pub fn new(mode: &str, permissions: &str) -> Result<DownstreamState, JsValue> {
+            let mode = match mode {
+                "owner" => omochi_downstream_core::Mode::Owner,
+                "public" => omochi_downstream_core::Mode::Public,
+                "invite" => omochi_downstream_core::Mode::Invite,
+                _ => return Err(JsValue::from_str("InvalidRequest")),
+            };
+            let permissions = serde_json::from_str(permissions)
+                .map_err(|_| JsValue::from_str("ProtocolError"))?;
+            let state = omochi_downstream_core::SessionState::new(mode, permissions)
+                .map_err(|e| JsValue::from_str(e.code()))?;
+            Ok(Self { state })
+        }
+        pub fn accept(&mut self, frame: &str) -> Result<String, JsValue> {
+            let frame =
+                serde_json::from_str(frame).map_err(|_| JsValue::from_str("ProtocolError"))?;
+            let effect = self
+                .state
+                .accept(&frame)
+                .map_err(|e| JsValue::from_str(e.code()))?;
+            serde_json::to_string(&effect).map_err(|_| JsValue::from_str("ProtocolError"))
+        }
+        pub fn acknowledge(&mut self, sequence: &str) -> Result<(), JsValue> {
+            self.state
+                .acknowledge(sequence)
+                .map_err(|e| JsValue::from_str(e.code()))
+        }
+        pub fn close(&mut self) {
+            self.state.close();
+        }
+    }
+
     fn js(error: Fault) -> JsValue {
         JsValue::from_str(error.code())
     }

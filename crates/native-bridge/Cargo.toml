@@ -15,6 +15,7 @@ url = "2.5.8"
 uuid = { version = "1.29.0", features = ["v4"] }
 omochi-transport = { path = "../transport", default-features = false }
 omochi-protocol = { path = "../protocol" }
+omochi-downstream-core = { path = "../downstream-core" }
 omochi-ui = { path = "../../packages/sdk/rust", default-features = false }
 serde.workspace = true
 serde_json.workspace = true

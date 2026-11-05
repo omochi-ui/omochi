@@ -2,7 +2,6 @@ import 'dart:async';
 
 import 'package:app_links/app_links.dart';
 import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:genui/genui.dart';
 
 import '../l10n/generated/app_messages.dart';
@@ -12,6 +11,9 @@ import 'models.dart';
 import 'native/protocol.dart';
 import 'remote_connections.dart';
 import 'remote_boards.dart';
+import 'remote/navigation_controller.dart';
+import 'remote/boards_repository.dart';
+import 'remote/repository.dart';
 
 class MobileApp extends StatelessWidget {
   const MobileApp({super.key, required this.links, this.session});
@@ -40,33 +42,25 @@ class MobileHome extends StatefulWidget {
 
 class _MobileHomeState extends State<MobileHome> with WidgetsBindingObserver {
   late final hub = widget.session ?? HubSession();
+  late final navigation = HubNavigationController(
+    hub,
+    NativeRemoteRepository.mobile(),
+  );
   StreamSubscription<Uri>? subscription;
-  Future<void> lifecycle = Future.value();
-  late Future<void> ready;
   String? pending;
   String? selected;
   int tab = 0;
   bool busy = false;
-  bool lifecycleSuspended = false;
-  bool connectionScreenOpen = false;
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     hub.addListener(changed);
-    ready = hub.startNative();
+    navigation.addListener(changed);
+    final ready = navigation.start();
     if (widget.session == null) {
-      WidgetsBinding.instance.addPostFrameCallback((_) async {
-        await ready;
-        final selectedHub = await SharedPreferencesAsync().getString(
-          'omochi.mobile.selectedHub',
-        );
-        if (mounted &&
-            selectedHub != null &&
-            pending == null &&
-            !connectionScreenOpen) {
-          await showHubConnections(null, true);
-        }
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        unawaited(restoreSelectedHub());
       });
     }
     unawaited(
@@ -90,11 +84,23 @@ class _MobileHomeState extends State<MobileHome> with WidgetsBindingObserver {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text)));
   }
 
+  Future<void> restoreSelectedHub() async {
+    try {
+      await navigation.ready;
+      final selectedHub = await navigation.hasSelectedHub;
+      if (mounted && selectedHub && pending == null && !navigation.choosing) {
+        await showHubConnections(null, true);
+      }
+    } catch (e) {
+      notice(describeFailure(e));
+    }
+  }
+
   Future<void> run(Future<void> Function() action) async {
     if (busy) return;
     setState(() => busy = true);
     try {
-      await ready;
+      await navigation.ready;
       await action();
     } catch (e) {
       notice(describeFailure(e));
@@ -104,26 +110,14 @@ class _MobileHomeState extends State<MobileHome> with WidgetsBindingObserver {
   }
 
   Future<void> showHubConnections([String? input, bool restore = false]) async {
-    if (busy || connectionScreenOpen) return;
-    await ready;
+    if (busy || navigation.choosing) return;
+    await navigation.ready;
     if (!mounted) return;
     final route = ModalRoute.of(context);
-    connectionScreenOpen = true;
-    if (!(await (hub.remoteLeaveGuard?.call() ?? Future.value(true)))) {
-      connectionScreenOpen = false;
-      return;
-    }
-    if (!mounted) return;
-    Navigator.of(context).popUntil((candidate) => candidate == route);
-    final remote = hub.remoteClient != null;
-    if (remote) {
-      await hub.stopNative();
-    } else {
-      await hub.suspendNative();
-    }
-    if (!mounted) return;
-    try {
-      await Navigator.of(context).push(
+    await navigation.choose(
+      prepareRoute: () =>
+          Navigator.of(context).popUntil((candidate) => candidate == route),
+      present: () => Navigator.of(context).push(
         MaterialPageRoute<void>(
           builder: (_) => RemoteConnections(
             invitation: input,
@@ -131,17 +125,8 @@ class _MobileHomeState extends State<MobileHome> with WidgetsBindingObserver {
             links: widget.links,
           ),
         ),
-      );
-    } finally {
-      connectionScreenOpen = false;
-      if (mounted) {
-        if (remote) {
-          await hub.startNative();
-        } else {
-          await hub.resumeNative();
-        }
-      }
-    }
+      ),
+    );
   }
 
   Future<void> invite(String input) async {
@@ -253,35 +238,24 @@ class _MobileHomeState extends State<MobileHome> with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (connectionScreenOpen) return;
     if (state != AppLifecycleState.resumed &&
         state != AppLifecycleState.paused &&
         state != AppLifecycleState.detached) {
       return;
     }
-    lifecycle = lifecycle
-        .then((_) async {
-          await ready;
-          if (state == AppLifecycleState.resumed) {
-            if (!lifecycleSuspended) return;
-            await hub.resumeNative();
-            lifecycleSuspended = false;
-          } else {
-            if (lifecycleSuspended) return;
-            // A failed suspension may already have stopped rendering/networking.
-            lifecycleSuspended = true;
-            await hub.suspendNative();
-          }
-        })
-        .catchError((Object e) {
-          notice(describeFailure(e));
-        });
+    unawaited(
+      navigation
+          .setForeground(state == AppLifecycleState.resumed)
+          .catchError((Object e) => notice(describeFailure(e))),
+    );
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     subscription?.cancel();
+    navigation.removeListener(changed);
+    navigation.dispose();
     hub.removeListener(changed);
     hub.dispose();
     super.dispose();
@@ -306,18 +280,20 @@ class _MobileHomeState extends State<MobileHome> with WidgetsBindingObserver {
         actions: [
           if (hub.remoteClient == null)
             IconButton(
-              tooltip: remoteText(context, 'Hub connections', 'Hub接続'),
+              tooltip: messagesFor(context).remoteHubConnections,
               icon: const Icon(Icons.hub_outlined),
               onPressed: () => showHubConnections(),
             ),
           if (hub.remoteClient != null)
             IconButton(
-              tooltip: remoteText(context, 'Boards', 'ボード'),
+              tooltip: messagesFor(context).remoteBoards,
               icon: const Icon(Icons.dashboard_outlined),
               onPressed: () => Navigator.of(context).push(
                 MaterialPageRoute<void>(
-                  builder: (_) =>
-                      RemoteBoards(client: hub.remoteClient!, session: hub),
+                  builder: (_) => RemoteBoards(
+                    repository: RemoteBoardsRepository(hub.remoteClient!),
+                    session: hub,
+                  ),
                 ),
               ),
             ),
@@ -328,18 +304,10 @@ class _MobileHomeState extends State<MobileHome> with WidgetsBindingObserver {
               onPressed: busy
                   ? null
                   : () {
-                      ready = hub.startNative();
+                      final ready = navigation.start();
                       if (widget.session == null) {
-                        WidgetsBinding.instance.addPostFrameCallback((_) async {
-                          await ready;
-                          final selectedHub = await SharedPreferencesAsync()
-                              .getString('omochi.mobile.selectedHub');
-                          if (mounted &&
-                              selectedHub != null &&
-                              pending == null &&
-                              !connectionScreenOpen) {
-                            await showHubConnections(null, true);
-                          }
+                        WidgetsBinding.instance.addPostFrameCallback((_) {
+                          unawaited(restoreSelectedHub());
                         });
                       }
                       unawaited(
@@ -442,11 +410,12 @@ class _MobileHomeState extends State<MobileHome> with WidgetsBindingObserver {
                   : ListView(
                       padding: const EdgeInsets.all(16),
                       children: [
-                        FilledButton.icon(
-                          onPressed: busy ? null : paste,
-                          icon: const Icon(Icons.add),
-                          label: Text(messagesFor(context).addGateway),
-                        ),
+                        if (hub.canManageGateways)
+                          FilledButton.icon(
+                            onPressed: busy ? null : paste,
+                            icon: const Icon(Icons.add),
+                            label: Text(messagesFor(context).addGateway),
+                          ),
                         const SizedBox(height: 16),
                         Text(hub.status),
                         if (hub.nativeIdentity != null)
@@ -454,14 +423,15 @@ class _MobileHomeState extends State<MobileHome> with WidgetsBindingObserver {
                             title: Text(messagesFor(context).deviceIdentity),
                             subtitle: SelectableText(hub.nativeIdentity!),
                           ),
-                        SwitchListTile(
-                          title: Text(messagesFor(context).internetRelays),
-                          value: hub.nativeOnline,
-                          onChanged: busy
-                              ? null
-                              : (value) =>
-                                    run(() => hub.setNativeOnline(value)),
-                        ),
+                        if (hub.canManageGateways)
+                          SwitchListTile(
+                            title: Text(messagesFor(context).internetRelays),
+                            value: hub.nativeOnline,
+                            onChanged: busy
+                                ? null
+                                : (value) =>
+                                      run(() => hub.setNativeOnline(value)),
+                          ),
                         for (final peer in hub.gateways)
                           Card(
                             child: Column(

@@ -150,4 +150,158 @@ class AppMessagesJa extends AppMessages {
   @override
   String get forgetLocalExplanation =>
       'この端末から登録を削除します。ゲートウェイ側でこの端末のアクセス権を取り消すには、別途操作が必要です。';
+
+  @override
+  String get remoteBoards => 'ボード';
+
+  @override
+  String get remotePresets => 'プリセット';
+
+  @override
+  String get remoteSharing => '共有管理';
+
+  @override
+  String get remoteConnections => '接続情報';
+
+  @override
+  String get remoteSharingConfiguration => '共有設定';
+
+  @override
+  String get remoteSharingEnabled => '共有は有効です';
+
+  @override
+  String get remoteSharingDisabled => '共有は無効です';
+
+  @override
+  String remoteRevision(int revision) {
+    return 'リビジョン $revision';
+  }
+
+  @override
+  String get remoteDiscardChanges => '未保存の変更を破棄しますか？';
+
+  @override
+  String get remoteKeepEditing => '編集を続ける';
+
+  @override
+  String get remoteDiscard => '破棄';
+
+  @override
+  String get remoteDeleteBoard => 'ボードを削除しますか？';
+
+  @override
+  String get remoteDelete => '削除';
+
+  @override
+  String get remoteSave => '保存';
+
+  @override
+  String get remoteInvalidValue => '有効な値を入力してください';
+
+  @override
+  String get remoteChooseSurface => 'Surfaceを選択';
+
+  @override
+  String get remoteEditBoard => 'ボードを編集';
+
+  @override
+  String get remoteReloadBoard => 'ボードを再読込';
+
+  @override
+  String get remoteName => '名前';
+
+  @override
+  String get remoteTitle => 'タイトル';
+
+  @override
+  String get remoteColumn => '列';
+
+  @override
+  String get remoteRow => '行';
+
+  @override
+  String get remoteWidth => '幅（列）';
+
+  @override
+  String get remoteHeight => '高さ（行）';
+
+  @override
+  String get remoteRemovePanel => 'パネルを削除';
+
+  @override
+  String get remoteAddPanel => 'パネルを追加';
+
+  @override
+  String get remoteCreateShare => '共有を作成';
+
+  @override
+  String get remotePublicReadOnly => '公開（閲覧のみ）';
+
+  @override
+  String get remoteAllowInteraction => '操作を許可';
+
+  @override
+  String get remoteAllowLayout => 'レイアウト編集を許可';
+
+  @override
+  String get remoteCreate => '作成';
+
+  @override
+  String get remoteShareLink => '共有リンク';
+
+  @override
+  String get remoteReadOnly => '閲覧のみ';
+
+  @override
+  String remoteSharePermissions(String interact, String layout) {
+    return '操作: $interact、レイアウト編集: $layout';
+  }
+
+  @override
+  String get remoteAllowed => '許可';
+
+  @override
+  String get remoteDenied => '不許可';
+
+  @override
+  String get remoteHubConnections => 'Hub接続';
+
+  @override
+  String get remoteConnectTitle => 'Hubへ接続';
+
+  @override
+  String get remoteConnectInvitation => '招待リンク';
+
+  @override
+  String get remoteConnectOwner => 'オーナー接続';
+
+  @override
+  String get remoteConnectShared => '共有ダッシュボード';
+
+  @override
+  String get remoteConnectOwnerExplanation => '全ボードの編集と共有管理が可能になります。';
+
+  @override
+  String get remoteConnectSharedExplanation => '接続先Hubが付与した権限で利用します。';
+
+  @override
+  String get remoteConnectViewOnce => '一時閲覧';
+
+  @override
+  String get remoteConnectSave => '接続を保存';
+
+  @override
+  String get remoteHubThisDevice => 'この端末のHub';
+
+  @override
+  String get remoteHubAdd => 'Hub接続を追加';
+
+  @override
+  String get remoteHubPending => '承認待ち';
+
+  @override
+  String get remoteHubInvite => '共有接続';
+
+  @override
+  String get remoteHubPublic => '公開・閲覧専用';
 }

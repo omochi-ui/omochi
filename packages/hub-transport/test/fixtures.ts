@@ -1,4 +1,18 @@
-import type { RawConnection, RawEndpoint, RawStream, WasmModule } from '../src/ffi.js';
+import type { RawConnection, RawEndpoint, RawStream, RawDownstreamState, WasmModule } from '../src/ffi.js';
+
+export class FakeDownstreamState implements RawDownstreamState {
+  readonly accepted: string[] = [];
+  readonly acknowledgements: string[] = [];
+  closes = 0;
+  frees = 0;
+  accept(frame: string) {
+    this.accepted.push(frame);
+    return JSON.stringify({ sequence: JSON.parse(frame).sequence, surface: null, lease: null, invalidatedLeases: [], snapshotEnd: true });
+  }
+  acknowledge(sequence: string) { this.acknowledgements.push(sequence); }
+  close() { this.closes++; }
+  free() { this.frees++; }
+}
 
 export function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -84,6 +98,8 @@ export function fixture() {
     generate_identity: () => JSON.stringify({ secretHex: '0'.repeat(64), endpointId: 'a'.repeat(64) }),
     identity_from_secret: secretHex => JSON.stringify({ secretHex, endpointId: 'a'.repeat(64) }),
     RawEndpoint: { create: async () => { endpointCalls++; return endpoint; } },
+    DownstreamState: FakeDownstreamState,
+    downstream_retryable: code => code === 'NetworkUnavailable' || code === 'Timeout',
   };
   return { module, endpoint, get endpointCalls() { return endpointCalls; } };
 }

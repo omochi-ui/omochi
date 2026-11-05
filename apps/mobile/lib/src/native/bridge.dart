@@ -9,6 +9,13 @@ import 'package:ffi/ffi.dart';
 import '../models.dart';
 import 'store.dart';
 
+/// The machine-readable native failure is separate from diagnostic wording.
+class BridgeException extends StateError {
+  BridgeException(this.code, String message, {this.retryable}) : super(message);
+  final String code;
+  final bool? retryable;
+}
+
 class BridgeCall {
   BridgeCall(this.result, this.cancel);
   final Future<dynamic> result;
@@ -149,10 +156,20 @@ class SharedHubBridge {
           if (value['ok'] == true) {
             result.complete(value['value']);
           } else {
-            result.completeError(StateError(value['error'] as String));
+            result.completeError(
+              BridgeException(
+                value['errorCode'] as String? ?? 'Unknown',
+                value['error'] as String,
+                retryable: value['retryable'] as bool?,
+              ),
+            );
           }
         case 'terminal':
-          final error = StateError(value['error'] as String);
+          final error = BridgeException(
+            'BridgeTerminated',
+            value['error'] as String,
+            retryable: false,
+          );
           for (final result in _pending.values) {
             result.completeError(error);
           }

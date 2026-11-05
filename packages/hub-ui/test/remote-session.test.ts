@@ -7,6 +7,7 @@ import { RemoteHubSession, type SharedView } from '../src/remote/session.js';
 import { SharedBoardRepository } from '../src/remote/boards.js';
 import { parseShareLink } from '../src/remote/link.js';
 import type { Dashboard } from '../src/contracts.js';
+import { remoteStateFixture } from './remote-state-fixture.js';
 
 const hubId = 'a'.repeat(64), grantId = '11111111-1111-4111-8111-111111111111', surface = `${hubId}~app/main`;
 const board = (): Dashboard => ({ id: 'b', revision: 1, name: 'Shared', panels: [{ id: 'panel', title: 'View', x: 0, y: 0, w: 4, h: 4, reference: { nodeId: hubId, serviceId: 'app', surfaceId: 'main' } }] });
@@ -71,6 +72,8 @@ function setup(interact = false, editLayout = false, owner = false) {
   };
   const connections = [connection]; let opened = 0, active = 0;
   const transport: BrowserTransport = {
+    createDownstreamState: remoteStateFixture,
+    isRetryable: code => code === 'NetworkUnavailable' || code === 'Timeout',
     async generateIdentity() { return { secretHex: '0'.repeat(64), endpointId: 'b'.repeat(64) }; },
     async identityFromSecret(secretHex) { return { secretHex, endpointId: 'b'.repeat(64) }; },
     async openEndpoint() {

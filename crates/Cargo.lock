@@ -2838,6 +2838,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "omochi-downstream-core"
+version = "0.2.1"
+dependencies = [
+ "omochi-ui",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "omochi-gateway"
 version = "0.2.1"
 dependencies = [
@@ -2930,6 +2939,7 @@ dependencies = [
  "base64 0.23.1",
  "iroh-dns",
  "jni 0.22.4",
+ "omochi-downstream-core",
  "omochi-hub",
  "omochi-protocol",
  "omochi-transport",

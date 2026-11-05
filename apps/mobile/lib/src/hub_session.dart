@@ -16,6 +16,7 @@ import 'native/modal.dart';
 import 'native/protocol.dart';
 import 'native/resource_image.dart';
 import 'native/store.dart';
+import 'remote/models.dart';
 
 class WireEntry {
   WireEntry(this.direction, this.body) : time = DateTime.now();
@@ -43,13 +44,17 @@ class HubSession extends ChangeNotifier {
   RemoteClient? get remoteClient =>
       _native is RemoteClient ? _native as RemoteClient : null;
   Future<bool> Function()? remoteLeaveGuard;
-  GatewayClient? _native;
-  GatewayClient? _closingNative;
+  HubClient? _native;
+  HubClient? _closingNative;
   Future<void>? _nativeStopped;
   final Map<String, GatewaySurface> _renderScopes = {};
   final Map<String, String> _surfaceRenderIds = {};
   String? get nativeIdentity => _native?.identity;
   bool get nativeOnline => _native?.online ?? true;
+  bool get canManageGateways => _native is GatewayClient;
+  GatewayClient get _gateway => _native is GatewayClient
+      ? _native as GatewayClient
+      : throw StateError('Local gateway administration is unavailable');
   List<GatewayPeer> get gateways => _native?.peers ?? [];
   String status = 'Stopped';
   String? error;
@@ -277,7 +282,11 @@ class HubSession extends ChangeNotifier {
       final epoch = _epoch;
       if (native == null) throw StateError(messages.errorStoppedHub);
       unawaited(
-        (scope != null ? scope.send(envelope) : native.send(envelope))
+        (scope != null
+                ? scope.send(envelope)
+                : native is GatewayClient
+                ? native.send(envelope)
+                : Future<void>.error(StateError('Surface handle expired')))
             .catchError((Object e) {
               if (epoch == _epoch) {
                 error = messages.errorActionFailed(describeFailure(e));
@@ -350,10 +359,18 @@ class HubSession extends ChangeNotifier {
         if (epoch != _epoch) return;
         services = native.services;
         connections = native.connections;
-        status =
-            connections.any(
-              (c) => c['status'].toString().toLowerCase() == 'connected',
-            )
+        status = native is RemoteClient
+            ? switch (native.state) {
+                RemoteConnectionState.connected => 'Connected',
+                RemoteConnectionState.connecting => 'Starting',
+                RemoteConnectionState.disconnected => 'Reconnecting',
+                RemoteConnectionState.suspended => 'Suspended',
+                RemoteConnectionState.failed => 'Unavailable',
+                RemoteConnectionState.closed => 'Stopped',
+              }
+            : connections.any(
+                (c) => c['status'].toString().toLowerCase() == 'connected',
+              )
             ? 'Connected'
             : native.peers.isEmpty
             ? 'Ready'
@@ -377,7 +394,7 @@ class HubSession extends ChangeNotifier {
       await startNative();
     }
     try {
-      await _native!.pair(invitation);
+      await _gateway.pair(invitation);
       error = null;
     } catch (e) {
       error = messages.errorPairingFailed(describeFailure(e));
@@ -390,12 +407,12 @@ class HubSession extends ChangeNotifier {
     for (final surface in surfaceIds.where((s) => s.startsWith('$id~'))) {
       _modals.remove(_surfaceRenderIds[surface] ?? surface);
     }
-    await _native?.forget(id);
+    await _gateway.forget(id);
   }
 
   void retryGateway(String id) => _native?.retry(id);
   Future<void> setNativeOnline(bool online) async {
-    await _native?.setOnline(online);
+    await _gateway.setOnline(online);
   }
 
   Future<void> suspendNative() async {

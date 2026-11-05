@@ -350,6 +350,306 @@ abstract class AppMessages {
   /// In en, this message translates to:
   /// **'Remove the registration from this device. Revoking this device on the gateway is a separate operation.'**
   String get forgetLocalExplanation;
+
+  /// No description provided for @remoteBoards.
+  ///
+  /// In en, this message translates to:
+  /// **'Boards'**
+  String get remoteBoards;
+
+  /// No description provided for @remotePresets.
+  ///
+  /// In en, this message translates to:
+  /// **'Presets'**
+  String get remotePresets;
+
+  /// No description provided for @remoteSharing.
+  ///
+  /// In en, this message translates to:
+  /// **'Sharing'**
+  String get remoteSharing;
+
+  /// No description provided for @remoteConnections.
+  ///
+  /// In en, this message translates to:
+  /// **'Connections'**
+  String get remoteConnections;
+
+  /// No description provided for @remoteSharingConfiguration.
+  ///
+  /// In en, this message translates to:
+  /// **'Sharing configuration'**
+  String get remoteSharingConfiguration;
+
+  /// No description provided for @remoteSharingEnabled.
+  ///
+  /// In en, this message translates to:
+  /// **'Sharing is enabled'**
+  String get remoteSharingEnabled;
+
+  /// No description provided for @remoteSharingDisabled.
+  ///
+  /// In en, this message translates to:
+  /// **'Sharing is disabled'**
+  String get remoteSharingDisabled;
+
+  /// No description provided for @remoteRevision.
+  ///
+  /// In en, this message translates to:
+  /// **'Revision {revision}'**
+  String remoteRevision(int revision);
+
+  /// No description provided for @remoteDiscardChanges.
+  ///
+  /// In en, this message translates to:
+  /// **'Discard unsaved changes?'**
+  String get remoteDiscardChanges;
+
+  /// No description provided for @remoteKeepEditing.
+  ///
+  /// In en, this message translates to:
+  /// **'Keep editing'**
+  String get remoteKeepEditing;
+
+  /// No description provided for @remoteDiscard.
+  ///
+  /// In en, this message translates to:
+  /// **'Discard'**
+  String get remoteDiscard;
+
+  /// No description provided for @remoteDeleteBoard.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete board?'**
+  String get remoteDeleteBoard;
+
+  /// No description provided for @remoteDelete.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete'**
+  String get remoteDelete;
+
+  /// No description provided for @remoteSave.
+  ///
+  /// In en, this message translates to:
+  /// **'Save'**
+  String get remoteSave;
+
+  /// No description provided for @remoteInvalidValue.
+  ///
+  /// In en, this message translates to:
+  /// **'Enter a valid value'**
+  String get remoteInvalidValue;
+
+  /// No description provided for @remoteChooseSurface.
+  ///
+  /// In en, this message translates to:
+  /// **'Choose Surface'**
+  String get remoteChooseSurface;
+
+  /// No description provided for @remoteEditBoard.
+  ///
+  /// In en, this message translates to:
+  /// **'Edit board'**
+  String get remoteEditBoard;
+
+  /// No description provided for @remoteReloadBoard.
+  ///
+  /// In en, this message translates to:
+  /// **'Reload board'**
+  String get remoteReloadBoard;
+
+  /// No description provided for @remoteName.
+  ///
+  /// In en, this message translates to:
+  /// **'Name'**
+  String get remoteName;
+
+  /// No description provided for @remoteTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Title'**
+  String get remoteTitle;
+
+  /// No description provided for @remoteColumn.
+  ///
+  /// In en, this message translates to:
+  /// **'Column'**
+  String get remoteColumn;
+
+  /// No description provided for @remoteRow.
+  ///
+  /// In en, this message translates to:
+  /// **'Row'**
+  String get remoteRow;
+
+  /// No description provided for @remoteWidth.
+  ///
+  /// In en, this message translates to:
+  /// **'Width (columns)'**
+  String get remoteWidth;
+
+  /// No description provided for @remoteHeight.
+  ///
+  /// In en, this message translates to:
+  /// **'Height (rows)'**
+  String get remoteHeight;
+
+  /// No description provided for @remoteRemovePanel.
+  ///
+  /// In en, this message translates to:
+  /// **'Remove panel'**
+  String get remoteRemovePanel;
+
+  /// No description provided for @remoteAddPanel.
+  ///
+  /// In en, this message translates to:
+  /// **'Add panel'**
+  String get remoteAddPanel;
+
+  /// No description provided for @remoteCreateShare.
+  ///
+  /// In en, this message translates to:
+  /// **'Create share'**
+  String get remoteCreateShare;
+
+  /// No description provided for @remotePublicReadOnly.
+  ///
+  /// In en, this message translates to:
+  /// **'Public (read only)'**
+  String get remotePublicReadOnly;
+
+  /// No description provided for @remoteAllowInteraction.
+  ///
+  /// In en, this message translates to:
+  /// **'Allow interaction'**
+  String get remoteAllowInteraction;
+
+  /// No description provided for @remoteAllowLayout.
+  ///
+  /// In en, this message translates to:
+  /// **'Allow layout editing'**
+  String get remoteAllowLayout;
+
+  /// No description provided for @remoteCreate.
+  ///
+  /// In en, this message translates to:
+  /// **'Create'**
+  String get remoteCreate;
+
+  /// No description provided for @remoteShareLink.
+  ///
+  /// In en, this message translates to:
+  /// **'Share link'**
+  String get remoteShareLink;
+
+  /// No description provided for @remoteReadOnly.
+  ///
+  /// In en, this message translates to:
+  /// **'Read only'**
+  String get remoteReadOnly;
+
+  /// No description provided for @remoteSharePermissions.
+  ///
+  /// In en, this message translates to:
+  /// **'Interaction: {interact}, layout editing: {layout}'**
+  String remoteSharePermissions(String interact, String layout);
+
+  /// No description provided for @remoteAllowed.
+  ///
+  /// In en, this message translates to:
+  /// **'Allowed'**
+  String get remoteAllowed;
+
+  /// No description provided for @remoteDenied.
+  ///
+  /// In en, this message translates to:
+  /// **'Not allowed'**
+  String get remoteDenied;
+
+  /// No description provided for @remoteHubConnections.
+  ///
+  /// In en, this message translates to:
+  /// **'Hub connections'**
+  String get remoteHubConnections;
+
+  /// No description provided for @remoteConnectTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Connect to a Hub'**
+  String get remoteConnectTitle;
+
+  /// No description provided for @remoteConnectInvitation.
+  ///
+  /// In en, this message translates to:
+  /// **'Invitation link'**
+  String get remoteConnectInvitation;
+
+  /// No description provided for @remoteConnectOwner.
+  ///
+  /// In en, this message translates to:
+  /// **'Owner access'**
+  String get remoteConnectOwner;
+
+  /// No description provided for @remoteConnectShared.
+  ///
+  /// In en, this message translates to:
+  /// **'Shared dashboard'**
+  String get remoteConnectShared;
+
+  /// No description provided for @remoteConnectOwnerExplanation.
+  ///
+  /// In en, this message translates to:
+  /// **'Full dashboard and sharing control.'**
+  String get remoteConnectOwnerExplanation;
+
+  /// No description provided for @remoteConnectSharedExplanation.
+  ///
+  /// In en, this message translates to:
+  /// **'Access follows the permissions granted by the Hub.'**
+  String get remoteConnectSharedExplanation;
+
+  /// No description provided for @remoteConnectViewOnce.
+  ///
+  /// In en, this message translates to:
+  /// **'View once'**
+  String get remoteConnectViewOnce;
+
+  /// No description provided for @remoteConnectSave.
+  ///
+  /// In en, this message translates to:
+  /// **'Save connection'**
+  String get remoteConnectSave;
+
+  /// No description provided for @remoteHubThisDevice.
+  ///
+  /// In en, this message translates to:
+  /// **'This device’s Hub'**
+  String get remoteHubThisDevice;
+
+  /// No description provided for @remoteHubAdd.
+  ///
+  /// In en, this message translates to:
+  /// **'Add Hub connection'**
+  String get remoteHubAdd;
+
+  /// No description provided for @remoteHubPending.
+  ///
+  /// In en, this message translates to:
+  /// **'Pending'**
+  String get remoteHubPending;
+
+  /// No description provided for @remoteHubInvite.
+  ///
+  /// In en, this message translates to:
+  /// **'Shared access'**
+  String get remoteHubInvite;
+
+  /// No description provided for @remoteHubPublic.
+  ///
+  /// In en, this message translates to:
+  /// **'Public read-only'**
+  String get remoteHubPublic;
 }
 
 class _AppMessagesDelegate extends LocalizationsDelegate<AppMessages> {

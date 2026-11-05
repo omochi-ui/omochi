@@ -1,6 +1,6 @@
 import { parseServices } from '../services.js';
 import { SessionFault, applyToRenderer, type A2uiMessage, type ApplyResult, type ClientMessage, type LiveEvent, type LiveSession, type RenderEvent, type SurfaceLease } from '@omochi-ui/core/browser';
-import type { BrowserTransport, Endpoint, Connection, Stream } from '@omochi-ui/hub-transport';
+import type { BrowserTransport, Endpoint, Connection, Stream, DownstreamState } from '@omochi-ui/hub-transport';
 import { boardFields, validateBoardInput } from '../board-codec.js';
 import { BoardFault } from '../board-repository.js';
 import type { Dashboard, DashboardInput } from '../contracts.js';
@@ -57,6 +57,7 @@ export class RemoteHubSession implements LiveSession {
   private leases = new Map<string, SurfaceLease>();
   private leaseStops = new Map<string, AbortController>();
   private view: SharedView | null = null;
+  private wireState: DownstreamState | null = null;
   private epoch = 0;
   private pending = 0;
   private retryNow: (() => void) | null = null;
@@ -73,6 +74,7 @@ export class RemoteHubSession implements LiveSession {
   setServices(_ordered: readonly string[]): void { /* Saved shared board controls membership on the hub. */ }
   async retry(): Promise<void> { this.retryNow?.(); }
   private retract() {
+    this.wireState?.close(); this.wireState = null;
     this.scope.abort(); this.scope = new AbortController(); this.leases.clear(); this.leaseStops.clear();
     if (this.apply) applyToRenderer(this.apply, { kind: 'remove', service: 'shared', epoch: this.epoch, reason: 'Connection ended' });
     this.emit({ kind: 'services', services: [] }); this.view = null;
@@ -120,7 +122,9 @@ export class RemoteHubSession implements LiveSession {
         const scope = this.scope.signal;
         const isCurrent = () => this.connection === connection && !scope.aborted && !this.lifetime.signal.aborted;
         let heartbeatPending = false;
-        let ready = false, previousSequence = 0n, bytes = 0;
+        const wireState = this.transport.createDownstreamState(this.options.owner ? 'owner' : this.options.publicSecret ? 'public' : 'invite', view.permissions);
+        this.wireState = wireState;
+        let ready = false, bytes = 0;
         let messages: A2uiMessage[] = [];
         heartbeat = setInterval(() => {
           // Local saturation is not a failed heartbeat. Retry on the next tick.
@@ -132,26 +136,19 @@ export class RemoteHubSession implements LiveSession {
         }, 10000);
         while (!this.lifetime.signal.aborted) {
           const frame = await receive(stream, ready ? this.lifetime.signal : operationSignal(this.lifetime.signal));
-          if (typeof frame.sequence !== 'string' || !/^[1-9]\d{0,19}$/.test(frame.sequence)) throw new SessionFault('ProtocolError');
-          const sequence = BigInt(frame.sequence);
-          if (sequence > 18446744073709551615n || sequence <= previousSequence) throw new SessionFault('ProtocolError');
-          previousSequence = sequence;
+          const accepted = wireState.accept(frame);
           if (frame.kind === 'message') {
-            if (Object.keys(frame).sort().join(',') !== 'kind,lease,message,sequence') throw new SessionFault('ProtocolError');
-            const message = record(frame.message) as unknown as A2uiMessage;
-            const keys = ['createSurface', 'updateComponents', 'updateDataModel', 'deleteSurface'].filter(key => key in message);
-            if (keys.length !== 1 || message.version !== 'v0.9') throw new SessionFault('ProtocolError');
-            const surface = record((message as unknown as Record<string, unknown>)[keys[0]!]).surfaceId;
-            if (typeof surface !== 'string' || (!this.options.owner && !admitted.has(surface))) throw new SessionFault('ProtocolError');
-            let lease: SurfaceLease | undefined;
-            if ('createSurface' in message || 'deleteSurface' in message) {
-              for (const [id, l] of this.leases) if (l.surfaceId === surface) { this.leaseStops.get(id)?.abort(); this.leaseStops.delete(id); this.leases.delete(id); }
+            const message = frame.message as A2uiMessage;
+            const surface = accepted.surface!;
+            if (!this.options.owner && !admitted.has(surface)) throw new SessionFault('ProtocolError');
+            for (const id of accepted.invalidatedLeases) {
+              this.leaseStops.get(id)?.abort(); this.leaseStops.delete(id); this.leases.delete(id);
             }
-            if (!('deleteSurface' in message)) {
-              if (typeof frame.lease !== 'string' || !frame.lease || frame.lease.length > 100) throw new SessionFault('ProtocolError');
-              let cancel = this.leaseStops.get(frame.lease);
-              if (!cancel) { cancel = new AbortController(); this.leaseStops.set(frame.lease, cancel); }
-              lease = { id: frame.lease, surfaceId: surface, signal: AbortSignal.any([this.scope.signal, cancel.signal]) }; this.leases.set(lease.id, lease);
+            let lease: SurfaceLease | undefined;
+            if (accepted.lease) {
+              let cancel = this.leaseStops.get(accepted.lease);
+              if (!cancel) { cancel = new AbortController(); this.leaseStops.set(accepted.lease, cancel); }
+              lease = { id: accepted.lease, surfaceId: surface, signal: AbortSignal.any([this.scope.signal, cancel.signal]) }; this.leases.set(lease.id, lease);
             }
             if (ready) {
               const result = applyToRenderer(this.apply!, { kind: 'update', service: 'shared', epoch: attempt, message, lease });
@@ -162,19 +159,19 @@ export class RemoteHubSession implements LiveSession {
               if (bytes > 16 * 1024 * 1024) throw new SessionFault('CapacityExceeded'); messages.push(message);
             }
           } else if (frame.kind === 'snapshotEnd' && !ready) {
-            if (Object.keys(frame).sort().join(',') !== 'kind,sequence') throw new SessionFault('ProtocolError');
             const result = applyToRenderer(this.apply!, { kind: 'commit', service: 'shared', epoch: attempt, messages, leases: [...this.leases.values()] });
             if (result.ok === false) throw new SessionFault(result.code);
             messages = []; this.view = view; ready = true; failures = 0;
             this.publishServices(view);
             this.options.onView(structuredClone(view)); this.status('Connected');
           } else throw new SessionFault('ProtocolError');
-          await stream.send(JSON.stringify({ ack: frame.sequence }), operationSignal(this.lifetime.signal));
+          await stream.send(JSON.stringify({ ack: accepted.sequence }), operationSignal(this.lifetime.signal));
+          wireState.acknowledge(accepted.sequence);
         }
       } catch (error) {
         clearInterval(heartbeat);
         if (!this.lifetime.signal.aborted) this.status('Disconnected', error instanceof SessionFault ? error : new SessionFault('NetworkUnavailable'));
-        const terminal = error instanceof SessionFault && ['NotAuthorized', 'ProtocolError', 'RenderError', 'CapacityExceeded'].includes(error.code);
+        const terminal = error instanceof SessionFault && !this.transport.isRetryable(error.code);
         if (terminal) { this.retract(); await this.connection?.close(); await this.endpoint?.close(); this.connection = null; this.endpoint = null; await this.pause(2147483647); failures = 0; }
       } finally {
         clearInterval(heartbeat); this.retract(); await this.connection?.close(); await this.endpoint?.close(); this.connection = null; this.endpoint = null;

@@ -5,7 +5,7 @@
   "internetRelays": "Internet relays",
   "deviceIdentity": "This device",
   "gatewayInvitation": "Gateway invitation",
-  "invitationExample": "omochi://invite/\u2026",
+  "invitationExample": "omochi://invite/…",
   "forget": "Forget",
   "appImage": "App image",
   "retryImage": "Retry image",
@@ -17,7 +17,7 @@
   "errorInvalidInvitation": "Invalid or expired Gateway invitation. Create a new invitation on the Gateway.",
   "demoNotes": "Field notes",
   "demoPlayground": "Playground",
-  "demoDevice": "This device \u00b7 demo",
+  "demoDevice": "This device · demo",
   "demoAddOne": "Add one",
   "demoTask": "What are you working on?",
   "demoSetIntention": "Set intention",
@@ -83,10 +83,77 @@
   "gatewayAdded": "Gateway added.",
   "continueButton": "Continue",
   "startWithInvitation": "Open a gateway invitation or add one in Connections.",
-  "waitingForApps": "Waiting for gateway apps\u2026",
+  "waitingForApps": "Waiting for gateway apps…",
   "forgetGatewayTitle": "Forget gateway?",
   "dismiss": "Dismiss",
   "connections": "Connections",
   "retry": "Retry",
-  "forgetLocalExplanation": "Remove the registration from this device. Revoking this device on the gateway is a separate operation."
+  "forgetLocalExplanation": "Remove the registration from this device. Revoking this device on the gateway is a separate operation.",
+  "remoteBoards": "Boards",
+  "remotePresets": "Presets",
+  "remoteSharing": "Sharing",
+  "remoteConnections": "Connections",
+  "remoteSharingConfiguration": "Sharing configuration",
+  "remoteSharingEnabled": "Sharing is enabled",
+  "remoteSharingDisabled": "Sharing is disabled",
+  "remoteRevision": "Revision {revision}",
+  "remoteDiscardChanges": "Discard unsaved changes?",
+  "remoteKeepEditing": "Keep editing",
+  "remoteDiscard": "Discard",
+  "remoteDeleteBoard": "Delete board?",
+  "remoteDelete": "Delete",
+  "remoteSave": "Save",
+  "remoteInvalidValue": "Enter a valid value",
+  "remoteChooseSurface": "Choose Surface",
+  "remoteEditBoard": "Edit board",
+  "remoteReloadBoard": "Reload board",
+  "remoteName": "Name",
+  "remoteTitle": "Title",
+  "remoteColumn": "Column",
+  "remoteRow": "Row",
+  "remoteWidth": "Width (columns)",
+  "remoteHeight": "Height (rows)",
+  "remoteRemovePanel": "Remove panel",
+  "remoteAddPanel": "Add panel",
+  "remoteCreateShare": "Create share",
+  "remotePublicReadOnly": "Public (read only)",
+  "remoteAllowInteraction": "Allow interaction",
+  "remoteAllowLayout": "Allow layout editing",
+  "remoteCreate": "Create",
+  "remoteShareLink": "Share link",
+  "remoteReadOnly": "Read only",
+  "remoteSharePermissions": "Interaction: {interact}, layout editing: {layout}",
+  "remoteAllowed": "Allowed",
+  "remoteDenied": "Not allowed",
+  "@remoteRevision": {
+    "placeholders": {
+      "revision": {
+        "type": "int"
+      }
+    }
+  },
+  "@remoteSharePermissions": {
+    "placeholders": {
+      "interact": {
+        "type": "String"
+      },
+      "layout": {
+        "type": "String"
+      }
+    }
+  },
+  "remoteHubConnections": "Hub connections",
+  "remoteConnectTitle": "Connect to a Hub",
+  "remoteConnectInvitation": "Invitation link",
+  "remoteConnectOwner": "Owner access",
+  "remoteConnectShared": "Shared dashboard",
+  "remoteConnectOwnerExplanation": "Full dashboard and sharing control.",
+  "remoteConnectSharedExplanation": "Access follows the permissions granted by the Hub.",
+  "remoteConnectViewOnce": "View once",
+  "remoteConnectSave": "Save connection",
+  "remoteHubThisDevice": "This device’s Hub",
+  "remoteHubAdd": "Add Hub connection",
+  "remoteHubPending": "Pending",
+  "remoteHubInvite": "Shared access",
+  "remoteHubPublic": "Public read-only"
 }
