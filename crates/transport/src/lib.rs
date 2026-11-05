@@ -11,7 +11,9 @@ pub mod trust;
 use anyhow::Result;
 #[cfg(test)]
 use iroh::RelayConfig;
-pub use iroh::endpoint::{Connection as EndpointConnection, RecvStream, SendStream};
+pub use iroh::endpoint::{
+    Connection as EndpointConnection, ConnectionError, RecvStream, SendStream,
+};
 pub use iroh::{Endpoint, EndpointAddr, EndpointId, SecretKey};
 use iroh::{RelayMode, RelayUrl, endpoint::presets};
 use omochi_protocol::{ALPN, PAIR_ALPN};

@@ -21,7 +21,8 @@ class SceneDelegate: FlutterSceneDelegate {
   }
 
   private func isInvitation(_ url: URL) -> Bool {
-    url.scheme?.lowercased() == "omochi" && url.host?.lowercased() == "invite"
+    url.scheme?.lowercased() == "omochi"
+      && ["invite", "share", "owner"].contains(url.host?.lowercased() ?? "")
   }
 
   private func forwardInvitations(_ contexts: Set<UIOpenURLContext>) {

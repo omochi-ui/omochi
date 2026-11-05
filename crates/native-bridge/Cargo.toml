@@ -10,6 +10,12 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 anyhow.workspace = true
+base64 = "0.23.1"
+url = "2.5.8"
+uuid = { version = "1.29.0", features = ["v4"] }
+omochi-transport = { path = "../transport", default-features = false }
+omochi-protocol = { path = "../protocol" }
+omochi-ui = { path = "../../packages/sdk/rust", default-features = false }
 serde.workspace = true
 serde_json.workspace = true
 tokio.workspace = true

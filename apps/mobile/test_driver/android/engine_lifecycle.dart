@@ -24,6 +24,7 @@ Future<void> main() async {
   var token = await lease.invokeMethod<String>('acquire', 'omochi.test.engine');
   if (token == null) throw StateError('No lease');
   AppLinks().uriLinkStream.listen((uri) async {
+    report('link ${uri.host} ${uri.path}');
     if (uri.path == '/finish') {
       report('finish');
       await SystemNavigator.pop();

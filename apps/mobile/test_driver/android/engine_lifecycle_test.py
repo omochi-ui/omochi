@@ -90,13 +90,17 @@ with tempfile.TemporaryDirectory(prefix="omochi-engine-lease-") as temporary:
                 time.sleep(0.1)
             raise AssertionError(f"Missing {message!r}:\n{logs()}")
 
-        def link(path):
-            run(adb + ["shell", "am", "start", "-n", target, "-a", "android.intent.action.VIEW",
-                       "-c", "android.intent.category.BROWSABLE", "-d", scheme + "://invite/" + path])
+        def link(path, host="invite"):
+            run(adb + ["shell", "am", "start", "-p", package, "-a", "android.intent.action.VIEW",
+                       "-c", "android.intent.category.BROWSABLE", "-d", scheme + "://" + host + "/" + path])
 
-        launch()
+        link("cold", "owner")
         wait_for(marker + " owned")
+        wait_for(marker + " link owner /cold")
         pid = run(adb + ["shell", "pidof", package]).strip()
+        for host in ("invite", "share", "owner"):
+            link("warm", host)
+            wait_for(marker + " link " + host + " /warm")
         link("finish")
         wait_for(marker + " lifecycle detached")
         assert run(adb + ["shell", "pidof", package]).strip() == pid

@@ -511,7 +511,7 @@ async fn read_resource(handle: &SurfaceHandle, id: &str) -> Result<ImageData> {
     validate_image(bytes, mime)
 }
 
-fn validate_image(bytes: Vec<u8>, mime: &str) -> Result<ImageData> {
+pub fn validate_image(bytes: Vec<u8>, mime: &str) -> Result<ImageData> {
     use image::ImageFormat;
     if bytes.len() > MAX_IMAGE_BYTES {
         return Err(ImageError::TooLarge);

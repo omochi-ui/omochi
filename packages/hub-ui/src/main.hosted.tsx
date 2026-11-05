@@ -1,6 +1,7 @@
+import { installNativeInvitationButton } from './remote/native-link.js';
 import { createHostedFragmentInbox } from './remote/fragment.js';
 // Capture bearer data before loading any UI/transport module.
-const fragments = createHostedFragmentInbox(window);
+const fragments = createHostedFragmentInbox(window, fragment => installNativeInvitationButton(document, fragment));
 window.addEventListener('pageshow', event => { if (event.persisted) location.reload(); });
 async function main() {
   await import('./i18n.js');

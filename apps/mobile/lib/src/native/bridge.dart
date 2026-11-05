@@ -41,7 +41,7 @@ class SharedHubBridge {
     final version = lib.lookupFunction<Uint32 Function(), int Function()>(
       'omochi_hub_abi_version',
     );
-    if (version() != 1) throw StateError('Unsupported shared Hub binding');
+    if (version() != 2) throw StateError('Unsupported shared Hub binding');
     _create = lib.lookupFunction<Uint64 Function(), int Function()>(
       'omochi_hub_create',
     );

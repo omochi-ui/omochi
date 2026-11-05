@@ -2927,15 +2927,21 @@ name = "omochi-native-bridge"
 version = "0.2.1"
 dependencies = [
  "anyhow",
+ "base64 0.23.1",
  "iroh-dns",
  "jni 0.22.4",
  "omochi-hub",
+ "omochi-protocol",
+ "omochi-transport",
+ "omochi-ui",
  "rustls-platform-verifier",
  "serde",
  "serde_json",
  "tempfile",
  "tokio",
  "tokio-util",
+ "url",
+ "uuid",
 ]
 
 [[package]]

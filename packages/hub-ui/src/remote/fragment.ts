@@ -23,12 +23,13 @@ export function createFragmentInbox() {
 }
 
 /** Install before importing UI/transport modules so bearer fragments never wait for them. */
-export function createHostedFragmentInbox(browser: Pick<Window, 'location' | 'history' | 'addEventListener'>) {
+export function createHostedFragmentInbox(browser: Pick<Window, 'location' | 'history' | 'addEventListener'>, onInvitation?: (fragment: string) => void) {
   const inbox = createFragmentInbox();
   const capture = () => {
     const fragment = browser.location.hash;
     if (!fragment.startsWith('#share:') && !fragment.startsWith('#owner:') && !fragment.startsWith('#g:')) return;
     browser.history.replaceState(null, '', browser.location.pathname + browser.location.search);
+    onInvitation?.(fragment);
     inbox.receive(fragment);
   };
   // Retain unknown initial fragments for the normal invalid-invitation error.

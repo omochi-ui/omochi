@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:app_links/app_links.dart';
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:genui/genui.dart';
 
 import '../l10n/generated/app_messages.dart';
@@ -9,6 +10,8 @@ import 'hub_session.dart';
 import 'messages.dart';
 import 'models.dart';
 import 'native/protocol.dart';
+import 'remote_connections.dart';
+import 'remote_boards.dart';
 
 class MobileApp extends StatelessWidget {
   const MobileApp({super.key, required this.links, this.session});
@@ -45,12 +48,27 @@ class _MobileHomeState extends State<MobileHome> with WidgetsBindingObserver {
   int tab = 0;
   bool busy = false;
   bool lifecycleSuspended = false;
+  bool connectionScreenOpen = false;
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     hub.addListener(changed);
     ready = hub.startNative();
+    if (widget.session == null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) async {
+        await ready;
+        final selectedHub = await SharedPreferencesAsync().getString(
+          'omochi.mobile.selectedHub',
+        );
+        if (mounted &&
+            selectedHub != null &&
+            pending == null &&
+            !connectionScreenOpen) {
+          await showHubConnections(null, true);
+        }
+      });
+    }
     unawaited(
       ready.catchError((Object e) {
         if (mounted) notice(describeFailure(e));
@@ -85,7 +103,57 @@ class _MobileHomeState extends State<MobileHome> with WidgetsBindingObserver {
     }
   }
 
+  Future<void> showHubConnections([String? input, bool restore = false]) async {
+    if (busy || connectionScreenOpen) return;
+    await ready;
+    if (!mounted) return;
+    final route = ModalRoute.of(context);
+    connectionScreenOpen = true;
+    if (!(await (hub.remoteLeaveGuard?.call() ?? Future.value(true)))) {
+      connectionScreenOpen = false;
+      return;
+    }
+    if (!mounted) return;
+    Navigator.of(context).popUntil((candidate) => candidate == route);
+    final remote = hub.remoteClient != null;
+    if (remote) {
+      await hub.stopNative();
+    } else {
+      await hub.suspendNative();
+    }
+    if (!mounted) return;
+    try {
+      await Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) => RemoteConnections(
+            invitation: input,
+            restore: restore,
+            links: widget.links,
+          ),
+        ),
+      );
+    } finally {
+      connectionScreenOpen = false;
+      if (mounted) {
+        if (remote) {
+          await hub.startNative();
+        } else {
+          await hub.resumeNative();
+        }
+      }
+    }
+  }
+
   Future<void> invite(String input) async {
+    final uri = Uri.tryParse(input);
+    if (uri != null &&
+        ((uri.scheme == 'omochi' && ['share', 'owner'].contains(uri.host)) ||
+            (uri.scheme == 'https' &&
+                (uri.fragment.startsWith('share:') ||
+                    uri.fragment.startsWith('owner:'))))) {
+      await showHubConnections(input);
+      return;
+    }
     GatewayInvitation invitation;
     try {
       invitation = GatewayInvitation.parse(input);
@@ -185,6 +253,7 @@ class _MobileHomeState extends State<MobileHome> with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (connectionScreenOpen) return;
     if (state != AppLifecycleState.resumed &&
         state != AppLifecycleState.paused &&
         state != AppLifecycleState.detached) {
@@ -235,6 +304,24 @@ class _MobileHomeState extends State<MobileHome> with WidgetsBindingObserver {
               : messagesFor(context).connections,
         ),
         actions: [
+          if (hub.remoteClient == null)
+            IconButton(
+              tooltip: remoteText(context, 'Hub connections', 'Hub接続'),
+              icon: const Icon(Icons.hub_outlined),
+              onPressed: () => showHubConnections(),
+            ),
+          if (hub.remoteClient != null)
+            IconButton(
+              tooltip: remoteText(context, 'Boards', 'ボード'),
+              icon: const Icon(Icons.dashboard_outlined),
+              onPressed: () => Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) =>
+                      RemoteBoards(client: hub.remoteClient!, session: hub),
+                ),
+              ),
+            ),
+
           if (hub.status == 'Unavailable')
             IconButton(
               tooltip: messagesFor(context).retry,
@@ -242,6 +329,19 @@ class _MobileHomeState extends State<MobileHome> with WidgetsBindingObserver {
                   ? null
                   : () {
                       ready = hub.startNative();
+                      if (widget.session == null) {
+                        WidgetsBinding.instance.addPostFrameCallback((_) async {
+                          await ready;
+                          final selectedHub = await SharedPreferencesAsync()
+                              .getString('omochi.mobile.selectedHub');
+                          if (mounted &&
+                              selectedHub != null &&
+                              pending == null &&
+                              !connectionScreenOpen) {
+                            await showHubConnections(null, true);
+                          }
+                        });
+                      }
                       unawaited(
                         ready.catchError(
                           (Object e) => notice(describeFailure(e)),
@@ -283,11 +383,16 @@ class _MobileHomeState extends State<MobileHome> with WidgetsBindingObserver {
                                 if (hub.surfaceErrors[surface] != null)
                                   Text(hub.surfaceErrors[surface]!),
                                 Expanded(
-                                  child: Surface(
-                                    key: ValueKey(
-                                      '${hub.rendererVersion}/${surfaceContext!.surfaceId}',
+                                  child: IgnorePointer(
+                                    ignoring:
+                                        hub.remoteClient != null &&
+                                        !hub.remoteClient!.interact,
+                                    child: Surface(
+                                      key: ValueKey(
+                                        '${hub.rendererVersion}/${surfaceContext!.surfaceId}',
+                                      ),
+                                      surfaceContext: surfaceContext,
                                     ),
-                                    surfaceContext: surfaceContext,
                                   ),
                                 ),
                               ],

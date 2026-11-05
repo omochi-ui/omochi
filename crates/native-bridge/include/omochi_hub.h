@@ -12,11 +12,15 @@ extern "C" {
  * Storage callbacks must never reenter an administrative Hub command.
  * A write callback returns committed/conflict/failed/unknown, never a guess.
  */
+/* ABI version 2 adds remote downstream client commands. */
 uint32_t omochi_hub_abi_version(void);
 uint64_t omochi_hub_create(void); /* 0 = instance capacity reached */
 /* 0 = invalid/rejected/at capacity; actions are never buffered for retry.
  * Commands: start, state, pair, forget, retry, reload, suspend, resume,
  * subscribe, next (optional applied sequence ack), action, image, close.
+ * remote {request:{method,...}}: parse, list, register, connect, forget,
+ * disconnect, next (string sequence ack), rpc (value = existing downstream
+ * request). Remote and embedded clients use separate host storage namespaces.
  * Input <= 4 MiB. Eight outstanding commands, 8 MiB input credit; close has
  * reserved credit. Polling a result releases its input/command credit.
  */

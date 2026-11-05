@@ -2,6 +2,14 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:omochi_mobile/src/log_redaction.dart';
 
 void main() {
+  test('downstream custom URI credentials never enter diagnostics', () {
+    for (final kind in ['share', 'owner']) {
+      expect(
+        diagnosticText('omochi://$kind/bearerSecret'),
+        isNot(contains('bearerSecret')),
+      );
+    }
+  });
   test('wire diagnostics redact signed URLs and credentials nested in image messages', () {
     final result = diagnosticText({
       'url': 'https://user:secret@images.example/a.png?signature=secret#token',

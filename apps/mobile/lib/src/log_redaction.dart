@@ -4,7 +4,7 @@ import 'dart:convert';
 /// query or fragment in the on-device log, even when embedded in a text field.
 String diagnosticText(Object value) {
   final text = (value is String ? value : jsonEncode(value)).replaceAll(
-    RegExp(r'omochi://invite/[^\s"<>]+'),
+    RegExp(r'omochi://(?:invite|share|owner)/[^\s"<>]+'),
     'omochi://invite/[redacted]',
   );
   return text.replaceAllMapped(

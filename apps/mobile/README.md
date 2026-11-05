@@ -85,7 +85,7 @@ Apps からサービスの Surface を選んで操作できます。Connections 
 - 標準 Image / Markdown のラスター画像は共通 resolver を通ります。公開 HTTPS:443 と認可された Omochi resource を扱い、直接ネットワーク取得へフォールバックしません。
 - 上限は2 Gateway / 8サービス、画像4 M画素、保持画素32 MiB、読み込み同時2件。これは総 RSS の上限ではありません。
 
-GenUI の入れ子 action context、UTC 時刻、サービス別入力モデルを合わせる処理は実験から引き継ぎ、回帰テストを置いています。旧 Dart Hub、HTTP Hub モード、Lab、ダッシュボード編集は含みません。Web の雛形は対応対象ではありません。
+GenUI の入れ子 action context、UTC 時刻、サービス別入力モデルを合わせる処理は実験から引き継ぎ、回帰テストを置いています。旧 Dart Hub、HTTP Hub モード、Lab、端末内Hubのダッシュボード編集は含みません。Web の雛形は対応対象ではありません。
 
 native catalog の Column は表示領域を超える内容を縦にスクロールし、weight を持つ子と暗黙の flex には有限の高さを配分します。ネストと Modal 内も同じ実装です。Modal の bottom sheet は Surface のレンダラー世代が所有し、削除・置換・切断・forget・休止・画面離脱で、その Surface の route だけを閉じます。
 
@@ -199,3 +199,27 @@ flutter build apk --release --target=lib/main.dart --target-platform android-arm
 adb install -r build/app/outputs/flutter-apk/app-release.apk
 adb reverse --remove tcp:5561
 ```
+
+## 外部Hubへの接続
+
+ツールバーの Hub 接続から、共有ダッシュボードとオーナー接続を登録できます。
+`#share:` / `#owner:` の HTTPS リンク、`omochi://share/…` /
+`omochi://owner/…` を貼り付けるか、Web の「アプリで開く」を使います。
+共有接続は接続先の操作・レイアウト編集権限に従い、オーナーはボード編集、
+プリセット、共有作成・解除と接続情報の確認を行えます。オーナー登録管理は
+接続先Hubのローカル管理画面で行います。
+
+表示する接続は1つで、外部接続中は端末内Hubを休止します。保存した接続は
+再起動後も選べ、最後に選択した接続を復元します。公開共有は一時閲覧と明示的な
+保存を選べます。公開共有の保存時だけ、そのbearer secretも保護ストレージへ
+保存します。招待・オーナー用の登録secretは保存せず、pending grantと同じ
+identityを使って登録結果不明から回復します。
+
+外部接続のidentity・記録は `omochi.mobile.remote.v1.identity` に分離します。
+端末内Hubの既存identityは移行・上書きしません。アプリ側の接続削除は接続先での
+権限失効ではありません。使用済みのWeb招待はアプリidentityへ引き継げないため、
+接続先で新しい招待を発行してください。
+
+C ABIはversion 2です。FlutterとRustライブラリーを一緒に再ビルドしてください。
+HTTPS直接起動の設定雛形と公開手順は [deeplinks](deeplinks/README.md) にあります。
+自動起動のドメイン関連付けと本番配信はまだ有効化していません。

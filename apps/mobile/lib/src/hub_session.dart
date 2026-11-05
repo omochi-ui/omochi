@@ -11,6 +11,7 @@ import 'context_codec.dart';
 import 'models.dart';
 import 'log_redaction.dart';
 import 'native/client.dart';
+import 'native/client_remote.dart';
 import 'native/modal.dart';
 import 'native/protocol.dart';
 import 'native/resource_image.dart';
@@ -39,6 +40,9 @@ class HubSession extends ChangeNotifier {
   bool _disposed = false;
   final NativeHubStore nativeStore;
   final GatewayClientFactory gatewayClientFactory;
+  RemoteClient? get remoteClient =>
+      _native is RemoteClient ? _native as RemoteClient : null;
+  Future<bool> Function()? remoteLeaveGuard;
   GatewayClient? _native;
   GatewayClient? _closingNative;
   Future<void>? _nativeStopped;

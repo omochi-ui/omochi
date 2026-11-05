@@ -2,6 +2,7 @@
 //! image bytes use a separate bounded copy API. No Dart callback runs on a Rust thread.
 #[cfg(target_os = "android")]
 mod android;
+mod downstream;
 use anyhow::{Context, Result, bail};
 use omochi_hub::{
     host::HostFuture,
@@ -158,11 +159,13 @@ impl Handle {
 }
 struct Blob {
     bytes: Vec<u8>,
-    handle: Handle,
+    handle: Option<Handle>,
+    remote: Option<CancellationToken>,
     _permit: OwnedSemaphorePermit,
 }
 struct Session {
     native: RwLock<Option<NativeHub>>,
+    downstream: downstream::Client,
     store: Arc<CallbackStore>,
     subscription: AsyncMutex<Option<ScopedSubscription>>,
     render_cancel: Mutex<CancellationToken>,
@@ -183,6 +186,7 @@ impl Session {
     fn new() -> Self {
         Self {
             native: RwLock::new(None),
+            downstream: downstream::Client::default(),
             store: Arc::new(CallbackStore::new()),
             subscription: AsyncMutex::new(None),
             render_cancel: Mutex::new(CancellationToken::new()),
@@ -278,6 +282,54 @@ impl Session {
         cancel: CancellationToken,
     ) -> Result<Value> {
         match command {
+            Command::Remote { request } => {
+                use base64::Engine;
+                let image = request["value"]["op"] == "image";
+                let permit = if image {
+                    Some(
+                        self.image_slots
+                            .clone()
+                            .try_acquire_owned()
+                            .context("Image reader busy")?,
+                    )
+                } else {
+                    None
+                };
+                let token = if image {
+                    Some(
+                        self.downstream
+                            .lease_token(
+                                request["value"]["lease"].as_str().context("ScopeExpired")?,
+                            )
+                            .await?,
+                    )
+                } else {
+                    None
+                };
+                let mut value = self
+                    .downstream
+                    .execute(request, self.store.clone(), cancel)
+                    .await?;
+                if let Some(permit) = permit {
+                    anyhow::ensure!(!token.as_ref().unwrap().is_cancelled(), "ScopeExpired");
+                    let bytes = base64::engine::general_purpose::STANDARD
+                        .decode(value["data"].as_str().context("InvalidImage")?)?;
+                    value.as_object_mut().unwrap().remove("data");
+                    let id = self.next_id();
+                    value["blob"] = id.into();
+                    value["length"] = bytes.len().into();
+                    self.blobs.lock().unwrap().insert(
+                        id,
+                        Blob {
+                            bytes,
+                            handle: None,
+                            remote: token,
+                            _permit: permit,
+                        },
+                    );
+                }
+                Ok(value)
+            }
             Command::Start { online } => {
                 let mut native = self.native.write().await;
                 if self.closing.load(Ordering::Acquire) {
@@ -382,7 +434,8 @@ impl Session {
                     id,
                     Blob {
                         bytes: image.bytes,
-                        handle,
+                        handle: Some(handle),
+                        remote: None,
                         _permit: permit,
                     },
                 );
@@ -390,6 +443,7 @@ impl Session {
             }
             Command::Close => {
                 self.cancel_render();
+                self.downstream.shutdown().await;
                 self.store.stopping.cancel();
                 // Start may still be settling a dispatched identity write. The write
                 // lock waits while host polling continues servicing storage requests.
@@ -457,6 +511,7 @@ impl Session {
 #[derive(Deserialize)]
 #[serde(tag = "op", rename_all = "snake_case", deny_unknown_fields)]
 enum Command {
+    Remote { request: Value },
     Start { online: bool },
     State,
     Pair { invitation: String },
@@ -474,7 +529,7 @@ enum Command {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn omochi_hub_abi_version() -> u32 {
-    1
+    2
 }
 #[unsafe(no_mangle)]
 pub extern "C" fn omochi_hub_create() -> u64 {
@@ -574,7 +629,10 @@ pub unsafe extern "C" fn omochi_hub_blob_read(
             return -1;
         };
         let blobs = session.blobs.lock().unwrap();
-        let Some(blob) = blobs.get(&blob).filter(|blob| !blob.handle.expired()) else {
+        let Some(blob) = blobs.get(&blob).filter(|blob| {
+            blob.handle.as_ref().is_none_or(|h| !h.expired())
+                && blob.remote.as_ref().is_none_or(|t| !t.is_cancelled())
+        }) else {
             return -1;
         };
         if offset > blob.bytes.len() {
@@ -643,6 +701,59 @@ mod tests {
         })
         .await
         .unwrap();
+    }
+
+    #[tokio::test]
+    async fn remote_corrupt_profile_never_writes_or_starts_an_endpoint() {
+        let session = Arc::new(Session::new());
+        submit(&session, json!({"op":"remote","request":{"method":"list"}}));
+        let read = poll(&session).await;
+        session.store.reply(
+            read["id"].as_u64().unwrap(),
+            json!({"ok":true,"value":"{}"}),
+        );
+        let result = poll(&session).await;
+        assert_eq!(result["ok"], false);
+        assert_eq!(result["error"], "StorageCorrupt");
+        assert!(session.poll().is_none());
+        submit(&session, json!({"op":"close"}));
+        assert_eq!(poll(&session).await["ok"], true);
+        stopped(&session).await;
+    }
+
+    #[tokio::test]
+    async fn remote_pending_registration_stores_no_invitation_secret_and_unknown_save_stops() {
+        use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
+        let session = Arc::new(Session::new());
+        let secret = "cd".repeat(32);
+        let link = json!({"version":1,"hubId":omochi_transport::SecretKey::generate().public().to_string(),"relayUrls":["https://relay.example/"],"grantId":uuid::Uuid::nil().to_string(),"mode":"owner","secret":secret});
+        let invitation = format!(
+            "omochi://owner/{}",
+            URL_SAFE_NO_PAD.encode(serde_json::to_vec(&link).unwrap())
+        );
+        submit(
+            &session,
+            json!({"op":"remote","request":{"method":"register","invitation":invitation}}),
+        );
+        let read = poll(&session).await;
+        session.store.reply(
+            read["id"].as_u64().unwrap(),
+            json!({"ok":true,"value":null}),
+        );
+        let write = poll(&session).await;
+        let raw = write["replacement"].as_str().unwrap();
+        assert!(!raw.contains(&secret));
+        let profile: Value = serde_json::from_str(raw).unwrap();
+        assert_eq!(profile["records"][0]["accepted"], false);
+        session
+            .store
+            .reply(write["id"].as_u64().unwrap(), json!({"outcome":"unknown"}));
+        let result = poll(&session).await;
+        assert_eq!(result["ok"], false);
+        assert_eq!(result["error"], "StorageOutcomeUnknown");
+        submit(&session, json!({"op":"close"}));
+        assert_eq!(poll(&session).await["ok"], true);
+        stopped(&session).await;
     }
 
     #[tokio::test]
