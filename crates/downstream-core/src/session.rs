@@ -168,13 +168,12 @@ impl SessionState {
                 if bytes > 32 * 1024 * 1024 {
                     return Err(Fault::CapacityExceeded);
                 }
-                if let Some(old) = self.leases.get(surface) {
-                    if kind == "deleteSurface"
+                if let Some(old) = self.leases.get(surface)
+                    && (kind == "deleteSurface"
                         || kind == "createSurface"
-                        || Some(old) != effect.lease.as_ref()
-                    {
-                        effect.invalidated_leases.push(old.clone());
-                    }
+                        || Some(old) != effect.lease.as_ref())
+                {
+                    effect.invalidated_leases.push(old.clone());
                 }
                 if let Some(lease) = &effect.lease {
                     self.leases.insert(surface.into(), lease.clone());

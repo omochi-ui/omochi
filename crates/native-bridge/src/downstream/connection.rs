@@ -112,7 +112,7 @@ impl Active {
             }
         }
         if let Some(lease) = effect.lease {
-            tokens.entry(lease).or_insert_with(CancellationToken::new);
+            tokens.entry(lease).or_default();
         }
         Ok(value)
     }
