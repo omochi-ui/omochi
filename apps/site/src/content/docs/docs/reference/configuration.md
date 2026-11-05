@@ -26,3 +26,11 @@ sidebar:
 開発サーバーに認証・TLSはありません。HubはHTTPとWebSocket両方のOriginを確認します。外部公開が必要でなければループバックを維持してください。
 
 ネイティブのIDと信頼は旧状態と別管理です。旧信頼をコピーせず再登録してください。ダッシュボードの配置保存はアプリ状態のバックアップではありません。マシンを接続する前に[リモート設定](../../guides/remote/)を確認します。
+
+## 接続先と保存場所
+
+`--config-dir`または`OMOCHI_CONFIG_DIR`でネイティブ状態の場所を変更できます。`--runtime-dir`または`OMOCHI_RUNTIME_ROOT`はSDKレジストリの場所を選びます。`XDG_RUNTIME_DIR`が未設定または空なら、既定の実行時ルートは`<システム一時ディレクトリ>/omochi-<uid>/omochi`です。安全でない実行時ディレクトリは拒否します。
+
+`hub --remote`はirohのオーナー・共有接続を有効にします。`gateway --remote`は信頼済みHubからアプリへの接続を有効にします。両者の認可は別です。`--web-url HTTPS_BASE`の既定値は`https://app.omochi.fyi/`で、指定には`--remote`が必要です。Hubのリモート待受と`--offline`は併用できません。
+
+ホストされたブラウザーのidentityと登録済み接続はIndexedDBに保存し、Web Locksでひとつのタブがidentityを所有します。公開共有の再読み込み用bearer情報はタブのsessionStorageに保持します。オーナー・登録型共有の招待secretは保存しません。FlutterはOSの保護ストレージに保存し、明示保存した公開共有ではbearer情報も保存します。詳細は[接続ガイド](../../guides/remote/)へ。

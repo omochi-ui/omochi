@@ -168,6 +168,11 @@ recipients do not pair with its gateways. Release hubs default to
 the same production relay admission policy. Dashboard authorization remains
 separate from relay admission.
 
+For full management, use **Register owner browser** in the local Connections
+section and accept the owner link in the hosted browser. Owner enrollment and
+revocation remain local-only. The hosted owner can manage boards/shares and
+register Gateways; owner authority is separate from Gateway trust.
+
 ## gateway
 
 Discover this user's running SDK apps and publish their surfaces. The gateway
@@ -193,16 +198,24 @@ application streams. On LANs that permit multicast and direct traffic, registere
 peers can reconnect without internet access. Across networks, iroh uses direct
 connections where possible and a relay otherwise.
 
-For the hosted browser dashboard, use `gateway --remote --pair`. The web URL
+To issue an invitation to add a Gateway to your Hub, run
+`gateway --remote --pair` on the machine hosting the apps. The web URL
 defaults to `https://app.omochi.fyi/`; for self-hosting, set
 `--web-url https://app.example.com/`. The base must be an
 absolute HTTPS URL of at most 2048 characters with no credentials, query or
 fragment. The command prints both the native invitation and the browser link
 only when `--pair` issues a new invitation.
-Both links carry the same temporary bearer secret: share them privately. Accepting
-one enrolls the browser for all exposed services, actions and resources on that
-gateway. Removing its browser connection record does not revoke gateway trust;
-use `trust forget <browser-endpoint-id>` at the gateway to revoke it.
+Both links carry the same unpadded base64url JSON and temporary bearer secret;
+the HTTPS fragment is `#g:<payload>`. Legacy hex and `#connect:` invitations are
+rejected. Share invitations privately.
+
+Connect the hosted browser as an owner, open the Gateway link and choose
+**Add to this hub**. The native Hub is enrolled using its identity, with access
+to all exposed services, actions and resources on that Gateway. Shared viewers
+cannot register Gateways. Removing a browser connection does not revoke Gateway
+trust; use `trust forget <hub-endpoint-id>` at the Gateway to revoke that Hub.
+The Flutter app can instead enroll its embedded Hub with **Add to this device**.
+See the [connection guide](../../guides/remote/) for the separate paths.
 
 ## pair
 
@@ -214,6 +227,7 @@ omochi-ui pair --name workstation
 omochi-ui hub
 ```
 
+Both the native `omochi://invite/` URI and the HTTPS `#g:` link are accepted.
 An invitation can also be the positional argument. Stdin keeps it out of shell
 history. Possession grants access: the invitation expires after 180 seconds and
 admits one hub. The same winning identity can retry an interrupted exchange.
@@ -362,14 +376,14 @@ map to the same Rust field, generation fails before writing any output.
 | Vite browser preview | `http://127.0.0.1:5173/` |
 | Development bridge | `ws://127.0.0.1:5555/ws` |
 | Hub UI / A2UI | `http://127.0.0.1:5555/` / `ws://127.0.0.1:5555/ws` |
-| Gateway Unix socket | `$XDG_RUNTIME_DIR/omochi/gateway.sock` (fallback above) |
+| Gateway Unix socket | `$XDG_RUNTIME_DIR/omochi/gateway.sock`; see fallback below |
 | Native identity, trust and dashboards | `$XDG_CONFIG_HOME/omochi/rust-v1/` |
 
 `XDG_CONFIG_HOME` defaults to `~/.config`. Global `--config-dir` or
 `OMOCHI_CONFIG_DIR` overrides native state. Legacy identity and dashboards are
 left untouched. Global `--runtime-dir` or `OMOCHI_RUNTIME_ROOT` selects the SDK
 registry; with `up`, this path must end in `/omochi` so child SDKs use the same
-registry through `XDG_RUNTIME_DIR`. When `XDG_RUNTIME_DIR` is unset, the default
+registry through `XDG_RUNTIME_DIR`. When `XDG_RUNTIME_DIR` is unset or empty, the default
 is `<system temporary directory>/omochi-<uid>/omochi`.
 Runtime directories must be private and owned by the current user.
 

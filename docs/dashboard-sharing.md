@@ -115,3 +115,34 @@ The [owner protocol](../spec/owner-connection-v1.md) describes authority,
 operations, persistence and revocation. `test:dashboard-sharing` includes owner
 enrollment, dashboard creation, sharing, reload and local revocation; its
 production relay mode exercises the same owner path.
+
+## Add a Gateway to the owner Hub
+
+On the application machine, run `omochi-ui gateway --remote --pair`. Open its
+printed HTTPS link or scan its QR, connect the target owner Hub and choose
+**Add to this hub**. The invitation registers that native Hub at the Gateway;
+the hosted browser remains a Hub client. Shared viewers cannot perform this
+operation. Gateway access covers all its exposed services, actions and resources.
+
+The native URI and `#g:` HTTPS link contain the same unpadded base64url payload
+and expire after 180 seconds. CLI `omochi-ui pair` accepts either form. Legacy
+hex and `#connect:` invitations are rejected. `--web-url HTTPS_BASE` selects a
+custom hosted client.
+
+If disconnected during registration, reconnect with the same owner grant and
+browser identity to check status. **Retry saving registration** retries only the
+Hub's local trust save after accepted enrollment; it does not redeem again.
+Dismissing the invitation does not cancel work already started on the Hub.
+
+## Flutter clients
+
+The [Flutter app](../apps/mobile/README.md#外部hubへの接続) accepts owner/share
+links as an external-Hub client with the same server permissions. It displays one
+selected connection and suspends its embedded Hub while using an external one.
+It stores external-client identity separately in OS-protected storage. Explicitly
+saved public shares retain their bearer credential there; this differs from the
+browser's tab-scoped sessionStorage behavior.
+
+Use a new identity invitation for the app; an already redeemed browser grant
+does not transfer to the app's identity. Local forget does not revoke Hub access.
+See the [remote connection validation record](../apps/mobile/docs/remote-connections-validation.md).

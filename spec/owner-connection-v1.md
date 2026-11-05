@@ -33,12 +33,21 @@ service roster. Actions require a current connection-bound lease.
 Owner control requests are `{op:"control",command:{method,...}}`; replies are
 `{kind:"result",value}` or fixed error codes. Methods are `boardsList`,
 `boardGet`, `boardCreate`, `boardUpdate`, `boardDelete`, `presets`, `connections`,
-`sharing`, `sharesList`, `shareCreate`, and `shareRevoke`. Board commands carry
+`sharing`, `sharesList`, `shareCreate`, `shareRevoke`, `gatewayPairStart`,
+`gatewayPairStatus`, and `gatewayPairRetrySave`. Board commands carry
 `id` where applicable and `value` for writes; updates/deletes retain revision
 checks. Share creation carries `board_id`, `public`, and existing `permissions`.
 There are no remote owner-administration commands. Share connections reject all
 control requests. These methods use HubControl, also used by local board and
 share handlers; no HTTP proxy or expanded CORS policy is involved.
+
+Gateway enrollment uses `gatewayPairStart {invitation,name}` and returns a
+job view; status and save retry carry `{id}`. Jobs belong to
+the initiating owner grant and authenticated browser identity. They register the
+native Hub at the Gateway, not the browser. See
+[Gateway v4 web invitation handoff](gateway-v4.md#web-invitation-handoff) for
+statuses, expiry, conflict handling and save-proof lifetime. A shared viewer
+cannot register Gateways.
 
 One listener accepts all four browser ALPNs. Separate owner and share epochs
 ensure revoking a share does not close the owner awaiting its response. Owner

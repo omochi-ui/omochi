@@ -1,15 +1,17 @@
 # Browser hub implementation contract v1
 
-The implementation described here is now retained under
+Status: archived implementation contract for the direct-Gateway browser
+experiment. The implementation, including persistent profiles, PNG resources
+and board-file sharing, was retained under
 [`experiments/browser-dashboard`](../experiments/browser-dashboard/README.md).
-File paths and build commands below describe the original implementation plan;
-use the experiment README for current locations and opt-in commands. This is not
-a specification for future native-hub readonly sharing.
+Use its README for current locations and opt-in commands, and its
+[acceptance record](../experiments/browser-dashboard/hosted/acceptance.md) for
+verified scope. Paths and future-tense instructions below preserve the original
+plan; they are not current workspace setup instructions.
 
-Status: proposed implementation instructions, 2026-11-03. This specifies future
-code. The only completed runtime work is the isolated
-[experiment](../experiments/browser-hub/RESULTS.md). The existing
-[gateway v4](gateway-v4.md) remains the wire contract.
+The normal hosted dashboard connects to a native Hub using
+[dashboard sharing](dashboard-sharing-v1.md) and [owner connections](owner-connection-v1.md).
+[Gateway v4](gateway-v4.md) remains the Gateway wire contract.
 
 ## 1. Scope, packages, and compatibility
 

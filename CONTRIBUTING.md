@@ -1,6 +1,6 @@
 # Contributing
 
-Start with the [architecture](docs/architecture.md) and [CLI reference](docs/cli.md)
+Start with the [documentation map](docs/README.md), [architecture](docs/architecture.md) and [CLI reference](docs/cli.md)
 to find the component you want to change. Development commands run from the
 repository root unless stated otherwise.
 
@@ -13,7 +13,6 @@ current stable Rust and Cargo. The Python example uses uv. Discovery tests use U
 ```sh
 bun install
 bun run build
-bun run build:native
 ```
 
 Follow the [quick start](README.md#quick-start) to run an app in the browser.
@@ -33,6 +32,9 @@ set `OMOCHI_HUB` to use another address.
 | Unix publisher ownership (Node, Bun, Python, Rust SDK, native utilities) | `bun run test:sdk-ownership` |
 | Preview frontend | `bun run --filter @omochi-ui/dev-server lint` |
 | Dashboard frontend | `bun run --filter @omochi-ui/hub-ui lint` |
+| Hosted owner/share clients | `bun run test:dashboard-sharing` (requires the WASM toolchain and Chromium; see [setup](apps/dashboard/README.md)) |
+| Documentation site | `bun run check:site`, `bun run build:site`, `bun run --filter @omochi-ui/site verify` |
+| Flutter/native bridge | Follow the [mobile verification guide](apps/mobile/README.md#検証) and [external-Hub checks](apps/mobile/docs/remote-connections-validation.md) |
 | Rust formatting | `cargo fmt --manifest-path packages/sdk/rust/Cargo.toml --check` |
 | Cargo/npm packaging (also included in `bun run test`) | `bun run test:packaging` |
 | Release versions and dependency graph | `bun run release:check` |
@@ -41,6 +43,11 @@ set `OMOCHI_HUB` to use another address.
 Run the checks affected by your change. Protocol messages, stable IDs,
 reconciliation, and component catalogs must stay aligned across all three SDKs;
 update their tests and shared fixtures in `spec/fixtures` together.
+
+`bun run build` builds the JavaScript packages and native CLI/utilities.
+`bun run build:native` builds just the browser dependencies and those native
+binaries. Neither builds hosted WASM or Flutter. The default `bun run test` does
+not replace the opt-in real-browser, multicast or mobile integration checks.
 
 Native lifecycle tests must wait for observable readiness, command completion or
 acknowledgement, rather than sleeping for an assumed processing time. Test timer
@@ -61,6 +68,18 @@ cargo test --manifest-path crates/Cargo.toml mdns_resolves -- --ignored --nocapt
 ```
 
 Run those when changing mDNS integration or updating iroh/mDNS dependencies.
+
+## Documentation changes
+
+User guides live in `apps/site/src/content/docs/`: update Japanese and English
+pages together. Keep command flags/defaults aligned with `crates/cli/src/main.rs`
+and root/package scripts. Protocol changes belong in the relevant active contract
+listed in [spec/README.md](spec/README.md).
+
+Keep dated acceptance records and review baselines as historical evidence.
+Describe their tested scope without presenting old results as fresh verification.
+Link archived plans to current guides; current setup instructions must use active
+package locations rather than pre-relocation experiment paths.
 
 ## Changes and pull requests
 

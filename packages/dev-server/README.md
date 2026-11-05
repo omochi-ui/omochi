@@ -2,7 +2,7 @@
 
 The standalone Vite preview for one A2UI application, using the shared
 `@omochi-ui/renderer` React package. See the [quick start](../../README.md#quick-start)
-and [architecture](../../docs/architecture.md#preview-one-app).
+and [architecture](../../docs/architecture.md).
 
 After `bun install` and `bun run build`, start the browser frontend:
 

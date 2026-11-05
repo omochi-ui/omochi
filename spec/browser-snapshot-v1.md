@@ -1,8 +1,12 @@
 # Bounded browser snapshot v1
 
-Status: future implementation contract, 2026-11-03. Read with
+Status: archived direct-Gateway browser experiment contract. Read with
 [browser hub v1](browser-hub-v1.md), whose budgets and source lifecycle apply.
-This specifies browser-only code, not a change to the shared native/dev helper.
+Paths and future-tense instructions below preserve the original implementation
+plan. Current code and opt-in commands live under
+[`experiments/browser-dashboard`](../experiments/browser-dashboard/README.md).
+This is separate from the native Hub's downstream sharing/owner contracts and
+mobile embedded Hub admission limits.
 
 ## Ownership and API
 

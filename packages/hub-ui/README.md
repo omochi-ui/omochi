@@ -1,4 +1,14 @@
-# Dashboard localization
+# Dashboard UI
+
+The local entry connects to native Hub HTTP/WS/SSE. The hosted entry connects to
+that Hub over iroh with owner or share grants, using `@omochi-ui/hub-transport`.
+The native Hub owns saved dashboards and permissions. Direct browser-to-Gateway
+aggregation remains an [opt-in experiment](../../experiments/browser-dashboard/README.md).
+
+See [architecture](../../docs/architecture.md), [sharing and recovery](../../docs/dashboard-sharing.md),
+[UI behavior](../../docs/dashboard-ui.md) and [hosted deployment](../../apps/dashboard/README.md).
+
+## Localization
 
 Both the local hub dashboard and the hosted dashboard use [i18next](https://www.i18next.com/)
 with [react-i18next](https://react.i18next.com/) and its browser language detector.

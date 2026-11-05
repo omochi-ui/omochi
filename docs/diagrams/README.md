@@ -1,9 +1,13 @@
 # Architecture diagram exports
 
-The editable sources are the ten Mermaid blocks in
-[`../architecture.md`](../architecture.md). SVG exports let readers zoom into
-individual diagrams without a Markdown renderer. The PNG overview is provided
-for viewers that cannot display SVG.
+These exports describe the former TypeScript server architecture. They are
+historical reference material; the [current architecture](../architecture.md)
+describes the native Rust services, hosted Hub clients and Flutter app.
+
+The ten editable Mermaid sources are retained in `docs/architecture.md` at
+commit `bd4dd4f588ae66bdbd811e334f0dd97baaa58f37`, before the Rust migration.
+The current architecture document no longer contains those source blocks.
+SVG exports permit zooming; the PNG overview supports viewers without SVG.
 
 | Diagram | Export |
 | --- | --- |
@@ -20,8 +24,9 @@ for viewers that cannot display SVG.
 
 ## Regenerate
 
-Edit the Mermaid blocks in `docs/architecture.md`, then regenerate the exports.
-Do not manually edit generated SVG or PNG files. These exports use Mermaid CLI
+To reproduce the historical exports, extract their original source first.
+Do not treat these diagrams as the current system map or manually edit generated
+SVG/PNG files. These exports use Mermaid CLI
 11.17.0 with [`mermaid.config.json`](mermaid.config.json), a white background,
 and a 2400-pixel viewport. Mermaid resolves its own layout; the exported width
 can differ from the viewport.
@@ -31,8 +36,9 @@ available to Mermaid CLI:
 
 ```sh
 mkdir -p /tmp/omochi-architecture-export
+git show bd4dd4f588ae66bdbd811e334f0dd97baaa58f37:docs/architecture.md > /tmp/omochi-architecture-export/architecture.md
 bunx @mermaid-js/mermaid-cli@11.17.0 \
-  -i docs/architecture.md \
+  -i /tmp/omochi-architecture-export/architecture.md \
   -o /tmp/omochi-architecture-export/architecture.svg \
   -c docs/diagrams/mermaid.config.json -w 2400 -j 2
 ```
@@ -49,7 +55,7 @@ from pathlib import Path
 import re
 import shutil
 
-source = Path('docs/architecture.md').read_text()
+source = Path('/tmp/omochi-architecture-export/architecture.md').read_text()
 blocks = re.findall(r'```mermaid\n(.*?)\n```', source, re.S)
 names = re.findall(r'\]\(diagrams/([a-z0-9-]+\.svg)\)', source)
 assert len(blocks) == len(names), 'Each diagram needs exactly one SVG link'

@@ -61,4 +61,4 @@ origin; serving the app from another origin requires independent enrollment.
 The [original connectivity spike](../browser-hub/README.md) remains separate and
 unchanged. [Historical acceptance](hosted/acceptance.md) describes the earlier
 implementation run, not a new acceptance of this relocation. The earlier design
-and file paths are retained in [the design document](../../docs/dashboard-remote-access.md).
+and file paths are retained in [the design document](../../docs/dashboard-remote-access.browser-experiment.md).

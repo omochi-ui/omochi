@@ -1,6 +1,6 @@
 # Architecture
 
-[Overview](../README.md) · [SDK guide](sdk.md) · [CLI reference](cli.md) · [Discovery](discovery.md)
+[Documentation map](README.md) · [SDK guide](sdk.md) · [CLI reference](cli.md) · [Remote access](dashboard-remote-access.md)
 
 Omochi's server implementation is Rust. SDKs emit A2UI v0.9; the shared browser
 renderer and dashboard remain TypeScript/React. npm CLI packages are launchers for
@@ -11,9 +11,10 @@ SDK app (TypeScript / Python / Rust)
     │ manifest + Unix JSONL
     ▼
 Rust gateway ── Unix / authenticated iroh streams ── Rust hub
-                                                       │ HTTP / WebSocket
-                                                       ▼
-                                              Dashboard + renderer
+                                                       ├─ HTTP / WS / SSE ── Local dashboard
+                                                       └─ iroh ── Hosted / Flutter client
+
+Rust gateway ── authenticated iroh ── Flutter app's embedded Rust hub
 ```
 
 ## Source layout
@@ -21,17 +22,25 @@ Rust gateway ── Unix / authenticated iroh streams ── Rust hub
 | Directory | Responsibility |
 | --- | --- |
 | `crates/protocol` | Gateway v4 framing, sessions, bounded queues |
+| `crates/downstream-core` | Shared downstream owner/share contracts and apply/ACK state for WASM and native clients |
+| `crates/mdns` | Platform mDNS backends and discovery lifecycle |
 | `crates/transport` | iroh endpoints, invitations, identity/trust persistence |
 | `crates/discovery` | Validate local SDK manifests and watch service lifetimes |
 | `crates/gateway` | Share SDK connections, replay snapshots, route actions/resources |
 | `crates/hub` | Aggregate gateways, browser HTTP/WebSocket, dashboards and embedded assets |
 | `crates/cli` | `omochi-ui` commands, compositions, stdio preview and catalog generation |
 | `crates/utils` | `omochi-utils` modes and MCP server |
+| `crates/native-bridge` | C ABI v2 for the Flutter app's embedded Hub and external-Hub client |
 | `packages/npm/{cli,utils}` | Private checkout stubs and public npm metadata templates |
 | `packages/npm/launcher.cjs` | Published native binary selection and process forwarding |
 | `packages/sdk/{typescript,python,rust}` | Stable application-facing SDK implementations |
 | `packages/renderer`, `packages/hub-ui`, `packages/dev-server` | Shared renderer, dashboard and preview frontend |
 | `packages/core` | TypeScript SDK/browser transport helpers and test utilities |
+| `packages/hub-transport` | Hosted client's WASM iroh transport to a native Hub |
+| `apps/dashboard` | Static hosted dashboard Worker; no application-data proxy |
+| `apps/mobile` | Flutter/GenUI app, OS storage and lifecycle adapters |
+| `apps/site`, `apps/mobile-site` | Bilingual documentation site and mobile landing page |
+| `experiments/browser-dashboard` | Opt-in direct browser-to-Gateway aggregator and browser-local boards |
 | `tests/native` | Cross-process client integration tests against native services |
 
 The Cargo workspace is `crates/Cargo.toml`. The existing Rust SDK stays an
@@ -57,7 +66,8 @@ with queued live data; if that combined budget is exhausted, the client disconne
 instead of reordering or dropping messages. This is a wire-data bound, not an RSS
 limit on retained application snapshot state.
 
-Remote connectivity is opt-in. Invitations are imported on the hub PC and register
+Remote connectivity is opt-in. Gateway invitations are imported by CLI, through
+an authenticated hosted owner, or into the Flutter app's embedded Hub, and register
 a gateway's full iroh EndpointId. Registered peers reconnect independently by ID;
 addresses and LAN discovery never grant authorization. Session generations reject
 stale service actions, and reconnects start with a new snapshot. Revocation waits
@@ -67,6 +77,19 @@ The hub remains loopback-only by default. HTTP and WebSocket use the same Origin
 checks. Browser surface IDs are namespaced by gateway and service; actions and
 client draft metadata are narrowed to their target before returning to the SDK.
 Resources use separate request streams, preserving browser range and HEAD reads.
+
+The hosted dashboard connects to the native Hub over iroh with separate owner
+or share grants. Owner access covers all Hub Surfaces and dashboard management;
+shares cover one saved board, with optional interaction/layout permissions for
+identity grants and readonly public links. Gateway trust, owner grants and shares
+use separate enrollment, stores and revocation. The static web host serves assets.
+Remote images use scoped native validation; remote audio/video is unavailable.
+
+The Flutter app embeds the common Rust Hub for direct Gateway access. It can also
+select an external Hub using owner/share grants, suspending its embedded Hub while
+that connection is selected. Its protected identity stores and capacity limits
+are adapter-specific. See [remote access](dashboard-remote-access.md),
+[sharing](dashboard-sharing.md) and the [mobile app](../apps/mobile/README.md).
 
 See [gateway v4](../spec/gateway-v4.md) for exact framing, limits and lifecycle;
 [discovery](discovery.md) for setup; and [native releases](native-releasing.md) for

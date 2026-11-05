@@ -28,9 +28,9 @@ flowchart LR
 
 The connection can be a development bridge, a direct transport, or a gateway and
 hub. The SDKs share a protocol and conformance fixtures, rather than a binary.
-See [Architecture](docs/architecture.md) for the complete system map and detailed
-diagrams of dependencies, protocols, state, and recovery.
-[Open the full-size system map](docs/diagrams/architecture-overview.svg).
+See [Architecture](docs/architecture.md) for source layout, connection paths and
+authorization boundaries, and the [documentation map](docs/README.md) for guides
+and protocol contracts.
 
 ## Quick start
 
@@ -80,6 +80,13 @@ For machines without Node or Rust, use a
 Use a separate `gateway` command when apps run on another machine; follow the
 [remote connection guide](https://omochi.fyi/en/docs/guides/remote/).
 For local use, starting `hub` is enough.
+
+For hosted access, start `omochi-ui hub --remote` and use **Register owner browser**
+on its local dashboard. The hosted browser connects to that native Hub. To add a
+Gateway, run `omochi-ui gateway --remote --pair` on its machine, open the printed
+URL or scan its QR, connect your owner Hub and choose **Add to this hub**.
+Invitations expire after 180 seconds. See the [remote access overview](docs/dashboard-remote-access.md)
+for owner access, dashboard shares and the Flutter app's embedded Hub.
 
 ## Agent skill
 
@@ -174,11 +181,13 @@ and have no authentication or TLS.
 
 | Read | For |
 | --- | --- |
-| [Architecture](docs/architecture.md) | Runtime flow, process diagrams, ownership, and package map |
+| [Documentation map](docs/README.md) / [Specifications](spec/README.md) | Current guides and contracts, acceptance records and design history |
+| [Architecture](docs/architecture.md) | Runtime flow, connection paths, ownership, and package map |
 | [SDK guide](https://omochi.fyi/en/docs/guides/sdks/) | Python, TypeScript, Rust, components, and transports |
 | [CLI reference](https://omochi.fyi/en/docs/reference/cli/) | Commands, flags, defaults, and troubleshooting |
 | [Discovery and dashboards](https://omochi.fyi/en/docs/guides/remote/) | Local services, remote access, and routing |
 | [Hosted dashboard sharing](docs/dashboard-sharing.md) | Hub-client iroh access, identity invitations and readonly public links |
+| [Mobile and desktop app](apps/mobile/README.md) | Flutter/GenUI, embedded Rust Hub and external-Hub owner/share connections |
 | [Docker](deploy/docker/README.md) | Run the hub and Python example with Compose; native images on GHCR |
 | [Deployment](deploy/README.md) | app.omochi.fyi static hosting, hub setup and relay operation |
 | [Browser dashboard experiment](experiments/browser-dashboard/README.md) | Opt-in browser-resident hub, WASM transport, and direct gateway tests |
@@ -221,7 +230,6 @@ To develop one SDK example against the standalone preview instead, build first:
 
 ```sh
 bun run build
-bun run build:native
 ```
 
 In terminal 1, start the browser preview:
@@ -247,7 +255,7 @@ Other examples use the same preview:
 | SDK | Command for terminal 2 | Additional tools |
 | --- | --- | --- |
 | TypeScript | `bun run omochi-ui dev -- bun run --cwd examples/typescript start` | Bun (used by the example) |
-| Rust | `bun run omochi-ui dev -- cargo run --manifest-path examples/rust/Cargo.toml` | Rust 1.85+ and Cargo |
+| Rust | `bun run omochi-ui dev -- cargo run --manifest-path examples/rust/Cargo.toml` | Current stable Rust and Cargo |
 
 See the [SDK guide](https://omochi.fyi/en/docs/guides/sdks/) for code examples, state, actions, components,
 and transports in all three languages.
@@ -259,9 +267,3 @@ including optional rejection notes and an agent-free demo.
 ## License
 
 Licensed under the [Apache License 2.0](LICENSE).
-
-To add a gateway from your browser, run `omochi-ui gateway --remote --pair`.
-Open the printed app.omochi.fyi URL or scan its QR, connect your owner hub,
-and choose **Add to this hub**. Invitations expire in 180 seconds.
-Use `--web-url https://your-dashboard.example/` for a custom hosted client.
-CLI `omochi-ui pair` also accepts the HTTPS invitation URL.

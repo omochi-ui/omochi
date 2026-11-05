@@ -1,5 +1,11 @@
 # Dashboard remote access review state
 
+> Historical review state from 2026-11-03. The implementation was later retained
+> as the [browser dashboard experiment](../../../experiments/browser-dashboard/README.md).
+> Use the [current remote access overview](../../dashboard-remote-access.md) and
+> [specification index](../../../spec/README.md) for the active native-Hub design.
+> Statements about pending implementation below describe the review checkpoint.
+
 Current author task remains fix and review, 2026-11-03. V5's three fresh auditors
 completed clean with one editorial Nit, which was corrected. Parent final-check
 probe found an initial missing-root mismatch before final acceptance. Its small
@@ -8,7 +14,7 @@ No production implementation/deployment or automatic further round is inferred.
 
 ## Current target
 
-[Main plan](../../dashboard-remote-access.md), FeatureRange 1–291,
+[Main plan](../../dashboard-remote-access.browser-experiment.md), FeatureRange 1–291,
 DetailedRange 292–516, and full [hub contract](../../../spec/browser-hub-v1.md),
 [snapshot/patch contract](../../../spec/browser-snapshot-v1.md),
 [board schema](../../../spec/board-export.schema.json),

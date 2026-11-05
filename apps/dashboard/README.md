@@ -79,7 +79,14 @@ omochi-ui hub --remote
 The web URL defaults to `https://app.omochi.fyi/`; use `--web-url HTTPS_BASE`
 to select a custom hosted client.
 
-Create links in the local dashboard's **Share dashboard** dialog. Release builds use `https://relay.omochi.fyi` by default; debug builds use n0
+For full management, use **Register owner browser** in the local Connections
+section and explicitly accept the resulting link in the hosted browser. Owner
+registration and revocation remain local-only. Once connected as an owner, the
+hosted browser can add Gateways using the link/QR from
+`omochi-ui gateway --remote --pair`; choose **Add to this hub** to register the
+native Hub, rather than the browser, at that Gateway.
+
+For board-limited access, create links in the local dashboard's **Share dashboard** dialog. Release builds use `https://relay.omochi.fyi` by default; debug builds use n0
 relays. The browser uses the relay URLs in the sharing link and sends the shared
 admission token only to the exact production relay URL. Use
 `--relay https://relay.omochi.fyi` to test production with a debug hub.
