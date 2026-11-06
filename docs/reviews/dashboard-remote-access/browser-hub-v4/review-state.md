@@ -1,6 +1,6 @@
 # Browser hub v4: author-requested additional re-audit
 
-Date: 2026-11-03. User explicitly requested “修正してレビューして” after seeing
+Date: 2026-11-03. User explicitly requested “fix and review” (translated from Japanese) after seeing
 all nine Major and three Nit findings. This author instruction authorizes their
 specification fixes and one additional re-audit beyond the prior Stage 9 cap.
 No automatic permission for further rounds or production implementation is inferred.

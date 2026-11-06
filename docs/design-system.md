@@ -1,343 +1,483 @@
-# Omochi デザインシステム
+# Omochi design system
 
 [Overview](../README.md) · [Architecture](architecture.md) · [Discovery and dashboards](discovery.md)
 
-[issue #5](https://github.com/omochi-ui/omochi/issues/5) に対応する初期デザイン仕様。深い緑と明るい背景を基調に、操作と接続状態を読み取りやすい開発ツールを目指す。Web サイト、dashboard、開発プレビュー、将来の Flutter クライアントで、色の役割・文字・余白・部品の状態・用語を共有する。
+Initial design specification for [issue #5](https://github.com/omochi-ui/omochi/issues/5).
+Deep greens and light backgrounds support readable controls and connection states
+in a development tool. The website, dashboard, development preview, and future
+Flutter clients share color roles, typography, spacing, component states, and
+terminology.
 
-この仕様の範囲はドキュメントと静的な見本図まで。既存 UI への適用、テーマのコード化、Flutter の実装は別途行う。初期仕様はライトの作業面と濃色のナビゲーションで構成し、全面ダークテーマは含めない。
+This specification covers documentation and static samples. Applying it to the
+existing UI, implementing theme tokens in code, and Flutter implementation are
+separate tasks. The initial design uses light work surfaces and dark navigation;
+a full dark theme is outside its scope.
 
-![指定の4色、Surface・Gateway・Hubの関係、ボタンと入力、接続状態の見本](assets/design-system.png)
+![The four specified colors, Surface/Gateway/Hub relationships, buttons, inputs, and connection states](assets/design-system.png)
 
-[見本図を原寸で開く](assets/design-system.png) · [編集元 SVG](assets/design-system.svg) · [アイコンの編集とプレビュー](assets/design-system/README.md)。これは仕様の見本であり、実装済み画面のスクリーンショットではない。文書では生成した PNG を表示し、編集元 SVG は個別のアイコンファイルを参照する。
+[Full-size sample](assets/design-system.png) · [SVG source](assets/design-system.svg) ·
+[Icon editing and preview](assets/design-system/README.md). This is a specification
+sample, not a screenshot of an implemented screen. The document displays the
+exported PNG; the editable SVG references individual icon files.
 
-## デザインの原則
+## Design principles
 
-- **操作は明快に。** 読める文字、動詞で始まる操作名、目に見えるフォーカスを優先する。保存中・選択中・接続中は、色に加えて文字や形で示す。
-- **接続を可視化する。** Surface・Gateway・Hub に固有の図形を割り当て、どの対象とつながっているかを名前とともに示す。Hub との接続だけで、配下のすべてが正常とは表現しない。
-- **落ち着いた道具にする。** わらび餅や抹茶の印象は、緑、わずかに色づいた背景、適度な角丸で表す。マスコット、跳ねる動き、常時点滅する装飾は使わない。
+- **Make actions clear.** Prioritize readable text, verb-led action names, and
+  visible focus. Show saving, selection, and connection attempts through text
+  or shapes as well as color.
+- **Make connections visible.** Give Surface, Gateway, and Hub distinct shapes,
+  and identify connected objects by name. A Hub connection alone does not imply
+  that everything beneath it is healthy.
+- **Keep the tool calm.** Greens, lightly tinted backgrounds, and moderate corner
+  radii evoke warabi mochi and matcha. Avoid mascots, bouncing motion, and
+  continuously blinking decoration.
 
-## 色のトークン
+## Color tokens
 
-色は「値を持つパレット」と「用途を持つセマンティックトークン」の二層に分ける。コンポーネントは用途の名前を参照する。以下のドット区切り名を共通の識別子とし、Web の変数名では `color.accent.solid` を `--omochi-color-accent-solid` と表す。
+Separate colors into a palette of values and semantic tokens that describe their
+purpose. Components reference semantic roles. Use the dotted names below as
+shared identifiers; on the web, `color.accent.solid` becomes
+`--omochi-color-accent-solid`.
 
-### 基調パレット
+### Base palette
 
-ユーザー指定の4色をそのまま使う。均等な明度の色階調としては扱わず、それぞれに役割を与える。
+Use the four user-specified colors unchanged. Assign a role to each rather than
+treating them as an evenly spaced lightness scale.
 
-| パレット名 | 値 | 主な用途 |
+| Palette name | Value | Main uses |
 | --- | --- | --- |
-| `palette.ink` | `#181f1c` | 本文、強い見出し、押下中の主操作 |
-| `palette.forest` | `#274029` | 濃色ナビゲーション、主操作の hover |
-| `palette.leaf` | `#315c2b` | 主操作、リンク、選択の強調 |
-| `palette.olive` | `#60712f` | 明るい面のフォーカス、補助的なブランド表現 |
+| `palette.ink` | `#181f1c` | Body text, strong headings, pressed primary actions |
+| `palette.forest` | `#274029` | Dark navigation, primary-action hover |
+| `palette.leaf` | `#315c2b` | Primary actions, links, selection emphasis |
+| `palette.olive` | `#60712f` | Focus on light surfaces, secondary brand accents |
 
-オリーブはブランド色であり、警告の意味には使わない。主操作の塗りは `leaf` に統一する。
+Olive is a brand color, not a warning color. Use `leaf` for primary-action fills.
 
-### 補助パレット
+### Supporting palette
 
-| パレット名 | 値 | 用途 |
+| Palette name | Value | Uses |
 | --- | --- | --- |
-| `palette.white` | `#ffffff` | カード、入力、主操作上の文字 |
-| `palette.paper` | `#f5f6f2` | ページ背景、濃色面上の文字 |
-| `palette.mist` | `#edf2e8` | hover、選択、補助情報の背景 |
-| `palette.line` | `#d6ddcf` | 装飾的な区切り、カード外枠 |
-| `palette.sage` | `#7a846e` | 操作部品の境界 |
-| `palette.slate` | `#526052` | 補足、placeholder、未接続の文字 |
-| `palette.pale` | `#cbd3c6` | 濃色面上の補足文字 |
-| `palette.lime` | `#dce8b9` | 濃色面のフォーカスと選択線 |
-| `palette.amber` | `#745512` | 注意の文字とアイコン |
-| `palette.amberWash` | `#fff7df` | 注意の背景 |
-| `palette.red` | `#8b342b` | エラー、削除の文字とアイコン |
-| `palette.redWash` | `#fff1ed` | エラー、削除操作の hover 背景 |
+| `palette.white` | `#ffffff` | Cards, inputs, text on primary actions |
+| `palette.paper` | `#f5f6f2` | Page backgrounds, text on dark surfaces |
+| `palette.mist` | `#edf2e8` | Hover, selection, supporting-information backgrounds |
+| `palette.line` | `#d6ddcf` | Decorative separators, card outlines |
+| `palette.sage` | `#7a846e` | Control boundaries |
+| `palette.slate` | `#526052` | Supporting text, placeholders, disconnected-state text |
+| `palette.pale` | `#cbd3c6` | Supporting text on dark surfaces |
+| `palette.lime` | `#dce8b9` | Focus and selection indicators on dark surfaces |
+| `palette.amber` | `#745512` | Warning text and icons |
+| `palette.amberWash` | `#fff7df` | Warning backgrounds |
+| `palette.red` | `#8b342b` | Error and deletion text/icons |
+| `palette.redWash` | `#fff1ed` | Error backgrounds, destructive-action hover |
 
-### 用途への割り当て
+### Semantic assignments
 
-表の値は上記 `palette.*` の参照先。濃色ナビゲーションは独立した領域として扱い、明るい作業面の色を変更しない。
+Values below reference `palette.*`. Treat dark navigation as an independent
+region without changing the colors of the light work surface.
 
-| トークン | 参照先 | 使用箇所 |
+| Token | Reference | Uses |
 | --- | --- | --- |
-| `color.bg.page` | `paper` | ページ全体 |
-| `color.bg.surface` | `white` | カード、入力 |
-| `color.bg.raised` | `white` | メニュー、ダイアログ |
-| `color.bg.subtle` | `mist` | コード、補足情報 |
-| `color.bg.inverse` | `forest` | ナビゲーション |
-| `color.text.primary` | `ink` | 本文、見出し |
-| `color.text.secondary` | `slate` | 補足、placeholder |
-| `color.text.inverse` | `paper` | 濃色面の本文 |
-| `color.text.inverseSecondary` | `pale` | 濃色面の補足 |
-| `color.border.subtle` | `line` | 非操作カードの枠 |
-| `color.separator` | `line` | 情報の区切り |
-| `color.border.control` | `sage` | 入力、secondary ボタンの枠 |
-| `color.accent.solid` | `leaf` | 主操作の塗り、濃色ナビの選択背景 |
-| `color.accent.solidHover` | `forest` | 主操作の hover |
-| `color.accent.solidPressed` | `ink` | 主操作の押下 |
-| `color.accent.onSolid` | `white` | 主操作の文字 |
-| `color.accent.text` | `leaf` | 下線つきリンク |
-| `color.accent.subtle` | `mist` | 明るい面の選択背景 |
-| `color.selection.indicator` | `leaf` | 明るい面の選択線 |
-| `color.selection.inverseIndicator` | `lime` | 濃色面の選択線 |
-| `color.focus` | `olive` | 明るい面の外側フォーカスリング |
-| `color.focus.inverse` | `lime` | 濃色面の外側フォーカスリング |
-| `color.disabled.bg` | `mist` | 無効な操作の背景 |
-| `color.disabled.text` | `slate` | 無効な操作の文字 |
-| `color.disabled.border` | `line` | 無効な操作の枠 |
-| `color.status.positive.text` | `forest` | チェックと「接続済み」「保存済み」 |
-| `color.status.positive.bg` | `mist` | 確認済み状態の背景 |
-| `color.status.neutral.text` | `slate` | 未接続、接続中、状態不明 |
-| `color.status.neutral.bg` | `paper` | 中立状態の背景 |
-| `color.status.warning.text` | `amber` | 注意の文字・アイコン・必要な枠 |
-| `color.status.warning.bg` | `amberWash` | 注意の背景 |
-| `color.status.danger.text` | `red` | エラー、削除の文字・アイコン・枠 |
-| `color.status.danger.bg` | `redWash` | エラーの背景 |
+| `color.bg.page` | `paper` | Whole page |
+| `color.bg.surface` | `white` | Cards, inputs |
+| `color.bg.raised` | `white` | Menus, dialogs |
+| `color.bg.subtle` | `mist` | Code, supporting information |
+| `color.bg.inverse` | `forest` | Navigation |
+| `color.text.primary` | `ink` | Body text, headings |
+| `color.text.secondary` | `slate` | Supporting text, placeholders |
+| `color.text.inverse` | `paper` | Body text on dark surfaces |
+| `color.text.inverseSecondary` | `pale` | Supporting text on dark surfaces |
+| `color.border.subtle` | `line` | Noninteractive card outlines |
+| `color.separator` | `line` | Information separators |
+| `color.border.control` | `sage` | Input and secondary-button borders |
+| `color.accent.solid` | `leaf` | Primary-action fills, selected dark-navigation background |
+| `color.accent.solidHover` | `forest` | Primary-action hover |
+| `color.accent.solidPressed` | `ink` | Pressed primary actions |
+| `color.accent.onSolid` | `white` | Primary-action text |
+| `color.accent.text` | `leaf` | Underlined links |
+| `color.accent.subtle` | `mist` | Selection backgrounds on light surfaces |
+| `color.selection.indicator` | `leaf` | Selection indicators on light surfaces |
+| `color.selection.inverseIndicator` | `lime` | Selection indicators on dark surfaces |
+| `color.focus` | `olive` | Outer focus rings on light surfaces |
+| `color.focus.inverse` | `lime` | Outer focus rings on dark surfaces |
+| `color.disabled.bg` | `mist` | Disabled-control backgrounds |
+| `color.disabled.text` | `slate` | Disabled-control text |
+| `color.disabled.border` | `line` | Disabled-control borders |
+| `color.status.positive.text` | `forest` | Checkmarks, Connected/Saved labels |
+| `color.status.positive.bg` | `mist` | Confirmed-state backgrounds |
+| `color.status.neutral.text` | `slate` | Disconnected, connecting, unknown-state text |
+| `color.status.neutral.bg` | `paper` | Neutral-state backgrounds |
+| `color.status.warning.text` | `amber` | Warning text, icons, and required borders |
+| `color.status.warning.bg` | `amberWash` | Warning backgrounds |
+| `color.status.danger.text` | `red` | Error/deletion text, icons, and borders |
+| `color.status.danger.bg` | `redWash` | Error backgrounds |
 
-情報の状態には文字とアイコンを併記し、濃い塗りの面積は小さくする。赤いバッジを通常の未接続に使わない。濃色ナビゲーション内の状態は上記の明るいバッジ背景を持たせ、赤やオリーブの文字を濃色背景へ直接置かない。
+Pair status text with icons and keep areas of strong fill small. Do not use red
+badges for ordinary disconnected states. In dark navigation, use the light badge
+backgrounds above rather than placing red or olive text directly on dark surfaces.
 
-### コントラスト
+### Contrast
 
-通常の文字は 4.5:1 以上、操作や状態の識別に必要な境界・図形は隣接色と 3:1 以上を確保する。見出しも原則として通常文字と同じ配色を使う。[W3C の文字コントラスト](https://www.w3.org/WAI/WCAG22/Understanding/contrast-minimum.html)と[非テキストのコントラスト](https://www.w3.org/WAI/WCAG22/Understanding/non-text-contrast.html)に基づく。
+Provide at least 4.5:1 for ordinary text and 3:1 against adjacent colors for
+boundaries and shapes needed to identify controls or states. Headings should
+normally use the same color combinations as ordinary text. These requirements
+follow W3C guidance on [text contrast](https://www.w3.org/WAI/WCAG22/Understanding/contrast-minimum.html)
+and [non-text contrast](https://www.w3.org/WAI/WCAG22/Understanding/non-text-contrast.html).
 
-以下は不透明な sRGB 色の相対輝度から計算した比率。表示は小数第2位まで、合否は丸め前の値で判断する。
+The ratios below use relative luminance of opaque sRGB colors. Display values
+are rounded to two decimal places; pass/fail uses the unrounded result.
 
-| 前景 | 背景 | 比率 | 用途と基準 |
+| Foreground | Background | Ratio | Use and threshold |
 | --- | --- | --- | --- |
-| `#181f1c` | `#f5f6f2` | 15.46:1 | 本文、4.5:1 |
-| `#526052` | `#f5f6f2` | 6.13:1 | 補足、4.5:1 |
-| `#526052` | `#ffffff` | 6.66:1 | 入力の placeholder、4.5:1 |
-| `#ffffff` | `#315c2b` | 7.79:1 | 主操作、4.5:1 |
-| `#ffffff` | `#274029` | 11.34:1 | 主操作の hover、4.5:1 |
-| `#ffffff` | `#181f1c` | 16.78:1 | 主操作の押下、4.5:1 |
-| `#315c2b` | `#edf2e8` | 6.85:1 | 選択文字、4.5:1 |
-| `#7a846e` | `#ffffff` | 3.92:1 | 入力の枠、3:1 |
-| `#7a846e` | `#f5f6f2` | 3.61:1 | ページ上の操作枠、3:1 |
-| `#60712f` | `#f5f6f2` | 4.96:1 | フォーカス、3:1 |
-| `#f5f6f2` | `#274029` | 10.45:1 | 濃色ナビの文字、4.5:1 |
-| `#cbd3c6` | `#274029` | 7.38:1 | 濃色ナビの補足、4.5:1 |
-| `#dce8b9` | `#315c2b` | 6.04:1 | 濃色ナビの選択線、3:1 |
-| `#8b342b` | `#fff1ed` | 7.26:1 | エラー、4.5:1 |
-| `#745512` | `#fff7df` | 6.43:1 | 注意、4.5:1 |
+| `#181f1c` | `#f5f6f2` | 15.46:1 | Body text, 4.5:1 |
+| `#526052` | `#f5f6f2` | 6.13:1 | Supporting text, 4.5:1 |
+| `#526052` | `#ffffff` | 6.66:1 | Input placeholders, 4.5:1 |
+| `#ffffff` | `#315c2b` | 7.79:1 | Primary actions, 4.5:1 |
+| `#ffffff` | `#274029` | 11.34:1 | Primary-action hover, 4.5:1 |
+| `#ffffff` | `#181f1c` | 16.78:1 | Pressed primary actions, 4.5:1 |
+| `#315c2b` | `#edf2e8` | 6.85:1 | Selected text, 4.5:1 |
+| `#7a846e` | `#ffffff` | 3.92:1 | Input borders, 3:1 |
+| `#7a846e` | `#f5f6f2` | 3.61:1 | Control borders on the page, 3:1 |
+| `#60712f` | `#f5f6f2` | 4.96:1 | Focus, 3:1 |
+| `#f5f6f2` | `#274029` | 10.45:1 | Dark-navigation text, 4.5:1 |
+| `#cbd3c6` | `#274029` | 7.38:1 | Dark-navigation supporting text, 4.5:1 |
+| `#dce8b9` | `#315c2b` | 6.04:1 | Dark-navigation selection indicators, 3:1 |
+| `#8b342b` | `#fff1ed` | 7.26:1 | Errors, 4.5:1 |
+| `#745512` | `#fff7df` | 6.43:1 | Warnings, 4.5:1 |
 
-`#315c2b` と `#274029` の差は **1.46:1**。濃色ナビの選択背景だけでは状態を示さず、3px の `inverseIndicator` と選択セマンティクスを添える。`color.border.subtle` は操作部品の識別に使わない。透明度で文字や状態全体を薄くせず、定義した色の組み合わせを保つ。
+`#315c2b` against `#274029` is **1.46:1**. A selected background in dark
+navigation must therefore include a 3px `inverseIndicator` and selection
+semantics. Do not use `color.border.subtle` to identify controls. Preserve the
+defined color combinations rather than lowering opacity for entire labels or states.
 
-## 文字と寸法
+## Typography and dimensions
 
-### タイポグラフィ
+### Typography
 
-UI は OS 標準の sans-serif を基本とする。Web の候補は `system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "Hiragino Sans", "Yu Gothic UI", sans-serif`。既存の Inter は配信する書体がある場合に利用できる。コードと識別子は `ui-monospace, "SFMono-Regular", Consolas, monospace`。日本語も同じ役割のサイズを使い、本文の行間は 1.6 とする。
+Use the OS sans-serif font by default. The web stack is
+`system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "Hiragino Sans", "Yu Gothic UI", sans-serif`.
+Existing Inter may be used when that font is served. Code and identifiers use
+`ui-monospace, "SFMono-Regular", Consolas, monospace`. Japanese uses the same
+role-based sizes and a body line height of 1.6.
 
-| トークン | 基準サイズ | 行高の倍率 | 太さ | 用途 |
+| Token | Base size | Line-height multiplier | Weight | Uses |
 | --- | --- | --- | --- | --- |
-| `type.display` | 48 | 1.2 | 600 | Web サイトの短い主見出し。狭い幅では32 |
-| `type.title` | 32 | 1.3 | 600 | ページ見出し。狭い幅では28 |
-| `type.heading` | 24 | 1.3 | 600 | セクション見出し |
-| `type.panel` | 16 | 1.5 | 600 | パネル見出し |
-| `type.body` | 16 | 1.6 | 400 | 本文、入力 |
-| `type.control` | 14 | 1.5 | 600 | ボタン、ナビゲーション |
-| `type.meta` | 13 | 1.5 | 400 | 補足、更新時刻 |
-| `type.code` | 14 | 1.6 | 400 | コード、ID |
+| `type.display` | 48 | 1.2 | 600 | Short website headlines; 32 on narrow screens |
+| `type.title` | 32 | 1.3 | 600 | Page headings; 28 on narrow screens |
+| `type.heading` | 24 | 1.3 | 600 | Section headings |
+| `type.panel` | 16 | 1.5 | 600 | Panel headings |
+| `type.body` | 16 | 1.6 | 400 | Body text, inputs |
+| `type.control` | 14 | 1.5 | 600 | Buttons, navigation |
+| `type.meta` | 13 | 1.5 | 400 | Supporting text, update times |
+| `type.code` | 14 | 1.6 | 400 | Code, IDs |
 
-Web のサイズは基準16pxに対する `rem`、Flutter は論理サイズとして扱い、OS の文字拡大に追従する。入力はモバイルでも16px相当以上。文字を3行以上含む領域の行高は1.4以上にする。日本語の字間は0を基本とし、英字の大見出しだけ最大 `-0.02em` まで詰められる。
+On the web, use `rem` relative to a 16px base; Flutter uses logical sizes and
+follows OS text scaling. Inputs remain at least equivalent to 16px on mobile.
+Text regions with three or more lines need a line height of at least 1.4.
+Japanese normally uses zero letter spacing; large Latin headings may tighten
+to `-0.02em` at most.
 
-説明文は欧文60〜75字、日本語35〜45字程度を1行の目安にする。更新される数値は等幅数字にする。長い名前・IDは折り返し、必要な全文を `title` 属性だけに頼って省略しない。詳細表示やコピー操作を用意する場合も、コピーした内容を確認できる経路を残す。
+Aim for 60–75 Latin characters or 35–45 Japanese characters per line of
+explanatory text. Use tabular figures for changing numbers. Wrap long names and
+IDs; do not hide required full text behind only a `title` attribute. When
+providing details or copy actions, retain a way to inspect what was copied.
 
-### 余白とレイアウト
+### Spacing and layout
 
-| トークン | 値 | 用途 |
+| Token | Value | Uses |
 | --- | --- | --- |
-| `space.1` | 4 | アイコン内部、密接な補足 |
-| `space.2` | 8 | アイコンと文字、ラベルと入力 |
-| `space.3` | 12 | 操作間の余白 |
-| `space.4` | 16 | カード内、パネル間、狭い画面の外側 |
-| `space.6` | 24 | ダイアログ内、フォームの項目間 |
-| `space.8` | 32 | 広い画面の外側、セクション間 |
-| `space.12` | 48 | Web サイトの区切り |
-| `space.16` | 64 | Web サイトの大きな区切り |
+| `space.1` | 4 | Icon internals, closely related supporting text |
+| `space.2` | 8 | Icon-to-label and label-to-input spacing |
+| `space.3` | 12 | Between actions |
+| `space.4` | 16 | Card padding, panel gaps, narrow-screen outer margins |
+| `space.6` | 24 | Dialog padding, form-field spacing |
+| `space.8` | 32 | Wide-screen outer margins, section spacing |
+| `space.12` | 48 | Website section spacing |
+| `space.16` | 64 | Large website section spacing |
 
-単位は Web の CSS px 相当、Flutter の論理ピクセル相当。グループ間は内部の間隔の2倍以上を基本にする。desktop の操作領域は最小40×40、touch は48×48。アイコン自体を大きくせず、周囲の余白で操作領域を確保する。
+Units correspond to CSS pixels on the web and logical pixels in Flutter.
+Normally leave at least twice the internal spacing between groups. Minimum
+control targets are 40×40 on desktop and 48×48 for touch. Add surrounding space
+rather than enlarging the icon itself.
 
-dashboard は現在の構造に合わせ、広い画面ではナビゲーション232pxと12列の作業面、パネル間16pxを出発点とする。760px以下ではパネルを1列に並べ、ナビゲーションは明示的に開閉できる一覧にする。接続状態と主操作は折りたたまない。パネルの表示順は読み上げ順・キーボード順と一致させる。
+Following the dashboard's current structure, start with 232px navigation, a
+12-column work area, and 16px panel gaps on wide screens. At 760px or below,
+stack panels in one column and use an explicitly expandable navigation list.
+Keep connection status and primary actions visible. Panel order must match
+screen-reader and keyboard order.
 
-最小幅320 CSS pxで、ページ全体を横スクロールせず操作できる構成にする。図やログなど横方向が必要な内容は、その領域内でスクロールできることを示す。[W3C のリフロー基準](https://www.w3.org/WAI/WCAG22/Understanding/reflow.html)を確認点とする。200%の文字拡大、長い名前、英語と日本語の両方で固定高による欠けを防ぐ。
+At 320 CSS px, the page must remain operable without horizontal scrolling.
+Indicate local scrolling for wide content such as diagrams or logs. Use the
+[W3C reflow criterion](https://www.w3.org/WAI/WCAG22/Understanding/reflow.html)
+as a check. Prevent fixed-height clipping at 200% text scaling, with long names,
+and in both English and Japanese.
 
-### 角丸と影
+### Corner radii and shadows
 
-| トークン | 値 | 用途 |
+| Token | Value | Uses |
 | --- | --- | --- |
-| `radius.small` | 4 | 小さなタグ、コード |
-| `radius.control` | 8 | ボタン、入力、ナビ項目 |
-| `radius.card` | 12 | カード、パネル |
-| `radius.dialog` | 16 | ダイアログ |
-| `radius.pill` | 999 | 状態バッジのみ |
-| `border.width` | 1 | 枠線、区切り |
-| `focus.width` | 3 | フォーカスリング |
-| `focus.offset` | 3 | 部品とリングの間隔 |
-| `shadow.none` | なし | 入力、通常ボタン、ナビゲーション |
-| `shadow.surface` | `0 1px 2px rgb(0 0 0 / 6%), 0 2px 4px rgb(0 0 0 / 4%)` | 作業面のカード |
-| `shadow.overlay` | `0 8px 24px rgb(0 0 0 / 16%)` | ダイアログ、メニュー |
-| `color.bg.scrim` | `rgb(24 31 28 / 40%)` | モーダル背面。文字は重ねない |
+| `radius.small` | 4 | Small tags, code |
+| `radius.control` | 8 | Buttons, inputs, navigation items |
+| `radius.card` | 12 | Cards, panels |
+| `radius.dialog` | 16 | Dialogs |
+| `radius.pill` | 999 | Status badges only |
+| `border.width` | 1 | Borders, separators |
+| `focus.width` | 3 | Focus rings |
+| `focus.offset` | 3 | Gap between control and ring |
+| `shadow.none` | none | Inputs, ordinary buttons, navigation |
+| `shadow.surface` | `0 1px 2px rgb(0 0 0 / 6%), 0 2px 4px rgb(0 0 0 / 4%)` | Work-area cards |
+| `shadow.overlay` | `0 8px 24px rgb(0 0 0 / 16%)` | Dialogs, menus |
+| `color.bg.scrim` | `rgb(24 31 28 / 40%)` | Modal backdrop; do not overlay text |
 
-角丸は面の大きさに合わせて使い分ける。内側に同心の面を置く場合は、外側の角丸を内側の角丸＋余白＋枠線幅に合わせる。入力の境界は影に頼らず枠線を使う。影を使う面にも強制カラーモードで境界が残るようにする。
+Choose radii for each surface's size. For nested concentric surfaces, set the
+outer radius to the inner radius plus padding plus border width. Inputs use
+borders rather than shadows to establish boundaries. Surfaces with shadows must
+retain a visible boundary in forced-colors mode.
 
-## 基本コンポーネントと状態
+## Basic components and states
 
-### 共通の操作状態
+### Shared interaction states
 
-| 状態 | 表現と振る舞い |
+| State | Appearance and behavior |
 | --- | --- |
-| Default | 用途が分かるラベル。通常の背景と枠 |
-| Hover | hover 可能なポインターだけに適用。操作可能な部品だけ背景を変える |
-| Pressed | 主操作は `accent.solidPressed`。その他は枠を強調し、文字と配置を動かさない |
-| Focus | 現在の状態を保ち、外側に3px・間隔3pxのリング。Web は `:focus-visible`。濃色面は `focus.inverse` |
-| Disabled | `disabled.*` を使用し、操作を受け付けない。理由は隣接する文字で説明する。hover や押下の演出は出さない |
-| Loading | 「保存中…」など処理名を残し、重複実行を防ぐ。ラベル変更で周囲を大きく動かさない |
-| Selected | 選択背景＋3pxの先頭側の線またはチェック。hover と区別し、選択状態を支援技術へ伝える |
-| Error | danger の文字・アイコン、問題と回復方法。色だけで示さず、入力内容は保持する |
+| Default | A label that explains the purpose; normal background and border |
+| Hover | Only for hover-capable pointers; change backgrounds only on interactive controls |
+| Pressed | Primary actions use `accent.solidPressed`; others emphasize the border without moving text or layout |
+| Focus | Keep the current state and add a 3px outer ring with a 3px gap; use `:focus-visible` on the web and `focus.inverse` on dark surfaces |
+| Disabled | Use `disabled.*`, reject interaction, explain the reason in adjacent text, and omit hover/pressed effects |
+| Loading | Retain the operation name, such as “Saving…”, prevent duplicates, and avoid large layout shifts when labels change |
+| Selected | Selection background plus a 3px leading line or checkmark; distinguish from hover and expose selection to assistive technology |
+| Error | Danger text/icon with the problem and recovery steps; use more than color and preserve input |
 
-フォーカスは hover、selected、error と同時に成立する。エラー枠をフォーカスリングで置き換えない。無効化は使用できない操作に限定し、入力が未完成という理由だけで送信ボタンを無効にしない。送信時に項目単位で理由を示す。
+Focus can coexist with hover, selection, and errors. Do not replace an error
+border with a focus ring. Disable only unavailable actions; do not disable
+submission solely because input is incomplete. Explain field-specific issues
+on submission.
 
-### ボタンとリンク
+### Buttons and links
 
-| 種類 | 通常 | Hover | Pressed | 用途 |
+| Type | Default | Hover | Pressed | Uses |
 | --- | --- | --- | --- | --- |
-| Primary | `accent.solid`＋`accent.onSolid` | `solidHover` | `solidPressed` | 保存、作成など。その時点の主要タスクに1つ |
-| Secondary | `bg.surface`＋`text.primary`＋`border.control` | `bg.subtle` | `bg.subtle`＋`selection.indicator` の枠 | キャンセル、追加、再読み込み |
-| Quiet | 透明＋`text.primary`、ツールバー内 | `bg.subtle` | `bg.subtle`＋`selection.indicator` の枠 | 補助操作。本文中では使わない |
-| Danger | `bg.surface`＋`status.danger.text` の文字と枠 | `status.danger.bg` | 同背景＋2pxの内側枠 | 削除、信頼解除など結果を失う操作 |
-| Link | `accent.text`＋下線 | 下線を強調 | 下線を維持 | ページや詳細への移動 |
+| Primary | `accent.solid` + `accent.onSolid` | `solidHover` | `solidPressed` | Save, create, etc.; one for the main task at that moment |
+| Secondary | `bg.surface` + `text.primary` + `border.control` | `bg.subtle` | `bg.subtle` + `selection.indicator` border | Cancel, add, reload |
+| Quiet | Transparent + `text.primary`, inside toolbars | `bg.subtle` | `bg.subtle` + `selection.indicator` border | Supporting actions; not in body text |
+| Danger | `bg.surface` + `status.danger.text` text and border | `status.danger.bg` | Same background + 2px inner border | Delete, remove trust, and other actions that discard results |
+| Link | `accent.text` + underline | Emphasized underline | Retain underline | Navigate to pages or details |
 
-標準ボタンは上下8px・左右16pxを基準に最小高40pxを確保する。アイコンとラベルの間隔は8px。アイコンだけのボタンは「閉じる」「ビューを削除」のように操作名を持つ。
+Standard buttons use 8px vertical and 16px horizontal padding with a minimum
+height of 40px. Leave 8px between icon and label. Icon-only buttons need action
+names such as “Close” or “Remove view”.
 
-通常画面では destructive 操作を主操作から離して配置する。削除が取り消せない場合は対象と失われるものを確認画面に明記し、「削除」「キャンセル」で応答できるようにする。dashboard の削除は保存レイアウトの削除であり、接続先アプリの停止を意味しない。
+Separate destructive actions from primary actions in ordinary screens. For
+irreversible deletion, identify the target and what will be lost in a
+confirmation with “Delete” and “Cancel”. Deleting a dashboard removes its saved
+layout; it does not stop connected applications.
 
-### 入力
+### Inputs
 
-入力は `bg.surface`、`text.primary`、`border.control`、角丸8px、上下8px・左右12px。hover は `selection.indicator` の枠、focus は共通リングを使う。常に見えるラベルを付け、placeholder は例示だけに使う。
+Inputs use `bg.surface`, `text.primary`, `border.control`, an 8px radius, and
+8px vertical/12px horizontal padding. Hover uses a `selection.indicator` border;
+focus uses the shared ring. Provide a permanently visible label and use
+placeholders only for examples.
 
-エラーは danger の枠と、入力直下の回復方法を示す文字を組み合わせる。「名前が無効です」ではなく「ダッシュボード名を入力してください」とする。Web ではラベル・補足・エラーを入力に関連づけ、エラー時は `aria-invalid` を設定する。読み取り専用は選択・コピーできるまま保ち、無効な入力と区別する。
+Combine a danger border with recovery text immediately beneath the input.
+Prefer “Enter a dashboard name” to “Invalid name”. On the web, associate labels,
+help, and errors with the input, and set `aria-invalid` on error. Read-only inputs
+remain selectable and copyable, distinct from disabled inputs.
 
-### カードとパネル
+### Cards and panels
 
-カードは白い面、角丸12px、余白16pxと弱い影を基本にする。操作のないカードに hover やポインターカーソルを付けない。クリックできるカードは操作枠とフォーカスを持ち、内部の別ボタンと操作範囲を重ねない。
+Cards normally use a white surface, 12px radius, 16px padding, and a subtle
+shadow. Noninteractive cards have no hover effect or pointer cursor. Clickable
+cards need control borders and focus; their hit areas must not overlap separate
+buttons inside the card.
 
-Surface を表示するパネルの見出しには、Surface アイコン・名前・提供元のデバイス／アプリ・その Surface の状態を置く。接続先を失ってもパネルの位置と名前は残し、「利用不可」と回復方法を表示する。古い値を表示し続ける場合は「最終受信」の時刻を添え、Live と表示しない。
+A Surface panel heading includes its icon, name, source device/app, and that
+Surface's state. Preserve panel position and name after losing the connection,
+and show “Unavailable” with recovery steps. If retaining old values, add a
+“Last received” time and do not label them Live.
 
-配置編集にはドラッグ以外の移動・サイズ変更操作を用意する。狭い画面で保存済みの配置を変更できない場合も、その理由を表示し、内容の閲覧と通常操作を維持する。
+Provide alternatives to dragging for moving and resizing panels. If narrow
+screens cannot edit saved layouts, explain why while preserving content viewing
+and ordinary interactions.
 
-### ナビゲーションとダイアログ
+### Navigation and dialogs
 
-ナビゲーションは `bg.inverse`、`text.inverse` を使う。hover は `accent.solid`、選択中は同じ背景に `selection.inverseIndicator` の3px線と太字を添える。Web は現在地を `aria-current` で示す。長い名前は折り返すか、名前を全文読める一覧へ進めるようにする。
+Navigation uses `bg.inverse` and `text.inverse`. Hover uses `accent.solid`;
+selection adds a 3px `selection.inverseIndicator` and bold text on the same
+background. Use `aria-current` on the web. Wrap long names or provide a list
+where users can read them in full.
 
-ダイアログは幅560pxを上限の目安とし、画面の左右16px以上を空ける。余白24px、角丸16px。見出しと閉じる操作を持ち、内部が長い場合はスクロールの存在を示す。開いたときにフォーカスを移し、閉じたら起点へ戻す。Escape で閉じ、破棄される編集がある場合は破棄を確認する。Web はネイティブのモーダルダイアログを優先する。
+Use 560px as a suggested maximum dialog width, with at least 16px on either
+side of the viewport, 24px padding, and a 16px radius. Include a heading and
+close control, and indicate scrolling for long contents. Move focus inside on
+open and return it to the trigger on close. Escape closes the dialog; confirm
+when unsaved edits would be discarded. Prefer native modal dialogs on the web.
 
-### 一覧の空状態と処理状態
+### Empty lists and operation states
 
-| 状況 | 表示例 | 次の操作 |
+| Situation | Example text | Next action |
 | --- | --- | --- |
-| 初回読み込み | 「ダッシュボードを読み込み中…」 | 二重要求を防ぐ。空一覧とは区別する |
-| dashboard がない | 「ダッシュボードはまだありません。アプリのビューをまとめて表示できます」 | 「ダッシュボードを作成」 |
-| Surface がない | 「公開されているビューがありません。接続先のアプリを起動してください」 | 起動方法へのリンク |
-| 検索結果がない | 「“build” に一致するビューがありません」 | 「検索をクリア」 |
-| 保存中 | 「保存中…」 | 重複保存を防ぐ |
-| 保存完了 | 「保存しました」 | 通常操作へ戻る。フォーカスを奪わない |
-| 保存失敗 | 「保存できませんでした。接続を確認して再試行してください」 | 「再試行」。編集内容は保持する |
+| Initial loading | “Loading dashboards…” | Prevent duplicate requests; distinguish from an empty list |
+| No dashboards | “No dashboards yet. Bring your app views together here.” | “Create dashboard” |
+| No Surfaces | “No published views. Start an app on the connected device.” | Link to startup instructions |
+| No search results | “No views match ‘build’.” | “Clear search” |
+| Saving | “Saving…” | Prevent duplicate saves |
+| Saved | “Saved” | Resume normal interaction without stealing focus |
+| Save failure | “Could not save. Check the connection and try again.” | “Retry”; preserve edits |
 
-定常的な状態通知は穏やかに読み上げ、操作を阻むエラーを明確に通知する。接続の再試行ごとに繰り返し読み上げない。回復操作や重要な情報を持つ通知は、自動的に消さない。
+Announce routine status updates politely and clearly announce errors that block
+interaction. Do not repeat announcements on every reconnect attempt. Notifications
+with recovery actions or important information must not disappear automatically.
 
-## 接続の表現とアイコン
+## Connection representation and icons
 
-### 対象と関係
+### Objects and relationships
 
-Surface はアプリが公開する独立したビュー。Gateway はデバイス上のアプリへの接続を共有し、Hub は Gateway を集約して dashboard に届ける。Surface 自体をネットワーク上のサーバーとして描かない。[現在のアーキテクチャ](architecture.md)に合わせ、次の関係を基本にする。
+A Surface is an independent view published by an app. A Gateway shares access
+to apps on a device; a Hub aggregates Gateways and delivers their views to a
+dashboard. Do not depict a Surface as a network server. Follow the
+[current architecture](architecture.md):
 
 ```mermaid
 flowchart LR
-  App["アプリ<br/>Surface を公開"]
-  Gateway["Gateway<br/>デバイスの接続をまとめる"]
-  Hub["Hub<br/>Gateway を集約する"]
-  Dashboard["Dashboard<br/>Surface を表示する"]
-  App -->|"ビューの更新"| Gateway
+  App["App<br/>Publishes Surfaces"]
+  Gateway["Gateway<br/>Shares device connections"]
+  Hub["Hub<br/>Aggregates Gateways"]
+  Dashboard["Dashboard<br/>Displays Surfaces"]
+  App -->|"View updates"| Gateway
   Gateway --> Hub
   Hub --> Dashboard
 ```
 
-図の矢印は更新が届く方向。操作は逆方向へ戻る。単一アプリの開発プレビューは bridge 経由の別経路なので、存在しない Gateway や Hub を挿入しない。
+Arrows show the direction of updates; actions travel in reverse. A single-app
+development preview uses a separate bridge path, so do not insert a Gateway
+or Hub that does not exist in that path.
 
-### デザインキットの採用方針
+### Design-kit adoption
 
-提供された `../../omochi-design-kit`（リポジトリルートからの相対位置）を図形の参照元とする。見本図で使う `surface.svg`、`gateway.svg`、`hub.svg` と `omochi-mark.svg` の形状は、リポジトリ内の [assets/design-system](assets/design-system/README.md) に個別ファイルとして配置し、`<use>` で外部参照する。機能アイコンの色は参照元の `currentColor` を引き継ぐ。元のキットは変更していない。
+Use the supplied `../../omochi-design-kit`, relative to the repository root, as
+the shape reference. The sample's `surface.svg`, `gateway.svg`, `hub.svg`, and
+`omochi-mark.svg` are individual files in
+[assets/design-system](assets/design-system/README.md), referenced externally
+with `<use>`. Functional icons inherit `currentColor` from the referring element.
+The original kit is unchanged.
 
-| キットのファイル | 意味 | 使用例 |
+| Kit file | Meaning | Example uses |
 | --- | --- | --- |
-| `surface.svg` | 枠とヘッダーを持つビュー | パネル、ビュー選択 |
-| `gateway.svg` | 接続を仲介する装置 | Gateway 一覧、接続経路 |
-| `hub.svg` | 複数の接続先を集約する中心 | Hub の状態、接続概要 |
-| `device.svg` | アプリが動くデバイス | 提供元、local／remote の区別 |
-| `grid.svg` | ビューの配置 | Dashboard ナビゲーション |
-| `attach.svg` | 対象を接続・追加する操作 | 接続、ビューの追加 |
-| `discover.svg` | 対象を探す操作 | 検出、検索 |
-| `trust.svg` | 登録された信頼関係 | 信頼の詳細。接続済みの代用にはしない |
-| `health.svg` | アプリが報告する健全性 | ヘルスチェック。通信接続と区別する |
-| `action.svg` | 操作を実行する | コマンドの実行 |
-| `refresh.svg` | 更新・再試行の操作 | 一覧の再読み込み |
-| `terminal.svg` | コマンド、ログ | コマンド例、ログ領域 |
+| `surface.svg` | View with a frame and header | Panels, view picker |
+| `gateway.svg` | Device that mediates connections | Gateway lists, connection paths |
+| `hub.svg` | Center aggregating several destinations | Hub status, connection overview |
+| `device.svg` | Device running an app | Source, local/remote distinction |
+| `grid.svg` | View arrangement | Dashboard navigation |
+| `attach.svg` | Connect or add an object | Connections, adding views |
+| `discover.svg` | Find an object | Discovery, search |
+| `trust.svg` | Registered trust relationship | Trust details; not a substitute for connected status |
+| `health.svg` | App-reported health | Health checks, distinct from transport connectivity |
+| `action.svg` | Run an action | Command execution |
+| `refresh.svg` | Refresh or retry | Reload lists |
+| `terminal.svg` | Commands and logs | Command examples, log areas |
 
-機能アイコンは24×24の図形、線幅1.8、丸い線端を基準にし、20px表示では約1.5pxの線になる。意味のあるアイコンは20px以上を基本にする。16pxが必要な場所は細部を省いた別図形を検証してから使う。塗り・線は `currentColor` 相当で同じ色にし、文脈のトークンを引き継ぐ。
+Functional icons use a 24×24 drawing, 1.8 stroke width, and round line caps;
+at 20px display size the stroke is about 1.5px. Meaningful icons normally display
+at 20px or larger. For 16px locations, validate a separate simplified shape first.
+Fills and strokes share a `currentColor`-equivalent color inherited from the
+context's token.
 
-初めて見る対象には常に名前を添える。隣に名前があるアイコンは装飾として扱い、読み上げを重複させない。対象の図形自体は状態によって変えず、状態バッジを別に付ける。
+Always name unfamiliar objects. Icons beside names are decorative and should
+not duplicate screen-reader output. Keep object shapes constant across states
+and attach a separate status badge.
 
-ロゴはキットの「丸みのある輪と接続部」を活かす。見本図では通常版の塗りを `leaf`、穴を配置先の `paper` に合わせている。濃色面では塗りを `lime`、穴を `forest` とする。元キットの `#256B4D`／`#B9DBC8` は今回の基調色とは異なるため、そのまま製品トークンには採用しない。縦横比を保ち、周囲にマーク幅の1/4以上を空け、表情や弾むアニメーションは足さない。
+Keep the logo's rounded ring and connector from the kit. The sample uses `leaf`
+for the normal fill and `paper` for the hole to match its background. On dark
+surfaces use `lime` for the fill and `forest` for the hole. The kit's original
+`#256B4D`/`#B9DBC8` differ from this palette and are not adopted directly as
+product tokens. Preserve aspect ratio, leave clear space of at least one-quarter
+of the mark's width, and add no facial expressions or bouncing animation.
 
-### 接続状態
+### Connection states
 
-| 状態 | 文字と形 | 色 | 表示の条件 |
+| State | Text and shape | Color | Display condition |
 | --- | --- | --- | --- |
-| 接続中 | 時計＋「接続中…」 | neutral | 接続試行の開始を確認できる |
-| 接続済み | チェック＋「接続済み」 | positive | その対象との接続が確認できる |
-| 再接続中 | 更新矢印＋「再接続中…」 | neutral | 切断後の再試行を確認できる |
-| 未接続 | 斜線入りの円＋「未接続」 | neutral | 接続がない。理由と次の操作を添える |
-| エラー | 感嘆符＋「接続エラー」 | danger | 失敗情報があり、対応が必要 |
-| 状態不明 | 疑問符＋「状態不明」 | neutral | 情報を取得できない、または古い |
+| Connecting | Clock + “Connecting…” | neutral | A connection attempt has verifiably started |
+| Connected | Checkmark + “Connected” | positive | Connection to that object is confirmed |
+| Reconnecting | Refresh arrow + “Reconnecting…” | neutral | A retry after disconnection is confirmed |
+| Disconnected | Slashed circle + “Disconnected” | neutral | No connection; include a reason and next action |
+| Error | Exclamation mark + “Connection error” | danger | Failure information is available and action is needed |
+| Unknown | Question mark + “Unknown state” | neutral | Information is unavailable or stale |
 
-概念アイコン12種には上記の状態記号一式は含まれていない。見本図で使うチェック・時計・未接続の記号は、それぞれ `check.svg`・`clock.svg`・`offline.svg` として配置した。残りの状態記号も同じ線端と太さで揃える。常時動くスピナーに状態の意味を担わせない。
+The 12 concept icons do not include this full status set. The sample uses
+`check.svg`, `clock.svg`, and `offline.svg` for its checkmark, clock, and
+disconnected symbols. Match their caps and stroke width for remaining status
+symbols. Do not rely on a continuously animated spinner to communicate state.
 
-状態には対象を含める。例は「Hub に接続済み」「Gateway workstation は未接続」「Surface health は利用可能」。Surface の利用可能表示は、Hub の接続、提供元サービスの接続、該当 Surface の存在が確認できる場合に限る。Gateway 全体の状態を一つの Surface から推測しない。
+Name the object in status text: “Connected to Hub”, “Gateway workstation is
+disconnected”, or “Surface health is available”. A Surface is available only
+when the Hub connection, source-service connection, and existence of that
+Surface are confirmed. Do not infer an entire Gateway's state from one Surface.
 
-現状の [ServiceView](../packages/hub-ui/src/services.ts) はサービスの `connected`／`disconnected`／`error` とデバイス情報を持つが、独立した Gateway の診断状態は持たない。詳細な接続経路の実装では、取得できない区間は「状態不明」または「情報なし」と表示する。発見・登録済み・接続済み・アプリの健全性を別の概念として扱う。
+Current [ServiceView](../packages/hub-ui/src/services.ts) includes service
+`connected`/`disconnected`/`error` states and device information, but no separate
+Gateway diagnostic state. In detailed connection-path views, display “Unknown
+state” or “No information” for unavailable segments. Discovery, enrollment,
+connectivity, and application health are separate concepts.
 
-## 動き
+## Motion
 
-| トークン | 値 | 用途 |
+| Token | Value | Uses |
 | --- | --- | --- |
-| `motion.instant` | 0ms | 入力、タブ移動、数値更新、接続状態の文字 |
-| `motion.feedback` | 100ms | ボタンの背景色・枠色 |
-| `motion.easing` | `ease-out` | 操作への短い反応 |
+| `motion.instant` | 0ms | Input, tab navigation, number updates, connection-status text |
+| `motion.feedback` | 100ms | Button background/border colors |
+| `motion.easing` | `ease-out` | Brief interaction feedback |
 
-移動、拡大縮小、バウンス、常時点滅は標準に含めない。状態変化後には必ず文字・形・選択線が残る。動きを減らす設定では `motion.feedback` も0msにする。テーマ切り替えを追加する際は色の遷移を停止して一度に切り替える。Web の `prefers-reduced-motion` と Flutter 側の OS 設定を同じ意図で扱う。
+Movement, scaling, bouncing, and continuous blinking are not standard effects.
+Text, shapes, or selection indicators must remain after state changes. Reduced
+motion also sets `motion.feedback` to 0ms. If theme switching is added, stop
+color transitions and switch all colors together. Treat web
+`prefers-reduced-motion` and Flutter OS settings with the same intent.
 
-## クライアント間で共有するルール
+## Rules shared across clients
 
-| 項目 | Web サイト | Dashboard とプレビュー | Flutter |
+| Area | Website | Dashboard and preview | Flutter |
 | --- | --- | --- | --- |
-| 色 | 同じ用途トークン。広い背景で印象を作る | 同じ用途トークン。操作面は明るく保つ | 同じ値と意味をテーマへ割り当てる |
-| 文字 | display と広めの本文幅を使える | title 以下を中心に情報を整理 | 同じ役割のサイズと太さ。OS の文字拡大を許容 |
-| 余白 | 48／64を区切りに使う | 8／16／24を中心に使う | 同じ段階、touch の操作領域は48以上 |
-| 操作 | 移動はリンク、処理はボタン | 編集・保存・接続の意味を区別 | プラットフォームの操作・フォーカス・戻る挙動を尊重 |
-| 状態 | 図には説明と凡例を付ける | 対象名・状態・回復操作を併記 | 同じ語彙と状態記号を使い、支援技術に通知 |
-| アイコン | キットの図形と余白を維持 | 対象アイコンと状態記号を分ける | 同じ形状を利用し、文字とともに拡大に追従 |
+| Color | Same semantic tokens; establish character through large backgrounds | Same semantic tokens; keep work surfaces light | Map the same values and meanings to the theme |
+| Typography | Display text and wider body columns are allowed | Organize mainly with title and smaller roles | Same role-based sizes and weights; allow OS text scaling |
+| Spacing | Use 48/64 for section gaps | Mainly 8/16/24 | Same scale; touch targets at least 48 |
+| Interaction | Links navigate; buttons perform operations | Distinguish editing, saving, and connecting | Respect platform interaction, focus, and back behavior |
+| Status | Explain diagrams and provide legends | Include object name, state, and recovery action | Same vocabulary and symbols; notify assistive technology |
+| Icons | Preserve kit shapes and clear space | Separate object icons from status symbols | Same shapes, scaling with text |
 
-共有するのは見た目の意味と操作の結果であり、固定ピクセルの画面コピーではない。Flutter の読み上げ、文字拡大、ターゲットサイズは[公式アクセシビリティ指針](https://docs.flutter.dev/ui/accessibility)も参照する。
+Share visual meaning and action outcomes rather than fixed-pixel screen copies.
+Also consult Flutter's [official accessibility guidance](https://docs.flutter.dev/ui/accessibility)
+for announcements, text scaling, and target sizes.
 
-Web 実装時は [renderer](../packages/renderer/src/styles.css) の A2UI 変数へ共通トークンを割り当て、[hub-ui](../packages/hub-ui/src/styles.css) と [dev-server](../packages/dev-server/src/index.css) が同じ基礎を使う構成にする。Hub の CSS が埋め込み Surface の `button` や `input` を無差別に上書きしないよう、ホスト UI と Surface のスコープを分ける。アプリ固有のカタログは、そのアプリの意味を保ったうえで基礎トークンに対応させる。
+For web implementation, map shared tokens to the
+[renderer](../packages/renderer/src/styles.css) A2UI variables and have
+[hub-ui](../packages/hub-ui/src/styles.css) and
+[dev-server](../packages/dev-server/src/index.css) use the same foundation.
+Separate host UI and Surface scopes so Hub CSS does not indiscriminately
+override embedded Surface `button` or `input` elements. Map application-specific
+catalogs to the foundation tokens while preserving each app's semantics.
 
-## 適用時の確認
+## Implementation checks
 
-この段階では色の数値と静的見本を確認対象とする。実画面の合格判定には、各クライアントへの適用後に以下を確認する。
+At this stage, verification covers color values and static samples. After
+applying the specification to each client, check actual screens for acceptance:
 
-- 文字・placeholder・枠・フォーカスの実際の組み合わせを測る。透明度、hover、選択、エラーとの重なりも含める。
-- キーボードだけで作成・ビュー追加・編集・保存・削除確認・ダイアログ終了まで進める。フォーカスを隠さず、閉じた後の復帰先も確認する。
-- 読み上げで操作名・役割・選択・エラーが分かる。アイコンだけの操作、ラベルのない入力を残さない。
-- 320px幅、200%の文字拡大、長い名前、日本語／英語で内容と操作が欠けない。モバイルでキーボードを開いても操作できる。
-- Hub の切断、サービスのみの切断、Surface の消失、状態取得失敗を別々に試す。未接続の対象を「Live」「接続済み」にしない。
-- 空一覧、読み込み、保存中、保存失敗、検索0件、無効な操作に次の行動が示される。
-- 動きを減らす設定と強制カラーモードでも、境界・選択・状態・フォーカスが残る。
+- Measure real text, placeholder, border, and focus combinations, including
+  opacity and overlap with hover, selection, and errors.
+- Use only the keyboard to create, add views, edit, save, confirm deletion, and
+  close dialogs. Keep focus visible and verify its destination after closing.
+- Verify that screen readers convey action names, roles, selection, and errors.
+  Do not leave icon-only actions unnamed or inputs unlabeled.
+- At 320px width, 200% text scaling, long names, and in Japanese/English, retain
+  all content and controls. Mobile remains operable with the keyboard open.
+- Separately test Hub disconnection, service-only disconnection, Surface removal,
+  and status-fetch failure. Do not label disconnected objects Live or Connected.
+- Provide a next action for empty lists, loading, saving, save failures, no search
+  results, and unavailable actions.
+- Retain boundaries, selection, status, and focus with reduced motion and
+  forced-colors mode.
 
-現在の dashboard、renderer、開発プレビューはまだそれぞれの CSS 値を持つ。この仕様への移行と実画面での検証を終えるまでは、製品全体の適用済み・アクセシビリティ適合済みとは扱わない。
+The dashboard, renderer, and development preview currently retain their own
+CSS values. Do not claim product-wide adoption or accessibility conformance
+until migration and verification on actual screens are complete.

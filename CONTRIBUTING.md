@@ -15,7 +15,7 @@ bun install
 bun run build
 ```
 
-Follow the [quick start](README.md#quick-start) to run an app in the browser.
+Follow the [usage instructions](README.md#use-it) to open the dashboard.
 For hub frontend work, run `bun run omochi-ui hub` and, in another terminal,
 `bun run --filter @omochi-ui/hub-ui dev`. The frontend proxies the hub on port 5555;
 set `OMOCHI_HUB` to use another address.
@@ -34,7 +34,7 @@ set `OMOCHI_HUB` to use another address.
 | Dashboard frontend | `bun run --filter @omochi-ui/hub-ui lint` |
 | Hosted owner/share clients | `bun run test:dashboard-sharing` (requires the WASM toolchain and Chromium; see [setup](apps/dashboard/README.md)) |
 | Documentation site | `bun run check:site`, `bun run build:site`, `bun run --filter @omochi-ui/site verify` |
-| Flutter/native bridge | Follow the [mobile verification guide](apps/mobile/README.md#検証) and [external-Hub checks](apps/mobile/docs/remote-connections-validation.md) |
+| Flutter/native bridge | Follow the [mobile verification guide](apps/mobile/README.md#verification) and [external-Hub checks](apps/mobile/docs/remote-connections-validation.md) |
 | Rust formatting | `cargo fmt --manifest-path packages/sdk/rust/Cargo.toml --check` |
 | Cargo/npm packaging (also included in `bun run test`) | `bun run test:packaging` |
 | Release versions and dependency graph | `bun run release:check` |
@@ -71,8 +71,15 @@ Run those when changing mDNS integration or updating iroh/mDNS dependencies.
 
 ## Documentation changes
 
+Write `README.md` in English. Put Japanese translations in a sibling
+`README.ja.md`, link both versions to each other, and keep their content aligned.
+Development documentation, including `spec/`, `docs/`, and application-local
+`docs/` directories, is maintained in English only; do not add Japanese copies.
+
 User guides live in `apps/site/src/content/docs/`: update Japanese and English
-pages together. Keep command flags/defaults aligned with `crates/cli/src/main.rs`
+pages together and preserve the site's existing language and URL structure.
+Public-facing site assets retain their intended language.
+Keep command flags/defaults aligned with `crates/cli/src/main.rs`
 and root/package scripts. Protocol changes belong in the relevant active contract
 listed in [spec/README.md](spec/README.md).
 

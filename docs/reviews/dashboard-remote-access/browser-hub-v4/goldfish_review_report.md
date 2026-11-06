@@ -1,7 +1,7 @@
 # Applied v3 finding resolutions
 
 Status: applied edit batch; re-audit complete with five open findings.
-User authorization: “修正してレビューして”. Date: 2026-11-03.
+User authorization: “fix and review” (translated from Japanese). Date: 2026-11-03.
 Accepted PROPOSE FIX: nine Major + three Nit. Contested/escalated/declined: zero.
 No original severity is changed. Source findings and rationale are preserved in
 [v3 combined report](../browser-hub-v3/implementation_readiness_report.md) and its

@@ -1,12 +1,19 @@
 # Omochi Mobile
 
-Android / iOS / macOS / Windows / Linux の Flutter アプリ。アプリ内の共通 Rust Hub から iroh で Gateway に接続し、GenUI で A2UI v0.9 の画面を表示・操作します。外部 HTTP Hub、LLM、API キーは不要です。
+English · [Japanese](README.ja.md)
 
-アプリの表示言語はシステムの優先言語に合わせて日本語・英語から選び、未対応の言語は英語で表示します。起動中の言語変更にも追従します。Gateway のアプリが送るコンテンツやステータス文字列は、そのまま表示します。
+A Flutter app for Android, iOS, macOS, Windows, and Linux. The shared Rust Hub
+inside the app connects to Gateways over iroh and uses GenUI to display and
+interact with A2UI v0.9 surfaces. No external HTTP Hub, LLM, or API key is needed.
 
-## 起動
+The app selects Japanese or English from the system's preferred languages and
+falls back to English for unsupported languages. It also follows language changes
+while running. Content and status strings sent by Gateway applications are
+displayed as received.
 
-Flutter 3.47.9 / Dart 3.13.7、Rust と同じ checkout のソースが必要です。
+## Getting started
+
+Use Flutter 3.47.9 / Dart 3.13.7, Rust, and sources from the same checkout.
 
 ```sh
 cd apps/mobile
@@ -14,11 +21,27 @@ flutter pub get
 flutter run -d <device>
 ```
 
-Android は minSdk 24、NDK 30.0.16248370、Rust targets `aarch64-linux-android` と `x86_64-linux-android` が必要です。Gradle が `tool/build_shared_hub.py` を呼び、共有ライブラリーを APK に含めます。Android の DNS / TLS 初期化と multicast lock は小さなホストアダプターが担当します。この Waydroid 環境の Vulkan 起動停止を避けるため、debug だけ Impeller の OpenGL ES backend を指定しています。
+Android requires minSdk 24, NDK 30.0.16248370, and the Rust targets
+`aarch64-linux-android` and `x86_64-linux-android`. Gradle calls
+`tool/build_shared_hub.py` and includes the shared library in the APK. A small
+host adapter handles Android DNS/TLS initialization and the multicast lock.
+Debug builds select Impeller's OpenGL ES backend to avoid Vulkan startup hangs
+in the Waydroid environment used for validation.
 
-Android は `singleTask` でブラウザーからの招待を起動済みの Activity へ届けます。Flutter engine はプロセスで保持し、Activity の破棄・再作成でも同じ Dart / Hub に接続します。さらに namespace ごとのファイルロックをプロセスで保持し、別の Flutter engine / process が同じ identity で Hub を開くことを防ぎます。Activity の破棄では解放せず、native Hub と保存処理の終了後に明示的に解放します。プロセス終了時には OS が解放します。ロックファイルは同じ inode を保つため削除しません。
+Android uses `singleTask` to deliver browser invitations to the existing
+Activity. The process retains the Flutter engine, so a destroyed and recreated
+Activity reconnects to the same Dart runtime and Hub. A process-held file lock
+for each namespace also prevents another Flutter engine or process from opening
+a Hub with the same identity. Activity destruction does not release the lock;
+it is explicitly released after native Hub shutdown and storage completion.
+The OS releases it when the process exits. The lock file is kept to preserve
+the same inode.
 
-iOS は15.0以上。Xcode、Rust targets `aarch64-apple-ios`、`aarch64-apple-ios-sim`、`x86_64-apple-ios` が必要です。Xcode の build phase が `tool/build_ios_hub.sh` を呼び、device / simulator 用の静的 XCFramework を生成します。FFI シンボルは force-load し、Dart はプロセス内から参照します。実機で実行する場合の署名は各開発環境で設定します。
+iOS requires version 15.0 or later, Xcode, and the Rust targets
+`aarch64-apple-ios`, `aarch64-apple-ios-sim`, and `x86_64-apple-ios`. An Xcode
+build phase calls `tool/build_ios_hub.sh` to generate a static XCFramework for
+devices and simulators. FFI symbols are force-loaded and Dart resolves them
+within the process. Configure signing locally when running on a physical device.
 
 ```sh
 flutter build apk --debug --target-platform android-arm64,android-x64
@@ -31,11 +54,23 @@ flutter run -d macos
 flutter build macos --release
 ```
 
-macOS は12.0以上。Xcode の build phase が `tool/build_macos_hub.sh` を呼び、ビルド対象の arm64 / x86_64 用 Rust Hub を `mobile.app/Contents/Frameworks` に同梱して署名します。開発用の ad-hoc 署名で起動でき、実行時に Rust や外部 Hub は不要です。debug / release とも sandbox の network client / server を有効にし、Bonjour の service type とローカルネットワーク利用説明を指定しています。
+macOS requires version 12.0 or later. An Xcode build phase calls
+`tool/build_macos_hub.sh` to bundle and sign the arm64/x86_64 Rust Hub in
+`mobile.app/Contents/Frameworks` for the requested architectures. The app runs
+with development ad-hoc signing and needs neither Rust nor an external Hub at
+runtime. Debug and release builds enable sandbox network client/server access
+and declare the Bonjour service type and local-network usage description.
 
-macOS の identity は共有不要の login Keychain に保存します。Keychain Sharing や provisioning profile が不要になるよう、macOS だけ data protection keychain を使用しません。Mac の画面・login Keychain がロックされている SSH セッションでは `-25308` で保存できない場合があります。Keychain を解除してから起動してください。保存失敗時に鍵を再生成したり、平文ファイルへ保存したりはしません。
+macOS stores its identity in the login Keychain without sharing. Only macOS
+avoids the data protection keychain so that Keychain Sharing and a provisioning
+profile are unnecessary. Saving may fail with `-25308` in an SSH session when
+the Mac screen or login Keychain is locked. Unlock the Keychain before starting.
+A save failure does not regenerate keys or fall back to a plaintext file.
 
-Rust のビルドは大きくなります。`CARGO_TARGET_DIR` で空き容量のあるボリュームを指定できます。Flutter の `build` も必要ならアプリを終了して別ボリュームへ移し、元の場所にシンボリックリンクを置けます。マシン固有のパスをソースへ書き込まないでください。
+Rust builds can be large. Use `CARGO_TARGET_DIR` to select a volume with enough
+space. If necessary, stop the app, move Flutter's `build` directory to another
+volume, and leave a symlink at the original location. Do not commit
+machine-specific paths.
 
 ## Windows / Linux desktop
 
@@ -50,85 +85,171 @@ flutter run -d windows
 flutter build windows --release
 ```
 
-CMake が `tool/build_desktop_hub.dart` を実行し、同じ Rust Hub をビルド・同梱します。Windows は MSVC target、Linux は GNU target を使います。x64 / ARM64 の target を選択し、Debug は Cargo dev、Profile / Release は Cargo release です。検証と CI の対象は x64 で、ARM64 は未検証です。実行には bundle 全体が必要ですが、利用者の端末に Rust や Flutter は不要です。
+CMake runs `tool/build_desktop_hub.dart` to build and bundle the same Rust Hub.
+Windows uses MSVC targets and Linux uses GNU targets, with x64/ARM64 selection.
+Debug uses Cargo dev; Profile and Release use Cargo release. Validation and CI
+cover x64; ARM64 remains unverified. The entire bundle is required at runtime,
+but users do not need Rust or Flutter installed.
 
-Windows の開発には Flutter が対応する Visual Studio の Desktop development with C++、Windows SDK、MSVC の ATL（`Microsoft.VisualStudio.Component.VC.ATL`）、Rust MSVC target が必要です。プラグインの symlink 作成には Windows の Developer Mode を有効にします。配布は `build/windows/x64/runner/Release` 全体を使用します。Hub DLL と再配布可能な release C runtime を同梱し、アプリは exe と同じディレクトリーの Hub DLL をロードします。identity は `flutter_secure_storage` のユーザー単位の DPAPI 保護ストレージへ保存します。二重起動は同じ identity を別 Hub で開かず、招待 URL を起動済みの同じ exe へ転送します。
+Windows development requires Flutter's supported Visual Studio Desktop
+development with C++ workload, Windows SDK, MSVC ATL
+(`Microsoft.VisualStudio.Component.VC.ATL`), and a Rust MSVC target. Enable
+Windows Developer Mode for plugin symlinks. Distribute all of
+`build/windows/x64/runner/Release`, including the Hub DLL and redistributable
+release C runtime. The app loads the Hub DLL beside the executable. Identities
+use `flutter_secure_storage` with per-user DPAPI protection. A second launch
+forwards invitation URLs to the running copy of the same executable rather than
+opening another Hub with the same identity.
 
-Linux の開発には clang、CMake、Ninja、pkg-config、GTK 3、libsecret、GStreamer と base plugins の開発パッケージが必要です。Debian / Ubuntu では `libgtk-3-dev libsecret-1-dev libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev` などを導入します。配布は `build/linux/x64/release/bundle` 全体を使用します。Hub は `lib/libomochi_native_bridge.so` からロードします。実行時にも GTK 3 / libsecret / GStreamer と、ロック解除された Secret Service 対応 keyring（GNOME Keyring、KWallet等）が必要です。保護ストレージが利用できない場合、平文へフォールバックしません。GApplication の単一インスタンスで招待 URL を起動済み画面へ届けます。GenUI が依存する動画プラグインには Linux 実装がなく、Linux の Video 再生は未対応です。
+Linux development requires clang, CMake, Ninja, pkg-config, and development
+packages for GTK 3, libsecret, GStreamer, and its base plugins. On Debian/Ubuntu,
+these include `libgtk-3-dev libsecret-1-dev libgstreamer1.0-dev
+libgstreamer-plugins-base1.0-dev`. Distribute all of
+`build/linux/x64/release/bundle`. The Hub loads from
+`lib/libomochi_native_bridge.so`. Runtime also requires GTK 3, libsecret,
+GStreamer, and an unlocked Secret Service keyring such as GNOME Keyring or
+KWallet. There is no plaintext fallback when protected storage is unavailable.
+GApplication delivers invitation URLs to the existing window through a single
+instance. Linux Video playback is unsupported because GenUI's video plugin
+has no Linux implementation.
 
-bundle を永続的な場所に展開した後、ブラウザーからの `omochi://` 起動を使う場合だけ、同梱の登録スクリプトを実行します。既存の `omochi://` ハンドラーを、このユーザーの Omochi アプリに変更します。
+After extracting the bundle to a permanent location, run the bundled registration
+script if you want browsers to open `omochi://` links. This changes the current
+user's existing `omochi://` handler to the Omochi app.
 
 ```sh
-# Linux: bundle 内で実行
+# Linux: run inside the bundle
 ./register_linux.sh "$PWD"
-# Windows PowerShell: bundle 内で実行
+# Windows PowerShell: run inside the bundle
 powershell -ExecutionPolicy Bypass -File .\register_windows.ps1 -BundlePath .
 ```
 
-移動した場合は新しい場所で登録し直してください。招待の貼り付けはハンドラー登録なしでも使えます。Windows の受信 QUIC は Windows Firewall のアプリ別許可が必要な場合があります。Linux は Avahi が使える場合はそれを利用し、未導入なら Rust mDNS を使用します。
+Register again after moving the bundle. Pasting invitations works without handler
+registration. Incoming QUIC on Windows may require an app-specific Windows
+Firewall allowance. Linux uses Avahi when available and Rust mDNS otherwise.
 
-## 招待から操作まで
+## From invitation to interaction
 
-Gateway のあるコンピューターで `omochi-ui gateway --remote --pair` を実行します。出力された HTTPS 招待ページをスマートフォンで開き、**Open in Omochi app** を選びます。アプリで Gateway ID と期限を確認し、**Add to this device** で登録します。ブラウザー側の owner Hub 接続は不要です。
+Run `omochi-ui gateway --remote --pair` on the computer hosting the Gateway.
+Open the printed HTTPS invitation page on your phone and choose
+**Open in Omochi app**. Check the Gateway ID and expiry in the app, then choose
+**Add to this device** to enroll. A browser owner-Hub connection is unnecessary.
 
-Apps からサービスの Surface を選んで操作できます。Connections では招待の貼り付け、接続状態、再接続、登録解除、Internet relays の切り替えを扱います。貼り付けは native URI と HTTPS 招待の両方に対応します。現在の招待は base64url 形式で、旧 hex 形式は受け付けません。
+Choose a service's Surface from Apps to interact with it. Connections supports
+pasting invitations, viewing connection status, reconnecting, forgetting, and
+toggling Internet relays. Pasting accepts both native URIs and HTTPS invitations.
+Current invitations use base64url; the old hex format is rejected.
 
-リンク受信だけで登録せず、未起動時と起動中の受信を同じ確認画面へ届けます。確認待ちの重複通知は無視し、別の招待で上書きしません。招待は永続保存せず、ログでも秘密部分を除去します。独自 QR スキャナーは含めません。既存の CLI の QR → Web → アプリを使用します。
+Receiving a link does not enroll automatically. Cold and warm deliveries open
+the same confirmation screen. Duplicate notifications are ignored while
+confirmation is pending, and a different invitation does not replace it.
+Invitations are not persisted, and their secrets are removed from logs. The app
+has no custom QR scanner; use the existing CLI QR → web → app flow.
 
-## 責任と保存
+## Responsibilities and persistence
 
-- Rust Hub が identity・enrollment・認可・失効・再接続・購読と Surface 世代・画像取得方針を管理します。Dart に第二の Hub はありません。
-- Flutter は OS の保存、ライフサイクル、GenUI、入力互換処理、画像デコードを担当します。C ABI は `../../crates/native-bridge/include/omochi_hub.h` が正本です。
-- `omochi.mobile.v1.identity` を Android の保護ストレージ／iOS Keychain に保存します。新アプリは独立した identity を持ち、実験アプリから移行しません。保存文書の破損・読み取り失敗で鍵を再生成しません。
-- 保存失敗や結果不明を登録成功として扱いません。忘却は端末側の登録削除です。Gateway 側からの失効はその Gateway の `trust forget` で行います。
-- 中断時に通信・購読を停止し、復帰時は新しい snapshot と操作口を取得します。送達結果不明の action は再送しません。
-- 標準 Image / Markdown のラスター画像は共通 resolver を通ります。公開 HTTPS:443 と認可された Omochi resource を扱い、直接ネットワーク取得へフォールバックしません。
-- 上限は2 Gateway / 8サービス、画像4 M画素、保持画素32 MiB、読み込み同時2件。これは総 RSS の上限ではありません。
+- The Rust Hub owns identity, enrollment, authorization, revocation, reconnection,
+  subscriptions, Surface generations, and image-fetch policy. Dart has no second Hub.
+- Flutter handles OS storage, lifecycle, GenUI, input compatibility, and image
+  decoding. The canonical C ABI is `../../crates/native-bridge/include/omochi_hub.h`.
+- `omochi.mobile.v1.identity` is stored in Android protected storage or iOS
+  Keychain. The new app has its own identity and does not migrate the experiment's
+  identity. Corrupt documents and read failures do not regenerate keys.
+- Save failures and unknown outcomes are not enrollment success. Forgetting removes
+  the device's registration; revoke access at the Gateway with its `trust forget`.
+- Suspension stops communication and subscriptions. Resume obtains fresh snapshots
+  and action handles. Actions with unknown delivery outcomes are not replayed.
+- Standard Image and Markdown raster images use the shared resolver. It supports
+  public HTTPS:443 and authorized Omochi resources, with no direct-network fallback.
+- Limits are 2 Gateways / 8 services, 4 megapixels per image, 32 MiB of retained
+  pixels, and 2 concurrent image loads. These are not a total RSS limit.
 
-GenUI の入れ子 action context、UTC 時刻、サービス別入力モデルを合わせる処理は実験から引き継ぎ、回帰テストを置いています。旧 Dart Hub、HTTP Hub モード、Lab、端末内Hubのダッシュボード編集は含みません。Web の雛形は対応対象ではありません。
+Compatibility handling for GenUI nested action contexts, UTC times, and
+per-service input models carries over from the experiment with regression tests.
+The old Dart Hub, HTTP Hub mode, Lab, and dashboard editing in the embedded Hub
+are excluded. The web scaffold is unsupported.
 
-native catalog の Column は表示領域を超える内容を縦にスクロールし、weight を持つ子と暗黙の flex には有限の高さを配分します。ネストと Modal 内も同じ実装です。Modal の bottom sheet は Surface のレンダラー世代が所有し、削除・置換・切断・forget・休止・画面離脱で、その Surface の route だけを閉じます。
+The native catalog's Column scrolls content beyond the viewport and assigns
+finite heights to weighted children and implicit flex. Nested Columns and Modals
+use the same implementation. A Modal bottom sheet belongs to its Surface's
+renderer generation. Deletion, replacement, disconnection, forgetting, suspension,
+and navigation away close only that Surface's route.
 
-iOS 向けに `../../vendor` の netdev / netwatch に限定的なパッチがあります。macOS 専用の libc 型を使用せず、iOS のアドレス一覧と5秒間隔の foreground 監視を使用します。default route / home router / IPv6 付加フラグの取得には制限があります。詳細は vendor の README を参照してください。
+The netdev/netwatch dependencies in `../../vendor` have limited iOS compatibility
+patches. They avoid macOS-only libc types and use the iOS address list with
+foreground polling every 5 seconds. Default-route, home-router, and additional
+IPv6 flag detection have limitations. See the vendor README for details.
 
-本番の LAN discovery は共通 Rust transport 層で選択します。iOS / macOS は OS Bonjour、Windows は OS DNS-SD、Linux は Avahi があれば D-Bus 経由、なければ Rust mDNS、Android は既存の Rust mDNS を使います。multicast entitlement は追加していません。iOS はビルド確認のみで、実機の許可ダイアログ・復帰・再発見の完了判定は引き続き未達です。[検証記録](docs/validation.md) を参照してください。
+Production LAN discovery is selected in the shared Rust transport layer: OS
+Bonjour on iOS/macOS, OS DNS-SD on Windows, Avahi over D-Bus on Linux when
+available with Rust mDNS otherwise, and existing Rust mDNS on Android. No
+multicast entitlement was added. iOS has build verification only; physical-device
+permission dialogs, resume, and rediscovery acceptance remain incomplete. See
+[validation records](docs/validation.md).
 
-Mac Bonjour と Linux の双方向アドレス解決は、vendored `swarm-discovery 0.6.5` の互換修正後に確認しています。同じ LAN の Mac に SSH 接続できる Linux から、`python3 apps/mobile/tool/bonjour_probe.py --ssh-host macbook` をリポジトリーのルートで実行すると再検証できます。Mac は `dns-sd` と Python 3 が必要です。登録済み identity は使わず、iOS 実機や QUIC 接続を検証するものではありません。
+Bidirectional Mac Bonjour/Linux address resolution was verified after compatibility
+fixes to vendored `swarm-discovery 0.6.5`. To repeat it from Linux with SSH access
+to a Mac on the same LAN, run
+`python3 apps/mobile/tool/bonjour_probe.py --ssh-host macbook` at the repository
+root. The Mac needs `dns-sd` and Python 3. The probe uses no registered identity
+and does not verify physical iOS devices or QUIC connections.
 
-## 検証
+## Verification
 
-GitHub Actions の [Mobile workflow](../../.github/workflows/mobile.yml) は PR、main への push、手動実行で動きます（サイトのみの変更は除外）。Flutter 3.47.9 で解析と通常テストを実行し、Linux 用 Rust 共有ライブラリーをビルドして C ABI テストも実行します。成功後、Android ARM64 / x86_64 の release APK、macOS release アプリ、Windows / Linux の release bundle、iOS の release アーカイブをビルドし、APK、macOS / Windows の ZIP、Linux の tar.gz、署名なし IPA を Actions の成果物として14日間保存します。macOS は開発用 ad-hoc 署名で、notarization は行いません。
+The [Mobile workflow](../../.github/workflows/mobile.yml) runs for PRs, pushes to
+main, and manual dispatch, excluding site-only changes. It runs analysis and
+ordinary tests with Flutter 3.47.9, builds the Linux Rust shared library, and runs
+C ABI tests. After those pass, it builds Android ARM64/x86_64 release APKs,
+a macOS release app, Windows/Linux release bundles, and an iOS release archive.
+It retains APKs, macOS/Windows ZIPs, Linux tar.gz files, and an unsigned IPA as
+Actions artifacts for 14 days. macOS uses development ad-hoc signing without
+notarization.
 
-APK は現在の開発用デバッグ鍵で署名されます。iOS は署名情報を使わず、`flutter build ipa --no-codesign` が作成するアーカイブ内のアプリを `Payload/Runner.app` として IPA に梱包します。この IPA の実機インストール・配布には別途署名と provisioning が必要です。端末結合テストはこの workflow には含めません。
+APKs currently use the development debug key. iOS builds without signing
+credentials; the app from `flutter build ipa --no-codesign` is packaged as
+`Payload/Runner.app` in the IPA. Physical-device installation and distribution
+require separate signing and provisioning. Device integration tests are not
+part of this workflow.
 
 ```sh
 flutter analyze
 flutter test
-# Android: 本番の lease 実装を JVM 上で検証（JDK が必要）
+# Android: test the production lease implementation on the JVM (requires JDK)
 python3 test_driver/android/identity_lease_test.py
-# Android 実機 / emulator: 独立した一時 package で browser task と lease を検証
-# 通常アプリの起動・保存変更は行わず、終了時に一時 package を uninstall する
+# Android device/emulator: test browser tasks and leases in a temporary package
+# Does not launch or change storage in the normal app; uninstalls the test package
 python3 test_driver/android/launch_test.py --device <adb-device>
-# 同じ本番 Flutter host で Activity の finish / 再起動と招待配送を検証
-# native DNS/TLS 初期化だけを stub にし、Rust Hub / secure storage は使用しない
+# Test Activity finish/restart and invitation delivery with the production Flutter host
+# Only native DNS/TLS initialization is stubbed; no Rust Hub or secure storage is used
 python3 test_driver/android/engine_lifecycle_test.py --device <adb-device>
-# Windows / Linux: 実 OS 保存・Hub再起動・起動済みアプリへの招待URL転送
+# Windows/Linux: real OS storage, Hub restart, and URLs forwarded to the running app
 flutter test integration_test/desktop_test.dart -d windows
 flutter test integration_test/desktop_test.dart -d linux
-# macOS: sandbox 内の Hub を OS Bonjour で Browse / Resolve し、Keychain 保存も確認
+# macOS: OS Bonjour Browse/Resolve of the sandboxed Hub and Keychain persistence
 flutter test integration_test/bonjour_test.dart -d macos
-# 任意: Linux で実 C ABI を使う保存故障テスト
+# Optional: Linux storage-failure tests with the real C ABI
 python3 tool/build_shared_hub.py --platform linux --output build/shared-hub/linux
 LD_LIBRARY_PATH="$PWD/build/shared-hub/linux" flutter test test/shared_hub_bridge_test.dart
 ```
 
-Windows / Linux の結合テストは通常アプリを終了してから実行します。`desktop_test.dart` はテスト専用 namespace に保存し、終了時に削除します。`--dart-define=DESKTOP_SCREENSHOT=/absolute/path/desktop.png` で、招待を取り消した後のアプリ画面を保存できます。
+Close the normal app before Windows/Linux integration tests. `desktop_test.dart`
+uses and then deletes a test-only storage namespace. Set
+`--dart-define=DESKTOP_SCREENSHOT=/absolute/path/desktop.png` to capture the app
+after canceling the invitation.
 
-Keychain がロックされた検証用 Mac で通信だけを切り分ける場合は、Bonjour の結合テストに `--dart-define=BONJOUR_MEMORY_STORE=true` を指定できます。これはテストの保存 fixture だけを置き換え、通常アプリには影響しません。`--dart-define=BONJOUR_HOLD_SECONDS=40` も指定すると、ログに出る公開 Hub ID を使い、別の LAN ホストから `cargo run --locked --manifest-path crates/Cargo.toml -p omochi-transport --example bonjour_probe -- --resolve <Hub ID>` でアプリの広告を解決できます。
+To isolate networking on a test Mac with a locked Keychain, add
+`--dart-define=BONJOUR_MEMORY_STORE=true` to the Bonjour integration test.
+This replaces only the test's storage fixture. With
+`--dart-define=BONJOUR_HOLD_SECONDS=40`, use the public Hub ID from the log on
+another LAN host to resolve the app's advertisement:
+`cargo run --locked --manifest-path crates/Cargo.toml -p omochi-transport --example bonjour_probe -- --resolve <Hub ID>`.
 
-`--dart-define=BONJOUR_PEER_ID=<LAN peerの公開EndpointId>` を加えると、アプリ内の OS Bonjour からその peer を Browse / Resolve する方向も検証します。このフラグは検証対象を指定するだけで、本番アプリは常に共通 transport 層の OS Bonjour を使います。
+Add `--dart-define=BONJOUR_PEER_ID=<public EndpointId of a LAN peer>` to test
+Browse/Resolve of that peer through the app's OS Bonjour. This flag selects
+the test peer; production always uses OS Bonjour in the shared transport layer.
 
-端末結合テストには、同じ checkout でビルドした `../../crates/target/debug/omochi-ui`、Bun dependencies、ビルド済み `@omochi-ui/core` が必要です。
+Device integration tests require `../../crates/target/debug/omochi-ui` built
+from the same checkout, Bun dependencies, and a built `@omochi-ui/core`.
 
 ```sh
 # repository root
@@ -146,21 +267,37 @@ flutter test integration_test/mobile_test.dart -d <device> --dart-define=TEST_ON
 flutter test integration_test/storage_test.dart -d <device>
 flutter test integration_test/capacity_test.dart -d <device>
 adb reverse --remove tcp:5559
-# iOS simulator: 同じ Mac で fixture を動かすか localhost へ SSH tunnel を用意する
+# iOS simulator: run the fixture on the same Mac or create an SSH tunnel to localhost
 flutter test integration_test/mobile_test.dart -d <simulator> --dart-define=TEST_ONLINE=true
 ```
 
-fixture は専用の一時設定と2つの Gateway / SDK を起動します。HTTP API は招待とプロセス制御だけで、A2UI・操作・画像は iroh を通ります。複数プラットフォームを並行検証するときは `--port` と `--dart-define=FIXTURE_URL=...` で別 fixture に分けてください。終了は Ctrl-C で一時データと子プロセスを片付けます。
+The fixture starts two Gateway/SDK pairs with isolated temporary configuration.
+Its HTTP API handles only invitations and process control; A2UI, actions, and
+images travel over iroh. For parallel platform validation, use separate fixtures
+with `--port` and `--dart-define=FIXTURE_URL=...`. Ctrl+C cleans up temporary data
+and child processes.
 
-`storage_test.dart` は実 OS の保存に故障を注入し、保存結果不明、登録解除失敗、保存中終了を検証します。`capacity_test.dart` は2 Gateway / 8 SDK、各64 KiBのモデルと1024×1024画像8枚、9サービス目の拒否、休止後の画像解放を確認します。
+`storage_test.dart` injects faults into real OS storage to verify unknown save
+outcomes, forgetting failures, and shutdown during saving. `capacity_test.dart`
+checks 2 Gateways / 8 SDKs, each with a 64 KiB model and a 1024×1024 image,
+rejection of a ninth service, and image release after suspension.
 
-release の負荷測定では Flutter Driver を使わず、負荷テスト用 APK を直接起動します。HTTP を許可しない release では `native_fixture.py --tls --port 5561` と、出力された CA を base64 にして `FIXTURE_CA_BASE64` に指定した `--dart-define-from-file` を使います。テスト用 TLS trust はテストコードの HTTP client のみに適用します。測定後は通常の `lib/main.dart` でビルドし直してください。
+Release load measurements launch a test APK directly rather than using Flutter
+Driver. Release builds disallow HTTP, so use `native_fixture.py --tls --port 5561`
+and `--dart-define-from-file` with the printed CA encoded as `FIXTURE_CA_BASE64`.
+Test TLS trust applies only to the test code's HTTP client. Rebuild with the
+normal `lib/main.dart` after measurement.
 
-検証環境と結果は [検証記録](docs/validation.md) に記録します。iOS 実機の動作・性能、Android ARM64 実機の性能、省電力制限を越えた常時通信、ストア配布は未検証です。
+Record environments and results in [validation records](docs/validation.md).
+Physical iOS behavior/performance, Android ARM64 device performance, continuous
+communication beyond power-saving restrictions, and store distribution remain
+unverified.
 
-## iOS の OS URL 受信テスト
+## iOS OS URL delivery tests
 
-通常のアプリをシミュレーターへインストールした状態で、独立した XCTest UI テストを実行できます。16.4以上のシミュレーターが必要です。架空の招待を使い、Gateway への登録は行いません。
+With the normal app installed in a simulator, run the separate XCTest UI tests.
+A simulator running version 16.4 or later is required. Tests use fake invitations
+and do not enroll at a Gateway.
 
 ```sh
 flutter build ios --simulator --debug
@@ -170,9 +307,10 @@ xcodebuild test -project test_driver/ios/LinkTests.xcodeproj -scheme LinkTests \
   -derivedDataPath build/ios-links
 ```
 
-テストは OS から URL でアプリを起動し、cold / warm 双方の確認画面、ID、一つだけの確認ボタン、キャンセルを検証します。
+Tests launch the app through OS URLs and verify cold/warm confirmation screens,
+IDs, a single confirmation button, and cancellation.
 
-Release 負荷テストの具体例（TLS fixture を別ターミナルで起動しておく）:
+Example release load test, with the TLS fixture running in another terminal:
 
 ```sh
 python3 - /path/to/fixture-cert.pem /tmp/mobile-fixture.json <<'PY'
@@ -191,39 +329,46 @@ flutter build apk --release --target=integration_test/capacity_test.dart \
   --target-platform android-arm64,android-x64 \
   --dart-define-from-file=/tmp/mobile-fixture.json
 adb install -r build/app/outputs/flutter-apk/app-release.apk
-# この Waydroid のみ: Skia で起動。通常端末では追加引数なしで起動する。
+# This Waydroid environment only: use Skia. Normal devices need no extra arguments.
 adb shell am start -n fyi.omochi.mobile/.MainActivity --ez enable-impeller false
 adb logcat -d -s flutter | rg 'Capacity memory:|All tests passed'
-# 測定後は通常アプリに戻す
+# Restore the normal app after measurement
 flutter build apk --release --target=lib/main.dart --target-platform android-arm64,android-x64
 adb install -r build/app/outputs/flutter-apk/app-release.apk
 adb reverse --remove tcp:5561
 ```
 
-## 外部Hubへの接続
+## Connecting to an external Hub
 
-ツールバーの Hub 接続から、共有ダッシュボードとオーナー接続を登録できます。
-`#share:` / `#owner:` の HTTPS リンク、`omochi://share/…` /
-`omochi://owner/…` を貼り付けるか、Web の「アプリで開く」を使います。
-共有接続は接続先の操作・レイアウト編集権限に従い、オーナーはボード編集、
-プリセット、共有作成・解除と接続情報の確認を行えます。オーナー登録管理は
-接続先Hubのローカル管理画面で行います。
+Use Hub connections in the toolbar to register shared dashboards and owner
+connections. Paste HTTPS links containing `#share:` / `#owner:`,
+`omochi://share/…`, or `omochi://owner/…`, or use the web page's **Open in app**.
+Shared connections follow the destination's action and layout-editing permissions.
+Owners can edit boards, use presets, create/revoke shares, and inspect connection
+information. Manage owner enrollments in the destination Hub's local admin UI.
 
-表示する接続は1つで、外部接続中は端末内Hubを休止します。保存した接続は
-再起動後も選べ、最後に選択した接続を復元します。公開共有は一時閲覧と明示的な
-保存を選べます。公開共有の保存時だけ、そのbearer secretも保護ストレージへ
-保存します。招待・オーナー用の登録secretは保存せず、pending grantと同じ
-identityを使って登録結果不明から回復します。
+Only one connection is displayed at a time; the embedded Hub is suspended while
+an external connection is active. Saved connections remain available after restart,
+and the last selected connection is restored. Public shares support temporary
+viewing or explicit saving. Their bearer secret is stored in protected storage
+only when the public share is saved. Invitation and owner-enrollment secrets are
+not persisted; unknown enrollment outcomes recover with the pending grant and
+the same identity.
 
-外部接続のidentity・記録は `omochi.mobile.remote.v1.identity` に分離します。
-端末内Hubの既存identityは移行・上書きしません。アプリ側の接続削除は接続先での
-権限失効ではありません。使用済みのWeb招待はアプリidentityへ引き継げないため、
-接続先で新しい招待を発行してください。
+External identity and records are isolated under `omochi.mobile.remote.v1.identity`.
+The embedded Hub's existing identity is neither migrated nor overwritten.
+Deleting a connection in the app does not revoke authorization at its destination.
+A used web invitation cannot transfer to the app identity; issue a fresh
+invitation at the destination.
 
-C ABIはversion 2です。FlutterとRustライブラリーを一緒に再ビルドしてください。
-HTTPS直接起動の設定雛形と公開手順は [deeplinks](deeplinks/README.md) にあります。
-`mobile.omochi.fyi` のLPは [mobile-site](../mobile-site/README.md) からデプロイできます。
-現在はストア対応ができないため、HTTPSリンクからのアプリ直接起動は有効化しておらず、動作しません。
-`/open` とOS関連付け用JSONはまだ配信していません。招待の貼り付け・カスタムURIによる受け渡しは利用できます。
+The C ABI is version 2. Rebuild Flutter and the Rust library together. HTTPS
+launch templates and publication instructions are in [deeplinks](deeplinks/README.md).
+The `mobile.omochi.fyi` landing page deploys from [mobile-site](../mobile-site/README.md).
+Direct app launch from HTTPS links is currently disabled and unavailable because
+store support is not ready. `/open` and OS association JSON are not served yet.
+Pasting invitations and custom URI handoffs remain available.
 
-ダッシュボード共有v2はリンクごとにアプリ操作・レイアウト編集を許可できます（既定は両方不可）。転送先も同じ権限で利用できます。個別ブラウザ登録は不要です。v1公開リンクと個別共有は再発行してください。オーナー招待とGatewayの信頼設定は変更しません。
+Dashboard sharing v2 permits app actions and layout editing per link; both are
+disabled by default. Forwarded links have the same permissions. Individual browser
+enrollment is unnecessary. Reissue v1 public links and individual shares. Owner
+invitations and Gateway trust settings are unchanged.

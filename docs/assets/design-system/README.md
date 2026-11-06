@@ -1,35 +1,49 @@
-# デザイン見本のアセット
+# Design sample assets
 
-[編集元の design-system.svg](../design-system.svg) は、アイコンとロゴを次のファイルから `<use href="design-system/icons/surface.svg#surface">` のように相対参照する。形状の編集は各ファイルで行い、位置・大きさ・アイコンの色は参照元で指定する。
+The editable [design-system.svg](../design-system.svg) references icons and logos
+from the following files with relative links such as
+`<use href="design-system/icons/surface.svg#surface">`. Edit shapes in the
+individual files; set position, size, and icon color in the referring document.
 
-| ファイル | 内容 | 元の形状 |
+| File | Contents | Shape source |
 | --- | --- | --- |
-| [surface.svg](icons/surface.svg) | Surface | 提供キットの `icons/surface.svg` |
-| [gateway.svg](icons/gateway.svg) | Gateway | 提供キットの `icons/gateway.svg` |
-| [hub.svg](icons/hub.svg) | Hub | 提供キットの `icons/hub.svg` |
-| [check.svg](icons/check.svg) | 接続済み | 見本図用の状態記号 |
-| [clock.svg](icons/clock.svg) | 接続中 | 見本図用の状態記号 |
-| [offline.svg](icons/offline.svg) | 未接続 | 見本図用の状態記号 |
-| [omochi-mark.svg](logos/omochi-mark.svg) | Omochi ロゴ | 提供キットの `logos/omochi-mark.svg` を指定パレットへ配色変更 |
+| [surface.svg](icons/surface.svg) | Surface | Supplied kit's `icons/surface.svg` |
+| [gateway.svg](icons/gateway.svg) | Gateway | Supplied kit's `icons/gateway.svg` |
+| [hub.svg](icons/hub.svg) | Hub | Supplied kit's `icons/hub.svg` |
+| [check.svg](icons/check.svg) | Connected | Status symbol for the sample |
+| [clock.svg](icons/clock.svg) | Connecting | Status symbol for the sample |
+| [offline.svg](icons/offline.svg) | Disconnected | Status symbol for the sample |
+| [omochi-mark.svg](logos/omochi-mark.svg) | Omochi logo | Supplied kit's `logos/omochi-mark.svg`, recolored to the specified palette |
 
-各 SVG のルート要素の `id` が参照先になる。名前や `id` を変更する場合は、見本図の `href` も更新する。機能アイコンは `currentColor` を使うため、同じファイルを明るい背景と濃色ナビゲーションで共用できる。ロゴは図形に含まれる2色を自身のファイルで指定する。
+Each SVG's root `id` is the reference target. Update sample `href` values when
+renaming files or IDs. Functional icons use `currentColor`, allowing the same
+file on light backgrounds and dark navigation. The logo defines its two shape
+colors in its own file.
 
-## プレビュー
+## Preview
 
-外部参照する SVG は、同一オリジンから文書として開く。リポジトリルートで次を実行し、[ローカルプレビュー](http://127.0.0.1:8765/design-system.svg)を開く。
+Open SVGs with external references as documents from the same origin. Run this
+from the repository root and open the
+[local preview](http://127.0.0.1:8765/design-system.svg):
 
 ```sh
 python3 -m http.server 8765 --bind 127.0.0.1 --directory docs/assets
 ```
 
-Markdown や HTML の `<img>` で表示する SVG では外部リソースの読み込みが制限されるため、[仕様書](../../design-system.md)には[生成した PNG](../design-system.png)を使用する。SVG のブラウザプレビューは上記の HTTP URL で直接開くか、同一オリジンの `<object>` に文書として埋め込む。[MDN の SVG 画像の制限](https://developer.mozilla.org/en-US/docs/Web/SVG/Guides/SVG_as_an_image)を参照。
+SVGs displayed through Markdown or HTML `<img>` restrict external resource
+loading, so the [specification](../../design-system.md) uses the
+[exported PNG](../design-system.png). Open the SVG directly through the HTTP URL
+above or embed it as a document in a same-origin `<object>`. See
+[MDN's SVG image restrictions](https://developer.mozilla.org/en-US/docs/Web/SVG/Guides/SVG_as_an_image).
 
-## PNG の再生成
+## Regenerating the PNG
 
-SVG 本体や個別アセットを更新したら、リポジトリルートで librsvg の `rsvg-convert` を使って PNG を再生成する。PNG は直接編集しない。
+After editing the main SVG or an individual asset, regenerate the PNG from the
+repository root with librsvg's `rsvg-convert`. Do not edit the PNG directly.
 
 ```sh
 rsvg-convert docs/assets/design-system.svg -o docs/assets/design-system.png
 ```
 
-アイコンの欠け、濃色面での色、文字との重なりを確認する。SVG を別の場所へ移す場合は `design-system/` 以下のアセットも相対位置を保って配置する。
+Check for clipped icons, colors on dark surfaces, and text overlap. When moving
+the SVG, preserve the relative positions of the assets under `design-system/`.

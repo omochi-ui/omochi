@@ -1,7 +1,7 @@
 # Applied specification resolutions
 
 Status: prior resolution batch applied; re-audit completed with new findings open.
-Date: 2026-11-03. Authorization: user requested “不足する仕様を具体化して再レビューして”.
+Date: 2026-11-03. Authorization: user requested “fill in the missing specification details and review again” (translated from Japanese).
 Accepted: 8 groups / 17 raw findings. Contested: 0. Escalated: 0. Declined: 0.
 Unaddressed prior groups: 0 at editing stage; fresh review determines adequacy.
 

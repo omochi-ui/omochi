@@ -1,6 +1,6 @@
 # Browser hub v5: explicitly requested fix/review
 
-2026-11-03. The author again requested “修正してレビューして”, authorizing fixes
+2026-11-03. The author again requested “fix and review” (translated from Japanese), authorizing fixes
 for three Major/two Nit findings and this additional fresh re-audit beyond prior
 caps. No production implementation or automatic further review is authorized.
 

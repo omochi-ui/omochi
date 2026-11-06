@@ -1,5 +1,8 @@
 # Specification index
 
+Specifications are maintained in English only. See the
+[documentation language policy](../CONTRIBUTING.md#documentation-changes).
+
 Start with the [whole-codebase implementation specification](../docs/architecture.md)
 for runtime semantics, module ownership, data flows, persistence and verification.
 The contracts below define the individual protocol boundaries in detail.

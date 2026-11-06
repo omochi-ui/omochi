@@ -133,7 +133,7 @@ Dismissing the invitation does not cancel work already started on the Hub.
 
 ## Flutter clients
 
-The [Flutter app](../apps/mobile/README.md#外部hubへの接続) accepts owner/share
+The [Flutter app](../apps/mobile/README.md#connecting-to-an-external-hub) accepts owner/share
 links as an external-Hub client with the same server permissions. It displays one
 selected connection and suspends its embedded Hub while using an external one.
 It stores external-client identity separately in OS-protected storage. Explicitly

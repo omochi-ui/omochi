@@ -1,6 +1,6 @@
 # Browser hub v4: requested fixes and additional re-audit
 
-Completed 2026-11-03. The author's “修正してレビューして” explicitly authorized
+Completed 2026-11-03. The author's “fix and review” (translated from Japanese) explicitly authorized
 one additional repair/review beyond the earlier Stage 9 cap. This round used
 three new fresh-context reviewers; all completed and all required reads succeeded.
 

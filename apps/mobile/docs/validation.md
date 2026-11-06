@@ -1,205 +1,421 @@
-# 初版の検証記録
+# Initial release validation records
 
-2026-11-03。実験アプリの結果と混ぜず、この checkout の新アプリで実行した結果を記録する。
+2026-11-03. These results were obtained with the new app in this checkout,
+separately from results for the experimental app.
 
-## 実行環境と結果
+## Environments and results
 
-| 対象 | 結果 |
+| Target | Result |
 | --- | --- |
-| Flutter | 3.47.9 / Dart 3.13.7、静的解析と通常テスト14件を確認 |
-| 共通 Rust Hub | `--no-default-features --lib` 26件成功、公開 HTTPS の手動検証1件は ignored |
-| C ABI | Rust の5件成功。Flutter からの実ライブラリー保存・終了・結果不明・破損文書の検証も通常テストに含む |
-| Web | hub-ui の型検査・既存テスト・通常ビルド・hosted WASM ビルドを確認。実 Chromium で fragment 除去、別タブへの配送、owner Hub 未接続時の mobile link の表示と URI の一致を確認 |
-| Android debug | Waydroid / Android 13 / x86_64。実 Gateway 2台と TypeScript SDK 2つで登録、描画、action、休止復帰、identity を保持した再起動、SDK / Gateway 再起動、片方の登録解除が成功 |
-| Android OS 保存 | 実 secure storage で破損文書、保存失敗、保存結果不明、保存中終了、forget 失敗、再登録を検証。2件成功 |
-| iOS simulator | iPhone 17 Pro / iOS 26.4 / ARM64。Android と同じ Gateway / SDK 往復の結合テストと、実 Keychain を使用する保存故障テスト2件が成功 |
-| ネイティブビルド | Android ARM64 / x86_64 の debug / release APK、iOS simulator の debug アプリ、iOS device ARM64 の署名なし debug ビルドを確認 |
+| Flutter | 3.47.9 / Dart 3.13.7; static analysis and 14 ordinary tests verified |
+| Shared Rust Hub | 26 tests passed with `--no-default-features --lib`; one manual public-HTTPS test ignored |
+| C ABI | Five Rust tests passed. Ordinary Flutter tests also cover real-library saving, shutdown, unknown outcomes, and corrupt documents |
+| Web | hub-ui type checking, existing tests, normal build, and hosted WASM build verified. Real Chromium verified fragment removal, delivery to another tab, and mobile-link visibility/URI agreement without an owner-Hub connection |
+| Android debug | Waydroid / Android 13 / x86_64. With two real Gateways and two TypeScript SDKs: enrollment, rendering, actions, suspend/resume, restart retaining identity, SDK/Gateway restart, and forgetting one registration passed |
+| Android OS storage | Two tests passed with real secure storage, covering corrupt documents, save failure, unknown save outcome, shutdown during saving, forgetting failure, and re-enrollment |
+| iOS simulator | iPhone 17 Pro / iOS 26.4 / ARM64. The same Gateway/SDK round-trip integration test as Android and two storage-failure tests using the real Keychain passed |
+| Native builds | Android ARM64/x86_64 debug/release APKs, iOS simulator debug app, and unsigned iOS device ARM64 debug build verified |
 
-Android の通常 release APK はデバッグ鍵による開発用署名。ストア向け署名や公開を行ったという意味ではない。ARM64 APK と iOS device はビルド確認であり、実機の動作確認ではない。
+The normal Android release APK uses development signing with the debug key.
+This is not store signing or publication. ARM64 APK and iOS device results are
+build verification, not physical-device runtime verification.
 
-## Release の容量とメモリ
+## Release capacity and memory
 
-[Android release の測定値](android-release-memory.json)。2 Gateway / 8 SDK、各64 KiBモデル、1024×1024画像8枚。通常画面と同じ renderer / session / Rust Hub を使う負荷テスト用 APK を AOT release でビルドし、直接起動した。
+[Android release measurements](android-release-memory.json). Two Gateways /
+eight SDKs, each with a 64 KiB model and a 1024×1024 image. A load-test APK using
+the normal renderer/session/Rust Hub was built as an AOT release and launched
+directly.
 
-| 状態 | RSS | 保持画素 |
+| State | RSS | Retained pixels |
 | --- | --- | --- |
-| Hub 起動後 | 約210.5 MiB | 0 |
-| 8サービス・8画像 | 約238.0 MiB | 32 MiB |
-| 休止後／停止後 | 約239.0 MiB | 0 |
+| After Hub startup | About 210.5 MiB | 0 |
+| Eight services/eight images | About 238.0 MiB | 32 MiB |
+| After suspension/stop | About 239.0 MiB | 0 |
 
-9サービス目だけが容量エラーになり、受け入れ済みの画面8つは保持された。既存画面の action が SDK へ届き、更新が戻ることも確認。休止後は進行中画像数も0になった。
+Only the ninth service received a capacity error; all eight accepted views were
+retained. Actions from existing views reached their SDKs and updates returned.
+After suspension, the in-flight image count also reached zero.
 
-この Waydroid の Vulkan 起動停止を避け、測定 APK の起動時だけ `--ez enable-impeller false` で Skia を選んだ。通常 release manifest は Flutter の既定値を維持する。別端末や既定の Vulkan に同じ性能を保証しない。
+To avoid Vulkan startup hangs in this Waydroid environment, the measurement APK
+was launched with `--ez enable-impeller false` to select Skia. The normal release
+manifest keeps Flutter's defaults. These results do not establish equivalent
+performance on other devices or with default Vulkan.
 
-RSS はプロセス全体の値で、VM・エンジン・Rust・allocator の保持領域を含む。保持画素との重複があるため合算しない。解放後に RSS が起動時へ戻ることは保証しない。実験アプリの debug/JIT 測定とは実行条件が違うため、単純な改善率は出さない。
+RSS covers the entire process, including the VM, engine, Rust, and allocator
+retained memory. It overlaps retained pixels and must not be added to them.
+Releasing resources does not guarantee RSS returns to its startup value.
+Conditions differ from the experimental app's debug/JIT measurements, so no
+simple improvement percentage is reported.
 
-負荷測定の HTTP 制御は、fixture 専用の一時 CA で検証する localhost HTTPS を使用した。画像と action は iroh を通る。release アプリの外部画像方針や HTTP 許可を変更していない。Flutter Driver は release 非対応なので、結果 JSON と成功したテストのログを Android logcat から採取した。
+HTTP control for the load measurement used localhost HTTPS verified with a
+temporary fixture-only CA. Images and actions used iroh. The release app's
+external-image policy and HTTP permissions were unchanged. Flutter Driver does
+not support release mode, so result JSON and successful-test logs were collected
+from Android logcat.
 
-## Deep link
+## Deep links
 
-Android は通常 release アプリで、OS に `omochi://invite/...` を渡した未起動時の確認画面と、起動中に別の招待を受信しても確認待ちの招待を上書きしないことを確認。[確認画面](android-invitation.png) の ID は架空であり、登録は実行していない。
+With the normal Android release app, passing `omochi://invite/...` through the OS
+verified cold-start confirmation and that another invitation received while
+running does not replace a pending one. The ID in the
+[confirmation screenshot](android-invitation.png) is fictional; enrollment was
+not performed.
 
-iOS は XCTest の OS URL 起動 API で、未起動時と起動中の確認画面、表示される Gateway ID の一致、キャンセル、確認ボタンが重複しないことを確認した。UIScene の初回接続と起動中の URL は SceneDelegate から app_links へ明示的に渡す。
+iOS used XCTest's OS URL launch API to verify cold/warm confirmation, matching
+Gateway IDs, cancellation, and a single confirmation button. SceneDelegate
+explicitly forwards initial UIScene connection URLs and warm URLs to app_links.
 
-Flutter の widget test では、起動時相当の受信、起動中の受信、重複通知、キャンセル、確認後だけの pair 呼び出しを検証している。
+Flutter widget tests cover startup-equivalent delivery, warm delivery, duplicate
+notifications, cancellation, and calling pair only after confirmation.
 
-## 検証の限界
+## Validation limits
 
-iOS 実機、Android ARM64 実機、16 KiB page size の端末、iOS release 性能、OS の省電力・強制終了を越える常時通信は未検証。iOS のネットワーク列挙には vendored dependency の限定的な互換パッチを使い、default route / home router / IPv6 付加フラグには制限がある。
+Physical iOS devices, physical Android ARM64 devices, devices with 16 KiB pages,
+iOS release performance, and continuous communication across OS power-saving
+or forced termination remain unverified. iOS network enumeration uses limited
+compatibility patches in vendored dependencies; default-route, home-router,
+and additional IPv6 flags have limitations.
 
-## 2026-11-04 Column／Modal の修正と Bonjour 移行の先行ゲート
+## 2026-11-04 Column/Modal fixes and the preliminary Bonjour gate
 
-実行環境は Linux x86_64、Flutter 3.47.9 / Dart 3.13.7。ローカルの `flutter devices` に表示された端末は Waydroid / Android 13 / x86_64 のみ。後述の追加調査で SSH 経由の Mac / Xcode にアクセスできたが、iOS 実機はない。今回の表示検証は Flutter widget test であり、端末上の操作検証ではない。
+Environment: Linux x86_64, Flutter 3.47.9 / Dart 3.13.7. Local `flutter devices`
+listed only Waydroid / Android 13 / x86_64. The later investigation below found
+SSH access to a Mac/Xcode, but no physical iOS device. Rendering verification
+here used Flutter widget tests, not interaction on a device.
 
-修正前に `flutter test test/native_layout_test.dart` で、40行の Column が784px overflow することと、Surface 削除後も bottom sheet が残ることを再現した。
+Before the fix, `flutter test test/native_layout_test.dart` reproduced a 784px
+overflow in a 40-row Column and a bottom sheet remaining after Surface deletion.
 
-| コマンド | 結果 |
+| Command | Result |
 | --- | --- |
-| `cd apps/mobile && flutter analyze --no-pub` | 問題なし |
-| `cd apps/mobile && flutter test --no-pub` | 56件成功。今回の追加は28件 |
-| `cargo test --manifest-path crates/Cargo.toml -p omochi-transport mdns_resolves_only_an_endpoint_id_without_internet -- --ignored --nocapture` | 1件成功。Linux の2 Endpoint間で EndpointId のみから発見・接続。Rust の変更はない。vendor/netwatch の既存 deprecated 警告あり |
-| `git diff --check` | 問題なし |
+| `cd apps/mobile && flutter analyze --no-pub` | No issues |
+| `cd apps/mobile && flutter test --no-pub` | 56 passed, including 28 added in this change |
+| `cargo test --manifest-path crates/Cargo.toml -p omochi-transport mdns_resolves_only_an_endpoint_id_without_internet -- --ignored --nocapture` | One passed. Discovery and connection between two Linux Endpoints using only EndpointId. No Rust changes; existing vendor/netwatch deprecation warnings |
+| `git diff --check` | No issues |
 
-Column のテストでは40行の末尾へのスクロールと action、非weighted children と spacing を除いた weight 比率、空き領域がない場合の有限な List viewport、明示／暗黙の flex、ネスト、list／map 形式のテンプレートとデータ更新、320px幅と文字倍率2、キーボードによる flex 高さの再計算、RTL／LTR alignment、Modal 内のスクロールを確認した。既存の画面サイズ変更テストも成功した。IntrinsicHeight は使用していない。
+Column tests verified scrolling to and acting on the last of 40 rows; weight
+ratios after subtracting nonweighted children and spacing; a finite List viewport
+when no free space remains; explicit/implicit flex; nesting; list/map templates
+and data updates; 320px width and text scale 2; flex-height recalculation with
+the keyboard; RTL/LTR alignment; and scrolling inside a Modal. The existing
+screen-resize test also passed. IntrinsicHeight was not used.
 
-Modal は通常 dismiss 後の再表示、Surface 削除・置換、同じ render ID を使った renderer 再起動、Modal component の除去、切断の retraction、forget、suspend、stop、画面離脱、build 中の dispose、route の初回 build 前の失効を確認した。古い onPressed は再表示できず、別 Surface の sheet と上に重なった dialog は保持された。forget／suspend などの操作はテスト用 GatewayClient を使用し、Rust／OS の動作まで再検証したものではない。
+Modal tests covered reopening after ordinary dismissal, Surface deletion and
+replacement, renderer restart with the same render ID, Modal component removal,
+disconnection retraction, forget, suspend, stop, navigation away, disposal during
+build, and revocation before the route's first build. Old onPressed callbacks
+could not reopen the sheet; another Surface's sheet and an overlaid dialog
+remained. Forget/suspend and similar operations used a test GatewayClient and
+did not revalidate Rust or OS behavior.
 
-### Bonjour の先行ゲート：未実施
+### Preliminary Bonjour gate: not performed
 
-計画の「iOS実機のBonjourから既存Linux Gatewayを発見し、その逆方向も確認する。ここが通るまで本実装を広げない」に従い、iOS discovery 本実装と Rust Hub の内部インターフェース追加は保留した。Linux 同士の mDNS 成功をこのゲートの成功とは扱わない。`crates/Cargo.lock` の基準は `swarm-discovery 0.6.5` / `iroh-mdns-address-lookup 0.6.1`。`NSBonjourServices`、ローカルネットワーク利用説明、認可処理、Gateway wire contract は変更していない。
+The plan required bidirectional discovery between Bonjour on a physical iOS
+device and the existing Linux Gateway before expanding implementation. Production
+iOS discovery and new internal Rust Hub interfaces were therefore deferred.
+Linux-to-Linux mDNS success did not satisfy this gate. The `crates/Cargo.lock`
+baseline was `swarm-discovery 0.6.5` / `iroh-mdns-address-lookup 0.6.1`.
+`NSBonjourServices`, local-network usage descriptions, authorization, and the
+Gateway wire contract were unchanged.
 
-Mac / Xcode への接続は下記の追加調査で確認できた。先行ゲートには引き続き、同一 LAN 上の署名済み iOS 実機用 Bonjour probe と、同じ checkout の Linux Gateway が必要。probe では OS の DNS-SD API を使い、multicast entitlement を追加しない。まず以下の証跡を記録する。
+Access to Mac/Xcode was confirmed in the investigation below. The preliminary
+gate still requires a signed physical-iOS Bonjour probe and a Linux Gateway
+from the same checkout on the same LAN. The probe must use OS DNS-SD APIs
+without a multicast entitlement. First record this evidence:
 
-1. iOS の Browse / Resolve / GetAddrInfo で Linux の `_irohv1._udp` を発見し、instance 名の小文字 Base32 EndpointId、全 SRV port、A / AAAA、IPv6 scope ID、TXT を照合する。
-2. iOS の OS DNS-SD で同形式を広告し、Linux の既存 mDNS lookup が同じ EndpointId と全接続候補を受け取ることを確認する。自動改名で EndpointId が変化しないことも確認する。
-3. 両方向の発見が通った後に本実装へ進み、既存 iroh の QUIC 接続と peer role / trust の認可を確認する。発見情報は認可に使用しない。
+1. Use iOS Browse/Resolve/GetAddrInfo to discover Linux `_irohv1._udp`; compare
+   the lowercase Base32 EndpointId instance name, all SRV ports, A/AAAA records,
+   IPv6 scope IDs, and TXT.
+2. Advertise the same format with iOS OS DNS-SD and verify that existing Linux
+   mDNS lookup receives the same EndpointId and every connection candidate.
+   Ensure automatic renaming does not change the EndpointId.
+3. After both discovery directions pass, proceed to production implementation
+   and verify existing iroh QUIC connections and peer role/trust authorization.
+   Discovery data must not authorize access.
 
-本実装後の必須確認は、iOS と Linux／Android の双方向発見・接続、IPv4／IPv6、複数 address／port、失効・ネットワーク変更・foreground 復帰、ローカルネットワーク許可の拒否／再許可、停止後 callback の世代破棄。保存アドレスを古くした上でインターネットを切り、登録済み EndpointId だけで再発見・接続するケースも含む。これらは今回未実施であり、iOS discovery の修正完了とはしていない。ゲートが失敗した場合は原因を記録して方針を再検討し、entitlement 方式へ自動変更しない。
+Required post-implementation checks include bidirectional iOS/Linux and
+iOS/Android discovery/connections, IPv4/IPv6, multiple addresses/ports,
+revocation, network changes, foreground resume, local-network permission denial
+and regrant, and generation rejection of callbacks after stop. Include
+rediscovery/reconnection using only a registered EndpointId with stale saved
+addresses and no internet. These checks were not performed here, and iOS
+discovery was not considered complete. If the gate fails, record the cause and
+reconsider the approach rather than automatically switching to entitlements.
 
-### 追加調査：Mac Bonjour と Linux の互換性
+### Additional investigation: Mac Bonjour/Linux compatibility
 
-同日、ユーザー指定の `ssh macbook` に既存 SSH 設定で接続できた。指定された予備の秘密鍵ファイルは使用していない。Mac は macOS 27.0.1、Xcode-27.0.0 を選択しており、`dns-sd` と iOS Simulator が利用可能。`xcrun xctrace list devices` の実機欄は Mac 自身のみで、ユーザーからも iOS 実機がないことを確認した。Linux と Mac は同じ LAN に接続している。
+On the same day, the user-specified `ssh macbook` worked with the existing SSH
+configuration. The suggested backup private-key file was not used. The Mac ran
+macOS 27.0.1 with Xcode-27.0.0 selected; `dns-sd` and iOS Simulator were available.
+The physical-device section of `xcrun xctrace list devices` listed only the Mac
+itself, and the user also confirmed no physical iOS device. Linux and Mac were
+on the same LAN.
 
-iOS 実機ゲートとは別の予備検証として、Linux で既存の `omochi_transport::bind(key, true, None)` により一時 Endpoint を起動した。実 Gateway プロセス／登録済み trust は使用していない。Mac では OS の `dns-sd -B _irohv1._udp local`、`dns-sd -L <instance> _irohv1._udp local`、`dns-sd -R <instance> _irohv1._udp local 41973 user-data=omochi-bonjour-probe` を使用した。instance は各回の一時 EndpointId を小文字 Base32 に変換した52文字。逆方向は Linux の新しい `MdnsAddressLookup::resolve` が Mac の IPv4 と port 41973 を返すか確認した。probe は終了時に広告と子プロセスを停止し、一時 Rust テストは撤去した。
+As a preliminary check separate from the physical-iOS gate, Linux started a
+temporary Endpoint with the existing `omochi_transport::bind(key, true, None)`.
+No real Gateway process or registered trust was used. Mac commands were
+`dns-sd -B _irohv1._udp local`,
+`dns-sd -L <instance> _irohv1._udp local`, and
+`dns-sd -R <instance> _irohv1._udp local 41973 user-data=omochi-bonjour-probe`.
+Each instance was the temporary EndpointId encoded as 52 lowercase Base32
+characters. In reverse, a fresh Linux `MdnsAddressLookup::resolve` checked for
+the Mac's IPv4 and port 41973. The probe stopped advertisements and child
+processes on exit; the temporary Rust test was removed.
 
-| 条件 | 結果 |
+| Condition | Result |
 | --- | --- |
-| 通常の offline Endpoint → Mac Browse | 成功。Linux の instance が一覧に出た |
-| 同 Endpoint → Mac Resolve | 15秒間 callback なし。既存広告には TXT がない |
-| Linux probe の user data のみを追加して再実行 | Mac Resolve 成功。TXT を追加するだけで結果が変わった |
-| Mac Register → Linux Resolve | 2回とも失敗。lookup は約10秒で候補を返さず終了 |
-| 複数 SRV | Linux の IPv4／IPv6用に2つの port を packet で確認。Mac の通常 Resolve callback が返したのは1つのみ |
+| Normal offline Endpoint → Mac Browse | Passed; the Linux instance appeared |
+| Same Endpoint → Mac Resolve | No callback for 15 seconds; existing advertisement had no TXT |
+| Repeat with only Linux probe user data added | Mac Resolve passed; adding TXT alone changed the result |
+| Mac Register → Linux Resolve | Failed twice; lookup ended after about 10 seconds without candidates |
+| Multiple SRV records | Packets contained two ports for Linux IPv4/IPv6; normal Mac Resolve callback returned only one |
 
-TXT 追加の実験だけで本番の広告情報を変更したわけではない。Linux の multicast packet を対象の一時 instance に絞って調べ、TXT の内容は表示せず長さだけを記録した。Mac の SRV / TXT と A / AAAA は Linux に到達しており、これらの CLASS は cache-flush ビットを含む `0x8001` だった。
+The TXT experiment did not change production advertisements. Linux multicast
+packets were inspected only for the temporary instance; only TXT length was
+recorded, not its contents. Mac SRV/TXT and A/AAAA reached Linux with CLASS
+`0x8001`, including the cache-flush bit.
 
-調査時点の `cargo tree --manifest-path crates/Cargo.toml -p omochi-transport -e features -i hickory-proto` と依存ソースを照合すると、`hickory-proto 0.26.3` では `mdns` feature が有効になっていなかった。この場合は `0x8001` を `IN` に正規化せず、`swarm-discovery 0.6.5` の `receiver.rs` が `dns_class != DNSClass::IN` で SRV / TXT / A / AAAA を除外する。これが逆方向の受信を妨げる具体的な原因だった。さらに同 receiver は SRV を answer section からしか集めず、Bonjour の Browse 応答で SRV が additional section に入る場合も取りこぼしていた。別 packet に分割されたレコードの集約も行わない。
+Comparing `cargo tree --manifest-path crates/Cargo.toml -p omochi-transport -e features -i hickory-proto`
+with dependency sources showed that `hickory-proto 0.26.3` lacked its `mdns`
+feature. Without it, `0x8001` was not normalized to `IN`, and
+`swarm-discovery 0.6.5`'s `receiver.rs` excluded SRV/TXT/A/AAAA at
+`dns_class != DNSClass::IN`. This specifically prevented reverse reception.
+The receiver also collected SRV only from the answer section, missing Bonjour
+Browse responses with SRV in the additional section, and did not aggregate
+records split across packets.
 
-この調査段階では、Mac Bonjour と現行の受信実装との双方向解決は通っていなかった。既存 peer 側の互換修正は当初の「Android・デスクトップ側のdiscoveryを変更しない」という前提の再検討を伴うため、この時点では実装せず、ユーザーへ結果を報告した。
+At this investigation stage, bidirectional resolution between Mac Bonjour and
+the current receiver had not passed. Compatibility fixes to existing peers
+would revisit the initial assumption that Android/desktop discovery would stay
+unchanged, so no implementation was made at that point and findings were
+reported to the user.
 
-### 双方向解決の修正と再検証：Mac／Linux 成功
+### Bidirectional resolution fixes and revalidation: Mac/Linux passed
 
-同日、ユーザーから双方向解決を求められた後、`swarm-discovery 0.6.5` を vendor に固定し、空メタデータ時の TXT 広告、cache-flush の解釈、answer／additional section をまたぐレコード照合を修正した。version、service type、EndpointId、port ごとの address 集約、非空 TXT は維持し、認可、trust、Gateway wire contract は変更していない。
+Later that day, after the user requested bidirectional resolution,
+`swarm-discovery 0.6.5` was pinned in vendor. Fixes covered TXT advertisement for
+empty metadata, cache-flush interpretation, and record matching across answer
+and additional sections. Version, service type, EndpointId, per-port address
+aggregation, and nonempty TXT were preserved. Authorization, trust, and the
+Gateway wire contract were unchanged.
 
-packet 単位の回帰テスト5件を先に実行し、TXT 欠落、cache-flush、section 違いの3件が失敗することを確認した。修正後は、既存広告形式と複数port／IPv4／IPv6／非空TXTの保持を含め、5件すべて成功。vendor の既存テスト2件も成功した。Native CI にも同じ library test を追加した。
+Five packet-level regression tests ran first; three failed for missing TXT,
+cache-flush, and section differences. After fixes, all five passed, including
+preservation of the existing advertisement format, multiple ports, IPv4/IPv6,
+and nonempty TXT. Two existing vendor tests also passed. Native CI gained the
+same library tests.
 
-| コマンド（リポジトリールート） | 結果 |
+| Command (repository root) | Result |
 | --- | --- |
-| `CARGO_TARGET_DIR="$PWD/crates/target" cargo test --manifest-path vendor/swarm-discovery/Cargo.toml --lib` | 7件成功 |
-| `cargo test --locked --manifest-path crates/Cargo.toml -p omochi-transport --tests` | 15件成功、2件 ignored |
-| `cargo test --locked --manifest-path crates/Cargo.toml -p omochi-transport mdns_resolves_only_an_endpoint_id_without_internet -- --ignored --nocapture` | 1件成功。Linux 同士の mDNS 発見後に実 QUIC 接続 |
-| `python3 apps/mobile/tool/bonjour_probe.py --ssh-host macbook` | `result: passed`。同一LANの Mac／Linux で双方向アドレス解決 |
-| `cargo clippy --locked --manifest-path crates/Cargo.toml -p omochi-transport --all-targets -- -D warnings` | 成功。既存の vendor/netwatch の deprecated 警告のみ |
+| `CARGO_TARGET_DIR="$PWD/crates/target" cargo test --manifest-path vendor/swarm-discovery/Cargo.toml --lib` | Seven passed |
+| `cargo test --locked --manifest-path crates/Cargo.toml -p omochi-transport --tests` | 15 passed, two ignored |
+| `cargo test --locked --manifest-path crates/Cargo.toml -p omochi-transport mdns_resolves_only_an_endpoint_id_without_internet -- --ignored --nocapture` | One passed; actual QUIC connection after Linux-to-Linux mDNS discovery |
+| `python3 apps/mobile/tool/bonjour_probe.py --ssh-host macbook` | `result: passed`; bidirectional address resolution between Mac/Linux on the same LAN |
+| `cargo clippy --locked --manifest-path crates/Cargo.toml -p omochi-transport --all-targets -- -D warnings` | Passed; only existing vendor/netwatch deprecation warnings |
 
-再利用できる probe は、一時鍵の offline Linux Endpoint を起動し、Mac の `dns-sd` を SSH 経由で実行する。Mac から Browse と Resolve が成功し、さらに SRV query と GetAddrInfo を組み合わせ、Linux の2つのSRV、IPv4アドレス6個とIPv6アドレス1個をすべて取得した。逆方向は Mac が TXT 属性なしで登録した一時 instance を Linux が正しい EndpointId で解決し、Mac の IPv4、global IPv6、link-local IPv6 と登録portを取得した。終了時に Endpoint、広告、子プロセスを停止する。
+The reusable probe starts an offline Linux Endpoint with a temporary key and
+runs Mac `dns-sd` over SSH. Mac Browse and Resolve passed; combining SRV queries
+with GetAddrInfo retrieved both Linux SRV records, all six IPv4 addresses, and
+one IPv6 address. In reverse, Linux resolved a temporary Mac instance registered
+without TXT attributes to the correct EndpointId, obtaining Mac IPv4, global
+IPv6, link-local IPv6, and the registered port. Endpoints, advertisements, and
+child processes are stopped on exit.
 
-Mac 側の広告は解決専用の架空 EndpointId で、対応する QUIC listener は起動していない。そのため今回の Mac／Linux probe はアドレス解決の検証であり、両方向 QUIC接続、認可、オフライン再接続を確認したという意味ではない。取得した link-local IPv6 の scope ID の保持／接続、分割 packet の集約、失効・ネットワーク変更・foreground 復帰もこの修正では扱っていない。iOS Bonjour のアプリ実装は未実装で、iOS実機ゲートも引き続き未達。multicast entitlement への切り替えは行っていない。
+The Mac advertisement used a fictional resolution-only EndpointId with no QUIC
+listener. This probe verified address resolution, not bidirectional QUIC,
+authorization, or offline reconnection. Link-local IPv6 scope-ID preservation
+and connections, split-packet aggregation, revocation, network changes, and
+foreground resume were outside this fix. The iOS Bonjour app implementation
+and physical-device gate remained incomplete. No switch to multicast
+entitlements was made.
 
-## 2026-11-04 macOS アプリの対応と Bonjour 結合テスト
+## 2026-11-04 macOS app support and Bonjour integration tests
 
-macOS Runner に Rust Hub の build / bundle / signing を追加し、アプリ内の Frameworks から C ABI ライブラリーを読み込むようにした。debug / release に sandbox の network client / server を指定し、Bonjour の `_irohv1._udp`、ローカルネットワーク利用説明、招待 URL scheme を設定した。macOS の保存は共有不要の login Keychain を使い、provisioning profile が必要な Keychain Sharing は使用しない。通常アプリにメモリー保存へのフォールバックはない。
+The macOS Runner gained Rust Hub build/bundle/signing and loads the C ABI
+library from the app's Frameworks directory. Debug/release declare sandbox
+network client/server access, Bonjour `_irohv1._udp`, local-network usage, and
+the invitation URL scheme. macOS storage uses the login Keychain without
+sharing, avoiding Keychain Sharing's provisioning-profile requirement. The
+normal app has no memory-storage fallback.
 
-MacBook の `/tmp/omochi-macos` にこの checkout の必要なソースを同期した。Flutter 3.47.9 / Dart 3.13.7、macOS 27.0.1、Xcode 27.0、Apple Silicon。iOS Simulator ではなく macOS の Flutter アプリを実行した。
+Required sources from this checkout were synchronized to `/tmp/omochi-macos` on
+the MacBook. Environment: Flutter 3.47.9 / Dart 3.13.7, macOS 27.0.1, Xcode 27.0,
+Apple Silicon. Tests ran the macOS Flutter app, not iOS Simulator.
 
-| 対象 | 結果 |
+| Target | Result |
 | --- | --- |
-| `flutter analyze --no-pub` | 問題なし |
-| `flutter test --no-pub` | 通常テスト61件成功 |
-| `flutter build macos --debug --no-pub` | 成功。Rust Hub の同梱・署名を含む |
-| `flutter build macos --release --no-pub` | 成功。79.8 MB。アプリ本体と Hub dylib に arm64 / x86_64 を含むこと、`codesign --verify --deep --strict`、release dylib のロードと C ABI version 1 を確認 |
-| `flutter test --no-pub integration_test/bonjour_test.dart -d macos --dart-define=BONJOUR_MEMORY_STORE=true --dart-define=BONJOUR_HOLD_SECONDS=40` | 1件成功。sandbox 内の実 Rust Hub を起動し、OS の DNSServiceBrowse / Resolve で公開 EndpointId に一致する instance、host、port、LAN interface を取得。Hub を stop / start して同じ ID を保持 |
-| Linux の `bonjour_probe --resolve <アプリの公開Hub ID>` | 成功。同じ macOS アプリの広告から LAN IPv4、IPv6、port を取得。別プロセスの架空広告ではない |
-| 上の結合テストに `--dart-define=BONJOUR_PEER_ID=<Linux Gateway ID>` を指定 | 成功。新しくビルドした CLI の一時 offline Gateway を、Mac アプリ内の OS Bonjour で Browse / Resolve。Linux 側から同じアプリを解決する逆方向も同時に成功。Gateway に招待や登録済み trust は作らず、終了時に一時設定とプロセスを削除 |
-| 実 Keychain を使う Bonjour 結合テスト | 保存の preflight で `-25308: User interaction is not allowed`。OS の照会でも login Keychain は `unlocked=false`。解除後の再検証待ち |
+| `flutter analyze --no-pub` | No issues |
+| `flutter test --no-pub` | 61 ordinary tests passed |
+| `flutter build macos --debug --no-pub` | Passed, including Rust Hub bundling/signing |
+| `flutter build macos --release --no-pub` | Passed; 79.8 MB. Confirmed arm64/x86_64 in app and Hub dylib, `codesign --verify --deep --strict`, release dylib loading, and C ABI version 1 |
+| `flutter test --no-pub integration_test/bonjour_test.dart -d macos --dart-define=BONJOUR_MEMORY_STORE=true --dart-define=BONJOUR_HOLD_SECONDS=40` | One passed. Real Rust Hub inside the sandbox; OS DNSServiceBrowse/Resolve returned the instance matching its public EndpointId, host, port, and LAN interface. Hub stop/start retained the same ID |
+| Linux `bonjour_probe --resolve <app's public Hub ID>` | Passed; obtained LAN IPv4, IPv6, and port from that macOS app's advertisement, not a fictional advertisement in another process |
+| Above integration test with `--dart-define=BONJOUR_PEER_ID=<Linux Gateway ID>` | Passed. App OS Bonjour browsed/resolved a temporary offline Gateway from a newly built CLI; Linux simultaneously resolved the same app in reverse. No invitations or registered trust; temporary configuration/processes removed on exit |
+| Bonjour integration with real Keychain | Storage preflight failed with `-25308: User interaction is not allowed`. OS query also reported login Keychain `unlocked=false`; revalidation after unlocking remains pending |
 
-通信の切り分けに使った `BONJOUR_MEMORY_STORE=true` は結合テスト専用の fixture で、通常アプリの保存先を変更しない。メモリー保存のテスト成功を、実 Keychain の保存成功やプロセスを越えた identity 保持の証拠とは扱わない。ロック中の SSH セッションでは Flutter の foreground 操作も `open returned 1` だったが、アプリ内 Hub と OS DNS-SD のテストは動作した。
+`BONJOUR_MEMORY_STORE=true` is an integration-test fixture for isolating
+networking; it does not change normal app storage. A memory-store pass is not
+evidence of real Keychain persistence or identity retention across processes.
+In the locked SSH session, Flutter foregrounding also returned `open returned 1`,
+but in-app Hub and OS DNS-SD tests ran successfully.
 
-最初の release ビルドでは Rust の proc-macro 読み込みが E0463 で失敗した。対象 dylib を直接 `dlopen` すると `mis-aligned LINKEDIT string pool` となり、debug の dylib は正常だった。macOS の build script に限って Cargo の release strip を無効にし、最終 dylib を Xcode の `strip -S -x` で処理してから署名するよう修正した。修正後の proc-macro と最終 release dylib はともにロードできた。他プラットフォームの release profile は変更していない。
+The first release build failed to load a Rust proc-macro with E0463. Direct
+`dlopen` of the dylib returned `mis-aligned LINKEDIT string pool`; the debug
+dylib loaded normally. Only the macOS build script was changed to disable
+Cargo release stripping, then run Xcode `strip -S -x` on the final dylib before
+signing. Both proc-macro and final release dylib loaded after the fix. Release
+profiles on other platforms were unchanged.
 
-通常起動用の release アプリは MacBook の `/tmp/omochi-macos/apps/mobile/build/macos/Build/Products/Release/mobile.app` にある。開発用 ad-hoc 署名で、notarization はしていない。Intel はクロスビルドの確認であり、Intel 実機上の動作確認ではない。
+The release app for ordinary launch is at
+`/tmp/omochi-macos/apps/mobile/build/macos/Build/Products/Release/mobile.app`
+on the MacBook. It uses development ad-hoc signing without notarization. Intel
+was cross-built, not run on physical Intel hardware.
 
-この節の検証時点では本番の探索・広告は Rust mDNS だった。後続の本番 adapter と検証結果は次節を参照。今回追加した OS DNS-SD の呼び出しは結合テスト側。iOS の OS Bonjour adapter を実装・検証したという意味ではない。iOS 実機、Mac↔Linux の QUIC 接続・登録済み role による認可・オフライン再接続はこの macOS テストでは未検証。
+At this section's validation date, production discovery/advertisement still
+used Rust mDNS. See the next section for the later production adapter and
+results. OS DNS-SD calls added here were in integration tests. This did not
+implement or validate the iOS OS Bonjour adapter. Physical iOS devices,
+Mac↔Linux QUIC, registered-role authorization, and offline reconnection were
+not verified by this macOS test.
 
+## 2026-11-04 OS selection for production LAN discovery
 
-## 2026-11-04 本番 LAN discovery の OS 切り替え
+Implemented in shared `crates/mdns` (`omochi-mdns`). Gateway, Hub, and mobile
+native bridge use the same `bind()`. Apple selects OS Bonjour; Windows selects
+DNSapi DNS-SD; Linux selects Avahi when an existing Avahi Server2 is available
+on system D-Bus, otherwise Rust mDNS. Android retains Rust mDNS. Apple/Windows
+do not automatically fall back to raw multicast. SDK, A2UI schema, Gateway wire
+contract, and peer role/trust authorization were unchanged. No multicast
+entitlement was added.
 
-共通 `crates/mdns` (`omochi-mdns`) に実装した。Gateway・Hub・mobile native bridge は同じ `bind()` から利用する。Apple は OS Bonjour、Windows は DNSapi の DNS-SD、Linux は既存 Avahi Server2 が system D-Bus 上にあれば Avahi、なければ Rust mDNS を選ぶ。Android は既存の Rust mDNS。Apple / Windows で raw multicast へ自動切り替えしない。SDK / A2UI schema / Gateway wire contract / peer role / trust の認可は変更していない。multicast entitlement も追加していない。
+To match OS DNS-SD's one-service/one-SRV-port model, QUIC IPv4/IPv6 listeners
+share a port. Receivers aggregate multiple SRV records and addresses, adding
+the receiving interface's scope ID to link-local IPv6. Endpoints own
+advertisements, browsers, and callbacks. Removal, stop, or backend
+reinitialization invalidates generations, preventing stale callbacks from
+recreating state. Avahi record queries use the same IPv4/IPv6 transport as the
+service browser; deleting one cache entry does not remove valid records on
+the other transport. Avahi reconnects on daemon-owner changes; Windows also
+reinitializes on interface changes, including address changes.
 
-OS DNS-SD の1サービス・1 SRVポートに合わせ、QUIC の IPv4 / IPv6 の待受ポートを共通化した。受信側は複数 SRV・複数アドレスを集約し、IPv6 link-local に受信インターフェースの scope ID を付ける。広告・browser・callback は endpoint が所有する。削除・停止・backend 再初期化で世代を無効にし、古い callback から再生成しない。Avahi の record query は service browser と同じ IPv4 / IPv6 transport に限定し、片方のキャッシュ削除で他方の有効な record まで消さない。Avahi は daemon の owner 変更を検知して再接続し、Windows はアドレスを含む interface の変更でも再初期化する。
-
-| 検証 | 結果 |
+| Check | Result |
 | --- | --- |
-| Linux の本番選択 | `lan_probe` が `avahi` を選択。EndpointId だけの offline QUIC 接続テスト成功 |
-| Avahi がない場合 | 分離した D-Bus の `DBUS_SYSTEM_BUS_ADDRESS` を使用。`rust-mdns` を選択し、Avahi 側から EndpointId だけで接続成功。システムの daemon は停止していない |
-| 既存 Rust peer との互換 | `lan_probe --rust` は従来と同じ別々の IPv4 / IPv6 ポートを広告。Avahi が両方のポートを取得し、QUIC 往復成功。Rust peer→Mac Bonjour の QUIC 往復も成功。逆方向の Rust peer→Avahi も、実際に endpoint に登録した lookup を明示的に resolve する probe で QUIC 往復成功 |
-| Mac Bonjour ↔ Linux Avahi | 両方向で公開 EndpointId から LAN IPv4 / IPv6 / port を解決。Linux→Mac は authenticated QUIC の ping/pong 成功 |
-| Mac→Linux の incoming QUIC | 解決は成功したが接続は timeout。別の単純な UDP socket でも Mac→Linux が届かなかった。受信経路の制限を解消しての再検証は未実施。root 権限や firewall 全体の変更は行っていない |
-| Windows VM ↔ Linux Avahi | libvirt `win11` / Windows 11 build 26100 / NAT LAN。Windows の `windows-dns-sd` 選択を確認。両方向とも EndpointId だけの解決と authenticated QUIC ping/pong 成功。Linux 側は Windows の link-local IPv6 に virbr0 の scope ID を保持 |
-| ネイティブ広告の更新・停止・再開 | Linux Avahi、Mac Bonjour、Windows DNS-SD それぞれ `lan_probe lifecycle` 成功。43123→43124への更新、停止後に古い広告を返さないこと、同じ EndpointId / 43125での再広告と再停止を確認 |
-| macOS release | 新しい Bonjour adapter を含めて再ビルド成功、78.1 MB。arm64 / x86_64 のアプリ本体・Hub dylib と `codesign --verify --deep --strict` を確認。最終 dylib に OS DNSService 関数の import を確認 |
-| macOS Flutter 本番 adapter | `BONJOUR_MEMORY_STORE=true` の既存結合テスト1件成功。sandbox 内の本番 Rust Hub が Bonjour で広告され、OS Browse / Resolve で自分と Linux peer を取得、stop / start 後の ID 一致も確認 |
-| iOS device target | Mac 上で `cargo check -p omochi-transport --no-default-features --target aarch64-apple-ios` 成功。実機動作の証拠ではない |
-| Rust 回帰 | transport: 通常19件成功（lib16・integration3）、公開 relay / 実 multicast の2件は通常実行では ignored。実 multicast の EndpointId-only offline テストは明示実行で成功。Hub:26件成功、公開 HTTPS 1件 ignored。LAN parser / 世代 / reset / cancel の4件は Mac でも成功 |
+| Linux production selection | `lan_probe` selected `avahi`; offline QUIC with only EndpointId passed |
+| No Avahi | Used isolated D-Bus through `DBUS_SYSTEM_BUS_ADDRESS`; selected `rust-mdns`, and Avahi peer connected with only EndpointId. System daemon was not stopped |
+| Existing Rust-peer compatibility | `lan_probe --rust` advertised the previous separate IPv4/IPv6 ports. Avahi obtained both ports and QUIC round-trip passed. Rust peer→Mac Bonjour QUIC also passed. Rust peer→Avahi passed using a probe that explicitly resolved the lookup registered on the actual endpoint |
+| Mac Bonjour ↔ Linux Avahi | Both resolved LAN IPv4/IPv6/port from public EndpointId. Linux→Mac authenticated QUIC ping/pong passed |
+| Mac→Linux incoming QUIC | Resolution passed but connection timed out. A separate plain UDP socket also failed to receive Mac→Linux traffic. Revalidation after resolving the inbound-path restriction remains pending. No root privileges or system-wide firewall changes used |
+| Windows VM ↔ Linux Avahi | libvirt `win11` / Windows 11 build 26100 / NAT LAN. Confirmed `windows-dns-sd` selection. EndpointId-only resolution and authenticated QUIC ping/pong passed in both directions. Linux preserved virbr0 scope ID for Windows link-local IPv6 |
+| Native advertisement update/stop/restart | `lan_probe lifecycle` passed on Linux Avahi, Mac Bonjour, and Windows DNS-SD: update 43123→43124, no stale advertisement after stop, readvertisement with the same EndpointId/43125, then stop again |
+| macOS release | Rebuilt with the Bonjour adapter; 78.1 MB. Confirmed arm64/x86_64 app/Hub dylib, `codesign --verify --deep --strict`, and OS DNSService imports in the final dylib |
+| macOS Flutter production adapter | Existing integration test with `BONJOUR_MEMORY_STORE=true` passed. Sandboxed production Rust Hub advertised through Bonjour; OS Browse/Resolve obtained itself and a Linux peer, and ID matched after stop/start |
+| iOS device target | `cargo check -p omochi-transport --no-default-features --target aarch64-apple-ios` passed on Mac; not physical-device runtime evidence |
+| Rust regression | Transport: 19 ordinary tests passed (16 library/3 integration); two public-relay/real-multicast tests ignored in normal runs. Explicit EndpointId-only offline multicast test passed. Hub: 26 passed, one public-HTTPS test ignored. Four LAN parser/generation/reset/cancel tests also passed on Mac |
 
-`lan_probe` は ephemeral identity と offline transport を使い、接続時に認証された EndpointId と要求 ID を照合して ping/pong する。保存済み trust の変更や招待・登録は行わない。Flutter の通常解析は問題なし、通常テスト61件も成功。変更 transport の Clippy は Linux の全 target、Windows の lib、Mac の mobile と同じ `--no-default-features` の lib / examples で成功（vendored netwatch の既存 deprecated 警告あり）。Mac の desktop feature を含む Clippy は既存 `live.rs` の nonminimal_bool により失敗したため、全 workspace が無警告と主張しない。
+`lan_probe` uses ephemeral identities and offline transport, compares the
+authenticated EndpointId with the requested ID, and exchanges ping/pong. It
+does not change saved trust or perform invitations or enrollment. Flutter analysis and all 61
+ordinary tests passed. Clippy for changed transport passed on all Linux targets,
+Windows library, and Mac library/examples with the mobile
+`--no-default-features` configuration, with existing vendored netwatch
+deprecation warnings. Mac Clippy including the desktop feature failed on an
+existing `live.rs` nonminimal_bool; this is not a warning-free-workspace claim.
 
-Windows の検証には VM 内の PowerShell と NAT 内だけの一時 HTTP 転送を使い、SSH / RDP を有効化していない。検証用 exe の受信だけを Windows Firewall のアプリ別許可で通し、検証後に当該ルールと一時 exe を削除した。
+Windows validation used PowerShell inside the VM and temporary HTTP transfer
+confined to its NAT network, without enabling SSH/RDP. Only the probe executable
+was allowed inbound through an app-specific Windows Firewall rule; that rule
+and temporary executable were removed after validation.
 
-Windows の GNU debug ビルドでは、依存 iroh 1.4.1 の不要な cdylib 生成が export ordinal 上限で失敗した。この VM 検証では一時 checkout の iroh / iroh-relay の出力を rlib のみにしてリンクした（Rust 実装や transport のソースは同一）。Windows CLI / 配布パッケージを完成・検証したという意味ではない。通常ソースの Windows transport は `--no-default-features` の cross check / Clippy を通している。
+Windows GNU debug builds failed on the export-ordinal limit while generating
+an unnecessary cdylib in dependency iroh 1.4.1. For this VM probe, a temporary
+checkout linked only rlib outputs for iroh/iroh-relay; Rust implementation and
+transport sources were unchanged. This did not complete or verify Windows
+CLI/distribution packaging. The normal-source Windows transport passed cross
+check/Clippy with `--no-default-features`.
 
-iOS 実機はないため、ローカルネットワーク拒否→再許可、foreground 復帰、実際のアドレス変更、登録済み ID の古い保存アドレスからの再接続は未検証。Windows の IPv6-only LAN と実ネットワーク変更も未検証。Mac の login Keychain はロックされたままで、上の Flutter 通信テストはテスト専用メモリー保存を使用した。これらを実機の完了判定と扱わない。
+Without a physical iOS device, local-network denial/regrant, foreground resume,
+real address changes, and reconnection for registered IDs with stale saved
+addresses remain unverified. Windows IPv6-only LANs and real network changes
+also remain unverified. The Mac login Keychain remained locked, so the Flutter
+networking test above used test-only memory storage. These do not satisfy
+physical-device acceptance.
 
 ## 2026-11-04 Flutter Windows / Linux desktop
 
-Windows / Linux の Runner にプラグイン登録、Rust Hub の CMake ビルドと同梱、実行ファイルを基準とする FFI ロードを追加した。Windows は MSVC、Linux は GNU target を使う。既存の共通 transport により、Windows は DNS-SD、Linux は Avahi / Rust mDNS を選ぶ。A2UI schema、SDK API、wire contract、trust の認可は変更していない。
+Windows/Linux Runners gained plugin registration, CMake build/bundling of the
+Rust Hub, and executable-relative FFI loading. Windows uses MSVC and Linux GNU
+targets. Existing shared transport selects Windows DNS-SD or Linux Avahi/Rust
+mDNS. A2UI schema, SDK API, wire contract, and trust authorization were unchanged.
 
-Windows は名前付き mutex、Linux は GApplication で単一インスタンスを維持する。別起動からの URL は既存のアプリへ転送する。OS の URL handler 登録はユーザーが bundle 配置後に実行するスクリプトに分けた。ビルド時には handler を変更しない。
+A Windows named mutex and Linux GApplication maintain one instance. URLs from
+subsequent launches are forwarded to the existing app. OS URL-handler
+registration is a separate script run by users after placing the bundle; builds
+do not change handlers.
 
-| 検証 | 結果 |
+| Check | Result |
 | --- | --- |
-| Linux x64 build | Flutter 3.47.9 / Dart 3.13.7、CachyOS。Debug / Release とも成功。Release bundle 約47 MiB、Hub `.so` とプラグインを同梱 |
-| Linux 実 OS 保存 | `desktop_test.dart` 成功。実際の Secret Service を使用し、Hub の suspend / resume、別 bridge / store からの再起動後も identity と保存文書が一致。テスト専用 namespace を削除 |
-| Linux warm URL | 同じ exe をテスト用の架空招待で別起動し、終了コード0、既存画面の招待ダイアログ、取消後に Gateway が未登録であることを確認 |
-| Linux display | Wayland と独立した X11 / Xvfb で上記テスト成功。ホストの Xwayland `:0` ではテスト窓が map されず待機したため、その環境での成功は主張しない。試験的な Runner の表示順変更は採用していない |
-| Linux 2 Gateway 結合 | `mobile_test.dart -d linux` 成功。実 Gateway / SDK への登録、2 Surface、操作と SDK 応答、suspend / resume、Hub 再起動での登録維持、サービス世代更新、Gateway 再接続、forget の分離を確認。`TEST_ONLINE=false`、loopback 上の専用 fixture を使用 |
-| Linux bundle 移動 | 完全な bundle をアーカイブして空白を含む別ディレクトリーへ展開し、作業ディレクトリー `/` から同梱 Hub `.so` のロードと ABI=1 を確認 |
-| Linux URL 登録 | 別 `XDG_DATA_HOME` と検証用 `xdg-mime` でシステムの既存 handler を変更せず検証。`desktop-file-validate` と実際の GLib `gio launch` で空白・引用符・`$`・backtick を含むパスから正確な URI 引数を確認。GLib が executable path 内の percent を扱えないため、そのパスと改行は明示的に拒否 |
-| Windows x64 build | Windows 11 build 26100、Flutter 3.47.9 / Dart 3.13.7、Visual Studio Build Tools 2022 17.14.44、Rust MSVC。Debug / Release とも成功。Release bundle 49,897,438 bytes、Hub DLL 15,731,712 bytes |
-| Windows 実 OS 保存・warm URL | `desktop_test.dart -d windows` 成功。実際の DPAPI を使用し、再起動での identity / 保存文書の一致、別起動からの招待転送と取消を確認。メモリー保存への置換なし |
-| Windows 2 Gateway 結合 | 現行コードからビルドした Linux Gateway を新しい一時データで起動し、`mobile_test.dart -d windows` 成功。2 Surface の操作・SDK 応答、休止復帰、登録保持、サービス世代更新、Gateway 再発見・再接続、forget の分離を確認。テスト本体36秒。`TEST_ONLINE=false`、libvirt NAT の IPv4 で実施 |
-| Windows bundle 移動 | 空白を含む別ディレクトリーへ完全な bundle をコピーし、作業ディレクトリー `C:\` から Release Hub DLL をロードして ABI=1。Flutter DLL、MSVC release CRT、AOT data、URL 登録スクリプトの同梱も確認 |
-| Windows URL 登録 | 実際の HKCU に一時登録し、空白を含む exe パスと `%1` の引用、`URL Protocol` を確認。既存 handler はバックアップし、検証後に元の状態へ戻した |
-| Flutter 回帰 | `flutter analyze --no-pub` 問題なし。通常テスト61件成功（実 C ABI のテストを含む） |
+| Linux x64 build | Flutter 3.47.9 / Dart 3.13.7, CachyOS. Debug/Release passed. Release bundle about 47 MiB, including Hub `.so` and plugins |
+| Linux real OS storage | `desktop_test.dart` passed with real Secret Service: identity/documents matched after Hub suspend/resume and restart through another bridge/store. Test-only namespace removed |
+| Linux warm URL | Second launch of the same executable with a fictional test invitation exited 0; existing window showed the invitation dialog, and no Gateway was registered after cancellation |
+| Linux display | Tests passed on Wayland and separate X11/Xvfb. Host Xwayland `:0` did not map the test window and waited; no pass claimed there. Experimental Runner display-order changes were not adopted |
+| Linux two-Gateway integration | `mobile_test.dart -d linux` passed: real Gateway/SDK enrollment, two Surfaces, actions/SDK replies, suspend/resume, registration retained over Hub restart, service-generation updates, Gateway reconnection, and isolated forgetting. Used `TEST_ONLINE=false` and a dedicated loopback fixture |
+| Linux bundle relocation | Archived/extracted the full bundle to another directory containing spaces; from working directory `/`, loaded the bundled Hub `.so` and confirmed ABI=1 |
+| Linux URL registration | Separate `XDG_DATA_HOME` and test `xdg-mime` left existing system handlers unchanged. `desktop-file-validate` and real GLib `gio launch` confirmed exact URI arguments from paths containing spaces, quotes, `$`, and backticks. Paths with percent signs or newlines are explicitly rejected because GLib cannot handle percent signs in executable paths |
+| Windows x64 build | Windows 11 build 26100, Flutter 3.47.9 / Dart 3.13.7, Visual Studio Build Tools 2022 17.14.44, Rust MSVC. Debug/Release passed. Release bundle 49,897,438 bytes; Hub DLL 15,731,712 bytes |
+| Windows real OS storage/warm URL | `desktop_test.dart -d windows` passed with real DPAPI: identity/documents matched after restart, and invitation forwarding/cancellation from another launch worked. No memory-store substitution |
+| Windows two-Gateway integration | `mobile_test.dart -d windows` passed against a Linux Gateway built from current code with fresh temporary data: two Surface actions/SDK replies, suspend/resume, retained registrations, service-generation updates, Gateway rediscovery/reconnection, and isolated forgetting. Test body 36 seconds; `TEST_ONLINE=false`, IPv4 on libvirt NAT |
+| Windows bundle relocation | Copied the complete bundle to another directory containing spaces; from `C:\`, loaded the Release Hub DLL and confirmed ABI=1. Also confirmed Flutter DLL, MSVC release CRT, AOT data, and URL-registration script |
+| Windows URL registration | Temporary real HKCU registration verified quoting of the executable path with spaces and `%1`, plus `URL Protocol`. Existing handler backed up and restored |
+| Flutter regression | `flutter analyze --no-pub` reported no issues; 61 ordinary tests passed, including real C ABI tests |
 
-[Linux アプリ画面](screenshots/linux-desktop.png) と [Windows アプリ画面](screenshots/windows-desktop.png) は実 OS 保存の結合テスト内から取得した。テスト専用の未登録画面であり、保存済みのユーザー情報は含まない。
+[Linux app](screenshots/linux-desktop.png) and
+[Windows app](screenshots/windows-desktop.png) screenshots were taken inside
+real-OS-storage integration tests. They show test-only unenrolled screens and
+contain no saved user information.
 
-CI に Linux / Windows x64 の release build と完全な bundle の artifact 作成を追加した。CI 自体の実行結果ではなく、上記はローカルで実行した検証である。ARM64 の target mapping は用意したが未検証。Linux の Video は依存する GenUI の動画プラグインに Linux 実装がないため未対応。メディア再生全般、インストーラー、ストア配布の検証は含まない。
+CI gained Linux/Windows x64 release builds and complete bundle artifacts. The
+results above were run locally, not produced by CI. ARM64 target mapping exists
+but remains unverified. Linux Video is unsupported because GenUI's video plugin
+has no Linux implementation. General media playback, installers, and store
+distribution were outside validation.
 
-Windows の実ビルドで、Hub が Snapshot だけを使用しているにもかかわらず SDK の Unix server / resource-file コードまでコンパイルされる問題を確認した。SDK の既定 `runtime` feature は従来の API を維持し、Hub は default features を無効にして同じ `A2uiSnapshot` / `SnapshotCursor` だけを利用するよう分離した。Hub 自身の Unix 接続経路も `cfg(unix)` に限定し、iroh の認証・role / trust の処理は維持した。SDK の通常テスト63件（doc-testを含む）、最小構成の既存 Snapshot fixture 3件、Windows target の最小 SDK check、Hub の51件（公開 HTTPS 1件 ignored）、native bridge 5件が成功。分離後の Linux desktop 結合テストと release build も再実行して成功した。
+A real Windows build exposed SDK Unix-server/resource-file code being compiled
+even though Hub only needs snapshots. The SDK's default `runtime` feature
+preserves its existing API; Hub disables default features and uses the same
+`A2uiSnapshot`/`SnapshotCursor` alone. Hub's own Unix connection path is also
+restricted to `cfg(unix)` while retaining iroh authentication and role/trust
+handling. Passed: 63 ordinary SDK tests including doc-tests, three existing
+minimal Snapshot fixtures, Windows-target minimal SDK check, 51 Hub tests with
+one public-HTTPS test ignored, and five native-bridge tests. Linux desktop
+integration and release build also passed again after separation.
 
-Windows では `flutter_secure_storage_windows` のコンパイルに ATL が必要だったため、VS Build Tools に `Microsoft.VisualStudio.Component.VC.ATL` を導入した。今回の MSVC ビルドは依存 crate のソースや crate-type を変更せず成功しており、前節の GNU probe の回避策は使っていない。VM の Flutter SDK 初期化は Dart 側の HTTPS 検証に失敗したため、ホストで取得・検証した公式 SDK と公開 pub cache で実行した。TLS 検証の無効化はしていない。SDK bootstrap の一時的な offline 指定は検証後に戻した。
+Windows required ATL to compile `flutter_secure_storage_windows`, so
+`Microsoft.VisualStudio.Component.VC.ATL` was installed in VS Build Tools. This
+MSVC build passed without modifying dependency sources or crate types and did
+not use the earlier GNU-probe workaround. Flutter SDK initialization inside
+the VM failed Dart HTTPS verification, so validation used the official SDK and
+public pub cache fetched and verified on the host. TLS verification was not
+disabled. Temporary offline SDK-bootstrap configuration was restored afterward.
 
-最初の Windows 結合テストは変更前の Linux Gateway バイナリを使っており、初回接続と操作は成功したが、再起動後の再発見が90秒以内に完了しなかった。新しい Windows DNS-SD probe もその Gateway のアドレスを取得できず、Linux の browse 結果でも VM 側 virbr0 にその広告がなかった。現行 Gateway に切り替えた直後の Linux の試行でも再接続 timeout が1回発生した。その後の同じ現行構成の Linux 再実行では5秒で全項目が成功し、さらに新しい一時 identity の fixture で Windows の全項目が成功した。切り替え直後の失敗原因を広告キャッシュだけと断定していない。旧 Gateway からの広告切り替え直後の再接続については追加の原因調査が残る。
+The first Windows integration run used a pre-change Linux Gateway binary.
+Initial connection/actions passed, but rediscovery after restart failed to
+complete within 90 seconds. A fresh Windows DNS-SD probe also failed to obtain
+that Gateway's address, and Linux browse results lacked its advertisement on
+VM-side virbr0. A Linux run immediately after switching to the current Gateway
+also timed out once on reconnection. A later Linux rerun with the same current
+configuration passed all checks in five seconds; Windows then passed all checks
+with a fresh temporary-identity fixture. Advertisement caching alone was not
+established as the cause of the immediate-switch failure. Reconnection just
+after switching advertisements from the old Gateway needs further investigation.
 
-追加で実施した Hub の最小構成 Clippy は、既存の `scoped.rs` / `stdio.rs` の collapsible_if と `lib.rs` の too_many_arguments の3件で失敗した。これらの処理は今回変更しておらず、全 workspace が Clippy 無警告とは主張しない。Hub / bridge / SDK の上記テストは成功している。
+An additional minimal-Hub Clippy run failed on three existing findings:
+collapsible_if in `scoped.rs`/`stdio.rs` and too_many_arguments in `lib.rs`.
+Those implementations were unchanged. This is not a warning-free-workspace
+claim; the Hub/bridge/SDK tests above passed.
 
-ローカルの配布ファイルは `build/omochi-linux-x64.tar.gz`（約19 MiB）と `build/omochi-windows-x64.zip`（20,348,049 bytes）。Windows ZIP は VM から転送後の SHA-256 一致を確認した。Windows VM は検証前と同じ停止状態へ戻した。SSH / RDP は有効化しておらず、この Flutter 検証で firewall rule は追加していない。
+Local distribution files were `build/omochi-linux-x64.tar.gz` (about 19 MiB)
+and `build/omochi-windows-x64.zip` (20,348,049 bytes). Windows ZIP SHA-256
+matched after transfer from the VM. The Windows VM was restored to its prior
+stopped state. SSH/RDP were not enabled, and this Flutter validation added no
+firewall rule.

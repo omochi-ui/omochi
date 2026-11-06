@@ -7,6 +7,11 @@ pages aligned. This directory holds architecture, development, deployment and
 historical design material; the [specification index](../spec/README.md) identifies
 current contracts and experimental specifications.
 
+Development documentation in `docs/` and `spec/` is maintained in English only.
+Repository READMEs use `README.md` for English and `README.ja.md` for Japanese
+translations. The user-facing site's existing Japanese and English structure
+is maintained separately.
+
 ## Current implementation
 
 | Topic | Start here |
