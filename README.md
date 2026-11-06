@@ -6,6 +6,34 @@ Attach interactive browser UIs to Python, TypeScript, and Rust programs.
 Define state, actions, and views in your application's language.
 Arrange views from multiple apps in one dashboard.
 
+## How it fits together
+
+```mermaid
+flowchart LR
+  App["Your app<br/>Python / TypeScript / Rust SDK"]
+  Utils["Utilities<br/>Commands, logs, health checks, MCP"]
+  Gateway["Gateway<br/>Shares apps on a machine"]
+  Hub["Hub<br/>Dashboards and sharing"]
+  Browser["Browser dashboard<br/>Local or hosted"]
+
+  subgraph NativeApp["Mobile / desktop app"]
+    EmbeddedHub["Embedded Hub"]
+    Flutter["Flutter / GenUI"]
+  end
+
+  App <--> Gateway
+  Utils <--> Gateway
+  Gateway <--> Hub
+  Hub <--> Browser
+  Gateway <--> EmbeddedHub
+  EmbeddedHub <--> Flutter
+  Hub <-->|"Owner / share"| Flutter
+```
+
+Connections carry view updates and user actions. `omochi-ui hub` starts a local
+Gateway automatically. The Flutter app can use its embedded Hub or connect to
+an external Hub.
+
 ## Use it
 
 On Linux or macOS with Node.js 22+:

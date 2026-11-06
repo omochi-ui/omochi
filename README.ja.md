@@ -6,6 +6,34 @@ Python・TypeScript・Rustのプログラムに、ブラウザーで操作でき
 アプリケーションの言語で状態・アクション・ビューを定義し、
 複数のアプリのビューを1つのダッシュボードにまとめられます。
 
+## 全体の仕組み
+
+```mermaid
+flowchart LR
+  App["アプリ<br/>Python / TypeScript / Rust SDK"]
+  Utils["ユーティリティー<br/>コマンド・ログ・ヘルスチェック・MCP"]
+  Gateway["Gateway<br/>端末上のアプリを公開"]
+  Hub["Hub<br/>ダッシュボードと共有を管理"]
+  Browser["ブラウザーダッシュボード<br/>ローカルまたはホストされたサイト"]
+
+  subgraph NativeApp["モバイル・デスクトップアプリ"]
+    EmbeddedHub["内蔵Hub"]
+    Flutter["Flutter / GenUI"]
+  end
+
+  App <--> Gateway
+  Utils <--> Gateway
+  Gateway <--> Hub
+  Hub <--> Browser
+  Gateway <--> EmbeddedHub
+  EmbeddedHub <--> Flutter
+  Hub <-->|"オーナー・共有接続"| Flutter
+```
+
+接続を通じてビューの更新とユーザー操作をやり取りします。
+`omochi-ui hub`はローカルGatewayを自動起動します。
+Flutterアプリは内蔵Hubを使うか、外部Hubへ接続できます。
+
 ## 使う
 
 LinuxまたはmacOSとNode.js 22以上で起動します。
