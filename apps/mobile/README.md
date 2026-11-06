@@ -4,12 +4,15 @@ English · [Japanese](README.ja.md)
 
 A Flutter app for Android, iOS, macOS, Windows, and Linux. The shared Rust Hub
 inside the app connects to Gateways over iroh and uses GenUI to display and
-interact with A2UI v0.9 surfaces. No external HTTP Hub, LLM, or API key is needed.
+interact with A2UI v0.9 surfaces.
 
 The app selects Japanese or English from the system's preferred languages and
 falls back to English for unsupported languages. It also follows language changes
 while running. Content and status strings sent by Gateway applications are
 displayed as received.
+
+For connection and sharing instructions, see the [mobile and desktop user guide](https://omochi.fyi/en/docs/guides/mobile/).
+The following sections cover building, platform setup, and verification.
 
 ## Getting started
 
@@ -138,7 +141,6 @@ Open the printed HTTPS invitation page on your phone and choose
 Choose a service's Surface from Apps to interact with it. Connections supports
 pasting invitations, viewing connection status, reconnecting, forgetting, and
 toggling Internet relays. Pasting accepts both native URIs and HTTPS invitations.
-Current invitations use base64url; the old hex format is rejected.
 
 Receiving a link does not enroll automatically. Cold and warm deliveries open
 the same confirmation screen. Duplicate notifications are ignored while
@@ -153,8 +155,7 @@ has no custom QR scanner; use the existing CLI QR → web → app flow.
 - Flutter handles OS storage, lifecycle, GenUI, input compatibility, and image
   decoding. The canonical C ABI is `../../crates/native-bridge/include/omochi_hub.h`.
 - `omochi.mobile.v1.identity` is stored in Android protected storage or iOS
-  Keychain. The new app has its own identity and does not migrate the experiment's
-  identity. Corrupt documents and read failures do not regenerate keys.
+  Keychain. Corrupt documents and read failures do not regenerate keys.
 - Save failures and unknown outcomes are not enrollment success. Forgetting removes
   the device's registration; revoke access at the Gateway with its `trust forget`.
 - Suspension stops communication and subscriptions. Resume obtains fresh snapshots
@@ -164,10 +165,7 @@ has no custom QR scanner; use the existing CLI QR → web → app flow.
 - Limits are 2 Gateways / 8 services, 4 megapixels per image, 32 MiB of retained
   pixels, and 2 concurrent image loads. These are not a total RSS limit.
 
-Compatibility handling for GenUI nested action contexts, UTC times, and
-per-service input models carries over from the experiment with regression tests.
-The old Dart Hub, HTTP Hub mode, Lab, and dashboard editing in the embedded Hub
-are excluded. The web scaffold is unsupported.
+The embedded Hub does not provide dashboard editing. The web scaffold is unsupported.
 
 The native catalog's Column scrolls content beyond the viewport and assigns
 finite heights to weighted children and implicit flex. Nested Columns and Modals
@@ -356,7 +354,7 @@ not persisted; unknown enrollment outcomes recover with the pending grant and
 the same identity.
 
 External identity and records are isolated under `omochi.mobile.remote.v1.identity`.
-The embedded Hub's existing identity is neither migrated nor overwritten.
+The embedded Hub uses a separate identity.
 Deleting a connection in the app does not revoke authorization at its destination.
 A used web invitation cannot transfer to the app identity; issue a fresh
 invitation at the destination.
@@ -368,7 +366,6 @@ Direct app launch from HTTPS links is currently disabled and unavailable because
 store support is not ready. `/open` and OS association JSON are not served yet.
 Pasting invitations and custom URI handoffs remain available.
 
-Dashboard sharing v2 permits app actions and layout editing per link; both are
+Dashboard sharing permits app actions and layout editing per link; both are
 disabled by default. Forwarded links have the same permissions. Individual browser
-enrollment is unnecessary. Reissue v1 public links and individual shares. Owner
-invitations and Gateway trust settings are unchanged.
+enrollment is unnecessary.

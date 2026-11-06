@@ -5,20 +5,31 @@ sidebar:
   order: 4
 ---
 
-## エージェントにSurfaceを持たせる
+## MCPサーバーを設定する
 
-チェックアウトをビルドし、MCP対応エージェントに絶対パスで設定します。
+[CLIとutilsをインストール](../../start/installation/)し、MCP対応エージェントに次を設定します。
 
 ```json
-{"mcpServers":{"omochi":{"command":"/absolute/path/to/omochi/packages/npm/utils/bin/omochi-utils","args":["mcp","--service-id","quickstart-agent","--name","Agent"]}}}
+{
+  "mcpServers": {
+    "omochi": {
+      "command": "omochi-utils",
+      "args": ["mcp", "--service-id", "agent", "--name", "Agent"]
+    }
+  }
+}
 ```
 
-`bun run omochi-ui hub`を起動し、エージェントに「プロジェクトを調べ、概要と次に使えるコマンドを`main` Surfaceとして公開して」と依頼します。Hubのビュー選択から追加してください。Surfaceはエージェントのプロセスが所有し、MCPサーバーの切断時に取り下げられます。
+エージェントからコマンドが見つからない場合は、`command`にインストール先の絶対パスを指定してください。
 
-## ツールとの関係
+## エージェントのビューを表示する
 
-`omochi-utils mcp`はエージェントが起動する標準入出力のMCPサーバーです。通常の検出可能サービスとして公開されるので、SDKアプリやコマンドツールと同じダッシュボードに配置できます。ツールの契約は[utilsリファレンス](../../reference/utils/)にあります。
+別のターミナルで`omochi-ui hub`を起動します。エージェントに「プロジェクトを調べ、概要と次に使えるコマンドを`main` Surfaceとして公開して」と依頼し、Hubの **Add view** から追加します。
 
-## 承認UI
+SurfaceはMCPサーバーの実行中だけ利用できます。ボタン操作に応答するには、エージェントが`read_events`でイベントを読み、表示を更新する必要があります。ボタンを押すだけでは待機中のエージェントは起動しません。ツールの引数と使用例は[utilsリファレンス](../../reference/utils/#mcp)を参照してください。
 
-[agent approvalの例](https://github.com/omochi-ui/omochi/tree/main/examples/agent-approval)はCodex・Claude Code・Cursor・OpenCodeのツールフック向けにApprove/Reject画面を提供します。拒否理由と、エージェントなしのデモにも対応します。フック別の設定はリンク先READMEに従ってください。承認画面はエージェント自身の権限制御を置き換えません。
+## ツール実行の承認画面を作る
+
+[agent approvalの例](https://github.com/omochi-ui/omochi/tree/main/examples/agent-approval)には、Codex・Claude Code・Cursor・OpenCode向けのApprove/Reject画面があります。フックの設定とデモの起動は例のREADMEに従ってください。この例はソースチェックアウトから実行します。
+
+承認画面は各エージェントの権限制御に従います。利用できるフックと、サービス停止時の動作を確認してから使ってください。

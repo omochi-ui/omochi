@@ -5,45 +5,36 @@ sidebar:
   order: 2
 ---
 
-## Publish a discoverable application
+## Arrange views
 
-From a built checkout:
+Start the Hub and a utility using [your first UI](../../start/first-ui/), or publish your own app using the [SDK guide](../sdks/).
+
+Create a dashboard in the Hub and select a Surface through **Add view**. Adjust its title, position, and size, then save. Multiple Surfaces from one app can be placed independently.
+
+The Hub discovers running apps; keep their processes running while using their views. A stopped app becomes unavailable and returns when restarted with the same service ID. Saving a dashboard preserves its layout, not the application's running state.
+
+## Start multiple processes together
+
+Declare services and a layout in your project's `omochi.toml`, then start them together:
 
 ```sh
-OMOCHI_SERVICE=python-example uv run --project examples/python examples/python/app.py
+omochi-ui up --open
 ```
 
-In another terminal:
-
-```sh
-bun run omochi-ui hub
-```
-
-Open **http://127.0.0.1:5555/** , create a dashboard, add a surface, and save. The bundled application selects a discoverable Unix socket when `OMOCHI_SERVICE` is set. The hub starts a local gateway if needed and discovers running apps; it does not launch those apps.
-
-## Compose processes with up
-
-`omochi-ui up --open [FILE]` starts the services and hub declared in a project preset. The quickstart uses `examples/quickstart/omochi.toml`. Its initial layout is temporary until saved as a dashboard. Ctrl+C stops processes owned by `up`.
-
-## Layout and lifetime
-
-A surface is independently placeable. Dashboard configuration persists the layout, not the application's live state. A stopped service becomes unavailable; restart the application to restore its surface. `hub` and `dev` both default to 5555, so stop one or select a different port.
-
-See [CLI options](../../reference/cli/) and [configuration](../../reference/configuration/).
+The initial layout is temporary. Choose **Save as dashboard** to keep an editable copy. Ctrl+C stops the processes started by this command. See the [CLI reference](../../reference/cli/#up) for a configuration example.
 
 ## Share a saved dashboard
 
-Start `omochi-ui hub --remote`, save a board and open **Share dashboard**.
-Create a link with independent app-interaction and layout-editing permissions;
-both are disabled by default. Anyone holding a forwarded copy has the same
-permissions. No browser enrollment is required. Keep the Hub and source apps
-running. Links expose the current board's complete view state and published images.
+```sh
+omochi-ui hub --remote
+```
 
-Editors may change names, titles, positions and sizes. Adding/removing views,
-changing sources, deleting boards and managing shares require owner authority.
-To change permissions, revoke and reissue the link. Revocation applies to every
-holder of that link, including connected clients. Delivered data cannot be recalled.
+Save a board and open **Share dashboard**. App interaction and layout editing can be allowed independently; both are disabled by default. Send the resulting link to recipients. Anyone holding it, including forwarded copies, receives the same permissions.
 
-All v1 public links and identity shares must be reissued after upgrade. Owner
-enrollment and Gateway trust are unchanged. See the
-[sharing guide](https://github.com/omochi-ui/omochi/blob/main/docs/dashboard-sharing.md).
+Keep the Hub and source apps running while recipients use the board. Shares follow the saved board, including views added or removed by the owner. Recipients can access the complete state and published images of the permitted Surfaces. Deleting the board ends its shares.
+
+Layout editing permits changes to names, titles, positions, and sizes. Adding or removing views, changing sources, deleting boards, and managing shares require owner access. Allowing app interaction may change the source app's data.
+
+To change permissions, revoke and reissue the link. **Revoke access…** ends access for everyone holding that link. Removing a local connection record does not revoke permission, and delivered data or completed actions cannot be recalled. See [troubleshooting](../../understand/troubleshooting/#revocation-reports-an-error) if revocation reports an error.
+
+Use an [owner connection](../remote/#connect-from-a-hosted-browser) for full management. The [mobile and desktop app](../mobile/) can also open sharing links.

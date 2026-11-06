@@ -9,7 +9,9 @@ sidebar:
 
 The SDKs provide typed helpers for all 18 Basic Catalog A2UI v0.9 components. Use the language's `UI` builder to declare text, image/video/audio, rows/columns/lists, cards, tabs, modals, dividers, buttons, fields, checkboxes, choices, sliders, and date/time inputs.
 
-`component()` accepts wire-level properties, with its component name selecting the generated property type. See the [generated catalog types](https://github.com/omochi-ui/omochi/blob/main/packages/sdk/typescript/src/catalog.ts) for exact property names and required fields.
+Python and TypeScript's `component()` accepts wire-level properties, with its component name selecting the generated property type. See the [generated catalog types](https://github.com/omochi-ui/omochi/blob/main/packages/sdk/typescript/src/catalog.ts) for exact property names and required fields.
+
+Rust uses `ui.add(...)`, for example `ui.add(Text::new("Hello"))?`. Control builders use `.default(...)` for an initial value or `.bind(...)` for a Local binding; these are mutually exclusive. Use `CatalogComponent::new(key, props)` for generated custom-catalog properties.
 
 ## Identity and layout
 
@@ -18,8 +20,10 @@ Give conditional or reorderable components explicit keys. Keys map to component 
 ## Custom catalogs
 
 ```sh
-bun run omochi-ui generate catalog --catalog ./catalog.json --name ProductCatalog \
+omochi-ui generate catalog --catalog ./catalog.json --name ProductCatalog \
   --typescript ./src/product.ts --python ./src/product.py --rust ./src/product.rs
 ```
 
-Select any subset of outputs. `--check` verifies generated files in CI. Generation reads only local schemas. Generated bindings require a compatible renderer; they do not install implementations into the bundled Basic Catalog renderer.
+Create output directories first. Select any subset of outputs. `--check` verifies generated files in CI. Generation reads only local schemas. Generated bindings require a compatible renderer; they do not install implementations into the bundled Basic Catalog renderer.
+
+See [Catalog generation](../catalog-generation/) for flags and schema support.

@@ -2,9 +2,11 @@
 
 [English](README.md) · 日本語
 
-Android / iOS / macOS / Windows / Linux の Flutter アプリ。アプリ内の共通 Rust Hub から iroh で Gateway に接続し、GenUI で A2UI v0.9 の画面を表示・操作します。外部 HTTP Hub、LLM、API キーは不要です。
+Android / iOS / macOS / Windows / Linux の Flutter アプリ。アプリ内の共通 Rust Hub から iroh で Gateway に接続し、GenUI で A2UI v0.9 の画面を表示・操作します。
 
 アプリの表示言語はシステムの優先言語に合わせて日本語・英語から選び、未対応の言語は英語で表示します。起動中の言語変更にも追従します。Gateway のアプリが送るコンテンツやステータス文字列は、そのまま表示します。
+
+接続・共有の操作は[モバイル・デスクトップの利用ガイド](https://omochi.fyi/docs/guides/mobile/)を参照してください。以下はビルド・プラットフォーム設定・検証の手順です。
 
 ## 起動
 
@@ -73,7 +75,7 @@ powershell -ExecutionPolicy Bypass -File .\register_windows.ps1 -BundlePath .
 
 Gateway のあるコンピューターで `omochi-ui gateway --remote --pair` を実行します。出力された HTTPS 招待ページをスマートフォンで開き、**Open in Omochi app** を選びます。アプリで Gateway ID と期限を確認し、**Add to this device** で登録します。ブラウザー側の owner Hub 接続は不要です。
 
-Apps からサービスの Surface を選んで操作できます。Connections では招待の貼り付け、接続状態、再接続、登録解除、Internet relays の切り替えを扱います。貼り付けは native URI と HTTPS 招待の両方に対応します。現在の招待は base64url 形式で、旧 hex 形式は受け付けません。
+Apps からサービスの Surface を選んで操作できます。Connections では招待の貼り付け、接続状態、再接続、登録解除、Internet relays の切り替えを扱います。貼り付けは native URI と HTTPS 招待の両方に対応します。
 
 リンク受信だけで登録せず、未起動時と起動中の受信を同じ確認画面へ届けます。確認待ちの重複通知は無視し、別の招待で上書きしません。招待は永続保存せず、ログでも秘密部分を除去します。独自 QR スキャナーは含めません。既存の CLI の QR → Web → アプリを使用します。
 
@@ -81,13 +83,13 @@ Apps からサービスの Surface を選んで操作できます。Connections 
 
 - Rust Hub が identity・enrollment・認可・失効・再接続・購読と Surface 世代・画像取得方針を管理します。Dart に第二の Hub はありません。
 - Flutter は OS の保存、ライフサイクル、GenUI、入力互換処理、画像デコードを担当します。C ABI は `../../crates/native-bridge/include/omochi_hub.h` が正本です。
-- `omochi.mobile.v1.identity` を Android の保護ストレージ／iOS Keychain に保存します。新アプリは独立した identity を持ち、実験アプリから移行しません。保存文書の破損・読み取り失敗で鍵を再生成しません。
+- `omochi.mobile.v1.identity` を Android の保護ストレージ／iOS Keychain に保存します。保存文書の破損・読み取り失敗で鍵を再生成しません。
 - 保存失敗や結果不明を登録成功として扱いません。忘却は端末側の登録削除です。Gateway 側からの失効はその Gateway の `trust forget` で行います。
 - 中断時に通信・購読を停止し、復帰時は新しい snapshot と操作口を取得します。送達結果不明の action は再送しません。
 - 標準 Image / Markdown のラスター画像は共通 resolver を通ります。公開 HTTPS:443 と認可された Omochi resource を扱い、直接ネットワーク取得へフォールバックしません。
 - 上限は2 Gateway / 8サービス、画像4 M画素、保持画素32 MiB、読み込み同時2件。これは総 RSS の上限ではありません。
 
-GenUI の入れ子 action context、UTC 時刻、サービス別入力モデルを合わせる処理は実験から引き継ぎ、回帰テストを置いています。旧 Dart Hub、HTTP Hub モード、Lab、端末内Hubのダッシュボード編集は含みません。Web の雛形は対応対象ではありません。
+端末内Hubのダッシュボード編集には対応しません。Web の雛形は対応対象ではありません。
 
 native catalog の Column は表示領域を超える内容を縦にスクロールし、weight を持つ子と暗黙の flex には有限の高さを配分します。ネストと Modal 内も同じ実装です。Modal の bottom sheet は Surface のレンダラー世代が所有し、削除・置換・切断・forget・休止・画面離脱で、その Surface の route だけを閉じます。
 
@@ -218,7 +220,7 @@ adb reverse --remove tcp:5561
 identityを使って登録結果不明から回復します。
 
 外部接続のidentity・記録は `omochi.mobile.remote.v1.identity` に分離します。
-端末内Hubの既存identityは移行・上書きしません。アプリ側の接続削除は接続先での
+端末内Hubは別のidentityを使います。アプリ側の接続削除は接続先での
 権限失効ではありません。使用済みのWeb招待はアプリidentityへ引き継げないため、
 接続先で新しい招待を発行してください。
 
@@ -228,4 +230,4 @@ HTTPS直接起動の設定雛形と公開手順は [deeplinks](deeplinks/README.
 現在はストア対応ができないため、HTTPSリンクからのアプリ直接起動は有効化しておらず、動作しません。
 `/open` とOS関連付け用JSONはまだ配信していません。招待の貼り付け・カスタムURIによる受け渡しは利用できます。
 
-ダッシュボード共有v2はリンクごとにアプリ操作・レイアウト編集を許可できます（既定は両方不可）。転送先も同じ権限で利用できます。個別ブラウザ登録は不要です。v1公開リンクと個別共有は再発行してください。オーナー招待とGatewayの信頼設定は変更しません。
+ダッシュボード共有はリンクごとにアプリ操作・レイアウト編集を許可できます（既定は両方不可）。転送先も同じ権限で利用できます。個別ブラウザ登録は不要です。

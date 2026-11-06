@@ -11,6 +11,5 @@ surfaces inside a merged stream.
 
 `@omochi-ui/core/testing` exports the helpers those components' test suites share.
 
-The legacy `startWsEndpoint` helpers and `@omochi-ui/core/websocket` entry point
-have been removed. TypeScript applications can host WebSocket clients with
+TypeScript applications can host WebSocket clients with
 `WebSocketServerTransport` from `@omochi-ui/sdk/node`, which uses `ws` and supports Node.js and Bun.

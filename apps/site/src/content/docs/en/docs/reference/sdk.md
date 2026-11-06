@@ -37,34 +37,31 @@ in Rust). Project a field before binding it or reading its browser value:
 Here `form` is a Local whose input type contains a numeric `temperature` field;
 Rust's `RunInput` derives `ActionInput`. Python also accepts `form.temperature`
 directly as a control's `bind=` or in an action's `input=`.
-`bind()` and `value()` take no pointer argument and refer to the current Local,
+`bind()` and `value()` refer to the current Local,
 including the whole value when no field is selected. Inputs become concrete JSON
 before the action reaches the runtime. See [browser-owned input](../../concepts/inputs/).
 
-## Transport exports
+## Progress and update failures
 
-Python and TypeScript expose `StdioTransport`, `CallbackTransport`, and `WebSocketTransport`. TypeScript's `WebSocketServerTransport` and `UnixSocketServerTransport` are exported from `@omochi-ui/sdk/node`. Python exports `UnixSocketServerTransport` at its package root. Rust exposes a `Transport` trait, `StdioTransport`, `CallbackTransport`, and `UnixSocketServerTransport`.
+Await each context update before continuing long-running work:
 
-In Python and TypeScript, `runtime.shutdown()` stops admitting transport messages,
-stops background tasks, and closes the resource registry. Built-in server transports
-also close their listeners and remove Unix discovery publications. Use
-`runtime.wait_closed()` (Python) or `runtime.waitClosed()` (TypeScript) to wait for
-cleanup to finish. An action already running may finish before `start()` returns.
+```python
+@app.action
+async def work(input: RunInput, context: ActionContext[State]):
+    async with context.update() as state:
+        state.status = "Working"
+    await do_work(input)
+    async with context.update() as state:
+        state.status = "Done"
+```
 
-In TypeScript, `shutdown()` returns a resolved promise once shutdown is requested,
-including on the first call; `await runtime.shutdown()` does not wait for cleanup.
-Tasks registered with either `spawn(async signal => { ... })` or `spawn(promise)`
-may request shutdown and then finish their own cleanup. Outside those tasks, use
-`await runtime.shutdown(); await runtime.waitClosed();` to wait for every registered
-task and the resource registry to finish closing. Tasks must not await `waitClosed()`
-themselves because it waits for them to finish. Both `waitClosed()` and `start()`
-report cleanup failures; `start()` preserves an earlier action or transport failure.
+Each update renders all Surfaces and waits for transport sends. Group changes in one update when they should appear together. `invoke()` and `handle()` return the generated messages in order, including messages already sent, without sending them again. They return the same list without an attached transport.
 
-Custom transports can opt into runtime cleanup with `async stop_receiving()`
-(Python) or `stopReceiving()` (TypeScript). The hook should stop reads and release
-resources owned by that transport. Callback and WebSocket adapters stop their
-receive loop; the caller retains ownership of the underlying connection. Runtime
-shutdown does not call an arbitrary custom transport's `close()` method.
+Python update blocks and callback updates share a lock. Normal block exit increments the revision once and waits for sends. An exception or cancellation retains mutations without incrementing the revision or rendering. Send failures retain applied changes and sent messages. Same-task nesting raises `DeclarationError`; separate tasks serialize. Updates after the action completes are rejected. Put long-running work between update blocks to expose progress.
+
+## Transports
+
+See [Transports](../transports/) for exports, discovery, direct WebSocket servers, and shutdown.
 
 ## Errors
 
@@ -79,3 +76,5 @@ Full typed signatures and generated catalog properties are in the source:
 - [Rust exports](https://github.com/omochi-ui/omochi/blob/main/packages/sdk/rust/src/lib.rs)
 
 See [complete examples](../../guides/sdks/), [components](../components/), and [media](../../guides/media/).
+
+See [Typed inputs](../typed-inputs/) for schema, form, and Serde details.

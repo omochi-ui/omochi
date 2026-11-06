@@ -13,7 +13,7 @@ To display an SDK app or utility, start a hub on the same computer. On Linux or 
 npx @omochi-ui/cli hub
 ```
 
-Open **http://127.0.0.1:5555/** . The CLI includes the browser UI and automatically starts a local gateway. No repository clone, Bun, Rust compilation, or separate frontend server is required. Keep the terminal running while using the hub.
+Open **http://127.0.0.1:5555/** . The CLI includes the browser UI and automatically starts a local gateway. Keep the terminal running while using the hub.
 
 You do not need a separate gateway for apps on the same computer. To connect apps on another machine, see [remote connections](../../guides/remote/).
 
@@ -37,7 +37,7 @@ The Cargo package is `omochi-cli`; the executable is `omochi-ui`. Both distribut
 
 Installing an SDK or utility does not start a hub. Your application uses its language's SDK; start the hub with the command above. Run utilities in another terminal with `npx @omochi-ui/utils ...`, or install them with `npm install -g @omochi-ui/utils` or `cargo install omochi-utils --locked`.
 
-npm downloads prebuilt binaries and needs no Rust compiler. Keep optional dependencies enabled. Native services support Linux (glibc) and macOS on x64/arm64; Windows is not supported. Published npm and Cargo versions can differ; check `hub --help` for the options available in your version.
+npm downloads prebuilt binaries and needs no Rust compiler. Keep optional dependencies enabled. Native services support Linux (glibc) and macOS on x64/arm64; Windows is not supported. Check `hub --help` for available options.
 
 Continue with [your first UI](../first-ui/) to display a surface.
 
@@ -52,15 +52,4 @@ omochi-ui hub
 
 The archive contains both `omochi-ui` and `omochi-utils`, including the built dashboard. The binaries need no Bun, Node.js, Python, or Rust runtime. Applications they launch still need their own runtime. Linux archives target glibc; macOS binaries are not codesigned or notarized.
 
-## Build the current source
-
-Use a source checkout to develop Omochi itself or run the bundled examples. Use Linux or macOS, Bun 1.4.3+, and current stable Rust/Cargo. Python examples require Python 3.11+ and uv.
-
-```sh
-git clone https://github.com/omochi-ui/omochi.git
-cd omochi
-bun install --frozen-lockfile
-bun run build
-```
-
-The build compiles the SDK/browser packages and native CLI. Node.js is not required for this source workflow. Unix socket discovery requires a Unix-like system; Windows is not currently supported by native services.
+To develop Omochi itself or run its bundled examples, see [Contributing](https://github.com/omochi-ui/omochi/blob/main/CONTRIBUTING.md).

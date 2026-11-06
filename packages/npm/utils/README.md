@@ -1,10 +1,16 @@
 # @omochi-ui/utils
 
-Thin npm entry point for the Rust `omochi-utils` executable.
-The implementation and release version live in `crates/`. This private checkout
-manifest uses a placeholder version; the public manifest is generated from Cargo.
+Run Omochi's command tools and MCP server on Linux or macOS with Node.js 22+.
 
-From a checkout, run `bun run build:native`, then `bun run omochi-utils`.
-Published npm packages select an exact-version native platform package.
-See [the command reference](../../../docs/utils.md) and
-[registry releases](../../../docs/native-releasing.md).
+```sh
+npx @omochi-ui/utils watch --interval 2s -- date
+```
+
+Start `npx @omochi-ui/cli hub` in another terminal and add the tool through **Add view**.
+
+Install with `npm install -g @omochi-ui/utils` to use `omochi-utils` directly.
+A Cargo installation is also available as `omochi-utils`.
+
+See the [command reference](https://omochi.fyi/en/docs/reference/utils/)
+and [installation guide](https://omochi.fyi/en/docs/start/installation/).
+For package maintenance, see [native releases](../../../docs/native-releasing.md).

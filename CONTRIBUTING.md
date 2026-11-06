@@ -20,6 +20,34 @@ For hub frontend work, run `bun run omochi-ui hub` and, in another terminal,
 `bun run --filter @omochi-ui/hub-ui dev`. The frontend proxies the hub on port 5555;
 set `OMOCHI_HUB` to use another address.
 
+### Preview a stdio application
+
+For SDK apps that use stdin/stdout, build the checkout and use two terminals at
+its root. In terminal 1, start the browser frontend:
+
+```sh
+bun run --filter @omochi-ui/dev-server dev
+```
+
+In terminal 2, start the app and bridge:
+
+```sh
+bun run omochi-ui dev -- uv run --project examples/python examples/python/app.py
+# Alternatives:
+# bun run omochi-ui dev -- bun run --cwd examples/typescript start
+# bun run omochi-ui dev -- cargo run --manifest-path examples/rust/Cargo.toml
+```
+
+Python examples require Python 3.11+ and uv. Open the frontend's printed URL,
+normally `http://127.0.0.1:5173/`. The bridge defaults to port 5555; stop a Hub
+using that port first or choose `dev --port 5557 -- COMMAND`. For a custom bridge
+port, use its printed `?ws=` URL. The bridge does not serve the frontend.
+
+To try the bundled development workspace, run `bun run quickstart`. It builds
+and opens the preset in `examples/quickstart/omochi.toml`; start Vite from its
+**Preview server** panel. Choose **Save as dashboard** to keep an editable layout.
+Ctrl+C stops the processes started by the composition.
+
 ## Verification
 
 | Change | Verification |
@@ -27,6 +55,8 @@ set `OMOCHI_HUB` to use another address.
 | JavaScript/TypeScript workspace | `bun run test` (builds all packages, then runs tests) |
 | CLI after building dependencies | `bun run test:server-rust` |
 | Python SDK | `bun run test:python` |
+| SDK action/input types | `python scripts/test-sdk-types.py` with mypy/Pyright installed; TypeScript SDK tests; `cargo test --manifest-path packages/sdk/rust/Cargo.toml --doc` |
+| Python renderer integration | `bun run test:python-renderer` |
 | Generated Python catalog types | Build the native CLI, install `mypy` and `pyright`, then run `python scripts/test-catalog-types.py` |
 | Rust SDK | `bun run test:rust` |
 | Unix publisher ownership (Node, Bun, Python, Rust SDK, native utilities) | `bun run test:sdk-ownership` |
@@ -79,6 +109,31 @@ Development documentation, including `spec/`, `docs/`, and application-local
 User guides live in `apps/site/src/content/docs/`: update Japanese and English
 pages together and preserve the site's existing language and URL structure.
 Public-facing site assets retain their intended language.
+
+User documentation serves people running Omochi tools and developers building
+applications with its SDKs. Focus on their current tasks and decisions; put
+instructions for maintaining Omochi itself in development documentation. Apply
+this distinction to the site's guides and to repository READMEs and guides linked
+as usage instructions.
+
+Keep guides focused on completing a task. Put advanced application-facing
+behavior in dedicated public references, and keep test inventories and internal
+module responsibilities in development documentation. Japanese and English user
+documentation must cover the same features, procedures, and reference details;
+do not send Japanese readers to English-only user references for missing details.
+
+Keep the first-UI walkthrough centered on an installed Hub and utilities. SDK
+guides should show language-package installation, publishing an application with
+`UnixSocketServerTransport`, and displaying it in the Hub without cloning or
+building Omochi. Document other transport choices in the transport reference.
+
+Describe historical behavior only when readers need it to handle existing
+configuration, applications, or saved data. Migration instructions must identify
+the affected versions and required actions and address an actual migration need.
+Omit obsolete, expired invitation formats and experiment-only historical
+alternatives from current user guides. Do not add upgrade sections for changes
+with no affected users.
+
 Keep command flags/defaults aligned with `crates/cli/src/main.rs`
 and root/package scripts. Protocol changes belong in the relevant active contract
 listed in [spec/README.md](spec/README.md).

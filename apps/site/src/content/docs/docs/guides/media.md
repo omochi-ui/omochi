@@ -5,24 +5,28 @@ sidebar:
   order: 6
 ---
 
-ファイルまたはバイト列の不変コピーを登録し、URIをメディア部品へ渡します。
+ファイルまたはバイト列を登録し、返されたURIをメディア部品へ渡します。
 
 ```python
 photo = app.resources.file("photo.png")
+clip = app.resources.bytes(video_bytes, mime_type="video/mp4")
 # Surface内:
 ui.image(photo)
+ui.video(clip)
 ```
 
-TypeScriptは`app.resources.file(path, mimeType?)`・`app.resources.bytes(data, mimeType)`、Rustは`app.resources.file(path, Option<&str>)?`・`app.resources.bytes(&data, mime)?`です。いずれも`omochi://resources/<id>`を返します。
+TypeScriptは`app.resources.file(path, mimeType?)`・`app.resources.bytes(data, mimeType)`、Rustは`app.resources.file(path, Option<&str>)?`・`app.resources.bytes(&data, mime)?`です。いずれも`omochi://resources/<id>`のURIを返します。ブラウザーがアプリのファイルシステムへアクセスする必要はありません。
 
-ブラウザがアプリのファイルシステムを読める必要はありません。開発ブリッジとローカル・リモートHubに対応します。登録は上限付きの同期I/Oなので、大きなファイルは起動前に登録するか別スレッドで扱います。
+## 登録と解放
 
-再生中を含め、Surfaceが参照する間は登録を維持してください。`release(uri)`は以後の読み取りを止めます。内容が変わったら再登録が必要です。既定の上限は1ファイル1 GiB、合計4 GiB。ファイルはMIME型を推定し、バイト列は明示が必要です。コーデック変換はしません。
+登録すると内容の不変コピーを作ります。大きなファイルはアプリの起動前に登録するか、別スレッドで扱ってください。Surfaceが参照する間は再生中も登録を維持し、不要になったら`release(uri)`で以後の読み取りを止めます。内容が変わった場合は再登録して新しいURIを表示します。Runtimeの終了時にはレジストリも閉じます。
 
-[Python・TypeScriptの例](https://github.com/omochi-ui/omochi/tree/main/examples/media)とRust SDKのmedia exampleを参照できます。独自Transportはリソースフレームを保持し、要求元接続へ応答する必要があります。[通信仕様](https://github.com/omochi-ui/omochi/blob/main/spec/resources.md)も確認してください。
+既定の上限は1ファイル1 GiB、合計4 GiBです。変更するにはTypeScript Appの第3引数、Pythonの`resources=`、Rustの`app.resources`へ、上限を指定した`ResourceRegistry`を渡します。ファイルは拡張子からMIME型を推定し、バイト列では指定が必要です。コーデック変換はしません。
 
 ## クライアントごとのメディア対応
 
-開発ブリッジとローカルHTTP/WSのHubではリソースのGET・HEAD・Rangeを利用できます。ホストされたブラウザーのオーナー・共有接続では、公開された画像をネイティブHubで検証して配信し、音声・動画は利用不可として表示します。画像URIはSurfaceの正式な状態に完全な文字列として含めてください。組み立てたURLやMarkdown内に埋め込まれた画像の宛先だけでは、リモート共有への公開と見なしません。
+ローカルHubと開発ブリッジは画像・音声・動画の配信に対応し、GET・HEAD・Range要求を扱います。ホストされたブラウザーのオーナー・共有接続では公開画像を表示でき、音声・動画は未対応です。
 
-Flutterのメディア対応にはプラットフォーム差があります。詳細は[アプリガイド](https://github.com/omochi-ui/omochi/blob/main/apps/mobile/README.md)を参照してください。SDKの登録上限と、配信・画像デコード側の上限は別です。
+リモートへ画像を公開するには、`ui.image(photo)`のように完全な画像URIをSurfaceの状態に含めます。部品が後から組み立てるURLやMarkdown内の宛先だけでは公開されません。SDKの登録上限とは別に、クライアントにも配信・デコードの上限があります。
+
+[モバイル・デスクトップアプリ](../mobile/)の対応にはプラットフォーム差があります。[メディアのサンプル](https://github.com/omochi-ui/omochi/tree/main/examples/media)と[独自Transportの配信方法](../../reference/transports/#独自のリソース配信)も参照してください。

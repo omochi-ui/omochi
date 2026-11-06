@@ -30,17 +30,29 @@ Pythonはハンドラーの第1引数の型注釈から入力スキーマを推�
 | TypeScript | `form.field("temperature").bind()` | `form.field("temperature").value()` |
 | Rust | `form.field(RunInput::field_temperature()).bind()?` | `form.field(RunInput::field_temperature()).value()` |
 
-ここで`form`は数値の`temperature`フィールドを持つLocalで、Rustの`RunInput`は`ActionInput`をderiveした型です。Pythonでは`form.temperature`を部品の`bind=`やActionの`input=`に直接渡すこともできます。`bind()`と`value()`はPointer引数を取らず、現在のLocalを参照します。フィールドを選ばなければ値全体が対象です。Actionに到達する前に入力は確定済みJSONになります。[ブラウザが持つ入力](../../concepts/inputs/)も参照してください。
+ここで`form`は数値の`temperature`フィールドを持つLocalで、Rustの`RunInput`は`ActionInput`をderiveした型です。Pythonでは`form.temperature`を部品の`bind=`やActionの`input=`に直接渡すこともできます。`bind()`と`value()`は現在のLocalを参照します。フィールドを選ばなければ値全体が対象です。Actionに到達する前に入力は確定済みJSONになります。[ブラウザが持つ入力](../../concepts/inputs/)も参照してください。
+
+## 進捗と更新の失敗
+
+長い処理を続ける前に、Contextの各更新をawaitします。
+
+```python
+@app.action
+async def work(input: RunInput, context: ActionContext[State]):
+    async with context.update() as state:
+        state.status = "Working"
+    await do_work(input)
+    async with context.update() as state:
+        state.status = "Done"
+```
+
+更新ごとに全Surfaceを描画し、Transportの送信完了を待ちます。同時に見せたい変更はひとつの更新にまとめます。`invoke()`と`handle()`は、送信済みのものも含め、生成したメッセージを順番に返します。完了時の再送はせず、Transport未接続でも同じリストを返します。
+
+Pythonの更新ブロックとコールバック更新は同じロックを使います。正常終了時にrevisionを1回増やして送信を待ちます。例外・キャンセル時も変更は残りますが、revisionの更新と描画は行いません。送信失敗時も変更と送信済みメッセージは残ります。同一タスク内の入れ子は`DeclarationError`、別タスクは直列化します。Action完了後の更新は拒否します。進捗を表示するには、長い処理を更新ブロックの間に置いてください。
 
 ## Transport
 
-Python・TypeScriptは`StdioTransport`・`CallbackTransport`・`WebSocketTransport`を公開します。TypeScriptの`WebSocketServerTransport`と`UnixSocketServerTransport`は`@omochi-ui/sdk/node`、Pythonの`UnixSocketServerTransport`はパッケージ直下です。Rustは`Transport` trait、`StdioTransport`・`CallbackTransport`・`UnixSocketServerTransport`を持ちます。
-
-Python・TypeScriptの`runtime.shutdown()`はTransportからの新しいメッセージの受け付けとバックグラウンド処理を停止し、ResourceRegistryを閉じます。組み込みのサーバーTransportはリスナーも閉じ、Unixのサービス公開情報を削除します。後片付けの完了はPythonの`runtime.wait_closed()`、TypeScriptの`runtime.waitClosed()`で待てます。すでに実行中のActionが完了してから`start()`が戻る場合があります。
-
-TypeScriptの`shutdown()`は初回も停止を要求した時点で解決済みのPromiseを返すため、`await runtime.shutdown()`だけでは後片付けの完了を待ちません。`spawn(async signal => { ... })`と`spawn(promise)`のどちらで登録したタスクも、停止を要求してから自分の後片付けを続けられます。タスクの外から`await runtime.shutdown(); await runtime.waitClosed();`を呼ぶと、登録された全タスクの終了とResourceRegistryのクローズを待てます。`waitClosed()`はタスク自身の終了も待つため、登録タスク内では待たないでください。後片付けのエラーは`waitClosed()`と`start()`に伝わります。ActionやTransportが先に失敗していた場合、`start()`は先に発生したエラーを維持します。
-
-独自TransportはPythonの`async stop_receiving()`、TypeScriptの`stopReceiving()`でRuntime終了時の後片付けに参加できます。このフックで受信を止め、Transport自身が所有するリソースを解放します。Callback・WebSocketアダプターは受信ループを止めますが、接続自体の所有者は呼び出し元です。独自Transportの`close()`をRuntimeが自動で呼ぶことはありません。
+公開アダプター・検出・直接WebSocketサーバー・終了処理は[Transportリファレンス](../transports/)を参照してください。
 
 ## エラー
 
@@ -53,3 +65,5 @@ Python・TypeScriptでは宣言不正が`DeclarationError`、プロトコル不�
 - [Rustの公開API](https://github.com/omochi-ui/omochi/blob/main/packages/sdk/rust/src/lib.rs)
 
 [実行例](../../guides/sdks/)・[コンポーネント](../components/)・[メディア](../../guides/media/)も参照してください。
+
+スキーマ・フォーム・Serdeの詳細は[型付き入力](../typed-inputs/)を参照してください。

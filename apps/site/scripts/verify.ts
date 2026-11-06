@@ -2,6 +2,7 @@ import { readdir, readFile, stat } from 'node:fs/promises';
 import { join, relative } from 'node:path';
 import assert from 'node:assert/strict';
 const dist = new URL('../dist/', import.meta.url).pathname;
+const content = new URL('../src/content/docs/', import.meta.url).pathname;
 async function files(dir: string): Promise<string[]> {
   const entries = await readdir(dir, { withFileTypes: true });
   return (await Promise.all(entries.map(e => e.isDirectory() ? files(join(dir, e.name)) : [join(dir, e.name)]))).flat();
@@ -43,11 +44,15 @@ for (const [path, page] of pages) {
     assert(translated.html.includes(`https://omochi.fyi${path}`), `${path}: Japanese alternate`);
     assert(translated.html.includes('lang="en"'), `${path}: English language`);
   }
+  if (path.startsWith('/en/docs/')) {
+    assert(pages.has(path.slice(3)), `${path}: Japanese translation exists`);
+  }
   if (path !== '/404.html') assert(page.html.includes(`href="https://omochi.fyi${path}"`), `${path}: canonical`);
 }
 assert.equal(errors.length, 0, errors.join('\n'));
 const index = JSON.parse(await readFile(join(dist, 'pagefind/pagefind-entry.json'), 'utf8'));
 assert(index.languages.en, 'English search index');
 assert(index.languages.ja, 'Japanese search index');
-assert(htmlFiles.length === 39, `Expected 36 docs, two LPs and a 404; got ${htmlFiles.length}`);
+const docCount = (await files(content)).filter(p => /\.mdx?$/.test(p)).length;
+assert.equal(htmlFiles.length, docCount + 3, 'Each doc, two LPs, and a 404 are built');
 console.log(`Verified ${htmlFiles.length} pages: local links, anchors, assets, translations, canonical URLs, and en/ja search.`);

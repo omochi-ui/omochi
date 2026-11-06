@@ -5,73 +5,148 @@ sidebar:
   order: 2
 ---
 
-LinuxまたはmacOSとNode.js 22以上があれば、任意のディレクトリで実行できます。
+例では[インストール済み](../../start/installation/)の`omochi-ui`を使います。`npx @omochi-ui/cli COMMAND`でも実行できます。
 
-```sh
-npx @omochi-ui/cli hub
-npx @omochi-ui/cli --help
-```
+| コマンド | 用途 |
+| --- | --- |
+| `up [FILE]` | プロジェクトのサービスとダッシュボードのプリセットを起動 |
+| `dev -- COMMAND [ARGS...]` | 標準入出力のアプリをレンダラーへ中継 |
+| `hub` | ダッシュボードの表示・管理 |
+| `gateway` | このマシンで実行中のアプリをHubへ公開 |
+| `pair --name NAME` | Gatewayの招待を登録 |
+| `status` | Gatewayの接続状態を確認 |
+| `id [--hub]` | GatewayまたはHubのIDを表示 |
+| `trust list` | 登録済みの相手を一覧 |
+| `trust forget NAME_OR_ENDPOINT_ID` | 相手の権限を取り消す |
+| `generate catalog` | 型付きカタログのバインディングを生成 |
 
-`npm install -g @omochi-ui/cli`または`cargo install omochi-cli --locked`でインストールすると、以下の例のように`omochi-ui`を直接使えます。ダッシュボード画面は同梱され、`hub`がローカルGatewayも自動起動します。対応環境とソースビルドは[インストール](../../start/installation/)を参照してください。ビルド済みチェックアウトでは`bun run omochi-ui`を使います。
-
-## コマンド一覧
-
-| コマンド | 用途 | 注意点 |
-| --- | --- | --- |
-| `up --open [FILE]` | プリセットのサービス・Hub・一時ダッシュボードを起動 | 設定ファイルを指定可能 |
-| `dev -- COMMAND [ARGS...]` | アプリと標準入出力ブリッジを起動 | プレビュー画面は別途起動 |
-| `hub` | ダッシュボードサーバー | 必要ならローカルGatewayを起動 |
-| `gateway` | 起動中のアプリをHubへ中継 | アプリ自体は起動しない |
-| `pair --name NAME` | 標準入力の招待を登録 | 通常通信とは別の登録操作 |
-| `status` | Gateway接続状態の確認 | 稼働中Hubへ問い合わせ |
-| `id` | 自分のEndpointIdを表示 | 初回はIDを作成 |
-| `trust list` | 登録済みの相手を一覧 | 名前とEndpointIdを確認 |
-| `trust forget NAME_OR_ENDPOINT_ID` | 相手の権限を取り消す | 稼働プロセスの確認失敗はエラー |
-| `generate catalog` | カタログから型付きバインディングを生成 | ローカルスキーマのみ利用 |
+`--help`・`-h`・`help COMMAND`はサービスを起動せず使い方を表示します。不正な引数では終了コード2を返します。
 
 ## up
 
+TOMLに宣言したサービス・Hub・ダッシュボードのプリセットを起動します。
+
 ```sh
-omochi-ui up --open examples/quickstart/omochi.toml
+omochi-ui up --open
+omochi-ui up --port 5557 ./omochi.toml
 ```
 
-プリセットが指定するプロセスとHubを起動します。配置は保存するまで一時的です。Ctrl+Cで所有するプロセスを停止します。
+設定ファイルの既定は`./omochi.toml`です。コマンドはシェルを介さず、環境変数を引き継いで実行します。相対的な作業ディレクトリは設定ファイルが基準です。子サービスには`OMOCHI_SERVICE`を渡すので、アプリ側で検出用Transportを選ぶ処理が必要です。utilityの省略記法は`button`・`watch`・`process`・`tail`・`http`に対応します。標準入力を使う`stream`、エージェントが起動する`mcp`は別途実行してください。
+
+```toml
+version = 1
+id = "local-development"
+
+[services.health]
+utility = ["http", "http://127.0.0.1:3000/health"]
+
+[services.app]
+command = ["python", "app.py"]
+cwd = "./backend"
+
+[dashboard]
+name = "Local development"
+
+[[dashboard.rows]]
+panels = ["health", "app"]
+height = "medium"
+
+[dashboard.panels.health]
+title = "Health"
+service = "health"
+
+[dashboard.panels.app]
+title = "Application"
+service = "app"
+```
+
+行は12列を均等に分割します。高さは`small`・`medium`・`large`、Surfaceの既定は`main`です。プリセットは読み取り専用で、**Save as dashboard**で編集可能なコピーを保存します。ひとつのサービスが終了しても他は継続します。Ctrl+Cで`up`が起動したサービスとGatewayを停止し、先に動いていたプロセスは継続します。
+
+| オプション | 意味 | 既定値 |
+| --- | --- | --- |
+| `--host HOST` | Hubの待受アドレス | `127.0.0.1` |
+| `--port PORT` | Hubのポート。`0`で空きポートを選択 | `5555` |
+| `--allow-origin ORIGIN` | 完全一致するブラウザーOriginを追加。複数指定可 | ループバックOrigin |
+| `--open` | ブラウザーでプリセットを開く | 無効 |
 
 ## dev
 
-```sh
-# ターミナル1: チェックアウトのルート
-bun run --filter @omochi-ui/dev-server dev
-# ターミナル2
-bun run omochi-ui dev -- uv run --project examples/python examples/python/app.py
-```
+`omochi-ui dev -- COMMAND [ARGS...]`はアプリを起動し、標準入出力のJSONLをWebSocketへ中継します。表示用レンダラーは別途必要です。ソースからViteを使う場合は[標準入出力のプレビュー手順](https://github.com/omochi-ui/omochi/blob/main/CONTRIBUTING.md#preview-a-stdio-application)を参照してください。
 
-既定のブリッジは5555、プレビューは5173です。配布アーカイブに開発用Vite画面は含まれません。
+`--`以降は`--help`も含めアプリへ渡します。ログは標準エラーへ出してください。`--host`の既定は`127.0.0.1`、`--port`は`5555`で、`0`なら空きポートを選べます。表示された`?ws=` URLをレンダラーで使います。ブリッジに認証・TLSはないのでループバックを維持してください。
 
-## hubとgateway
+## hub
 
 ```sh
 omochi-ui hub
+```
+
+**http://127.0.0.1:5555/** を開き、実行中の[SDKアプリ](../../guides/sdks/)か[utils](../../guides/utils/)を追加します。画面は同梱され、必要なローカルGatewayも自動起動します。既存のGatewayは再利用しますが、そのプロセスの管理は引き継ぎません。
+
+| オプション | 意味 | 既定値 |
+| --- | --- | --- |
+| `--host HOST` | HTTP/WebSocketの待受アドレス | `127.0.0.1` |
+| `--port PORT` | HTTP/WebSocketのポート。`0`で空きポートを選択 | `5555` |
+| `--no-auto-gateway` | ローカルGatewayがない場合も自動起動しない | 自動起動あり |
+| `--allow-origin ORIGIN` | 完全一致するOriginを追加。複数指定可 | ループバックOrigin |
+| `--remote` | リモートのオーナー・共有クライアントを受け付ける。`--offline`とは併用不可 | 無効 |
+| `--web-url HTTPS_BASE` | ホストされたクライアントのURL。`--remote`が必要 | `https://app.omochi.fyi/` |
+| `--offline` | 公開検索・リレーを停止し、直接接続とLAN mDNSを維持 | 無効 |
+| `--relay URL` | リレーURLを置き換え。複数指定可 | [設定](../configuration/)を参照 |
+| `--assets DIR` | ダッシュボードのファイルを置き換え | 同梱画面 |
+
+登録済みGatewayにはバックグラウンドで個別に再接続します。全体の管理には[オーナー接続](../../guides/remote/)、ボードひとつへのアクセスには[ダッシュボード共有](../../guides/dashboards/#保存したダッシュボードを共有する)を使います。HTTP/WebSocketはループバックを維持し、リモートクライアントのためにポートを外部公開する必要はありません。
+
+## gateway
+
+```sh
+omochi-ui gateway
 omochi-ui gateway --remote --pair --name workstation
 ```
 
-Hubは既定で`127.0.0.1:5555`にバインドします。ポート変更は`--port`、Origin許可の追加は`--allow-origin`で行います。外部公開が必要でなければ既定のループバックを維持してください。Gatewayのリモート待受は明示的な`--remote`が必要です。
+同じユーザーで実行中のアプリを公開します。アプリは別途起動し、表示にはHubを使います。
 
-HubにGatewayを追加する招待を発行するには、アプリ側のマシンで`gateway --remote --pair`を実行します。Web URLの既定値は`https://app.omochi.fyi/`です。`--web-url`には、認証情報・クエリ・フラグメントを含まない2048文字以下の絶対HTTPS URLを指定します。`--pair`で新しい招待を発行したときだけ、ネイティブ用招待とブラウザ用リンクを表示します。独自のホストを使う場合は`--web-url`で上書きできます。
+| オプション | 意味 | 既定値 |
+| --- | --- | --- |
+| `--remote` | 登録済みのリモートHubを受け付ける | 無効 |
+| `--pair` | 3分間有効な招待を発行。`--remote`が必要 | 無効 |
+| `--web-url HTTPS_BASE` | 招待用クライアントのURL。`--remote`が必要 | `https://app.omochi.fyi/` |
+| `--name NAME` | 表示名 | `gateway` |
+| `--offline` | 公開検索・リレーを使わず直接接続とLAN mDNSを利用 | 無効 |
+| `--relay URL` | リレーURLを置き換え。複数指定可 | [設定](../configuration/)を参照 |
 
-ネイティブ招待と`#g:`リンクは、同じパディングなしbase64url JSONと一時的な秘密を含みます。旧hex形式や`#connect:`形式は受け付けません。非公開の経路で共有してください。
+`--pair`はネイティブ用・HTTPSの招待リンクとQRを表示します。どちらのリンクも`pair`で登録できます。非公開の経路で共有してください。ブラウザーとアプリからの操作は[接続ガイド](../../guides/remote/)を参照してください。
 
-ホストされたブラウザーでオーナーとしてHubに接続し、Gatewayリンクを開いて **このハブに追加** を押すと、ネイティブHubのidentityをGatewayに登録します。そのHubはGatewayが公開するすべてのサービス・操作・リソースにアクセスできます。共有ビューアーは登録できません。ブラウザーの接続記録の削除だけではGatewayの信頼は失効せず、取り消すにはGatewayで`trust forget <hub-endpoint-id>`を実行します。Flutterアプリでは **この端末に追加** で端末内Hubを登録する経路も使えます。詳細は[接続ガイド](../../guides/remote/)を参照してください。
+## pair
 
-ネイティブHubのダッシュボードを共有するには、`hub --remote`で起動し、ローカル画面の **ダッシュボードを共有** から権限付き共有リンクを作成します。Web URLの既定値は`https://app.omochi.fyi/`で、`--web-url`で上書きできます。`--web-url`を指定する場合は`--remote`が必要です。`--remote`は`--offline`とは併用できません。受信者のブラウザはこのHubへ接続し、Gatewayとは直接ペアリングしません。
+Hubのあるマシンで実行します。
 
-release版Hubは既定で`https://relay.omochi.fyi`、debug版はn0リレーを使います。ブラウザは共有リンクに含まれるリレーへ接続し、本番リレーの正確なURLにだけ共通の入場トークンを付けます。ダッシュボードへのアクセス権限はHubが別途確認します。
+```sh
+omochi-ui pair --name workstation
+# 招待を標準入力へ貼り付け、Ctrl+D。
+omochi-ui hub
+```
 
-全体の管理には、ローカル接続画面の **オーナーブラウザを登録** でリンクを発行し、対象ブラウザーで承認します。オーナー登録・取り消しはローカル画面専用です。ホストされたオーナーはボード・共有の管理とGateway登録を行えます。オーナー権限とGatewayの信頼は別です。
+表示されたネイティブ用・HTTPSの招待を標準入力か位置引数で渡せます。標準入力ならシェル履歴に残りません。招待は3分間有効で、ひとつのHubを登録します。同じIDなら中断した登録を再試行できます。
 
-## pair・status・trust
+`--name`はローカルでのGatewayの別名、`--hub-name`の既定は`hub`です。`--offline`はLAN内だけの登録、`--relay URL`は独自リレーを選びます。`gateway`・`pair`・`hub`のネットワーク設定を合わせてください。
 
-`pair`はネイティブ`omochi://invite/`とHTTPS `#g:`リンクの両方に対応します。秘密がシェル履歴に残らないよう標準入力へ貼り付けます。[マシン間接続](../../guides/remote/)に登録・確認・失効の手順があります。`--offline`で公開検索とリレーを止め、`--relay`で専用リレーを選びます。`status`は接続試行と診断を表示します。
+## status
+
+`omochi-ui status`は登録済みGatewayのEndpointId・別名・接続状態・最後のエラーをJSONで表示します。未接続の相手も再接続中は一覧に残ります。既定では`127.0.0.1:5555`の稼働中Hubへ問い合わせ、`--host`・`--port`で変更できます。空の配列なら、追跡中のリモート接続試行はありません。
+
+## idとtrust
+
+```sh
+omochi-ui id
+omochi-ui id --hub
+omochi-ui trust list
+omochi-ui trust forget workstation
+```
+
+`id`は保存済みのGateway ID、`--hub`はHub IDを表示します。IDは64文字の小文字16進数のEndpointIdです。名前はローカルな別名です。
+
+`trust forget`にはEndpointIdか一意な名前を渡します。登録を削除し、稼働中のローカルプロセスが該当接続を閉じるまで待ちます。削除が保存済みでも確認に失敗すればエラーになるので、[トラブルシューティング](../../understand/troubleshooting/#アクセス権の取り消しがエラーになる)を参照してください。削除した相手を再登録する場合はペアリングし直します。
 
 ## カタログ生成
 
@@ -80,34 +155,6 @@ omochi-ui generate catalog --catalog ./catalog.json --name ProductCatalog \
   --typescript ./src/product.ts --python ./src/product.py --rust ./src/product.rs
 ```
 
-出力言語は一部だけ指定できます。`--check`は既存生成物が古いと失敗します。生成だけではブラウザにカスタム部品の実装は追加されません。
+出力先ディレクトリを先に作り、必要な言語を指定します。`--check`は書き込まず、生成物が存在しないか古ければ失敗します。全オプションとスキーマ対応は[カタログ生成](../catalog-generation/)を参照してください。
 
-コンポーネント名は生成する型名と通信上の名前にそのまま使うため、`[A-Za-z_][A-Za-z0-9_]*`に一致する必要があります。TypeScriptでは各位置に`$`も使えます。Pythonではクラス内の参照に名前マングリングが働くため、先頭が`__`の名前には対応していません。Rustでは生成する`ComponentProps`がSDKのtraitと重複するため、`Component`を使えません。型名には`Props`を付けるため、`class`などの予約語は使えます。制約は指定した出力言語にだけ適用し、未対応の名前があればどの出力も変更せずにエラーになります。
-
-`enum`は文字列・真偽値・数値・nullを扱え、配列やunion内でもJSONの型を保ちます。空のenumや、オブジェクト・配列を値に持つenumは出力前にエラーになります。TypeScriptはリテラルのunion、Pythonは`True`・`False`・`None`を使った`Literal`を生成し、小数の値は`float`に広げます。Rustは文字列プロパティの名前付きenumを維持し、同じ型の非文字列enumには`bool`・`serde_json::Number`・`()`、型が混在するenumには`Value`を使います。ネストした文字列enumは`String`になります。広げた型はJSONの値を保ちますが、宣言されたenumの値だけに制限するものではありません。Rustの文字列variant名が変換後に重複する場合は数値の接尾辞を付けます。
-
-Pythonは元のプロパティ名を維持し、`class`のような予約語や`data-label`のようなクラスのフィールドにできないキーには関数形式の`TypedDict`を使います。これらのキーは辞書で指定でき、必須・任意の区別も保たれます。
-
-TypeScriptとPythonではコンポーネントのプロパティ名`key`をビルダーのノードキー引数に予約しています。`allOf`やローカル参照を含め、`properties`または`required`に`key`がある場合、TypeScriptまたはPython出力の指定はどの出力も変更せずにエラーになります。これらの言語向けにはプロパティ名を変更してください。Rustではノードキーをプロパティとは別の引数で渡すため使用できます。入れ子のオブジェクト内のキーは3言語とも使用できます。
-
-ローカル`$ref`と兄弟キーワードは[JSON Schema 2020-12の参照規則](https://json-schema.org/draft/2020-12/json-schema-core#section-8.2.3.1)に従い、参照先と兄弟の両方の制約を適用します。たとえば`enum: ["a", "b"]`への参照に`enum: ["b", "c"]`を添えると、TypeScriptでは`"b"`だけを受け付ける交差型になります。`description`などの注釈だけでは型を変えません。`required`・`properties`・`items`だけの制約には、参照先が保証するobjectまたはarray型を補います。ローカルにプロパティ定義がない必須フィールドはTypeScriptで`unknown`とし、交差型によって参照先の型も保持します。相対参照はそれぞれの記述元ファイルを基準に解決します。PythonとRustには下記の`allOf`近似を適用します。
-
-プロパティや配列要素のスキーマでは、`$ref`がなくても隣接する制約を合わせます。たとえば文字列または数値を受け付ける`anyOf`に`enum: ["allowed"]`を添えると、TypeScriptでは`"allowed"`だけを受け付けます。`allOf`に隣接するオブジェクトのプロパティや必須フィールドも交差型に残ります。PythonとRustには`allOf`と同じ近似を適用します。生成する型はJSON Schemaのすべての制約を検証するものではありません。
-
-コンポーネントの型には、コンポーネント自身と入れ子の`allOf`の各層からプロパティと必須フィールドを収集し、共通mixinも反映します。同名のプロパティはスキーマを`allOf`として合成するため、TypeScriptでは層の順序によらずすべての制約が必要になります。同一のスキーマは重複を除き、異なるスキーマの合成にはPythonでは下記の近似、Rustでは`Value`を使います。必須フィールドは各層の指定を合わせます。条件分岐の中にあるフィールドは、無条件のコンポーネントプロパティとしては追加しません。
-
-コンポーネントレベルの`anyOf`と`oneOf`には対応していません。入れ子の`allOf`や解決したローカル参照に含まれる場合も、どの出力も変更せずにコンポーネント名とunionのキーワードを示すエラーになります。プロパティのスキーマ内では、配列要素や入れ子のオブジェクトプロパティも含めてunionを利用できます。
-
-Pythonには型の交差演算子がないため、プロパティの`allOf`で各層が同じPython型になる場合はその型にまとめます。オブジェクト同士なら`dict[str, Any]`、単一の層ならその型を使い、異なる型の組み合わせや空の`allOf`は`Any`に広げます。他言語と同様に`if`または`then`を持つ層は省略し、残る層がなければPythonでは`Any`を使います。この近似は配列やunion内でも適用され、JSONの値は保ちますが、スキーマの全制約を検証するものではありません。空のスキーマ`{}`は制約を加えず、TypeScriptでは`unknown`、Pythonでは`Any`、Rustでは`Value`を使います。真偽値スキーマなど未対応の層は、どの出力も書き込まずにエラーになります。
-
-Rustのフィールドはsnake caseになりますが、JSON出力ではカタログの元のプロパティ名を略語やアンダースコアも含めて維持します。Rustの予約語には`r#type`のようなraw identifierを使い、`self`・`super`・`crate`には末尾に`_`を付けます。Rustの識別子に変換できない名前や、変換後に同じフィールド名になるプロパティがある場合は、どの出力も書き込まずにエラーになります。
-
-## 正確なオプションを調べる
-
-```sh
-omochi-ui --help
-omochi-ui dev --help
-omochi-ui help hub
-```
-
-[設定と保存先](../configuration/)と[トラブル対応](../../understand/troubleshooting/)も参照してください。
+保存先は[設定](../configuration/)、よくあるエラーは[トラブルシューティング](../../understand/troubleshooting/)を参照してください。

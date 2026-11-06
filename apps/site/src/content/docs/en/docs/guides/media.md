@@ -5,31 +5,28 @@ sidebar:
   order: 6
 ---
 
-Register an immutable copy of a file or bytes and pass its URI to a media component:
+Register a file or bytes and pass the returned URI to a media component:
 
 ```python
 photo = app.resources.file("photo.png")
-# Inside a surface:
+clip = app.resources.bytes(video_bytes, mime_type="video/mp4")
+# Inside a Surface:
 ui.image(photo)
+ui.video(clip)
 ```
 
-TypeScript uses `app.resources.file(path, mimeType?)` and `app.resources.bytes(data, mimeType)`. Rust uses `app.resources.file(path, Option<&str>)?` and `app.resources.bytes(&data, mime)?`. All return `omochi://resources/<id>` URIs.
+TypeScript uses `app.resources.file(path, mimeType?)` and `app.resources.bytes(data, mimeType)`. Rust uses `app.resources.file(path, Option<&str>)?` and `app.resources.bytes(&data, mime)?`. All return `omochi://resources/<id>` URIs. The browser does not need access to the app's filesystem.
 
-The browser does not need access to the application's filesystem. This works over the development bridge and local/remote hubs. Registration uses bounded synchronous I/O: register large files before starting, or use a worker/thread.
+## Registration and release
 
-Keep resources registered while a surface may reference them, including playback. `release(uri)` prevents further reads; changed content needs a new registration. Default limits are 1 GiB per file and 4 GiB total. MIME type is inferred for files and required for bytes. There is no codec conversion.
+Registration creates an immutable copy. Register large files before starting the app or use a worker/thread. Keep resources registered while a Surface references them, including playback. Use `release(uri)` to prevent further reads when no longer needed. Register changed content again and display the new URI. Runtime shutdown closes the registry.
 
-[Media examples](https://github.com/omochi-ui/omochi/tree/main/examples/media) show Python and TypeScript; the Rust SDK also includes a media example. Custom transports must preserve resource frames and reply to the originating connection. See the [wire contract](https://github.com/omochi-ui/omochi/blob/main/spec/resources.md).
+Default limits are 1 GiB per file and 4 GiB total. To change them, supply a `ResourceRegistry` with custom limits through the TypeScript App's third constructor argument, Python's `resources=`, or Rust's `app.resources` field. Files infer MIME type from their extension; bytes require an explicit MIME type. There is no codec conversion.
 
 ## Media support by client
 
-The development bridge and local HTTP/WS Hub preserve resource GET, HEAD and
-Range reads. Hosted owner/share connections deliver published images through
-native Hub validation; remote audio/video shows an unavailable state. Include
-an image's canonical complete URI string in authoritative Surface state.
-Constructed URLs or embedded Markdown destinations alone do not publish an image
-to remote shares.
+Local Hubs and the development bridge deliver images, audio, and video, supporting GET, HEAD, and Range requests. Hosted owner/share browser connections display published images; audio/video are unavailable.
 
-Flutter media support varies by platform; see the
-[app guide](https://github.com/omochi-ui/omochi/blob/main/apps/mobile/README.md).
-SDK registration limits are separate from delivery and image-decode budgets.
+To publish a remote image, include its complete URI in Surface state, as in `ui.image(photo)`. URLs constructed later by a component or embedded only in Markdown destinations do not publish images. Clients have delivery and decode limits separate from SDK registration limits.
+
+The [mobile and desktop app](../mobile/) has platform-specific support. See the [media samples](https://github.com/omochi-ui/omochi/tree/main/examples/media) and [custom transport delivery](../../reference/transports/#custom-resource-delivery).

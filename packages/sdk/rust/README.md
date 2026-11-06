@@ -9,12 +9,11 @@ cargo add omochi-ui
 Requires Rust 1.85 or newer. The CLI is distributed separately as
 `@omochi-ui/cli` on npm (Node.js 22+ launcher), or as a native archive.
 
-See the [SDK guide](https://github.com/omochi-ui/omochi/blob/main/docs/sdk.md)
-and [project README](https://github.com/omochi-ui/omochi) for examples.
-
-The next minor release introduces `ActionInput` derive and typed component
-builders. The SDK depends on the exact matching `omochi-ui-macros` version.
-See the SDK guide for migration and custom Serde expression adapters.
+The [SDK guide](https://omochi.fyi/en/docs/guides/sdks/#rust) shows a complete app
+published with `UnixSocketServerTransport` and displayed in an installed Hub.
+Use `ActionInput` derive for typed action expressions and component builders for
+views. See [typed inputs](https://omochi.fyi/en/docs/reference/typed-inputs/)
+for Serde projections and custom expression adapters.
 
 The default `runtime` feature keeps the complete SDK API. Embedded renderers that
 only materialize protocol messages can disable default features to use

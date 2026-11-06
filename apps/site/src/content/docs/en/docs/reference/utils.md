@@ -5,18 +5,7 @@ sidebar:
   order: 3
 ---
 
-Native npm releases retain this package name; Cargo releases use `omochi-utils`.
-See [registry installation and migration](https://github.com/omochi-ui/omochi/blob/main/docs/native-releasing.md).
-
-Publish command controls, development observations, and agent-created A2UI
-surfaces. On Linux or macOS with Node.js 22+, run `npx @omochi-ui/utils`.
-Start a hub in another terminal with `npx @omochi-ui/cli hub`; it includes the
-browser UI and starts a local gateway automatically.
-
-The examples below use installed commands. Install with
-`npm install -g @omochi-ui/cli @omochi-ui/utils`, or use
-`cargo install omochi-cli --locked` and `cargo install omochi-utils --locked`.
-See [installation](../../start/installation/).
+Examples use the [installed](../../start/installation/) `omochi-utils` command. Start `omochi-ui hub` separately and add a tool's Surface through **Add view**.
 
 ## Turn a command into a button
 
@@ -98,26 +87,22 @@ status is 200–299. Text responses are shown up to 64 KiB; JSON media types are
 parsed and pretty-printed. Binary response bodies are not displayed. For custom
 methods, headers, authentication, or request bodies, use `watch -- curl ...`.
 
-## Let an agent publish surfaces over MCP
+## MCP
 
-Configure a stdio MCP server in your agent. Use the installed native binary (or the absolute path to
-`crates/target/debug/omochi-utils` in a built source checkout):
+Configure a stdio MCP server in your agent. Use `omochi-utils` from its PATH, or the installed executable's absolute path:
 
 ```json
 {
   "mcpServers": {
     "omochi": {
-      "command": "/absolute/path/to/omochi-utils",
+      "command": "omochi-utils",
       "args": ["mcp", "--name", "Agent"]
     }
   }
 }
 ```
 
-The process publishes using the existing SDK manifest and Unix JSONL protocol; an existing gateway
-discovers it automatically. Start `omochi-ui hub` separately to view surfaces.
-The agent, gateway and hub must share the same user and `XDG_RUNTIME_DIR` for
-local discovery. Existing SSH/paired-gateway routing works without changes.
+Run the agent, Gateway, and Hub as the same OS user with the same runtime directory for local discovery. See the [MCP guide](../../guides/agents/) for setup.
 
 | Tool | Arguments | Result |
 | --- | --- | --- |
@@ -129,7 +114,7 @@ local discovery. Existing SSH/paired-gateway routing works without changes.
 `updateDataModel`, and `deleteSurface` messages. It validates the entire batch
 against the current state before sending anything. Errors report the failing
 array index, leaving the published state intact. Concurrent calls are serialized.
-Use surface-local IDs; gateway/hub prefixes are applied by the existing routers.
+Use IDs local to each Surface.
 Validation checks wire shape and surface lifecycle; catalog-specific component
 validation is still performed by the renderer.
 
@@ -203,19 +188,4 @@ Durations accept `ms`, `s`, and `m` suffixes. Each process has its own surfaces
 and event buffer. Service registration does not start the gateway or
 automatically place panels on a dashboard.
 
-Use `omochi-utils --help` for usage. No new TCP listener, dashboard API,
-or transport protocol is introduced. Runtime directory permissions and existing
-gateway access controls apply to these services as to other Omochi apps.
-
-## Tests
-
-`bun run build` then `bun run --filter @omochi-ui/utils test`
-runs command execution, watch/diff, process restart, tail/stream, HTTP, shutdown,
-event cursor, stdio MCP, and gateway integration tests. Temporary runtime
-directories keep tests separate from real services.
-
-Native utilities require an owned runtime directory with mode `0700`. They create
-missing runtime directories privately and reject existing shared directories.
-Slow clients are disconnected when their update backlog exceeds the bounded
-buffer; reconnecting obtains the current snapshot. Publication/action queues
-reject overload instead of accumulating pending messages indefinitely.
+Use `omochi-utils --help` or a subcommand's `--help` for usage. Runtime directories must be private and owned by the current user; see [configuration](../configuration/).

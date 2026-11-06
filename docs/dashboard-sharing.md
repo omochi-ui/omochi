@@ -3,7 +3,9 @@
 The hosted dashboard at `https://app.omochi.fyi/` connects to a running native
 hub over iroh. Deployment is defined in [apps/dashboard](../apps/dashboard/README.md).
 The local HTTP/WS/SSE dashboard remains available on loopback, including offline
-operation. Gateway v4, gateway trust and SDK transports are unchanged.
+operation. For user instructions, see [dashboard sharing](https://omochi.fyi/en/docs/guides/dashboards/#share-a-saved-dashboard)
+and [remote connections](https://omochi.fyi/en/docs/guides/remote/).
+This document covers implementation, recovery, and verification.
 
 ## Start the hub and create shares
 
@@ -56,16 +58,6 @@ sessionStorage. If storage is denied, reopen the original URL.
 Owner enrollment still uses a durable browser identity in IndexedDB, owned by
 one tab through Web Locks. Owner invitations require explicit acceptance and
 expire after three minutes. Local forget/reset does not revoke Hub authority.
-
-All v1 sharing links and shared-client identity registrations are retired on
-upgrade. The Hub clears v1 sharing records under the lock and advances its generation. Reissue
-links; no old identity grant is converted to bearer authority. Owner grants and
-Gateway trust are retained.
-
-For the 0.3.1 upgrade, back up configuration, restart native services with 0.3.1,
-update browser/native clients, and reissue all dashboard sharing links. Native
-clients remove recognized legacy sharing records without resetting their identity
-or owner connections. See the [0.3.1 release notes](releases/native-0.3.1.md).
 
 Images use scoped native fetch/validation and bounded browser decoding. A
 canonical complete URI in authoritative Surface state publishes an image;
@@ -121,10 +113,8 @@ printed HTTPS link or scan its QR, connect the target owner Hub and choose
 the hosted browser remains a Hub client. Shared viewers cannot perform this
 operation. Gateway access covers all its exposed services, actions and resources.
 
-The native URI and `#g:` HTTPS link contain the same unpadded base64url payload
-and expire after 180 seconds. CLI `omochi-ui pair` accepts either form. Legacy
-hex and `#connect:` invitations are rejected. `--web-url HTTPS_BASE` selects a
-custom hosted client.
+Invitations expire after 180 seconds. CLI `omochi-ui pair` accepts the native URI
+or HTTPS link. `--web-url HTTPS_BASE` selects a custom hosted client.
 
 If disconnected during registration, reconnect with the same owner grant and
 browser identity to check status. **Retry saving registration** retries only the
@@ -140,5 +130,5 @@ It stores external-client identity separately in OS-protected storage. Explicitl
 saved public shares retain their bearer credential there; this differs from the
 browser's tab-scoped sessionStorage behavior.
 
-Use the same v2 sharing link in browsers and the app. Local forget does not revoke Hub access.
+Use the same sharing link in browsers and the app. Local forget does not revoke Hub access.
 See the [remote connection validation record](../apps/mobile/docs/remote-connections-validation.md).

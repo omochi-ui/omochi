@@ -11,12 +11,12 @@ pip install 'omochi-ui[websocket]'
 Requires Python 3.11 or newer. The CLI is distributed separately as
 `@omochi-ui/cli` on npm (Node.js 22+ launcher), or as a native archive.
 
-See the [SDK guide](https://github.com/omochi-ui/omochi/blob/main/docs/sdk.md)
+See the [SDK guide](https://omochi.fyi/en/docs/guides/sdks/)
 and [project README](https://github.com/omochi-ui/omochi) for examples.
 
 ```python
 import asyncio
-from omochi_ui import App, ui
+from omochi_ui import App, UnixSocketServerTransport, ui
 
 app = App({"result": ""})
 
@@ -36,28 +36,16 @@ def main(state):
 
 
 app.mount(main)
-asyncio.run(app.start())
+asyncio.run(app.start(UnixSocketServerTransport("temperature", name="Temperature")))
 ```
 
-State is an ordinary Python object shared by the service's connected clients.
-Each renderer keeps its own draft inputs. Input annotations generate validation;
-actions receive concrete values when the user clicks. `app.start()` speaks JSONL
-on stdio; connect it with `omochi-ui dev -- python app.py` to open a browser UI.
+Start `npx @omochi-ui/cli hub` separately, open **http://127.0.0.1:5555/**,
+and add the `Temperature` Surface. Run the app and Hub as the same OS user with
+the same runtime directory. Keep both running while using the UI.
 
-Stdio and Unix socket transports accept JSONL input up to 4 MiB of UTF-8 bytes
-per line, excluding the LF delimiter (a preceding CR counts toward the limit).
-An oversized line ends stdio reception with `ValueError`, or closes only the
-offending Unix socket connection. A final line without LF is accepted at EOF
-within the same limit.
-
-Use dataclasses for structured inputs, `type=` for TypedDict/container locals,
-and `with ui.scope(key):` to give repeated components stable keys. Typed field
-projections and explicit schemas are available when stronger checking is needed.
-Existing `(ui, state)` Surface functions and explicit schema/field APIs continue
-to work. `on_click=` accepts registered Action handles rather than raw callbacks.
-
-The next minor release introduces typed action inputs and requires migrating
-action registration and local field references. See the SDK guide migration section.
-Python wheels include `py.typed`; both mypy and Pyright are tested.
+State is shared by the app's connected clients; each renderer keeps its own draft
+inputs. Action annotations provide input validation. See [typed inputs](https://omochi.fyi/en/docs/reference/typed-inputs/)
+for forms, scopes, explicit schemas, and static typing, and [transports](https://omochi.fyi/en/docs/reference/transports/)
+for other connection choices and limits.
 
 Licensed under Apache-2.0.

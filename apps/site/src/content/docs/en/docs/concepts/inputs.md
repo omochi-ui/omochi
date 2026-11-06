@@ -21,8 +21,7 @@ that an editable control should change. For a form with a numeric `temperature`:
   `form.field(RunInput::field_temperature()).bind()?` for a control and
   `form.field(RunInput::field_temperature()).value()` in the generated `RunInputInput`.
 
-`bind()` and `value()` take no pointer argument. Without a field projection,
-they refer to the whole Local value. See the [SDK reference](../../reference/sdk/)
+Without a field projection, `bind()` and `value()` refer to the whole Local value. See the [SDK reference](../../reference/sdk/)
 for action registration and [SDK examples](../../guides/sdks/) for complete forms.
 
 When the user invokes the action, the renderer resolves expressions into concrete JSON. The application runtime never stores the unfinished draft.

@@ -5,17 +5,31 @@ sidebar:
   order: 1
 ---
 
-3つのSDKは共通のプロトコルとランタイムの概念を使います。次の例はビルド済みチェックアウトのローカルパッケージを使います。`app.start()`は標準入出力を使うため、[開発プレビュー](../../start/first-ui/)経由で表示してください。
+Python・TypeScript・Rustのいずれかで、スライダーの値を受け取るアプリを作ります。LinuxまたはmacOSで、[Hubを起動](../../start/installation/)しておいてください。
 
-SDKとHubは別に導入します。自分のSDKアプリを表示するHubは、LinuxまたはmacOSとNode.js 22以上で`npx @omochi-ui/cli hub`として起動できます。HubがローカルGatewayも自動起動します。[インストール](../../start/installation/)と[ダッシュボードへの接続](../dashboards/)を参照してください。ローカル検出には`UnixSocketServerTransport`が必要で、以下の標準入出力の例は開発プレビュー向けです。
+```sh
+npx @omochi-ui/cli hub
+```
+
+言語をひとつ選び、以下のファイルを自分のプロジェクトに作成します。アプリはUnixソケットで公開され、Hubに検出されます。
 
 ## Python
+
+Python 3.11以上を使います。
+
+```sh
+python3 -m venv .venv
+. .venv/bin/activate
+pip install omochi-ui
+```
+
+次を`app.py`に保存します。
 
 ```python
 import asyncio
 from dataclasses import dataclass
 
-from omochi_ui import ActionContext, App, ui
+from omochi_ui import ActionContext, App, UnixSocketServerTransport, ui
 
 
 @dataclass
@@ -49,13 +63,28 @@ def main(state: State) -> None:
 app.mount(main)
 
 
-asyncio.run(app.start())
+asyncio.run(app.start(UnixSocketServerTransport("temperature-python", name="Temperature")))
+```
+
+```sh
+python app.py
 ```
 
 ## TypeScript
 
+Node.js 22以上で、新しいディレクトリにプロジェクトを作ります。
+
+```sh
+npm init -y
+npm install @omochi-ui/sdk
+npm install --save-dev tsx typescript
+```
+
+次を`app.mts`に保存します。
+
 ```ts
 import { schema, App } from "@omochi-ui/sdk";
+import { UnixSocketServerTransport } from "@omochi-ui/sdk/node";
 
 const state: { temperature: number; result: string | null } = {
   temperature: 50,
@@ -76,14 +105,34 @@ app.surface("main", (ui, current) => {
   if (current.result) ui.text(current.result, { key: "result" });
 });
 
-await app.start();
+await app.start(new UnixSocketServerTransport({
+  serviceId: "temperature-typescript",
+  name: "Temperature",
+}));
+```
+
+```sh
+npx tsx app.mts
 ```
 
 ## Rust
 
+Rust 1.85以上を使います。
+
+```sh
+cargo new temperature-ui
+cd temperature-ui
+cargo add omochi-ui
+cargo add serde --features derive
+cargo add serde_json
+cargo add tokio --features macros,rt-multi-thread
+```
+
+`src/main.rs`を次に置き換えます。
+
 ```rust
 use omochi_ui::{ActionInput, Button, ButtonVariant, Input, Slider, Text, TextVariant};
-use omochi_ui::{App, Result};
+use omochi_ui::{App, Result, UnixSocketServerOptions, UnixSocketServerTransport};
 use serde::{Deserialize, Serialize};
 
 struct State {
@@ -145,20 +194,32 @@ async fn main() -> Result<()> {
         Ok(())
     })?;
 
-    app.start().await
+    let transport = UnixSocketServerTransport::bind(
+        UnixSocketServerOptions::new("temperature-rust").with_name("Temperature"),
+    ).await?;
+    app.start_with(transport).await
 }
 ```
 
-## レンダラーが持つ入力
+```sh
+cargo run
+```
 
-上の例のように、`ui.local()`が返すLocalのフィールドを入力部品に結び付けます。`bind()`と`value()`はPointer引数を取りません。先にフィールドを選び、その後に`.bind()`や`.value()`を呼びます。フォーム自体の`.value()`はフォーム全体を参照します。Pythonでは`form.temperature`を`bind=`に直接渡し、`input=form`でフォーム全体を渡すこともできます。
+## Hubで操作する
 
-Actionの操作時にレンダラーが入力式を確定するため、Runtimeは確定済みJSONを受け取り、入力途中の値を保存しません。各SDKのフィールド参照は[ブラウザが持つ入力](../../concepts/inputs/)を参照してください。
+**http://127.0.0.1:5555/** でダッシュボードを作成し、**Add view**から`Temperature`の`main` Surfaceを追加します。スライダーを動かして **Run** を押すと、アプリが値を受け取り結果を表示します。
 
-## パッケージ名
+アプリとHubは同じOSユーザー・実行時ディレクトリで起動してください。利用中は両方を動かしておき、終了時はCtrl+Cを押します。サービスIDは同時に動くアプリ間で一意にし、保存した配置を再利用する場合は固定してください。
 
-TypeScriptは`@omochi-ui/sdk`、Node専用Transportは`@omochi-ui/sdk/node`から読み込みます。Pythonは`omochi_ui`、Rustはcrate名`omochi-ui`を`omochi_ui`として使います。
+## アプリを広げる
 
-依存関係は同梱exampleのマニフェストを参照してください。TypeScriptは事前ビルド、Pythonは3.11以上、RustはCargoとTokioが必要です。公開エントリーポイントは[SDKリファレンス](../../reference/sdk/)にまとめています。
+- 状態・Action・Surfaceの関係：[ランタイムの基本](../../concepts/runtime/)
+- 入力途中の値とリセット：[ブラウザーが持つ入力](../../concepts/inputs/)
+- 入力の検証・再利用可能なフォーム・Serde：[型付き入力](../../reference/typed-inputs/)
+- 接続方法と終了処理：[Transport](../../reference/transports/)
+- 独自の部品を使う：[コンポーネントとカタログ](../../reference/components/)
+- 画像・音声・動画を使う：[メディア](../media/)
 
-型付き入力と移行手順の詳細は[英語版SDKガイド](../../../en/docs/guides/sdks/#typed-inputs-and-migration)を参照してください。
+## Transport
+
+これらの例はUnixソケットで公開します。標準入出力・WebSocket・独自接続の選択と終了処理は[Transportリファレンス](../../reference/transports/)を参照してください。

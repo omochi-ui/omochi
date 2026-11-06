@@ -5,41 +5,34 @@ sidebar:
   order: 1
 ---
 
-OmochiのサーバーはRust、SDKはPython・TypeScript・Rust、共通のブラウザレンダラーとダッシュボードはTypeScript/Reactです。npmのCLIはネイティブ実行ファイルの起動用で、別実装のサーバーではありません。
+Omochiは、アプリが公開するビューをHubに集め、ブラウザーやアプリで操作する仕組みです。
 
 ```text
-SDKアプリ → Unix JSONL → Gateway → ネイティブHub
-                                      ├─ HTTP/WS/SSE → ローカルブラウザー
-                                      └─ iroh → ホストされたブラウザー / Flutter
-
-Gateway → 認証済みiroh → Flutterアプリ内のRust Hub
+アプリ → Gateway → Hub → ブラウザー / Omochiアプリ
 ```
 
-## 役割
+## それぞれの役割
 
-| 要素 | 責務 |
+| 要素 | 役割 |
 | --- | --- |
-| SDK Runtime | 状態更新、Action、宣言、A2UI v0.9差分 |
-| Discovery | ローカルマニフェストの検証とライフタイム監視 |
-| Gateway | SDK接続の共有、スナップショット再送、操作・リソースの中継 |
-| Hub | Gateway集約、ダッシュボード、ローカルHTTP/WS/SSEとリモートのオーナー・共有接続 |
-| Downstream core | WASM・ネイティブクライアント共通のオーナー・共有契約と適用・ACK状態 |
-| Native bridge | Flutterの端末内Hub・外部Hub接続を提供するC ABI v2 |
-| Hub transport | ホストされたブラウザーからネイティブHubへ接続するWASM iroh transport |
-| Renderer | 部品の描画、入力途中の値、操作送信 |
+| SDKアプリ | 状態・Action・Surfaceを定義し、UIを公開する |
+| utils | コマンド・ログ・エージェントの結果をSurfaceとして公開する |
+| Gateway | 同じマシンで実行中のアプリを検出し、Hubへ中継する |
+| Hub | 複数アプリのSurfaceをまとめ、ダッシュボードの配置と共有権限を管理する |
+| ブラウザー・Omochiアプリ | Surfaceを描画し、入力と操作をアプリへ送る |
 
-## 境界
+同じPCで使う場合は`omochi-ui hub`が必要なGatewayも起動します。アプリは別途起動してください。別のマシンのアプリには、[招待でGatewayを登録](../../guides/remote/)します。
 
-GatewayはサービスごとにひとつのSDK接続を共有します。HubはSurface IDに名前空間を付け、操作と入力メタデータを対象に絞って戻します。A2UIメッセージにセッション用の独自ラッパーは加えません。
+## 状態と保存
 
-リモートは明示登録したEndpointIdと役割で認可します。セッションの世代で古い操作を拒否し、再接続時は新しいスナップショットから開始します。失効時は全参加プロセスが認可を更新し接続を破棄するまで待ちます。
+アプリの状態は公開元のプロセスが持ちます。フォームの入力途中の値は各クライアントが持つため、同じアプリを複数人で使っても入力は独立しています。操作を送るとアプリのActionが共有状態を更新します。
 
-ネイティブ版にはビルド済み画面が埋め込まれています。開発プレビューは別サーバーです。通信の詳細は[Gateway v4仕様](https://github.com/omochi-ui/omochi/blob/main/spec/gateway-v4.md)、実装構成は[開発者向けアーキテクチャ](https://github.com/omochi-ui/omochi/blob/main/docs/architecture.md)を参照してください。
+Hubが保存するのはダッシュボードの配置です。Hubやブラウザーを再起動しても、アプリ自身の実行状態を復元するものではありません。
 
-## クライアントと権限
+## リモートで使う
 
-ホストされたダッシュボードは、稼働中のネイティブHubへオーナーまたは共有権限で接続します。ボードと認可はHubが持ち、静的Webホストは画面のファイルを配信します。オーナーは全ボード・共有の管理とGateway登録を行えます。共有は保存済みボードひとつを対象にし、リンクごとに操作・レイアウト編集を個別に許可できます。Gatewayの信頼とHubの権限は、登録・取り消しを別に管理します。
+`https://app.omochi.fyi/`の画面は、起動中のHubに接続します。Hubのあるマシンを止めると利用できません。全体の管理にはオーナー接続、ボードひとつへのアクセスには共有リンクを使います。
 
-FlutterアプリはGatewayに直接接続する共通Rust Hubを内蔵し、外部Hubのオーナー・共有クライアントにもなれます。外部接続を選ぶ間は端末内Hubを休止し、identityはそれぞれ別の保護ストレージに保存します。ブラウザー内でGatewayを集約する方式は`experiments/browser-dashboard`の明示実行する実験として残しています。
+Gatewayへの登録とHubのオーナー・共有権限は別です。接続・取り消しの手順は[マシンを接続する](../../guides/remote/)、共有できる範囲は[ダッシュボードガイド](../../guides/dashboards/)を参照してください。
 
-ローカルブラウザーのリソース経路はRange・HEADに対応します。ホストされたオーナー・共有クライアントの画像は、ネイティブHubの検証方針を通して取得します。リモートの音声・動画アダプターは未対応です。[接続ガイド](../../guides/remote/)と[ダッシュボード共有](../../guides/dashboards/#保存したダッシュボードを共有する)を参照してください。
+[Omochiアプリ](../../guides/mobile/)はHubを内蔵しており、Gatewayへ直接接続するか、外部Hubへオーナー・共有クライアントとして接続できます。

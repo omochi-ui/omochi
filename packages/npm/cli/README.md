@@ -1,10 +1,16 @@
 # @omochi-ui/cli
 
-Thin npm entry point for the Rust `omochi-ui` executable.
-The implementation and release version live in `crates/`. This private checkout
-manifest uses a placeholder version; the public manifest is generated from Cargo.
+Run Omochi's dashboard and connect your apps on Linux or macOS with Node.js 22+.
 
-From a checkout, run `bun run build:native`, then `bun run omochi-ui`.
-Published npm packages select an exact-version native platform package.
-See [the command reference](../../../docs/cli.md) and
-[registry releases](../../../docs/native-releasing.md).
+```sh
+npx @omochi-ui/cli hub
+```
+
+Open **http://127.0.0.1:5555/** and add a running app or utility through **Add view**.
+
+Install with `npm install -g @omochi-ui/cli` to use `omochi-ui` directly.
+A Cargo installation is also available as `omochi-cli`.
+
+See the [command reference](https://omochi.fyi/en/docs/reference/cli/)
+and [installation guide](https://omochi.fyi/en/docs/start/installation/).
+For package maintenance, see [native releases](../../../docs/native-releasing.md).

@@ -7,28 +7,40 @@ sidebar:
 
 ## The app prints JSON instead of opening a browser
 
-This is expected when `app.start()` uses stdio. Run it through `omochi-ui dev -- COMMAND`, start the separate Vite preview, and open port 5173. See [first UI](../../start/first-ui/).
+`app.start()` defaults to stdin/stdout. To display it in a Hub, select `UnixSocketServerTransport` as shown in the [SDK guide](../../guides/sdks/). See [Transports](../../reference/transports/) for custom clients and stdio previews.
 
 ## Port 5555 is already occupied
 
-`dev` and `hub` share that default. Stop the existing process or choose `--port`. When changing the bridge port, update the preview connection to match.
+`dev` and `hub` share that default. Stop the existing process or choose `--port`. When changing the bridge port, use its printed `?ws=` URL to update the preview target.
 
 ## A service does not appear
 
-Confirm the application is running in discoverable mode (`OMOCHI_SERVICE` for bundled examples), under the same user and runtime directory as the gateway. Check ownership and permissions without relaxing mode 0700. The hub does not start arbitrary SDK apps for you.
+Check that the app publishes through `UnixSocketServerTransport` under the same OS user and runtime directory as the Gateway. The Hub does not start apps automatically. Check paths and environment variables in [configuration](../../reference/configuration/); keep runtime directories at mode 0700.
 
 ## Input seems stale after an update
 
-Renderer-local drafts survive rerenders. Use the Local reset API to intentionally overwrite them; changing application state alone does not reset input.
+Drafts survive rerenders. Use the [Local reset API](../../concepts/inputs/#rerenders-and-resets) to overwrite them explicitly.
 
 ## An action hangs during an update
 
-Do not await `runtime.update()` inside an active action. Use the handler's context update. Actions remain serial even when publishing progress.
+Await the handler's context update inside an Action, rather than `runtime.update()`. Actions execute serially.
 
 ## Remote connection fails
 
-Check `status` and `trust list`, confirm enrollment and peer role, and issue a new invitation if the previous one expired. Invitations are single-use and last 180 seconds. `--offline` disables public lookup/relays. Old trust must be replaced by re-pairing.
+Check `omochi-ui status` and `omochi-ui trust list`. Confirm that the Gateway runs with `--remote`, the peer is registered, and relay/offline settings match. Issue a new invitation if an unused one expired; invitations last three minutes. Check multicast and firewall settings if direct LAN connections fail.
+
+## Disconnected during Gateway registration
+
+Reconnect to the Hub with the same browser and owner connection that started registration, then inspect its result. If saving is pending, choose **Retry saving registration**; no new invitation is needed. Closing the invitation screen does not cancel registration already started on the Hub.
+
+## Another tab owns the connection
+
+One tab at a time uses the browser identity. Use the connected tab or close it and retry. If you need to reopen a share, use the original link.
+
+## Revocation reports an error
+
+Refresh the screen or run `trust list` to check whether the registration remains. Removal may have been saved while a running process failed to confirm that connections closed. Stop or restart unresponsive Hubs/Gateways, then verify their state. Do not treat the error as a successful revocation.
 
 ## Media fails to load
 
-Keep the resource registered throughout playback. Check size limits and MIME type. No codec conversion is performed. Custom transports must route resource responses back to the originating connection.
+Keep resources registered throughout playback. Check size limits, MIME type, and the client's [media support](../../guides/media/#media-support-by-client). No codec conversion is performed. Custom transports must reply to the originating connection.

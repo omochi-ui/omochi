@@ -5,20 +5,31 @@ sidebar:
   order: 4
 ---
 
-## Give an agent a surface
+## Configure the MCP server
 
-Build the checkout first. Configure an MCP-capable agent with an absolute checkout path:
+[Install the CLI and utilities](../../start/installation/), then configure an MCP-capable agent:
 
 ```json
-{"mcpServers":{"omochi":{"command":"/absolute/path/to/omochi/packages/npm/utils/bin/omochi-utils","args":["mcp","--service-id","quickstart-agent","--name","Agent"]}}}
+{
+  "mcpServers": {
+    "omochi": {
+      "command": "omochi-utils",
+      "args": ["mcp", "--service-id", "agent", "--name", "Agent"]
+    }
+  }
+}
 ```
 
-Start `bun run omochi-ui hub`. Ask the agent to inspect your project and publish a `main` surface with a summary and a useful next command. Add the agent view from the hub's view picker. The agent process owns the surface; disconnecting its MCP server retracts it.
+If the agent cannot find the command, set `command` to the installed executable's absolute path.
 
-## Tool workflow
+## Display an agent's view
 
-`omochi-utils mcp` is a stdio MCP server launched by the agent. It publishes ordinary discoverable services, so agent-created surfaces can share a dashboard with SDK apps and command tools. See the [utilities reference](../../reference/utils/) for the tool contract.
+Start `omochi-ui hub` in another terminal. Ask the agent to inspect your project and publish a `main` Surface with a summary and a useful next command. Add it through **Add view** in the Hub.
 
-## Approval example
+Surfaces remain available while the MCP server runs. To respond to buttons, the agent must read events using `read_events` and publish updates. Clicking a button does not wake an idle agent automatically. See the [utilities reference](../../reference/utils/#mcp) for arguments and examples.
 
-The [agent approval integration](https://github.com/omochi-ui/omochi/tree/main/examples/agent-approval) provides an Approve/Reject surface for Codex, Claude Code, Cursor, and OpenCode tool hooks, with optional rejection notes and an agent-free demo. Follow its README for the hook-specific setup. An approval surface does not replace the agent's own permission controls.
+## Add tool approval controls
+
+The [agent approval example](https://github.com/omochi-ui/omochi/tree/main/examples/agent-approval) provides an Approve/Reject view for Codex, Claude Code, Cursor, and OpenCode. Follow its README to configure hooks and run the demo. This example runs from a source checkout.
+
+Approval follows each agent's permission controls. Check which hooks are supported and what happens when the service is unavailable before using it.
