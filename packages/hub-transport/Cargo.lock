@@ -1907,7 +1907,7 @@ dependencies = [
 
 [[package]]
 name = "omochi-downstream-core"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "omochi-ui",
  "serde",
@@ -1932,7 +1932,7 @@ dependencies = [
 
 [[package]]
 name = "omochi-ui"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "serde_json",
  "thiserror 2.0.21",

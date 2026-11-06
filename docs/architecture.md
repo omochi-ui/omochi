@@ -432,7 +432,7 @@ Cargo owns native versions; npm stubs use private `0.0.0` placeholders. Release
 scripts generate public manifests and exact platform binary dependencies from
 Cargo. The shared launcher selects a supported native binary and forwards the
 process. Generated `dist`, `dist-test`, WASM and packaged assets are build output.
-See [SDK/browser releases](releasing.md), [native releases](native-releasing.md),
+See [SDK/browser releases](sdk-releasing.md), [native releases](native-releasing.md),
 [distribution](../crates/DISTRIBUTION.md) and [deployment](../deploy/README.md).
 
 Changes should be verified at the affected boundary:

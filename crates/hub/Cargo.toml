@@ -18,9 +18,9 @@ sha2 = "0.11.1"
 tokio.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-omochi-protocol = { path = "../protocol", version = "=0.3.0" }
-omochi-transport = { path = "../transport", version = "=0.3.0", default-features = false }
-omochi-ui = { path = "../../packages/sdk/rust", version = "=0.2.0", default-features = false }
+omochi-protocol = { path = "../protocol", version = "=0.3.1" }
+omochi-transport = { path = "../transport", version = "=0.3.1", default-features = false }
+omochi-ui = { path = "../../packages/sdk/rust", version = "=0.2.1", default-features = false }
 tokio-util = { version = "0.7", features = ["rt", "codec"] }
 axum = { version = "0.8", features = ["ws"], optional = true }
 futures-util = { version = "0.3", features = ["sink"] }
@@ -38,7 +38,7 @@ image = { version = "0.25.10", default-features = false, features = ["png", "jpe
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
-omochi-gateway = { path = "../gateway", version = "=0.3.0" }
+omochi-gateway = { path = "../gateway", version = "=0.3.1" }
 tempfile = "3"
 futures-util = { version = "0.3", features = ["sink"] }
 tokio-util = { version = "0.7", features = ["rt", "codec"] }

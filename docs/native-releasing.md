@@ -32,13 +32,13 @@ The old TypeScript services are retained in Git history, not the active workspac
 ## Installation after publication
 
 ```sh
-npm install -g @omochi-ui/cli@0.2.0 @omochi-ui/utils@0.2.0
-# Or: bunx @omochi-ui/cli@0.2.0 hub
+npm install -g @omochi-ui/cli@0.3.1 @omochi-ui/utils@0.3.1
+# Or: bunx @omochi-ui/cli@0.3.1 hub
 omochi-ui hub
 
 # Build from the published Rust sources instead:
-cargo install omochi-cli --version 0.2.0 --locked
-cargo install omochi-utils --version 0.2.0 --locked
+cargo install omochi-cli --version 0.3.1 --locked
+cargo install omochi-utils --version 0.3.1 --locked
 ```
 
 npm wrappers need Node.js 22+ and select exact-version optional packages:
@@ -80,11 +80,36 @@ Cargo's generated-asset VCS dirty flag.
 
 ## GitHub Actions and registry setup
 
+### Routine release
+
+Native 0.3.1 and SDK/browser 0.2.1 have separate tags at the same source commit.
+See their [native](releases/native-0.3.1.md) and
+[SDK/browser](releases/sdk-0.2.1.md) notes, including the required v1 sharing-link
+replacement.
+
+1. Update public SDK/browser manifests, the Python workspace and both Rust SDK
+   crates together. Update the native workspace version and exact path dependency
+   requirements separately, then regenerate affected Bun, uv and Cargo lockfiles.
+2. Run both release source checks and packaging regression checks, commit the
+   changes, and push `main`. Create and push `v0.2.1` and `native-v0.3.1` at that
+   commit. Validate each tag using `release:check` / `release:native:check`.
+3. Publish the SDK/browser GitHub Release first. Wait for its crates.io job to
+   publish the SDK and macro crates before starting native crate packaging:
+   native crates pin the exact SDK version from the checkout.
+4. Publish the native GitHub Release. Its event starts native registry packaging
+   and the Docker workflow, which publishes the tested amd64/arm64 GHCR image.
+   Alternatively, dispatch those workflows with the native tag and
+   `dry_run: false`. Avoid triggering both paths for the same release.
+5. Review the workflow results and approve npm stages with maintainer 2FA,
+   dependencies/platform packages before dependents/launchers. Confirm the
+   versioned GHCR manifest lists both Linux platforms. There is no `latest` image
+   tag; use `ghcr.io/omochi-ui/omochi:0.3.1`.
+
 ### First publication of the new crates
 
-The next SDK/browser release is `v0.2.0`; the next native release is
-`native-v0.3.0`. Publish these two new crates locally before configuring their
-trusted publishers. Commit the version and lockfile changes first and use that
+The initial SDK/browser `v0.2.0` and native `native-v0.3.0` rollout introduced
+the macro and mDNS crates. Publish these two new crates locally before configuring
+their trusted publishers. Commit the version and lockfile changes first and use that
 same commit for both release tags: Cargo archives include the source commit,
 and CI rejects an existing version with different bytes. Then run from the
 repository root:

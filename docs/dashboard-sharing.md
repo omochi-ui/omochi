@@ -57,10 +57,15 @@ Owner enrollment still uses a durable browser identity in IndexedDB, owned by
 one tab through Web Locks. Owner invitations require explicit acceptance and
 expire after three minutes. Local forget/reset does not revoke Hub authority.
 
-All v1 sharing links and identity registrations are retired on upgrade. The Hub
-clears v1 sharing records under the lock and advances its generation. Reissue
+All v1 sharing links and shared-client identity registrations are retired on
+upgrade. The Hub clears v1 sharing records under the lock and advances its generation. Reissue
 links; no old identity grant is converted to bearer authority. Owner grants and
 Gateway trust are retained.
+
+For the 0.3.1 upgrade, back up configuration, restart native services with 0.3.1,
+update browser/native clients, and reissue all dashboard sharing links. Native
+clients remove recognized legacy sharing records without resetting their identity
+or owner connections. See the [0.3.1 release notes](releases/native-0.3.1.md).
 
 Images use scoped native fetch/validation and bounded browser decoding. A
 canonical complete URI in authoritative Surface state publishes an image;
