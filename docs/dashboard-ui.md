@@ -37,6 +37,33 @@ Same seeded dashboard before and after the change:
   never changes saved geometry.
 - **Details** exposes full view and source names without relying on hover titles.
 
+## Invitations and connection controls
+
+Owner registration and gateway invitations open in native modal dialogs. Receiving
+an owner invitation preserves the current board and unsaved edits; accepting it
+uses the existing unsaved-change confirmation before switching connections.
+Dismissal returns to the current board. Public share links still open directly.
+
+Dialogs use a shared header with a top-right close button that stays visible when
+the content scrolls. Action rows wrap with consistent spacing, and button-shaped
+links remain a single control at narrow widths. Sharing checkboxes have their own
+layout instead of inheriting text-input dimensions.
+
+Connection management starts collapsed. Full hub, gateway and browser IDs are
+available under details; panel headers prefer readable source names. The main
+status row shows connection text only while disconnected or reconnecting.
+
+The pre-bootstrap native-app link remains available if transport initialization
+fails. Once React loads, the invitation dialog owns that action, so registering
+or dismissing the invitation removes it. Public-share native handoff is available
+under connection details. These labels follow the selected interface language.
+
+The controlled-session browser regression checks are run with
+`bun tests/browser/gateway-reconnect.mjs`. They cover modal dismissal, owner
+invitations above unsaved drafts, native handoff lifetime, 320px button layout,
+and the existing reconnect and authorization-scope cases. These checks exercise
+the real React UI with controlled session responses, not native enrollment.
+
 ## Board view
 
 **Board view** hides navigation and editing controls, while preserving view

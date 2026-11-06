@@ -11,9 +11,9 @@ export function OwnerSettings() {
   const run = async (operation: () => Promise<void>) => { setBusy(true); setError(false); try { await operation(); } catch { setError(true); } finally { setBusy(false); } };
   return <section aria-label={t('owner.title')}><h2>{t('owner.title')}</h2><p>{t('owner.description')}</p>
     {error && <p role="alert">{t('owner.error')}</p>}
-    <Button disabled={busy} onClick={() => { void run(async () => { const result = await repository.request('/api/owners', 'POST') as { url: string }; setUrl(result.url); await reload(); }); }}>{t('owner.register')}</Button>
-    <Button disabled={busy} onClick={() => { void run(reload); }}>{t('owner.refresh')}</Button>
+    <div className="toolbar"><Button disabled={busy} onClick={() => { void run(async () => { const result = await repository.request('/api/owners', 'POST') as { url: string }; setUrl(result.url); await reload(); }); }}>{t('owner.register')}</Button>
+    <Button disabled={busy} onClick={() => { void run(reload); }}>{t('owner.refresh')}</Button></div>
     {url && <><label htmlFor="owner-link">{t('owner.link')}</label><textarea id="owner-link" readOnly value={url} onFocus={event => event.target.select()} /><Button onClick={() => setUrl('')}>{t('owner.hide')}</Button></>}
-    {owners.map(owner => <article key={owner.id}><span>{owner.peer ?? t('owner.pending')}</span><Button disabled={busy} onClick={() => { if (confirm(t('owner.confirm'))) void run(async () => { await repository.request(`/api/owners/${encodeURIComponent(owner.id)}`, 'DELETE'); setUrl(''); await reload(); }); }}>{t('owner.revoke')}</Button></article>)}
+    {owners.map((owner, index) => <article className="notice" key={owner.id}><span>{owner.peer ? t('owner.browser', { number: index + 1 }) : t('owner.pending')}{owner.peer && <details className="connection-details"><summary>{t('connection.details')}</summary><code>{owner.peer}</code></details>}</span><Button className="danger" disabled={busy} onClick={() => { if (confirm(t('owner.confirm'))) void run(async () => { await repository.request(`/api/owners/${encodeURIComponent(owner.id)}`, 'DELETE'); setUrl(''); await reload(); }); }}>{t('owner.revoke')}</Button></article>)}
   </section>;
 }

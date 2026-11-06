@@ -110,6 +110,8 @@ export async function boardsChecks({ browser, host, fixture, until, passed, outp
   await until(async () => await browser.evaluate('document.querySelector(".notice.error")?.textContent.includes("board is invalid")'), 'invalid board rejection');
   passed('unknown nested source fields are rejected before writes or connection changes', JSON.stringify(await rows()) === beforeInvalid &&
     JSON.stringify(await profile()) === JSON.stringify(originalProfile) && await browser.evaluate('window.__boardNet.bind===0&&!document.querySelector("dialog[open]")'));
+  await browser.evaluate('document.querySelector(".connection-chip[aria-haspopup=dialog]").click()');
+  await until(async () => await browser.evaluate('!!document.querySelector(".connection-popover:modal")'), 'connection menu opens');
   for (let index = 0; index < fixture.ready.gateways.length; index++) {
     await input('#gateway-invitation', fixture.ready.gateways[index].invitation); await click('Accept or refresh invitation');
     await until(async () => await browser.evaluate(`!!${button('Connect', `document.querySelector('[data-gateway="${fixture.ready.gateways[index].nodeId}"]')`)}`), 'explicit board source enrollment');
@@ -117,6 +119,8 @@ export async function boardsChecks({ browser, host, fixture, until, passed, outp
   }
   await until(async () => await browser.evaluate('document.querySelectorAll("[data-surface]").length===8'), 'explicitly connected board Surfaces');
   passed('only explicit Connect activates imported board sources');
+  await browser.evaluate('document.querySelector(".connection-popover .dialog-header button").click()');
+  await until(async () => await browser.evaluate('!document.querySelector(".connection-popover[open]")&&document.activeElement.matches(".connection-chip")'), 'connection menu closes and restores focus');
   await click('Create dashboard', 'document.querySelector("aside")');
   await until(async () => await browser.evaluate('!!document.querySelector("#dashboard-name")&&document.querySelectorAll("[data-surface]").length===0'), 'new board releases prior subscriptions');
   await input('#dashboard-name', 'Picker subscription'); const beforePicker = await browser.evaluate('window.__boardNet.service');
@@ -129,7 +133,6 @@ export async function boardsChecks({ browser, host, fixture, until, passed, outp
   await until(async () => await browser.evaluate('document.querySelector(".page-header h1")?.textContent==="Picker subscription"&&document.querySelectorAll("[data-surface]").length===1'), 'picker board commit');
   const live = await download('connected');
   passed('export labels come from authenticated sources rather than import hints', live.sources.length === 1 && live.sources[0].name === 'Fixture 0' && live.sources[0].nodeId === node);
-  await browser.evaluate('document.querySelector(".connection-settings").open=false');
   await browser.command('Emulation.setDeviceMetricsOverride', { width: 1440, height: 1000, deviceScaleFactor: 1, mobile: false });
   const screenshot = await browser.command('Page.captureScreenshot', { format: 'png', captureBeyondViewport: true });
   await writeFile(path.join(output, 'boards.png'), Buffer.from(screenshot.data, 'base64'));

@@ -29,9 +29,30 @@ test('hosted connection screen mounts with dashboard navigation and translated c
     root.render(createElement(ConnectionScreen, { transport, boards, takeInvitation: () => null, bootstrapError: null }));
   });
 
-  assert.equal(container.querySelector('h2')?.textContent, 'Your application connections');
-  assert.equal(container.querySelector('.connection-settings summary')?.textContent, 'Connections');
   assert.equal(container.querySelector('h1')?.textContent, 'Dashboards');
   assert.equal(document.documentElement.lang, 'en');
-  assert.ok(container.querySelector('button'));
+  const trigger = container.querySelector<HTMLButtonElement>('button[aria-haspopup="dialog"]');
+  assert.ok(trigger);
+  assert.match(trigger.getAttribute('aria-label') ?? '', /^Gateways: Connections\./);
+  assert.equal(trigger.getAttribute('aria-expanded'), 'false');
+  const menu = document.getElementById(trigger.getAttribute('aria-controls') ?? '');
+  assert.ok(menu instanceof HTMLDialogElement);
+  assert.equal(menu.open, false);
+
+  await act(async () => { trigger.click(); });
+  assert.equal(trigger.getAttribute('aria-expanded'), 'true');
+  assert.equal(menu.open, true);
+  assert.equal(menu.querySelector('.dialog-header h2')?.textContent, 'Gateways');
+  assert.equal(menu.querySelector('.connections-page h2')?.textContent, 'Your application connections');
+
+  const close = menu.querySelector<HTMLButtonElement>('button[aria-label="Close"]');
+  assert.ok(close);
+  await act(async () => { close.click(); });
+  assert.equal(menu.open, false);
+  assert.equal(trigger.getAttribute('aria-expanded'), 'false');
+
+  await act(async () => { trigger.click(); });
+  await act(async () => { menu.dispatchEvent(new Event('cancel', { cancelable: true })); });
+  assert.equal(menu.open, false);
+  assert.equal(trigger.getAttribute('aria-expanded'), 'false');
 });

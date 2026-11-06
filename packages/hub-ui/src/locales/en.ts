@@ -1,11 +1,17 @@
 export default {
   "common": {
+    "close": "Close",
     "cancel": "Cancel",
     "retry": "Retry",
     "name": "Name",
     "device": "Device",
     "app": "App",
     "viewId": "View ID"
+  },
+  "native": {
+    "open": "Open in Omochi app",
+    "shareHelp": "This sharing link grants the same permissions in the app.",
+    "invitationHelp": "An invitation already registered in a browser cannot be transferred. Issue a new invitation for the app."
   },
   "language": {
     "label": "Language"
@@ -23,6 +29,9 @@ export default {
     "connected": "✓ Hub connected",
     "exitBoard": "Exit board view",
     "connections": "Connections",
+    "localHub": "Local hub",
+    "appCount_one": "{{count}} app",
+    "appCount_other": "{{count}} apps",
     "name": "Dashboard name",
     "nameRequired": "Enter a dashboard name.",
     "unsaved": "Unsaved changes",
@@ -85,6 +94,7 @@ export default {
     "removed": "{{name}} removed."
   },
   "view": {
+    "sourceUnknown": "Source app",
     "add": "Add view",
     "nameRequired": "Enter a view name.",
     "details": "Details",
@@ -104,7 +114,6 @@ export default {
     "taller": "Taller",
     "keyboardHelp": "Use arrow keys on the move handle, or select Adjust layout for move and resize buttons.",
     "detailsTitle": "View details",
-    "closeDetails": "Close details",
     "moveLabel": "Move {{name}}",
     "nameLabel": "View name {{name}}",
     "detailsLabel": "View details for {{name}}",
@@ -180,10 +189,10 @@ export default {
     "confirm": "Confirm revoke",
     "cancel": "Cancel revocation",
     "refresh": "Refresh shares",
-    "close": "Close sharing",
     "updateError": "Could not update sharing. Refresh and retry."
   },
   "owner": {
+    "browser": "Owner browser {{number}}",
     "title": "Owner browser access",
     "description": "Registered browsers can manage all dashboards and sharing, and operate apps. Only this screen can register or revoke owners.",
     "error": "Could not confirm owner access changes. Refresh and retry.",
@@ -196,6 +205,10 @@ export default {
     "revoke": "Revoke owner access"
   },
   "connection": {
+    "details": "Connection details",
+    "hubId": "Hub ID",
+    "dismiss": "Not now",
+    "current": "Current connection",
     "label": "Shared dashboard connection",
     "defaultName": "Shared dashboard",
     "title": "Shared dashboards",
@@ -230,6 +243,8 @@ export default {
     "browserId": "Browser ID:"
   },
   "gateway": {
+    "details": "Invitation details",
+    "connections": "Choose or manage a hub connection",
     "busy": "Another gateway invitation is awaiting confirmation.",
     "invalid": "Invalid or expired gateway invitation. Request a new invitation.",
     "sent": "Invitation sent. Confirm the gateway in the tab already connected to your hub.",
