@@ -114,7 +114,6 @@ export default {
     "taller": "Taller",
     "keyboardHelp": "Use arrow keys on the move handle, or select Adjust layout for move and resize buttons.",
     "detailsTitle": "View details",
-    "closeDetails": "Close details",
     "moveLabel": "Move {{name}}",
     "nameLabel": "View name {{name}}",
     "detailsLabel": "View details for {{name}}",

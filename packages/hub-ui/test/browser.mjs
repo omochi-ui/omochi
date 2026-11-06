@@ -125,7 +125,7 @@ try {
     await screenshot('board.png');
     await click('Exit board view');
     assert.equal(await evaluate("window.savedSurface === document.querySelector('.omochi-surface')"), true);
-    const colors = await evaluate(`['.workspace', '.connection-status', '.primary', '.dashboard-link.selected'].map(selector => { const e=document.querySelector(selector); const c=getComputedStyle(e); let bg=c.backgroundColor, parent=e.parentElement; while(bg==='rgba(0, 0, 0, 0)' && parent) { bg=getComputedStyle(parent).backgroundColor; parent=parent.parentElement; } return {selector,color:c.color,background:bg}; })`);
+    const colors = await evaluate(`['.workspace', '.connection-count', '.primary', '.dashboard-link.selected'].map(selector => { const e=document.querySelector(selector); const c=getComputedStyle(e); let bg=c.backgroundColor, parent=e.parentElement; while(bg==='rgba(0, 0, 0, 0)' && parent) { bg=getComputedStyle(parent).backgroundColor; parent=parent.parentElement; } return {selector,color:c.color,background:bg}; })`);
     const luminance = color => color.match(/[\d.]+/g).slice(0,3).map(Number).map(v=>v/255).map(v=>v<=.04045?v/12.92:((v+.055)/1.055)**2.4).reduce((sum,v,i)=>sum+v*[.2126,.7152,.0722][i],0);
     for(const pair of colors) { const a=luminance(pair.color), b=luminance(pair.background); pair.ratio=(Math.max(a,b)+.05)/(Math.min(a,b)+.05); assert.ok(pair.ratio>=4.5,JSON.stringify(pair)); }
     await writeFile(path.join(output,'contrast.json'),JSON.stringify(colors,null,2));

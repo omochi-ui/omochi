@@ -120,14 +120,6 @@ export function DetailsDialog({
         <dt>{t('common.viewId')}</dt>
         <dd>{panel.reference.surfaceId}</dd>
       </dl>
-      <Button
-        onClick={() => {
-          onClose();
-          restoreDialogFocus(returnTo);
-        }}
-      >
-        {t('view.closeDetails')}
-      </Button>
     </Modal>
   );
 }

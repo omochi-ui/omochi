@@ -116,7 +116,6 @@ export default {
     "taller": "高さを広げる",
     "keyboardHelp": "移動ハンドルで矢印キーを使うか、「レイアウトを調整」の移動・サイズ変更ボタンを使ってください。",
     "detailsTitle": "ビューの詳細",
-    "closeDetails": "詳細を閉じる",
     "moveLabel": "「{{name}}」を移動",
     "nameLabel": "ビュー名「{{name}}」",
     "detailsLabel": "「{{name}}」の詳細",
