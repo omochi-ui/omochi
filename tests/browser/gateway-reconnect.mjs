@@ -58,6 +58,9 @@ try {
     await writeFile(`${screenshots}/${name}.png`, Buffer.from(image.data, 'base64'));
   };
   await connect('Original Hub');
+  assert.equal(await evaluate('document.querySelector(".gateway-invitation").matches(":modal")'), true, 'invitation uses a real modal');
+  assert.equal(await evaluate('!!document.querySelector("#native-invitation-link")'), false, 'React takes over the bootstrap app handoff');
+  assert.equal(await evaluate('document.body.innerText.includes("e".repeat(64))'), false, 'IDs stay in collapsed details');
   await click('Add to this hub');
   await nextCall(0, 'gatewayPairStart'); await reply(0, 'pairing');
   await nextCall(1, 'gatewayPairStatus'); // Hold an old-session poll across disconnect.
@@ -90,6 +93,7 @@ try {
   await until(async () => (await content()).includes('Gateway registered'), 'saved after reconnect');
   assert.deepEqual((await calls()).map(call => call.method), ['gatewayPairStart', 'gatewayPairStatus', 'gatewayPairStatus', 'gatewayPairRetrySave']);
   assert.ok((await calls()).every(call => call.source.name === 'Original Hub'), 'no job request is sent to another hub or grant');
+  assert.equal(await evaluate('!!document.querySelector(".gateway-invitation a")'), false, 'a redeemed invitation no longer offers native handoff');
   await shot('registered');
 
   // Starting requests retain their original target even if the parent switches.
@@ -164,7 +168,47 @@ try {
   await evaluate(`location.hash=${JSON.stringify('#owner:' + owner)}`);
   await until(() => evaluate(`location.hash===''&&!!(${button('Accept invitation')})`), 'warm owner link');
   assert.ok((await content()).includes('Gateway name'), 'warm parent navigation preserves child invitation');
+  assert.equal(await evaluate('document.querySelector(".owner-invitation").matches(":modal")'), true);
+  assert.equal(await evaluate('document.querySelector(".gateway-invitation").matches(":modal")'), false, 'owner confirmation suspends the gateway modal');
+  assert.equal(await evaluate('!!document.querySelector(".hub-layout")'), true, 'receiving an owner invitation keeps the current board');
+  const sessionCount = await evaluate('gatewayTest.sessions.length');
   await shot('warm-owner-invitation');
+  await click('Not now');
+  assert.equal(await evaluate('gatewayTest.sessions.length'), sessionCount, 'dismissing does not disconnect or reconnect');
+  assert.equal(await evaluate('document.querySelector(".gateway-invitation").matches(":modal")'), true, 'pending gateway resumes after owner dismissal');
+  await click('Dismiss invitation');
+  assert.equal(await evaluate('!!document.querySelector("#native-invitation-link")'), false, 'dismissal leaves no stale app banner');
+  assert.equal(await evaluate('document.querySelector(".connection-settings").open'), false, 'connection management starts collapsed');
+  assert.equal(await evaluate('document.querySelector(".connection-status").textContent.includes("Hub connected")'), false, 'healthy status is not repeated');
+
+  // A pending owner invitation must not erase or prematurely confirm a dirty editor.
+  await click('Create dashboard');
+  await evaluate(`(() => { const input = document.querySelector('.dashboard-name'); Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, 'Unsaved work'); input.dispatchEvent(new Event('input', { bubbles: true })); })()`);
+  await evaluate(`location.hash=${JSON.stringify('#owner:' + owner)}`);
+  await until(() => evaluate('!!document.querySelector(".owner-invitation:modal")'), 'owner modal above dirty draft');
+  assert.equal(await evaluate('document.querySelector(".dashboard-name").value'), 'Unsaved work');
+  assert.equal(await evaluate('!!document.querySelector("#confirm-title")'), false, 'receiving a link does not ask to discard edits');
+  await click('Accept invitation');
+  await until(() => evaluate('!!document.querySelector("#confirm-title")'), 'accepting asks before leaving dirty work');
+  await evaluate('document.querySelector("[aria-labelledby=confirm-title] .toolbar button").click()');
+  await until(() => evaluate('!!document.querySelector(".owner-invitation button:not(:disabled)")'), 'invitation usable after cancelling discard');
+  await evaluate('document.querySelector(".owner-invitation .dialog-header button").click()');
+  await until(() => evaluate('!document.querySelector(".owner-invitation")'), 'top-right close dismisses owner invitation');
+  assert.equal(await evaluate('document.querySelector(".dashboard-name").value'), 'Unsaved work');
+  assert.equal(await evaluate('gatewayTest.sessions.length'), sessionCount);
+
+  // Button-shaped links remain one control at narrow widths, with localized text.
+  await invite();
+  await browser.command('Emulation.setDeviceMetricsOverride', { width: 320, height: 900, deviceScaleFactor: 1, mobile: false });
+  assert.equal(await evaluate('document.querySelector(".gateway-invitation a.hub-button").getClientRects().length'), 1);
+  assert.equal(await evaluate('document.documentElement.scrollWidth <= innerWidth'), true);
+  await shot('modal-320');
+  await evaluate(`(() => { const select = document.querySelector('.language-switcher select'); select.value = 'ja'; select.dispatchEvent(new Event('change', { bubbles: true })); })()`);
+  await until(() => evaluate('document.querySelector(".gateway-invitation a").textContent === "Omochiアプリで開く"'), 'native handoff follows UI language');
+  await evaluate('document.querySelector(".gateway-invitation .dialog-header button").click()');
+  await until(() => evaluate('!document.querySelector(".gateway-invitation")'), 'top-right close dismisses gateway invitation');
+  await until(() => evaluate('document.activeElement !== document.body'), 'dismissal restores a focusable background target');
+
   assert.equal(await count(), 14, 'navigation and dismissal never automatically enroll');
   assert.deepEqual(errors, []);
   console.log(`PASS: gateway reconnect, authority isolation, save retry, late results, dismissal, UTF-8 name validation, next invitation and warm navigation. Screenshots: ${screenshots}`);

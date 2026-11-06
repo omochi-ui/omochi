@@ -4,6 +4,7 @@ import { createRoot } from 'react-dom/client';
 import { ConnectionScreen } from '../../src/remote/ConnectionScreen.tsx';
 import { RemoteHubSession } from '../../src/remote/session.ts';
 import { openHubProfile } from '../../src/remote/profile.ts';
+import { installNativeInvitationButton } from '../../src/remote/native-link.ts';
 import { createHostedFragmentInbox } from '../../src/remote/fragment.ts';
 import i18n from '../../src/i18n.ts';
 import '../../src/styles.css';
@@ -59,9 +60,9 @@ RemoteHubSession.prototype.control = async function (command) {
 };
 const payload = () => '#g:' + btoa(JSON.stringify({ version: 4, address: { id: 'e'.repeat(64), addrs: [] }, secret: 'f'.repeat(64), expires: Math.floor(Date.now() / 1000) + 180 })).replaceAll('+', '-').replaceAll('/', '_').replaceAll('=', '');
 history.replaceState(null, '', payload());
-const fragments = createHostedFragmentInbox(window);
+const fragments = createHostedFragmentInbox(window, fragment => installNativeInvitationButton(document, fragment));
 window.gatewayTest = {
-  calls, sources,
+  calls, sources, sessions,
   tick() { const ready = [...timers.values()]; timers.clear(); for (const callback of ready) callback(); },
   invite() { location.hash = payload(); },
   reply(index, status, id = 'job1') { replies[index].resolve({ id, status, gatewayId: 'e'.repeat(64) }); },

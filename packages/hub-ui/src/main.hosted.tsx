@@ -1,10 +1,11 @@
-import { installNativeInvitationButton } from './remote/native-link.js';
+import { installNativeInvitationButton, translateNativeInvitationButton } from './remote/native-link.js';
 import { createHostedFragmentInbox } from './remote/fragment.js';
 // Capture bearer data before loading any UI/transport module.
 const fragments = createHostedFragmentInbox(window, fragment => installNativeInvitationButton(document, fragment));
 window.addEventListener('pageshow', event => { if (event.persisted) location.reload(); });
 async function main() {
-  await import('./i18n.js');
+  const { default: i18n } = await import('./i18n.js');
+  translateNativeInvitationButton(document, { open: i18n.t('native.open'), shareHelp: i18n.t('native.shareHelp'), invitationHelp: i18n.t('native.invitationHelp') });
   const [{ createRoot }, { createElement }, { ConnectionScreen }, { parseShareLink }, { loadBrowserTransport }, { SessionFault }] = await Promise.all([
     import('react-dom/client'), import('react'), import('./remote/ConnectionScreen.js'), import('./remote/link.js'), import('@omochi-ui/hub-transport'), import('@omochi-ui/core/browser'), import('./styles.css'), import('@omochi-ui/renderer/styles.css'),
   ]);

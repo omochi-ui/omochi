@@ -189,7 +189,7 @@ try {
     await click('Add view'); await input('#search-views', 'no-such-view');
     await until(async () => (await text()).includes('No views match'), 'empty search'); await screenshot('search-empty.png');
     await click('Clear search');
-    await evaluate("document.querySelector('[aria-label=\"Close view picker\"]').click()");
+    await evaluate("document.querySelector('[aria-labelledby=\"picker-title\"] .dialog-header button').click()");
     await until(() => evaluate("document.activeElement.id === 'add-view'"), 'picker focus restoration');
     await evaluate("document.querySelector('[aria-label=\"Remove Task runner\"]').click()");
     await until(() => evaluate("document.querySelectorAll('.panel').length === 0"), 'remove view');

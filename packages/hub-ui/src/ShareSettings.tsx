@@ -4,6 +4,7 @@ import { localizedError } from './localized-error.js';
 import { useTranslation } from 'react-i18next';
 import { useEffect, useRef, useState } from 'react';
 import { Button } from './Button.js';
+import { DialogHeader } from './dialogs.js';
 interface Grant { id: string; boardId: string; permissions: { interact: boolean; editLayout: boolean } }
 interface Host { hubId?: string; relayUrls?: string[]; enabled?: boolean }
 import type { SharingRepository } from './sharing-repository.js';
@@ -26,8 +27,8 @@ export function ShareSettings({ boardId, repository }: { boardId: string; reposi
   const ready = !!host?.hubId && !!host.relayUrls?.length;
   return <>
     <Button disabled={busy} onClick={() => { setOpen(true); setLink(null); setConfirm(null); setMessage(null); void run(refresh); }}>{t('share.title')}</Button>
-    <dialog ref={dialog} className="share-dialog" aria-labelledby="share-heading" onClose={() => { setOpen(false); setLink(null); }} onCancel={event => { if (busy) event.preventDefault(); }}>
-      <h2 id="share-heading">{t('share.title')}</h2>
+    <dialog ref={dialog} className="picker share-dialog" aria-labelledby="share-heading" onClose={() => { setOpen(false); setLink(null); }} onCancel={event => { if (busy) event.preventDefault(); }}>
+      <DialogHeader id="share-heading" title={t('share.title')} onClose={() => setOpen(false)} disabled={busy} />
       <p>{t('share.description')}</p>
       {error && <p role="alert">{localizedError(error, t)}</p>}
       <p role="status">{message && t(message.key, { ...message.values })}</p>
@@ -35,8 +36,8 @@ export function ShareSettings({ boardId, repository }: { boardId: string; reposi
       <fieldset disabled={busy || !ready}>
         <legend>{t('share.create')}</legend>
         <p>{t('share.publicHelp')}</p>
-        <label><input type="checkbox" checked={interact} onChange={e => setInteract(e.target.checked)} /> {t('share.interact')}</label>
-        <label><input type="checkbox" checked={editLayout} onChange={e => setEditLayout(e.target.checked)} /> {t('share.edit')}</label>
+        <label className="checkbox-field"><input type="checkbox" checked={interact} onChange={e => setInteract(e.target.checked)} /> {t('share.interact')}</label>
+        <label className="checkbox-field"><input type="checkbox" checked={editLayout} onChange={e => setEditLayout(e.target.checked)} /> {t('share.edit')}</label>
         <p>{t('share.permissionsHelp')}</p>
         <Button className="primary" onClick={() => { void run(async () => {
           const result = await request('/api/shares', 'POST', { boardId, permissions: { interact, editLayout } }) as { grant: Grant; url?: string };
@@ -51,8 +52,8 @@ export function ShareSettings({ boardId, repository }: { boardId: string; reposi
         <span>{t('share.public')}{grant.permissions.interact && <small>{t('share.interactionAllowed')}</small>}{grant.permissions.editLayout && <small>{t('share.editingAllowed')}</small>}</span>
         <Button className="danger" disabled={busy} onClick={() => setConfirm(grant.id)}>{t('share.revoke')}</Button>
       </article>)}
-      {confirm && <section role="group" aria-label={t('share.confirmLabel')}><p>{t('share.confirmHelp')}</p><Button className="danger" disabled={busy} onClick={() => { void run(async () => { await request(`/api/shares/${encodeURIComponent(confirm)}`, 'DELETE'); if (link?.id === confirm) setLink(null); setConfirm(null); setMessage({ key: 'share.revoked' }); await refresh(); }); }}>{t('share.confirm')}</Button><Button disabled={busy} onClick={() => setConfirm(null)}>{t('share.cancel')}</Button></section>}
-      <div className="dialog-actions"><Button disabled={busy} onClick={() => { void run(refresh); }}>{t('share.refresh')}</Button><Button disabled={busy} onClick={() => setOpen(false)}>{t('share.close')}</Button></div>
+      {confirm && <section role="group" aria-label={t('share.confirmLabel')}><p>{t('share.confirmHelp')}</p><div className="toolbar"><Button className="danger" disabled={busy} onClick={() => { void run(async () => { await request(`/api/shares/${encodeURIComponent(confirm)}`, 'DELETE'); if (link?.id === confirm) setLink(null); setConfirm(null); setMessage({ key: 'share.revoked' }); await refresh(); }); }}>{t('share.confirm')}</Button><Button disabled={busy} onClick={() => setConfirm(null)}>{t('share.cancel')}</Button></div></section>}
+      <div className="dialog-actions"><Button disabled={busy} onClick={() => { void run(refresh); }}>{t('share.refresh')}</Button></div>
     </dialog>
   </>;
 }

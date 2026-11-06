@@ -5,7 +5,7 @@ import { useEffect, useId, useLayoutEffect, useRef, useState, type PointerEvent,
 import { SurfaceView, useA2uiSource } from '@omochi-ui/renderer';
 import { Button } from './Button.js';
 import { Icon } from './Icon.js';
-import { restoreDialogFocus } from './dialogs.js';
+import { DialogHeader, restoreDialogFocus } from './dialogs.js';
 import { referenceId, type Dashboard, type Panel } from './contracts.js';
 import { appendPanel, placePanel, resizePanel, reorderPanels, type ResizeEdge } from './layout.js';
 import { desiredServices, groupByNode, splitSurfaceId, type ServiceView } from './services.js';
@@ -17,7 +17,7 @@ import { emptyDashboard, useDashboardEditor } from './useDashboardEditor.js';
 import { useDashboards } from './useDashboards.js';
 import { useDashboardNavigation } from './DashboardNavigation.js';
 
-export function DashboardWorkspace({ environment, connectionUi, renderSharing }: { environment: DashboardEnvironment; connectionUi?: ReactNode; renderSharing?: (board: Dashboard) => ReactNode }) {
+export function DashboardWorkspace({ environment, connectionUi, connectionName, renderSharing }: { environment: DashboardEnvironment; connectionUi?: ReactNode; connectionName?: string; renderSharing?: (board: Dashboard) => ReactNode }) {
   const { t } = useTranslation();
   const session = useA2uiSource(environment.session);
   const services: readonly ServiceView[] = session.services;
@@ -296,9 +296,9 @@ export function DashboardWorkspace({ environment, connectionUi, renderSharing }:
       <div className="sidebar-footer"><span className={`signal ${connected ? 'online' : ''}`} />{connected ? direct ? t('workspace.gatewayConnected') : t('workspace.hubConnected') : t('workspace.connectionStatus', { target: direct ? t('workspace.gateways') : t('workspace.hub'), status: connectionStatus })}<small>{t('workspace.apps', { count: available })}</small></div>
     </aside>
     <main id="workspace" tabIndex={-1} className="workspace">
-      <div className="workspace-status"><LanguageSwitcher /><div className="connection-status" role="status">{connected ? direct ? t('workspace.gatewayConnected') : t('workspace.connected') : t('workspace.connectionStatus', { target: direct ? t('workspace.gateways') : t('workspace.hub'), status: connectionStatus })}<span>{t('workspace.apps', { count: available })}</span></div>
+      <div className="workspace-status"><LanguageSwitcher /><div className="connection-status" role="status" data-connection-state={session.status.replace(/…$/, '')}>{!connected && t('workspace.connectionStatus', { target: direct ? t('workspace.gateways') : t('workspace.hub'), status: connectionStatus })}<span>{t('workspace.apps', { count: available })}</span></div>
       {board && <Button className="exit-board" onClick={() => { setBoard(false); requestAnimationFrame(() => { if (boardTrigger.current) boardTrigger.current.focus(); else focusMain(); }); }}>{t('workspace.exitBoard')}</Button>}</div>
-      {connectionUi && <details className="connection-settings" open hidden={board}><summary>{t('workspace.connections')}</summary>{connectionUi}</details>}
+      {connectionUi && <details className="connection-settings" hidden={board}><summary>{t('workspace.connections')}{connectionName && <span className="connection-name">{connectionName}</span>}</summary>{connectionUi}</details>}
 
       <header className="page-header">
         <div className="header-copy">
@@ -337,13 +337,15 @@ export function DashboardWorkspace({ environment, connectionUi, renderSharing }:
           const errorId = `${fieldId}-panel-${panelIndex}`;
           const service = services.find(s => s.id === `${panel.reference.nodeId}~${panel.reference.serviceId}`);
           const present = connected && service?.status === 'connected' && session.surfaceIds.includes(id);
+          const sourceName = [service?.node?.name !== panel.reference.nodeId ? service?.node?.name : undefined,
+            service?.name !== panel.reference.serviceId ? service?.name : undefined].filter(Boolean).join(' / ') || t('view.sourceUnknown');
           const rectangle = preview?.find(p => p.id === panel.id) ?? panel;
           return <article className="panel" key={panel.id} data-panel-id={panel.id} data-reference={id} data-surface={present ? id : undefined} style={{ gridColumn: `${rectangle.x + 1} / span ${rectangle.w}`, gridRow: `${rectangle.y + 1} / span ${rectangle.h}` }}>
             <header className="panel-header">
               {editing && !narrow && <Button static aria-label={t('view.moveLabel', { name: panel.title })} className="drag-handle" disabled={busy}
                 aria-describedby="layout-help" onKeyDown={event => { const delta = ({ ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] } as Record<string, number[]>)[event.key]; if (delta) { event.preventDefault(); changePanel({ ...panel, x: panel.x + delta[0]!, y: Math.min(100000, panel.y + delta[1]!) }); } }} onPointerDown={e => beginGesture(e, panel, 'move')} onPointerMove={moveGesture} onPointerUp={endGesture} onPointerCancel={cancelGesture} onLostPointerCapture={cancelGesture}><Icon name="grip" /></Button>}
               <div className="panel-heading">{editing ? <input aria-invalid={validated && !panel.title.trim()} aria-describedby={validated && !panel.title.trim() ? errorId : undefined} aria-label={t('view.nameLabel', { name: panel.title })} maxLength={200} disabled={busy} value={panel.title} onChange={e => changePanel({ ...panel, title: e.target.value })} /> : <h2>{panel.title}</h2>}{editing && validated && !panel.title.trim() && <p className="field-error" id={errorId}>{t('view.nameRequired')}</p>}
-                <small title={`${service?.node?.name ?? panel.reference.nodeId} / ${service?.name ?? panel.reference.serviceId}`}>{service?.node?.name ?? panel.reference.nodeId} / {service?.name ?? panel.reference.serviceId}</small></div>
+                <small>{sourceName}</small></div>
               <Button className="details-button" aria-label={t('view.detailsLabel', { name: panel.title })} onClick={() => { rememberFocus(); setDetails(panel); }}>{t('view.details')}</Button>
               {editing && !shared ? <Button className="icon-button" aria-label={t('view.removeLabel', { name: panel.title })} disabled={busy} onClick={() => removePanel(panel)}><Icon name="close" /></Button>
                 : <span className="view-status">{present ? t('view.live') : t('view.offline')}</span>}
@@ -374,7 +376,7 @@ export function DashboardWorkspace({ environment, connectionUi, renderSharing }:
       <p id="layout-help" className="sr-only">{t('view.keyboardHelp')}</p>
     </main>
     {picker && <dialog ref={pickerDialog} aria-labelledby="picker-title" className="picker" onCancel={closePicker}>
-      <header><div><h2 id="picker-title">{t('picker.title')}</h2></div><Button className="icon-button" aria-label={t('picker.close')} onClick={closePicker}><Icon name="close" /></Button></header>
+      <DialogHeader id="picker-title" title={t('picker.title')} onClose={closePicker} />
       <p>{direct ? t('picker.chooseApp') : t('picker.chooseView')}</p><label htmlFor="search-views">{t('picker.search')}</label>
       <input id="search-views" autoFocus className="search" aria-label={t('picker.search')} placeholder={t('picker.placeholder')} value={search} onChange={e => setSearch(e.target.value)} />
       <div className="view-options">
@@ -393,12 +395,12 @@ export function DashboardWorkspace({ environment, connectionUi, renderSharing }:
 
     </dialog>}
     {importPreview && <dialog ref={importDialog} className="picker" aria-labelledby="import-title" onCancel={() => { importDialog.current?.close(); setImportPreview(null); restoreFocus(); }}>
-      <h2 id="import-title">{t('import.title')}</h2><p>{importPreview.input.name} · {t('workspace.views', { count: importPreview.input.panels.length })}</p>
+      <DialogHeader id="import-title" title={t('import.title')} disabled={busy} onClose={() => { importDialog.current?.close(); setImportPreview(null); restoreFocus(); }} /><p>{importPreview.input.name} · {t('workspace.views', { count: importPreview.input.panels.length })}</p>
       <p>{t('import.description')}</p>
       <ul>{importPreview.sources.map(source => <li key={source.nodeId}>{source.name && <span>{source.name} — </span>}<code>{source.nodeId}</code>{!gateways.has(source.nodeId) && <span>{t('import.gatewayRequired')}</span>}</li>)}</ul>
       <div className="toolbar"><Button disabled={busy} onClick={() => { importDialog.current?.close(); setImportPreview(null); restoreFocus(); }}>{t('import.cancel')}</Button><Button className="primary" disabled={busy} onClick={importCopy}>{t('import.confirm')}</Button></div>
     </dialog>}
-    {details && <dialog ref={detailsDialog} className="picker" aria-labelledby="details-title" onCancel={() => { detailsDialog.current?.close(); setDetails(null); restoreFocus(); }}><h2 id="details-title">{t('view.detailsTitle')}</h2><dl><dt>{t('common.name')}</dt><dd>{details.title}</dd><dt>{t('common.device')}</dt><dd>{services.find(s => s.node?.id === details.reference.nodeId)?.node?.name ?? details.reference.nodeId}</dd><dt>{t('common.app')}</dt><dd>{services.find(s => s.id === `${details.reference.nodeId}~${details.reference.serviceId}`)?.name ?? details.reference.serviceId}</dd><dt>{t('common.viewId')}</dt><dd>{details.reference.surfaceId}</dd></dl><Button onClick={() => { detailsDialog.current?.close(); setDetails(null); restoreFocus(); }}>{t('view.closeDetails')}</Button></dialog>}
-    {confirmation && <dialog ref={confirmDialog} className="picker" aria-labelledby="confirm-title" onCancel={() => { confirmDialog.current?.close(); setConfirmation(null); pendingLeave.current?.(false); pendingLeave.current = null; restoreFocus(); }}><h2 id="confirm-title">{t(confirmation.title, { name: confirmation.name ?? '' })}</h2><p>{t(confirmation.body)}</p><div className="toolbar"><Button autoFocus onClick={() => { confirmDialog.current?.close(); setConfirmation(null); pendingLeave.current?.(false); pendingLeave.current = null; restoreFocus(); }}>{t('common.cancel')}</Button><Button className="danger" onClick={() => { const operation = confirmation.run; confirmDialog.current?.close(); setConfirmation(null); operation(); }}>{t(confirmation.action)}</Button></div></dialog>}
+    {details && <dialog ref={detailsDialog} className="picker" aria-labelledby="details-title" onCancel={() => { detailsDialog.current?.close(); setDetails(null); restoreFocus(); }}><DialogHeader id="details-title" title={t('view.detailsTitle')} onClose={() => { detailsDialog.current?.close(); setDetails(null); restoreFocus(); }} /><dl><dt>{t('common.name')}</dt><dd>{details.title}</dd><dt>{t('common.device')}</dt><dd>{services.find(s => s.node?.id === details.reference.nodeId)?.node?.name ?? details.reference.nodeId}</dd><dt>{t('common.app')}</dt><dd>{services.find(s => s.id === `${details.reference.nodeId}~${details.reference.serviceId}`)?.name ?? details.reference.serviceId}</dd><dt>{t('common.viewId')}</dt><dd>{details.reference.surfaceId}</dd></dl><Button onClick={() => { detailsDialog.current?.close(); setDetails(null); restoreFocus(); }}>{t('view.closeDetails')}</Button></dialog>}
+    {confirmation && <dialog ref={confirmDialog} className="picker" aria-labelledby="confirm-title" onCancel={() => { confirmDialog.current?.close(); setConfirmation(null); pendingLeave.current?.(false); pendingLeave.current = null; restoreFocus(); }}><DialogHeader id="confirm-title" title={t(confirmation.title, { name: confirmation.name ?? '' })} onClose={() => { confirmDialog.current?.close(); setConfirmation(null); pendingLeave.current?.(false); pendingLeave.current = null; restoreFocus(); }} /><p>{t(confirmation.body)}</p><div className="toolbar"><Button autoFocus onClick={() => { confirmDialog.current?.close(); setConfirmation(null); pendingLeave.current?.(false); pendingLeave.current = null; restoreFocus(); }}>{t('common.cancel')}</Button><Button className="danger" onClick={() => { const operation = confirmation.run; confirmDialog.current?.close(); setConfirmation(null); operation(); }}>{t(confirmation.action)}</Button></div></dialog>}
   </div>;
 }

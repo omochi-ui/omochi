@@ -23,6 +23,10 @@ async function until(predicate, label, timeout = 45000) {
 function passed(label, ...conditions) { if (conditions.length) assert.equal(conditions[0], true, label); report.checks.push(label); console.log(`Passed: ${label}`); }
 const button = text => `Array.from(document.querySelectorAll('button')).find(b=>b.textContent.trim()===${JSON.stringify(text)}&&b.getClientRects().length)`;
 async function click(page, text) { await until(async () => await page.evaluate(`!!${button(text)}&&!${button(text)}.matches(':disabled')`), `enabled ${text}`); await page.evaluate(`${button(text)}.click()`); }
+async function closeSharing(page) {
+  await until(async () => await page.evaluate("!!document.querySelector('.share-dialog[open] .dialog-header button:not(:disabled)')"), 'enabled sharing close');
+  await page.evaluate("document.querySelector('.share-dialog .dialog-header button').click()");
+}
 async function navigate(page, url) { await page.command('Page.enable'); await page.command('Runtime.enable'); await page.command('Page.navigate', { url }); }
 async function warmNavigate(page, url) {
   const marker = await page.evaluate('window.__navigationMarker ??= crypto.randomUUID()');
@@ -34,7 +38,7 @@ async function language(page, value) {
   await page.evaluate(`(()=>{const select=document.querySelector('.language-switcher select');select.value=${JSON.stringify(value)};select.dispatchEvent(new Event('change',{bubbles:true}));})()`);
   await until(async () => await page.evaluate(`document.documentElement.lang===${JSON.stringify(value)}`), `language ${value}`);
 }
-async function live(page, count = 2) { await until(async () => await page.evaluate(`document.querySelectorAll('[data-surface]').length===${count}&&document.querySelector('.connection-status')?.textContent.includes('Hub connected')`), 'live shared panels'); }
+async function live(page, count = 2) { await until(async () => await page.evaluate(`document.querySelectorAll('[data-surface]').length===${count}&&document.querySelector('.connection-status')?.dataset.connectionState === 'Connected'`), 'live shared panels'); }
 async function savedConnections(page) {
   return page.evaluate(`(async()=>{
     const request=indexedDB.open('omochi.hub-client.v1',1);
@@ -50,7 +54,7 @@ async function createLink(interact = false, edit = false) {
   await click(browser, 'Create sharing link');
   await until(async () => await browser.evaluate('document.querySelector("#sharing-link")?.value.startsWith("https:")'), 'created sharing link');
   const url = await browser.evaluate('document.querySelector("#sharing-link").value');
-  await click(browser, 'Close sharing');
+  await closeSharing(browser);
   const payload = JSON.parse(Buffer.from(new URL(url).hash.slice(7), 'base64url').toString());
   return { url, id: payload.grantId };
 }
@@ -127,7 +131,7 @@ try {
   child.stdin.write('{"op":"relay-stop"}\n');await until(()=>messages.some(m=>m.kind==='relay-stopped'),'relay stopped');
   await until(async()=>await recipient.evaluate('document.querySelectorAll("[data-surface]").length===0'),'loss retracts stale views',90000);
   const resumedAt=Date.now();child.stdin.write('{"op":"relay-start"}\n');await until(()=>messages.some(m=>m.kind==='relay-started'),'relay restarted');
-  await until(async()=>await recipient.evaluate('document.querySelectorAll("[data-surface]").length===2&&document.querySelector(".connection-status")?.textContent.includes("Hub connected")'),'relay recovery',90000);await live(viewer);
+  await until(async()=>await recipient.evaluate('document.querySelectorAll("[data-surface]").length===2&&document.querySelector(".connection-status")?.dataset.connectionState === "Connected"'),'relay recovery',90000);await live(viewer);
   report.recoveryMilliseconds=Date.now()-resumedAt;passed('controlled relay reconnects fresh snapshots within 90 seconds',report.recoveryMilliseconds<=90000);
   } else {
     passed('hosted browser shares authenticate through the deployed production relay');
@@ -176,7 +180,7 @@ try {
   const ownerScreenshot = await recipient.command('Page.captureScreenshot', {format: 'png', captureBeyondViewport: false});
   await writeFile(path.join(output, 'warm-owner-invitation.png'), Buffer.from(ownerScreenshot.data, 'base64'));
   await click(recipient,'Accept invitation');
-  await until(async()=>await recipient.evaluate("document.querySelector('.connection-status')?.textContent.includes('Hub connected')&&Array.from(document.querySelectorAll('button')).some(b=>b.textContent.trim()==='Edit dashboard')"),'owner connection');
+  await until(async()=>await recipient.evaluate("document.querySelector('.connection-status')?.dataset.connectionState === 'Connected'&&Array.from(document.querySelectorAll('button')).some(b=>b.textContent.trim()==='Edit dashboard')"),'owner connection');
   passed('owner enrollment opens the existing dashboard with full owner controls');
   await click(recipient,'Create dashboard');
   await recipient.evaluate(`(()=>{const e=document.querySelector('.dashboard-name');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(e,'Remote owner board');e.dispatchEvent(new Event('input',{bubbles:true}));})()`);
@@ -185,13 +189,13 @@ try {
   passed('remote owner creates a native hub-owned dashboard');
   await click(recipient,'Share dashboard');
   await until(async()=>await recipient.evaluate("document.querySelectorAll('.share-dialog input[type=checkbox]').length===2"),'owner share management');
-  await click(recipient,'Close sharing');
+  await closeSharing(recipient);
   passed('remote owner has the same share management screen');
   await recipient.command('Page.reload');
-  await until(async()=>await recipient.evaluate("document.querySelector('.connection-status')?.textContent.includes('Hub connected')"),'owner reload');
+  await until(async()=>await recipient.evaluate("document.querySelector('.connection-status')?.dataset.connectionState === 'Connected'"),'owner reload');
   passed('owner identity reconnects without retaining its invitation secret');
   assert.equal((await fetch(`${ready.ownerUrl}api/owners/${ownerPayload.grantId}`,{method:'DELETE'})).status,200);
-  await until(async()=>await recipient.evaluate("!document.querySelector('.connection-status')?.textContent.includes('Hub connected')"),'owner revocation');
+  await until(async()=>await recipient.evaluate("document.querySelector('.connection-status')?.dataset.connectionState !== 'Connected'"),'owner revocation');
   passed('local owner revocation tears down the remote owner connection');
   await until(async()=>await recipient.evaluate(`!!document.querySelector('[data-error-code="NotAuthorized"]')`), 'revoked owner authorization result after reconnect');
   passed('revoked owner access shows recovery instructions without claiming automatic reconnection', await recipient.evaluate(`document.querySelector('.sidebar-footer').textContent.includes('Disconnected')&&!document.body.textContent.includes('Reconnecting automatically')&&document.querySelector('[data-error-code="NotAuthorized"]').textContent.includes('Ask the owner to check your access')`));

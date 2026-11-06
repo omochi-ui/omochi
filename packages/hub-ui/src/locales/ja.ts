@@ -2,12 +2,18 @@ import type { LocaleResource } from '../i18n.js';
 
 export default {
   "common": {
+    "close": "閉じる",
     "cancel": "キャンセル",
     "retry": "再試行",
     "name": "名前",
     "device": "デバイス",
     "app": "アプリ",
     "viewId": "ビューID"
+  },
+  "native": {
+    "open": "Omochiアプリで開く",
+    "shareHelp": "この共有リンクはアプリでも同じ権限で利用できます。",
+    "invitationHelp": "ブラウザで登録済みの招待は引き継げません。アプリには新しい招待を発行してください。"
   },
   "language": {
     "label": "言語"
@@ -87,6 +93,7 @@ export default {
     "removed": "「{{name}}」を削除しました。"
   },
   "view": {
+    "sourceUnknown": "接続元のアプリ",
     "add": "ビューを追加",
     "nameRequired": "ビュー名を入力してください。",
     "details": "詳細",
@@ -182,10 +189,10 @@ export default {
     "confirm": "取り消しを確定",
     "cancel": "取り消しをキャンセル",
     "refresh": "共有を更新",
-    "close": "共有設定を閉じる",
     "updateError": "共有を更新できませんでした。更新して再試行してください。"
   },
   "owner": {
+    "browser": "オーナーブラウザ {{number}}",
     "title": "オーナーブラウザのアクセス",
     "description": "登録したブラウザは、すべてのダッシュボード・共有の管理とアプリの操作ができます。登録・取り消しはこの画面からのみ行えます。",
     "error": "オーナーのアクセス権の変更を確認できませんでした。更新して再試行してください。",
@@ -198,6 +205,10 @@ export default {
     "revoke": "オーナーのアクセス権を取り消す"
   },
   "connection": {
+    "details": "接続の詳細",
+    "hubId": "ハブID",
+    "dismiss": "今回は閉じる",
+    "current": "現在の接続",
     "label": "共有ダッシュボードの接続",
     "defaultName": "共有ダッシュボード",
     "title": "共有ダッシュボード",
@@ -232,6 +243,8 @@ export default {
     "browserId": "ブラウザID:"
   },
   "gateway": {
+    "details": "招待の詳細",
+    "connections": "ハブの接続を選択・管理",
     "busy": "別のゲートウェイ招待が確認待ちです。",
     "invalid": "無効または期限切れのゲートウェイ招待です。新しい招待を依頼してください。",
     "sent": "招待を送信しました。ハブに接続済みのタブでゲートウェイを確認してください。",
