@@ -184,7 +184,7 @@ function Connections({ transport, takeLink, bootstrapError, subscribeFragment = 
     {live ? <App key={live.id} environment={{ session: live.source, boards: live.boards, authority: live.owner ? { kind: 'owner' } : { kind: 'share', permissions: view?.permissions ?? { interact: false, editLayout: false } } }}
       connectionUi={controls()} connectionName={live.owner ? live.name : view?.board.name || live.name}
       renderSharing={live.owner ? board => <ShareSettings boardId={board.id} repository={new OwnerSharingRepository(live.source)} /> : undefined} />
-      : <main className="workspace connections-page"><LanguageSwitcher /><h1 tabIndex={-1}>{t('connection.title')}</h1>{controls()}</main>}
+      : <main className="workspace connections-page"><div className="workspace-status"><LanguageSwitcher /></div><h1 tabIndex={-1}>{t('connection.title')}</h1>{controls()}</main>}
     {ownerPrompt && <Modal labelledBy={invitationTitle} title={link?.mode === 'owner' || proof?.source.owner ? t('owner.register') : t('connection.acceptTitle')} returnTo={invitationTrigger.current} onClose={dismissInvitation} dismissible={!busy && !proof} className="owner-invitation">
       <p>{t(link?.mode === 'owner' || proof?.source.owner ? 'connection.ownerHelp' : 'connection.inviteHelp')}</p>
       {link && <details className="connection-details"><summary>{t('gateway.details')}</summary><dl><dt>{t('connection.hubId')}</dt><dd><code>{link.hubId}</code></dd></dl></details>}

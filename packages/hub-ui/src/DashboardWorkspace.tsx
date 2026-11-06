@@ -1,4 +1,5 @@
 import { LanguageSwitcher } from './LanguageSwitcher.js';
+import { ConnectionMenu } from './ConnectionMenu.js';
 import { localizedError } from './localized-error.js';
 import { Trans, useTranslation } from 'react-i18next';
 import { useEffect, useId, useLayoutEffect, useRef, useState, type PointerEvent, type ReactNode } from 'react';
@@ -293,12 +294,10 @@ export function DashboardWorkspace({ environment, connectionUi, connectionName, 
       <Button hidden={!!shared} className="new-dashboard with-icon" disabled={loading || busy} onClick={() => discardThen(() => startEdit(emptyDashboard(t('workspace.untitled'))))}><Icon name="plus" /> {t('workspace.create')}</Button>
       <Button hidden={!!shared} className="new-dashboard" disabled={loading || busy || editing} onClick={() => { rememberFocus(); importFile.current?.click(); }}>{t('workspace.import')}</Button>
       <input ref={importFile} id="import-board-file" type="file" accept="application/json,.json" hidden onChange={event => { void readImport(event.target.files?.[0]); }} />
-      <div className="sidebar-footer"><span className={`signal ${connected ? 'online' : ''}`} />{connected ? direct ? t('workspace.gatewayConnected') : t('workspace.hubConnected') : t('workspace.connectionStatus', { target: direct ? t('workspace.gateways') : t('workspace.hub'), status: connectionStatus })}<small>{t('workspace.apps', { count: available })}</small></div>
     </aside>
     <main id="workspace" tabIndex={-1} className="workspace">
-      <div className="workspace-status"><LanguageSwitcher /><div className="connection-status" role="status" data-connection-state={session.status.replace(/…$/, '')}>{!connected && t('workspace.connectionStatus', { target: direct ? t('workspace.gateways') : t('workspace.hub'), status: connectionStatus })}<span>{t('workspace.apps', { count: available })}</span></div>
-      {board && <Button className="exit-board" onClick={() => { setBoard(false); requestAnimationFrame(() => { if (boardTrigger.current) boardTrigger.current.focus(); else focusMain(); }); }}>{t('workspace.exitBoard')}</Button>}</div>
-      {connectionUi && <details className="connection-settings" hidden={board}><summary>{t('workspace.connections')}{connectionName && <span className="connection-name">{connectionName}</span>}</summary>{connectionUi}</details>}
+      <div className="workspace-status"><div className="workspace-connection"><ConnectionMenu name={connectionName || t(direct ? 'workspace.gateways' : 'workspace.localHub')} status={session.status.replace(/…$/, '')} statusLabel={connectionStatus} available={available} readOnly={board}>{connectionUi}</ConnectionMenu>
+      {board && <Button className="exit-board" onClick={() => { setBoard(false); requestAnimationFrame(() => { if (boardTrigger.current) boardTrigger.current.focus(); else focusMain(); }); }}>{t('workspace.exitBoard')}</Button>}</div><LanguageSwitcher /></div>
 
       <header className="page-header">
         <div className="header-copy">
