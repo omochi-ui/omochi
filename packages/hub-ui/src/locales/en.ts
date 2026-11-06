@@ -20,6 +20,8 @@ export default {
     "title": "Settings",
     "browserIdentity": "Browser ID",
     "identityHelp": "This site's browser ID is used when registering with a hub.",
+    "loadingIdentity": "Loading browser ID…",
+    "loadIdentity": "Load browser ID",
     "copy": "Copy browser ID",
     "copied": "Browser ID copied.",
     "selected": "Browser ID selected. Copy the selected text."

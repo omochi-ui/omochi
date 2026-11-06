@@ -295,7 +295,10 @@ export function DashboardWorkspace({ environment, connectionUi, connectionNotice
       <Button hidden={!!shared} className="new-dashboard with-icon" disabled={loading || busy} onClick={() => discardThen(() => startEdit(emptyDashboard(t('workspace.untitled'))))}><Icon name="plus" /> {t('workspace.create')}</Button>
       <Button hidden={!!shared} className="new-dashboard" disabled={loading || busy || editing} onClick={() => { rememberFocus(); importFile.current?.click(); }}>{t('workspace.import')}</Button>
       <input ref={importFile} id="import-board-file" type="file" accept="application/json,.json" hidden onChange={event => { void readImport(event.target.files?.[0]); }} />
-      <div className="sidebar-footer"><Button className="settings-button dashboard-link" aria-haspopup="dialog" onClick={event => setSettingsTrigger(event.currentTarget)}>{t('settings.title')}</Button></div>
+      <div className="sidebar-footer"><Button className="settings-button dashboard-link" aria-haspopup="dialog" onClick={event => {
+        setSettingsTrigger(event.currentTarget);
+        if (browserIdentity && !browserIdentity.id) browserIdentity.onLoad();
+      }}>{t('settings.title')}</Button></div>
     </aside>
     <main id="workspace" tabIndex={-1} className="workspace">
       <div className="workspace-status"><div className="workspace-connection"><ConnectionMenu name={connectionName || t(direct ? 'workspace.gateways' : 'workspace.localHub')} status={session.status.replace(/…$/, '')} statusLabel={connectionStatus} available={available} readOnly={board}>{connectionUi}</ConnectionMenu>

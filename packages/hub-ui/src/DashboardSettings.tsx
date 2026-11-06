@@ -3,10 +3,13 @@ import { useTranslation } from 'react-i18next';
 import { Button } from './Button.js';
 import { LanguageSwitcher } from './LanguageSwitcher.js';
 import { Modal, type DialogProps } from './dialogs.js';
+import { localizedError } from './localized-error.js';
 
 export interface BrowserIdentitySettings {
-  id: string;
+  id: string | null;
   busy: boolean;
+  error: Error | null;
+  onLoad(): void;
   onReset(trigger: HTMLElement): void;
 }
 
@@ -17,7 +20,7 @@ export function DashboardSettings({ returnTo, onClose, browserIdentity }: Dialog
   const [message, setMessage] = useState<'settings.copied' | 'settings.selected' | null>(null);
   const close = () => { setMessage(null); onClose(); };
   const copy = async () => {
-    if (!browserIdentity) return;
+    if (!browserIdentity?.id) return;
     try {
       await navigator.clipboard.writeText(browserIdentity.id);
       setMessage('settings.copied');
@@ -37,8 +40,15 @@ export function DashboardSettings({ returnTo, onClose, browserIdentity }: Dialog
     {browserIdentity && <section className="settings-section" aria-labelledby={`${id}-identity`}>
       <h3 id={`${id}-identity`}>{t('settings.browserIdentity')}</h3>
       <p>{t('settings.identityHelp')}</p>
-      <code ref={identityText} tabIndex={-1} className="browser-identity" data-browser-id={browserIdentity.id}>{browserIdentity.id}</code>
-      <Button onClick={() => { void copy(); }}>{t('settings.copy')}</Button>
+      {browserIdentity.id ? <>
+        <code ref={identityText} tabIndex={-1} className="browser-identity" data-browser-id={browserIdentity.id}>{browserIdentity.id}</code>
+        <Button onClick={() => { void copy(); }}>{t('settings.copy')}</Button>
+      </> : <>
+        {browserIdentity.busy ? <p role="status">{t('settings.loadingIdentity')}</p> : <>
+          {browserIdentity.error && <p role="alert">{localizedError(browserIdentity.error, t)}</p>}
+          <Button onClick={browserIdentity.onLoad}>{t('settings.loadIdentity')}</Button>
+        </>}
+      </>}
       <p className="announcement" role="status">{message && t(message)}</p>
       <div className="settings-reset">
         <Button className="danger" disabled={browserIdentity.busy} onClick={event => {

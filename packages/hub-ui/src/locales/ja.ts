@@ -22,6 +22,8 @@ export default {
     "title": "設定",
     "browserIdentity": "ブラウザーID",
     "identityHelp": "ハブへの登録に使用する、このサイトのブラウザーIDです。",
+    "loadingIdentity": "ブラウザーIDを読み込み中…",
+    "loadIdentity": "ブラウザーIDを読み込む",
     "copy": "ブラウザーIDをコピー",
     "copied": "ブラウザーIDをコピーしました。",
     "selected": "ブラウザーIDを選択しました。選択したテキストをコピーしてください。"

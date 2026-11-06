@@ -39,6 +39,7 @@ export type ConnectionAction =
   | { type: 'dismiss' }
   | { type: 'disconnect' }
   | { type: 'retry' }
+  | { type: 'loadProfile' }
   | { type: 'forget'; id: string }
   | { type: 'reset' };
 
@@ -310,6 +311,10 @@ export class ConnectionController {
           await this.profile.forget(action.id);
           if (cache(SELECTED) === action.id) cache(SELECTED, '');
           this.update({ records: await this.profile.shares() });
+          break;
+        case 'loadProfile':
+          // Settings may acquire a registered profile without replacing a public-share session.
+          await this.loadProfile();
           break;
         case 'reset':
           if (!(await this.leave())) return;

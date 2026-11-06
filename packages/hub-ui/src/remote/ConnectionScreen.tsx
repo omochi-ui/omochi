@@ -59,7 +59,7 @@ function Connections(props: ConnectionScreenProps) {
       connectionUi={controls}
       connectionNotice={notice}
       connectionName={connectionName}
-      browserIdentity={browserId ? { id: browserId, busy, onReset: setResetTrigger } : undefined}
+      browserIdentity={{ id: browserId, busy, error, onLoad: () => { void dispatch({ type: 'loadProfile' }); }, onReset: setResetTrigger }}
       renderSharing={active.owner
         ? board => <ShareSettings boardId={board.id} repository={new OwnerSharingRepository(active.session)} />
         : undefined}

@@ -54,8 +54,10 @@ under details; panel headers prefer readable source names. The main status row
 shows connection text only while disconnected or reconnecting.
 
 The sidebar's **Settings** opens language preferences without leaving the board or
-discarding edits. Hosted clients with a registered browser identity can also view,
-copy and reset that identity there. Reset requires confirmation and respects the
+discarding edits. Hosted clients can also view, copy and reset the browser identity
+there. Opening settings from a public share loads the registered browser profile
+without changing the share's connection or permissions. Profile-loading errors
+remain visible in settings with a retry action. Reset requires confirmation and respects the
 existing unsaved-change guard; it clears the local identity and saved connections,
 not hub dashboards or access grants. Saved connections and owner-browser management
 stay in the connection menu. The disconnected hosted screen keeps its language
