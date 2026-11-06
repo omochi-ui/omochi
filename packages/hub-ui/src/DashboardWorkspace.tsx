@@ -18,7 +18,7 @@ import { emptyDashboard, useDashboardEditor } from './useDashboardEditor.js';
 import { useDashboards } from './useDashboards.js';
 import { useDashboardNavigation } from './DashboardNavigation.js';
 
-export function DashboardWorkspace({ environment, connectionUi, connectionName, renderSharing }: { environment: DashboardEnvironment; connectionUi?: ReactNode; connectionName?: string; renderSharing?: (board: Dashboard) => ReactNode }) {
+export function DashboardWorkspace({ environment, connectionUi, connectionNotice, connectionName, renderSharing }: { environment: DashboardEnvironment; connectionUi?: ReactNode; connectionNotice?: ReactNode; connectionName?: string; renderSharing?: (board: Dashboard) => ReactNode }) {
   const { t } = useTranslation();
   const session = useA2uiSource(environment.session);
   const services: readonly ServiceView[] = session.services;
@@ -317,6 +317,7 @@ export function DashboardWorkspace({ environment, connectionUi, connectionName, 
       <div className="announcement" role="status">{message && t(message.key, { ...message.values })}</div>
       {importError && <div className="notice error import-error" role="alert"><span>{t(`import.${importError}`)}</span><Button disabled={busy || editing} onClick={() => { rememberFocus(); importFile.current?.click(); }}>{t('import.chooseFile')}</Button></div>}
       {error && <div className="notice error" role="alert"><span>{draft ? t('workspace.saveError') : t('workspace.loadError')} <small>{draft && error instanceof BoardFault && error.code === 'InvalidBoard' ? t('workspace.invalidChanges') : localizedError(error, t)}</small></span>{draft && <Button disabled={busy} onClick={save}>{t('workspace.retrySave')}</Button>}<Button disabled={busy} onClick={() => discardThen(() => { void reload(); })}>{draft ? t('workspace.reload') : t('common.retry')}</Button></div>}
+      {connectionNotice}
       {session.error && <div className="notice" role="status" data-error-code={session.errorCode ?? undefined}>{session.errorCode ? t(`sessionError.${session.errorCode}`) : <>{shared ? t('workspace.shareInterrupted') : direct ? t('workspace.gatewayUnavailable') : t('workspace.hubInterrupted')} <small>{session.error}</small></>}</div>}
       {sourceError && <div className="notice" role="alert">{localizedError(sourceError, t)}</div>}
       {undo && editing && <div className="notice"><span>{t('workspace.removed')}</span><Button onClick={() => { setDraft(d => d ? { ...d, panels: undo } : d); setUndo(null); setMessage({ key: 'workspace.restored' }); focusMain(); }}>{t('workspace.undo')}</Button></div>}

@@ -1,3 +1,11 @@
+import type { ShareLink } from './link.js';
+
+export function nativeConnectionLink(link: ShareLink): string | null {
+  const payload = btoa(String.fromCharCode(...new TextEncoder().encode(JSON.stringify(link))))
+    .replaceAll('+', '-').replaceAll('/', '_').replaceAll('=', '');
+  return nativeInvitationLink(`#${link.mode}:${payload}`);
+}
+
 /** Bearer payloads stay in the fragment or custom URI, never query parameters. */
 export function nativeInvitationLink(fragment: string): string | null {
   const match = /^#(g|share|owner):([A-Za-z0-9_-]+)$/.exec(fragment);

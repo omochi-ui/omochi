@@ -48,7 +48,7 @@ window.setTimeout = (callback, delay, ...args) => {
 window.clearTimeout = id => { if (id < 0) timers.delete(id); else nativeClearTimeout(id); };
 RemoteHubSession.prototype.start = async function () {
   sessions.push(this);
-  this.options.onView({ board: { id: '', revision: 1, name: '', panels: [] }, permissions: { interact: true, editLayout: true } });
+  this.options.onView({ board: { id: 'shared-board', revision: 1, name: 'Public dashboard', panels: [] }, permissions: { interact: true, editLayout: true } });
   this.status('Connected');
 };
 RemoteHubSession.prototype.stop = async function () {};

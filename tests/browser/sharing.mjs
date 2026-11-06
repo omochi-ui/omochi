@@ -38,7 +38,7 @@ async function language(page, value) {
   await page.evaluate(`(()=>{const select=document.querySelector('.language-switcher select');select.value=${JSON.stringify(value)};select.dispatchEvent(new Event('change',{bubbles:true}));})()`);
   await until(async () => await page.evaluate(`document.documentElement.lang===${JSON.stringify(value)}`), `language ${value}`);
 }
-async function live(page, count = 2) { await until(async () => await page.evaluate(`document.querySelectorAll('[data-surface]').length===${count}&&document.querySelector('.connection-status')?.dataset.connectionState === 'Connected'`), 'live shared panels'); }
+async function live(page, count = 2) { await until(async () => await page.evaluate(`document.querySelectorAll('[data-surface]').length===${count}&&document.querySelector('.connection-control')?.dataset.connectionState === 'Connected'`), 'live shared panels'); }
 async function savedConnections(page) {
   return page.evaluate(`(async()=>{
     const request=indexedDB.open('omochi.hub-client.v1',1);
@@ -131,7 +131,7 @@ try {
   child.stdin.write('{"op":"relay-stop"}\n');await until(()=>messages.some(m=>m.kind==='relay-stopped'),'relay stopped');
   await until(async()=>await recipient.evaluate('document.querySelectorAll("[data-surface]").length===0'),'loss retracts stale views',90000);
   const resumedAt=Date.now();child.stdin.write('{"op":"relay-start"}\n');await until(()=>messages.some(m=>m.kind==='relay-started'),'relay restarted');
-  await until(async()=>await recipient.evaluate('document.querySelectorAll("[data-surface]").length===2&&document.querySelector(".connection-status")?.dataset.connectionState === "Connected"'),'relay recovery',90000);await live(viewer);
+  await until(async()=>await recipient.evaluate('document.querySelectorAll("[data-surface]").length===2&&document.querySelector(".connection-control")?.dataset.connectionState === "Connected"'),'relay recovery',90000);await live(viewer);
   report.recoveryMilliseconds=Date.now()-resumedAt;passed('controlled relay reconnects fresh snapshots within 90 seconds',report.recoveryMilliseconds<=90000);
   } else {
     passed('hosted browser shares authenticate through the deployed production relay');
@@ -180,7 +180,7 @@ try {
   const ownerScreenshot = await recipient.command('Page.captureScreenshot', {format: 'png', captureBeyondViewport: false});
   await writeFile(path.join(output, 'warm-owner-invitation.png'), Buffer.from(ownerScreenshot.data, 'base64'));
   await click(recipient,'Accept invitation');
-  await until(async()=>await recipient.evaluate("document.querySelector('.connection-status')?.dataset.connectionState === 'Connected'&&Array.from(document.querySelectorAll('button')).some(b=>b.textContent.trim()==='Edit dashboard')"),'owner connection');
+  await until(async()=>await recipient.evaluate("document.querySelector('.connection-control')?.dataset.connectionState === 'Connected'&&Array.from(document.querySelectorAll('button')).some(b=>b.textContent.trim()==='Edit dashboard')"),'owner connection');
   passed('owner enrollment opens the existing dashboard with full owner controls');
   await click(recipient,'Create dashboard');
   await recipient.evaluate(`(()=>{const e=document.querySelector('.dashboard-name');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(e,'Remote owner board');e.dispatchEvent(new Event('input',{bubbles:true}));})()`);
@@ -191,14 +191,20 @@ try {
   await until(async()=>await recipient.evaluate("document.querySelectorAll('.share-dialog input[type=checkbox]').length===2"),'owner share management');
   await closeSharing(recipient);
   passed('remote owner has the same share management screen');
+  await warmNavigate(recipient, layoutLink.url); await live(recipient, 1);
+  await recipient.evaluate('document.querySelector(".connection-chip").click()');
+  await until(async()=>await recipient.evaluate('!!document.querySelector(".connection-popover:modal")'), 'saved connections over public share');
+  await click(recipient, 'Connect');
+  await until(async()=>await recipient.evaluate(`document.querySelector('.connection-control')?.dataset.connectionState === 'Connected'&&!!${button('Create dashboard')}`), 'saved owner connection restored');
+  passed('switching from a public share to a saved owner clears its bearer and native handoff', await recipient.evaluate("sessionStorage.getItem('omochi.shared.public')===null&&!document.querySelector('.connection-details a')"));
   await recipient.command('Page.reload');
-  await until(async()=>await recipient.evaluate("document.querySelector('.connection-status')?.dataset.connectionState === 'Connected'"),'owner reload');
+  await until(async()=>await recipient.evaluate(`document.querySelector('.connection-control')?.dataset.connectionState === 'Connected'&&!!${button('Create dashboard')}`),'owner reload');
   passed('owner identity reconnects without retaining its invitation secret');
   assert.equal((await fetch(`${ready.ownerUrl}api/owners/${ownerPayload.grantId}`,{method:'DELETE'})).status,200);
-  await until(async()=>await recipient.evaluate("document.querySelector('.connection-status')?.dataset.connectionState !== 'Connected'"),'owner revocation');
+  await until(async()=>await recipient.evaluate("document.querySelector('.connection-control')?.dataset.connectionState !== 'Connected'"),'owner revocation');
   passed('local owner revocation tears down the remote owner connection');
   await until(async()=>await recipient.evaluate(`!!document.querySelector('[data-error-code="NotAuthorized"]')`), 'revoked owner authorization result after reconnect');
-  passed('revoked owner access shows recovery instructions without claiming automatic reconnection', await recipient.evaluate(`document.querySelector('.sidebar-footer').textContent.includes('Disconnected')&&!document.body.textContent.includes('Reconnecting automatically')&&document.querySelector('[data-error-code="NotAuthorized"]').textContent.includes('Ask the owner to check your access')`));
+  passed('revoked owner access shows recovery instructions without claiming automatic reconnection', await recipient.evaluate(`document.querySelector('.connection-chip').textContent.includes('Disconnected')&&!document.body.textContent.includes('Reconnecting automatically')&&document.querySelector('[data-error-code="NotAuthorized"]').textContent.includes('Ask the owner to check your access')`));
 
   passed('no static host app-data/API fallback', !host.requests.some(r => !r.audit && /^\/dashboard\/(?:api|images|resources|events|services|ws)(?:\/|$)/.test(r.path)));
   passed('no unhandled browser exceptions', exceptions === 0);
@@ -207,7 +213,7 @@ try {
   report.errors.push(error.message); console.error(error.message); process.exitCode = 1;
   const diagnosticPage = recipient ?? browser;
   if (diagnosticPage) {
-    report.diagnostics = await diagnosticPage.evaluate(`({text:document.body.innerText,status:document.querySelector('.connection-status')?.textContent, codes:Array.from(document.querySelectorAll('[data-error-code]')).map(e=>e.dataset.errorCode), surfaces:document.querySelectorAll('[data-surface]').length, inputs:Array.from(document.querySelectorAll('input')).map(e=>({type:e.type,label:e.getAttribute('aria-label'),disabled:e.matches(':disabled')}))})`).catch(() => ({}));
+    report.diagnostics = await diagnosticPage.evaluate(`({text:document.body.innerText,status:document.querySelector('.connection-control')?.textContent, codes:Array.from(document.querySelectorAll('[data-error-code]')).map(e=>e.dataset.errorCode), surfaces:document.querySelectorAll('[data-surface]').length, inputs:Array.from(document.querySelectorAll('input')).map(e=>({type:e.type,label:e.getAttribute('aria-label'),disabled:e.matches(':disabled')}))})`).catch(() => ({}));
     const screenshot = await diagnosticPage.command('Page.captureScreenshot', {format:'png',captureBeyondViewport:false}).catch(() => null);
     if(screenshot) await writeFile(path.join(output,'failure.png'),Buffer.from(screenshot.data,'base64'));
   }
