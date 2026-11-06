@@ -1,6 +1,6 @@
 # Project relay deployment
 
-The production relay is **https://relay.omochi.fyi**. Release builds select it
+The production relay is **https://relay.omochi.fyi** . Release builds select it
 automatically and send the built-in shared admission token. Hosted browser
 clients use the sharing link’s relay URLs with the same admission policy. Debug builds retain
 n0 public relays; use `--relay https://relay.omochi.fyi` to test production from a

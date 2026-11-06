@@ -13,7 +13,7 @@ In terminal 1, run from any directory. You need Node.js 22+ on Linux or macOS; s
 npx @omochi-ui/cli hub
 ```
 
-Open **http://127.0.0.1:5555/**. The hub automatically starts a local gateway, so it is ready to discover apps.
+Open **http://127.0.0.1:5555/** . The hub automatically starts a local gateway, so it is ready to discover apps.
 
 ## Add your first surface
 
@@ -55,7 +55,7 @@ In terminal 2:
 bun run omochi-ui dev -- uv run --project examples/python examples/python/app.py
 ```
 
-Open **http://127.0.0.1:5173/**. Change the temperature and press **Run**. The browser resolves the draft value, the Python action updates application state, and the result appears in the surface.
+Open **http://127.0.0.1:5173/** . Change the temperature and press **Run**. The browser resolves the draft value, the Python action updates application state, and the result appears in the surface.
 
 The preview frontend and the bridge are separate servers. The bridge uses port 5555 by default; the frontend uses 5173. Stop the quickstart first to avoid a conflicting hub on port 5555.
 

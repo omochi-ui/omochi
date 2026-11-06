@@ -19,7 +19,7 @@ In another terminal:
 bun run omochi-ui hub
 ```
 
-Open **http://127.0.0.1:5555/**, create a dashboard, add a surface, and save. The bundled application selects a discoverable Unix socket when `OMOCHI_SERVICE` is set. The hub starts a local gateway if needed and discovers running apps; it does not launch those apps.
+Open **http://127.0.0.1:5555/** , create a dashboard, add a surface, and save. The bundled application selects a discoverable Unix socket when `OMOCHI_SERVICE` is set. The hub starts a local gateway if needed and discovers running apps; it does not launch those apps.
 
 ## Compose processes with up
 

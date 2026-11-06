@@ -11,7 +11,7 @@ Native utilities publish discoverable surfaces without writing an SDK applicatio
 npx @omochi-ui/cli hub
 ```
 
-The hub starts a local gateway automatically. Open **http://127.0.0.1:5555/**, run a utility in another terminal, and add its surface with **Add view**. You can also [install the commands](../../start/installation/) to use `omochi-ui` and `omochi-utils` directly:
+The hub starts a local gateway automatically. Open **http://127.0.0.1:5555/** , run a utility in another terminal, and add its surface with **Add view**. You can also [install the commands](../../start/installation/) to use `omochi-ui` and `omochi-utils` directly:
 
 ```sh
 npx @omochi-ui/utils button --name "Build" -- bun run build

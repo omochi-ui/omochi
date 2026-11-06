@@ -8,7 +8,7 @@ cargo install omochi-cli --locked
 omochi-ui hub
 ```
 
-Open **http://127.0.0.1:5555/**, create a dashboard, and choose **Add view** to
+Open **http://127.0.0.1:5555/** , create a dashboard, and choose **Add view** to
 add a running app's surface. The hub starts a local gateway automatically.
 SDK apps must use `UnixSocketServerTransport` for discovery. Keep the hub and
 app running while using their UI.

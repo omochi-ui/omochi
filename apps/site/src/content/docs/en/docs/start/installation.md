@@ -13,7 +13,7 @@ To display an SDK app or utility, start a hub on the same computer. On Linux or 
 npx @omochi-ui/cli hub
 ```
 
-Open **http://127.0.0.1:5555/**. The CLI includes the browser UI and automatically starts a local gateway. No repository clone, Bun, Rust compilation, or separate frontend server is required. Keep the terminal running while using the hub.
+Open **http://127.0.0.1:5555/** . The CLI includes the browser UI and automatically starts a local gateway. No repository clone, Bun, Rust compilation, or separate frontend server is required. Keep the terminal running while using the hub.
 
 You do not need a separate gateway for apps on the same computer. To connect apps on another machine, see [remote connections](../../guides/remote/).
 
