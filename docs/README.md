@@ -23,7 +23,7 @@ is maintained separately.
 | Dashboard layout and board view | [Dashboard UI](dashboard-ui.md) |
 | Flutter app, embedded Hub and external Hub connections | [Mobile app](../apps/mobile/README.md) |
 | SDK/browser packages | [SDK releases](sdk-releasing.md) |
-| 2026-11-06 release notes and upgrade instructions | [SDK/browser 0.2.1](releases/sdk-0.2.1.md), [native 0.3.1](releases/native-0.3.1.md) |
+| 2026-11-07 release notes and upgrade instructions | [SDK/browser 0.2.2](releases/sdk-0.2.2.md), [native 0.3.2](releases/native-0.3.2.md) |
 | Cargo crates, native binaries and npm launchers | [Native releases](native-releasing.md), [distribution](../crates/DISTRIBUTION.md) |
 | Static websites, dashboard hosting, Docker and relay | [Deployment](../deploy/README.md) |
 | Shared interface tokens and components | [Design system](design-system.md) |

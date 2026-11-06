@@ -32,13 +32,13 @@ The old TypeScript services are retained in Git history, not the active workspac
 ## Installation after publication
 
 ```sh
-npm install -g @omochi-ui/cli@0.3.1 @omochi-ui/utils@0.3.1
-# Or: bunx @omochi-ui/cli@0.3.1 hub
+npm install -g @omochi-ui/cli@0.3.2 @omochi-ui/utils@0.3.2
+# Or: bunx @omochi-ui/cli@0.3.2 hub
 omochi-ui hub
 
 # Build from the published Rust sources instead:
-cargo install omochi-cli --version 0.3.1 --locked
-cargo install omochi-utils --version 0.3.1 --locked
+cargo install omochi-cli --version 0.3.2 --locked
+cargo install omochi-utils --version 0.3.2 --locked
 ```
 
 npm wrappers need Node.js 22+ and select exact-version optional packages:
@@ -82,16 +82,17 @@ Cargo's generated-asset VCS dirty flag.
 
 ### Routine release
 
-Native 0.3.1 and SDK/browser 0.2.1 have separate tags at the same source commit.
-See their [native](releases/native-0.3.1.md) and
-[SDK/browser](releases/sdk-0.2.1.md) notes, including the required v1 sharing-link
-replacement.
+Native 0.3.2 and SDK/browser 0.2.2 have separate tags at the same source commit.
+See their [native](releases/native-0.3.2.md) and
+[SDK/browser](releases/sdk-0.2.2.md) notes. Upgrades from native 0.3.1 preserve
+existing sharing links and trust; older installations must also follow the
+[0.3.1 migration notes](releases/native-0.3.1.md).
 
 1. Update public SDK/browser manifests, the Python workspace and both Rust SDK
    crates together. Update the native workspace version and exact path dependency
    requirements separately, then regenerate affected Bun, uv and Cargo lockfiles.
 2. Run both release source checks and packaging regression checks, commit the
-   changes, and push `main`. Create and push `v0.2.1` and `native-v0.3.1` at that
+   changes, and push `main`. Create and push `v0.2.2` and `native-v0.3.2` at that
    commit. Validate each tag using `release:check` / `release:native:check`.
 3. Publish the SDK/browser GitHub Release first. Wait for its crates.io job to
    publish the SDK and macro crates before starting native crate packaging:
@@ -103,7 +104,7 @@ replacement.
 5. Review the workflow results and approve npm stages with maintainer 2FA,
    dependencies/platform packages before dependents/launchers. Confirm the
    versioned GHCR manifest lists both Linux platforms. There is no `latest` image
-   tag; use `ghcr.io/omochi-ui/omochi:0.3.1`.
+   tag; use `ghcr.io/omochi-ui/omochi:0.3.2`.
 
 ### First publication of the new crates
 

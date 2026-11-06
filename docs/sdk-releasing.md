@@ -62,4 +62,4 @@ contents. If an npm version is already staged, inspect and approve the expected
 stage before retrying instead of creating another upload. PyPI and crates.io
 publication can already be complete while npm approval is pending.
 
-See the [0.2.1 release notes](releases/sdk-0.2.1.md).
+See the [0.2.2 release notes](releases/sdk-0.2.2.md).
