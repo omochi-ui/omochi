@@ -1,10 +1,16 @@
 import assert from 'node:assert/strict';
 import { IDBFactory, IDBObjectStore } from 'fake-indexeddb';
+import { act, createElement, useSyncExternalStore } from 'react';
+import { createRoot } from 'react-dom/client';
+import { I18nextProvider } from 'react-i18next';
+import { SessionFault } from '@omochi-ui/core/browser';
 import { test, type TestContext } from '@omochi-ui/core/testing';
 import type { BrowserTransport } from '@omochi-ui/hub-transport';
 import { ConnectionController, type ConnectionState } from '../src/remote/connection-controller.js';
 import type { ShareLink } from '../src/remote/link.js';
 import { openHubProfile } from '../src/remote/profile.js';
+import { OwnerInvitation } from '../src/remote/OwnerInvitation.js';
+import { createDashboardI18n } from '../src/i18n.js';
 
 const publicLink: ShareLink = {
   version: 2, mode: 'share', hubId: 'a'.repeat(64),
@@ -187,34 +193,137 @@ test('owner invitation retries acquire the profile after another tab releases it
   assert.equal(f.probes, 1);
 });
 
-test('confirmed enrollment survives a failed local save and queues navigation until retry succeeds without another probe', async t => {
+test('failed enrollment retains recovery until dismissal refreshes pending access, which can be retried without reloading', async t => {
   const f = fixture(t);
   const controller = f.create(ownerLink);
   await controller.start();
-  const put = IDBObjectStore.prototype.put;
-  let failSave = true;
-  IDBObjectStore.prototype.put = function(value, key) {
-    if (this.name === 'shares' && value.state === 'accepted' && failSave) throw new DOMException('quota', 'QuotaExceededError');
-    return key === undefined ? put.call(this, value) : put.call(this, value, key);
+  const openEndpoint = f.transport.openEndpoint;
+  f.transport.openEndpoint = async () => { throw new SessionFault('NetworkUnavailable'); };
+  await controller.dispatch({ type: 'accept' });
+  assert.equal(controller.getSnapshot().error?.code, 'NetworkUnavailable');
+  assert.equal(controller.getSnapshot().invitation?.kind, 'invitation');
+  assert.equal(controller.getSnapshot().active, null);
+
+  const getAll = IDBObjectStore.prototype.getAll;
+  IDBObjectStore.prototype.getAll = function(...args) {
+    if (this.name === 'shares') throw new DOMException('unavailable', 'InvalidStateError');
+    return getAll.apply(this, args);
   };
-  t.after(() => { IDBObjectStore.prototype.put = put; });
-  await controller.dispatch({ type: 'accept' });
-  assert.equal(controller.getSnapshot().invitation?.kind, 'savePending');
-  assert.equal(controller.getSnapshot().error?.code, 'StorageUnavailable');
-  assert.equal(f.probes, 1);
-  const next = { ...ownerLink, grantId: '33333333-3333-4333-8333-333333333333' };
-  controller.receive(fragment(publicLink));
-  controller.receive(fragment(next));
+  t.after(() => { IDBObjectStore.prototype.getAll = getAll; });
   await controller.dispatch({ type: 'dismiss' });
-  assert.equal(controller.getSnapshot().invitation?.kind, 'savePending', 'proof cannot be discarded by navigation or dismissal');
-  failSave = false;
-  await controller.dispatch({ type: 'accept' });
-  await until(controller, state => !state.busy);
-  assert.deepEqual(controller.getSnapshot().invitation, { kind: 'invitation', link: next });
+  assert.equal(controller.getSnapshot().error?.code, 'StorageUnavailable');
+  assert.equal(controller.getSnapshot().invitation?.kind, 'invitation', 'failed refresh must keep recovery visible');
+
+  IDBObjectStore.prototype.getAll = getAll;
+  await controller.dispatch({ type: 'dismiss' });
+  assert.equal(controller.getSnapshot().invitation, null);
+  assert.equal(controller.getSnapshot().error, null);
+  assert.deepEqual(controller.getSnapshot().records, [{ ...saved, id: savedId, state: 'pending' }]);
+
+  f.transport.openEndpoint = openEndpoint;
+  await controller.dispatch({ type: 'select', id: savedId });
+  assert.equal(controller.getSnapshot().error, null);
+  assert.equal(controller.getSnapshot().invitation, null);
   assert.equal(controller.getSnapshot().active?.id, savedId);
   assert.equal(controller.getSnapshot().records[0]?.state, 'accepted');
-  assert.equal(f.probes, 1, 'retry writes the confirmed proof locally');
+  assert.equal(f.probes, 1);
 });
+
+test('Escape keeps the owner invitation and recovery controls visible when dismissal cannot read storage', async t => {
+  const f = fixture(t);
+  const controller = f.create(ownerLink);
+  await controller.start();
+  const actEnvironment = Object.getOwnPropertyDescriptor(globalThis, 'IS_REACT_ACT_ENVIRONMENT');
+  Object.defineProperty(globalThis, 'IS_REACT_ACT_ENVIRONMENT', { configurable: true, value: true });
+  t.after(() => {
+    if (actEnvironment) Object.defineProperty(globalThis, 'IS_REACT_ACT_ENVIRONMENT', actEnvironment);
+    else Reflect.deleteProperty(globalThis, 'IS_REACT_ACT_ENVIRONMENT');
+  });
+  const container = document.createElement('div');
+  document.body.append(container);
+  t.after(() => container.remove());
+  const root = createRoot(container);
+  t.after(() => act(() => root.unmount()));
+  function Invitation() {
+    const state = useSyncExternalStore(changed => controller.subscribe(changed), () => controller.getSnapshot());
+    return state.invitation && createElement(OwnerInvitation, {
+      invitation: state.invitation, busy: state.busy, ownsProfile: !!state.browserId,
+      error: state.error, dispatch: action => controller.dispatch(action),
+    });
+  }
+  await act(async () => {
+    root.render(createElement(I18nextProvider, {
+      i18n: createDashboardI18n({ lng: 'en', detection: { caches: [] } }),
+    }, createElement(Invitation)));
+  });
+  const dialog = container.querySelector('dialog');
+  assert.ok(dialog?.open);
+  const getAll = IDBObjectStore.prototype.getAll;
+  IDBObjectStore.prototype.getAll = function(...args) {
+    if (this.name === 'shares') throw new DOMException('unavailable', 'InvalidStateError');
+    return getAll.apply(this, args);
+  };
+  t.after(() => { IDBObjectStore.prototype.getAll = getAll; });
+
+  const escape = new Event('cancel', { cancelable: true });
+  await act(async () => {
+    dialog.dispatchEvent(escape);
+    await until(controller, state => !state.busy);
+  });
+  assert.equal(escape.defaultPrevented, true);
+  assert.equal(controller.getSnapshot().error?.code, 'StorageUnavailable');
+  assert.equal(dialog.open, true, 'failed dismissal must leave the modal open');
+  assert.ok(dialog.querySelector('[role="alert"][data-error-code="StorageUnavailable"]'));
+  assert.equal(dialog.querySelector<HTMLButtonElement>('.dialog-actions .primary')?.disabled, false);
+  assert.equal(dialog.querySelector<HTMLButtonElement>('.dialog-header button')?.disabled, false);
+
+  IDBObjectStore.prototype.getAll = getAll;
+  await act(async () => {
+    dialog.dispatchEvent(new Event('cancel', { cancelable: true }));
+    await until(controller, state => !state.busy);
+  });
+  assert.equal(controller.getSnapshot().invitation, null);
+  assert.equal(controller.getSnapshot().error, null);
+  assert.equal(dialog.open, false, 'successful dismissal closes the modal through state cleanup');
+  assert.equal(container.querySelector('dialog'), null);
+});
+
+for (const queueNavigation of [false, true]) {
+  test(`local-save recovery ignores duplicate invitations ${queueNavigation ? 'without replacing queued navigation' : 'without reopening them'}`, async t => {
+    const f = fixture(t);
+    const controller = f.create(ownerLink);
+    await controller.start();
+    const put = IDBObjectStore.prototype.put;
+    let failSave = true;
+    IDBObjectStore.prototype.put = function(value, key) {
+      if (this.name === 'shares' && value.state === 'accepted' && failSave) throw new DOMException('quota', 'QuotaExceededError');
+      return key === undefined ? put.call(this, value) : put.call(this, value, key);
+    };
+    t.after(() => { IDBObjectStore.prototype.put = put; });
+    await controller.dispatch({ type: 'accept' });
+    assert.equal(controller.getSnapshot().invitation?.kind, 'savePending');
+    assert.equal(controller.getSnapshot().error?.code, 'StorageUnavailable');
+    assert.equal(f.probes, 1);
+    controller.receive(fragment(ownerLink));
+    await controller.dispatch({ type: 'accept' });
+    assert.equal(controller.getSnapshot().invitation?.kind, 'savePending', 'another failed save keeps the invitation identity');
+    const next = { ...ownerLink, grantId: '33333333-3333-4333-8333-333333333333' };
+    if (queueNavigation) {
+      controller.receive(fragment(publicLink));
+      controller.receive(fragment(next));
+    }
+    controller.receive(fragment(ownerLink));
+    await controller.dispatch({ type: 'dismiss' });
+    assert.equal(controller.getSnapshot().invitation?.kind, 'savePending', 'proof cannot be discarded by navigation or dismissal');
+    failSave = false;
+    await controller.dispatch({ type: 'accept' });
+    await until(controller, state => !state.busy);
+    assert.deepEqual(controller.getSnapshot().invitation, queueNavigation ? { kind: 'invitation', link: next } : null);
+    assert.equal(controller.getSnapshot().active?.id, savedId);
+    assert.equal(controller.getSnapshot().records[0]?.state, 'accepted');
+    assert.equal(f.probes, 1, 'retry writes the confirmed proof locally');
+  });
+}
 
 test('disposing during identity creation prevents late activation and publishes no further state', async t => {
   const f = fixture(t);

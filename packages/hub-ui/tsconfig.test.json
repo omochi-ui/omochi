@@ -4,6 +4,7 @@
     "noEmit": true,
     "rootDir": ".",
     "declaration": false,
+    "jsx": "react-jsx",
     "types": [
       "node", "bun"
     ]

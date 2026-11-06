@@ -159,7 +159,7 @@ try {
     await click('ビューを追加'); await input('#search-views', '<missing-view>');
     await until(async () => (await text()).includes('「<missing-view>」に一致するビューはありません。'), 'Japanese search interpolation');
     assert.equal(await evaluate("document.querySelector('.picker-empty missing-view') === null"), true, 'search is rendered as text');
-    await evaluate("document.querySelector('[aria-label=\"ビュー選択を閉じる\"]').click()");
+    await evaluate("document.querySelector('[aria-labelledby=\"picker-title\"] .dialog-header button').click()");
     await language('en');
     await input('[aria-label="Dashboard name"]', 'Daily overview');
     assert.equal(await evaluate("document.querySelectorAll('.panel input[type=number]').length"), 0);

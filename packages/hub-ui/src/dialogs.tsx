@@ -48,9 +48,7 @@ export function Modal({
       onCancel={(event) => {
         event.preventDefault();
         if (!dismissible) return;
-        dialog.current?.close();
         onClose();
-        restoreDialogFocus(returnTo);
       }}
     >
       <DialogHeader id={labelledBy} title={title} onClose={onClose} disabled={!dismissible} />

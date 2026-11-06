@@ -11,7 +11,7 @@ import { RemoteHubSession, type SharedView } from './session.js';
 type AcceptedInvitation = Awaited<ReturnType<typeof acceptInvitation>>;
 export type PendingInvitation =
   | { kind: 'invitation'; link: ShareLink }
-  | { kind: 'savePending'; accepted: AcceptedInvitation };
+  | { kind: 'savePending'; accepted: AcceptedInvitation; link: ShareLink | null };
 
 export type ActiveConnection = {
   session: RemoteHubSession;
@@ -224,9 +224,8 @@ export class ConnectionController {
     if (this.lifetime.signal.aborted) return;
     try {
       const link = parseShareLink(fragment);
-      const current = this.state.invitation?.kind === 'invitation'
-        ? this.state.invitation.link
-        : this.state.active?.kind === 'public' ? this.state.active.link : this.openingShare;
+      const current = this.state.invitation?.link ??
+        (this.state.active?.kind === 'public' ? this.state.active.link : this.openingShare);
       if (sameLink(current, link)) return;
       this.incoming = link;
     } catch {
@@ -251,10 +250,10 @@ export class ConnectionController {
     });
   }
 
-  private async saveAccepted(accepted: AcceptedInvitation) {
+  private async saveAccepted(accepted: AcceptedInvitation, link: ShareLink | null) {
     if (this.lifetime.signal.aborted) return;
     if (!this.profile) throw new SessionFault('InvalidState');
-    this.update({ invitation: { kind: 'savePending', accepted } });
+    this.update({ invitation: { kind: 'savePending', accepted, link } });
     await this.profile.save(accepted.source, 'accepted');
     this.update({ records: await this.profile.shares() });
     this.activate(accepted.source, this.profile.identity.secretHex);
@@ -264,19 +263,20 @@ export class ConnectionController {
   async dispatch(action: ConnectionAction) {
     if (this.state.busy || this.lifetime.signal.aborted) return;
     if (this.state.invitation?.kind === 'savePending' && action.type !== 'accept') return;
-    if (action.type === 'dismiss') {
-      this.update({ invitation: null, error: null });
-      this.drainIncoming();
-      return;
-    }
     await this.run(async () => {
       switch (action.type) {
+        case 'dismiss':
+          // Enrollment may have persisted a pending record before its probe failed.
+          if (this.profile) this.update({ records: await this.profile.shares() });
+          this.update({ invitation: null });
+          break;
         case 'select': {
           const record = this.state.records.find(record => record.id === action.id);
           if (!record || !this.profile || this.state.active?.id === record.id) return;
           if (!(await this.leave())) return;
           if (record.state === 'pending') {
-            await this.saveAccepted(await recoverShare(this.options.transport, this.profile, record, this.lifetime.signal));
+            const { id: _id, state: _state, ...source } = record;
+            await this.saveAccepted(await recoverShare(this.options.transport, this.profile, source, this.lifetime.signal), null);
           } else {
             this.activate(record, this.profile.identity.secretHex);
             this.update({ invitation: null });
@@ -286,9 +286,9 @@ export class ConnectionController {
         case 'accept': {
           const invitation = this.state.invitation;
           if (!invitation || !this.profile) return;
-          if (invitation.kind === 'savePending') await this.saveAccepted(invitation.accepted);
+          if (invitation.kind === 'savePending') await this.saveAccepted(invitation.accepted, invitation.link);
           else if (await this.leave()) {
-            await this.saveAccepted(await acceptInvitation(this.options.transport, this.profile, invitation.link, this.lifetime.signal));
+            await this.saveAccepted(await acceptInvitation(this.options.transport, this.profile, invitation.link, this.lifetime.signal), invitation.link);
           }
           break;
         }
