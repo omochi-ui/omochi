@@ -49,9 +49,18 @@ the content scrolls. Action rows wrap with consistent spacing, and button-shaped
 links remain a single control at narrow widths. Sharing checkboxes have their own
 layout instead of inheriting text-input dimensions.
 
-Connection management starts collapsed. Full hub, gateway and browser IDs are
-available under details; panel headers prefer readable source names. The main
-status row shows connection text only while disconnected or reconnecting.
+Connection management starts collapsed. Full hub and gateway IDs are available
+under details; panel headers prefer readable source names. The main status row
+shows connection text only while disconnected or reconnecting.
+
+The sidebar's **Settings** opens language preferences without leaving the board or
+discarding edits. Hosted clients with a registered browser identity can also view,
+copy and reset that identity there. Reset requires confirmation and respects the
+existing unsaved-change guard; it clears the local identity and saved connections,
+not hub dashboards or access grants. Saved connections and owner-browser management
+stay in the connection menu. The disconnected hosted screen keeps its language
+selector at the top and browser identity/reset under connection details, without a
+sidebar. Local dashboards offer language settings only.
 
 The pre-bootstrap native-app link remains available if transport initialization
 fails. Once React loads, the invitation dialog owns that action, so registering

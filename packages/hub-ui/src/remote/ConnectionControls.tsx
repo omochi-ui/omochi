@@ -52,7 +52,7 @@ export function ConnectionControls({ state, dispatch, heading, onForget, onReset
       <summary>{t('connection.details')}</summary>
       <dl>
         {active && <><dt>{t('connection.hubId')}</dt><dd><code>{active.id.split('/')[0]}</code></dd></>}
-        {browserId && <><dt>{t('connection.browserId')}</dt><dd><code data-browser-id={browserId}>{browserId}</code></dd></>}
+        {!active && browserId && <><dt>{t('connection.browserId')}</dt><dd><code data-browser-id={browserId}>{browserId}</code></dd></>}
       </dl>
       {appLink && <p><a href={appLink}>{t('native.open')}</a></p>}
       {!active && <Button disabled={busy} className="danger" onClick={event => onReset(event.currentTarget)}>

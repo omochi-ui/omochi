@@ -234,7 +234,7 @@ try {
   await shot('warm-owner-invitation');
   await click('Not now');
   assert.equal(await evaluate('gatewayTest.sessions.length'), sessionCount, 'dismissing does not disconnect or reconnect');
-  assert.equal(await evaluate('document.querySelector(".gateway-invitation").matches(":modal")'), true, 'pending gateway resumes after owner dismissal');
+  await until(() => evaluate('document.querySelector(".gateway-invitation").matches(":modal")'), 'pending gateway resumes after owner dismissal');
   await click('Dismiss invitation');
   assert.equal(await evaluate('!!document.querySelector("#native-invitation-link")'), false, 'dismissal leaves no stale app banner');
   assert.equal(await evaluate('document.querySelector(".connection-popover").open'), false, 'connection management starts collapsed');
@@ -268,9 +268,72 @@ try {
   await until(() => evaluate('!document.querySelector(".gateway-invitation")'), 'top-right close dismisses gateway invitation');
   await until(() => evaluate('document.activeElement !== document.body'), 'dismissal restores a focusable background target');
 
+  // Browser settings preserve the live session and draft; reset still requires both confirmations.
+  const settingsSessionCount = await evaluate('gatewayTest.sessions.length');
+  await evaluate('document.querySelector(".mobile-nav").click()');
+  const key = async (key, code, windowsVirtualKeyCode) => {
+    await browser.command('Input.dispatchKeyEvent', { type: 'keyDown', key, code, windowsVirtualKeyCode, ...(key === 'Enter' ? { text: '\r', unmodifiedText: '\r' } : {}) });
+    await browser.command('Input.dispatchKeyEvent', { type: 'keyUp', key, code, windowsVirtualKeyCode });
+  };
+  const openSettings = async () => {
+    await evaluate('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))');
+    await evaluate('document.querySelector(".settings-button").focus()');
+    assert.equal(await evaluate('document.activeElement.matches(".settings-button")'), true, 'settings trigger is focusable');
+    await key('Enter', 'Enter', 13);
+    await until(() => evaluate('!!document.querySelector(".settings-dialog:modal")'), 'settings opened with keyboard');
+  };
+  await openSettings();
+  assert.equal(await evaluate('document.querySelector(".settings-dialog").contains(document.activeElement)'), true);
+  assert.equal(await evaluate('!!document.querySelector(".sidebar .language-switcher, .connection-popover [data-browser-id]")'), false);
+  assert.equal(await evaluate('document.querySelector(".settings-dialog [data-browser-id]").textContent'), '9'.repeat(64));
+  assert.equal(await evaluate('document.documentElement.scrollWidth <= innerWidth'), true);
+  await shot('settings-ja-320');
+  await evaluate('document.documentElement.style.fontSize = "200%"; document.documentElement.dir = "rtl"');
+  assert.equal(await evaluate('document.querySelector(".settings-dialog").scrollWidth <= document.querySelector(".settings-dialog").clientWidth'), true);
+  await shot('settings-200-rtl');
+  await evaluate('document.documentElement.style.fontSize = ""; document.documentElement.dir = "ltr"');
+  await evaluate(`(() => { const select = document.querySelector('.settings-dialog select'); select.value = 'en'; select.dispatchEvent(new Event('change', { bubbles: true })); })()`);
+  await until(() => evaluate('document.documentElement.lang === "en"'), 'settings language change');
+  assert.equal(await evaluate('localStorage.getItem("omochi.dashboard.language")'), 'en');
+  assert.equal(await evaluate('document.querySelector(".dashboard-name").value'), 'Unsaved work');
+  assert.equal(await evaluate('gatewayTest.sessions.length'), settingsSessionCount);
+
+  await browser.command('Browser.grantPermissions', { origin: `http://127.0.0.1:${server.port}`, permissions: ['clipboardReadWrite', 'clipboardSanitizedWrite'] });
+  await click('Copy browser ID');
+  await until(() => evaluate('document.querySelector(".settings-dialog [role=status]").textContent === "Browser ID copied."'), 'browser ID copied');
+  assert.equal(await evaluate('navigator.clipboard.readText()'), '9'.repeat(64));
+  await evaluate('navigator.clipboard.writeText = async () => { throw new Error("Clipboard denied"); }');
+  await click('Copy browser ID');
+  await until(() => evaluate('document.querySelector(".settings-dialog [role=status]").textContent.includes("selected")'), 'clipboard fallback');
+  assert.equal(await evaluate('window.getSelection().toString()'), '9'.repeat(64));
+  await key('Escape', 'Escape', 27);
+  await until(() => evaluate('!document.querySelector(".settings-dialog:modal") && document.activeElement.matches(".settings-button")'), 'settings closes back to trigger');
+  await openSettings(); await click('Reset browser identity…');
+  await until(() => evaluate('!!document.querySelector("#confirm-title") && !document.querySelector(".settings-dialog:modal")'), 'reset confirmation replaces settings');
+  await evaluate('document.querySelector("[aria-labelledby=confirm-title] .toolbar button").click()');
+  await until(() => evaluate('!document.querySelector("#confirm-title") && document.activeElement.matches(".settings-button")'), 'cancel reset restores settings trigger');
+  assert.equal(await evaluate('document.querySelector(".dashboard-name").value'), 'Unsaved work');
+  await openSettings(); await click('Reset browser identity…'); await click('Confirm identity reset');
+  await until(() => evaluate('document.querySelector("#confirm-title")?.textContent === "Discard unsaved changes?"'), 'reset asks before losing edits');
+  await evaluate('document.querySelector("[aria-labelledby=confirm-title] .toolbar button").click()');
+  await until(() => evaluate('!document.querySelector("#confirm-title")'), 'cancel discard');
+  assert.equal(await evaluate('document.querySelector(".dashboard-name").value'), 'Unsaved work');
+  assert.equal(await evaluate('document.querySelector(".settings-dialog [data-browser-id]").textContent'), '9'.repeat(64));
+  assert.equal(await evaluate('gatewayTest.sessions.length'), settingsSessionCount);
+
+  await evaluate('gatewayTest.changeIdentity({ restore: false, endpointId: "6".repeat(64), secretHex: "7".repeat(64) })');
+  await openSettings(); await click('Reset browser identity…'); await click('Confirm identity reset');
+  await until(() => evaluate('document.querySelector("#confirm-title")?.textContent === "Discard unsaved changes?"'), 'confirm reset of dirty draft');
+  await click('Discard changes');
+  await until(() => evaluate('!!document.querySelector(".connections-page") && document.querySelector("[data-browser-id]")?.textContent === "6".repeat(64)'), 'reset creates a new browser identity');
+  assert.equal(await evaluate('document.querySelectorAll(".connection-record").length'), 0, 'reset clears saved connections');
+  assert.equal(await evaluate('!!document.querySelector(".sidebar")'), false, 'idle screen has no sidebar');
+  assert.equal(await evaluate('document.querySelector(".connections-page .workspace-status select").value'), 'en', 'idle language stays in its original location and survives identity reset');
+  await shot('settings-reset-idle');
+
   assert.equal(await count(), 14, 'navigation and dismissal never automatically enroll');
   assert.deepEqual(errors, []);
-  console.log(`PASS: gateway reconnect, authority isolation, save retry, late results, dismissal, UTF-8 name validation, visible link errors, share handoff and saved connection switching. Screenshots: ${screenshots}`);
+  console.log(`PASS: gateway reconnect, authority isolation, save retry, late results, dismissal, UTF-8 name validation, visible link errors, share handoff, saved connection switching and browser settings. Screenshots: ${screenshots}`);
 } catch (error) {
   console.error(await browser?.evaluate('document.body.innerText'));
   throw error;

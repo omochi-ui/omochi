@@ -1,4 +1,4 @@
-import { LanguageSwitcher } from './LanguageSwitcher.js';
+import { DashboardSettings, type BrowserIdentitySettings } from './DashboardSettings.js';
 import { ConnectionMenu } from './ConnectionMenu.js';
 import { localizedError } from './localized-error.js';
 import { Trans, useTranslation } from 'react-i18next';
@@ -18,7 +18,7 @@ import { emptyDashboard, useDashboardEditor } from './useDashboardEditor.js';
 import { useDashboards } from './useDashboards.js';
 import { useDashboardNavigation } from './DashboardNavigation.js';
 
-export function DashboardWorkspace({ environment, connectionUi, connectionNotice, connectionName, renderSharing }: { environment: DashboardEnvironment; connectionUi?: ReactNode; connectionNotice?: ReactNode; connectionName?: string; renderSharing?: (board: Dashboard) => ReactNode }) {
+export function DashboardWorkspace({ environment, connectionUi, connectionNotice, connectionName, browserIdentity, renderSharing }: { environment: DashboardEnvironment; connectionUi?: ReactNode; connectionNotice?: ReactNode; connectionName?: string; browserIdentity?: BrowserIdentitySettings; renderSharing?: (board: Dashboard) => ReactNode }) {
   const { t } = useTranslation();
   const session = useA2uiSource(environment.session);
   const services: readonly ServiceView[] = session.services;
@@ -45,6 +45,7 @@ export function DashboardWorkspace({ environment, connectionUi, connectionNotice
   const pickerDialog = useRef<HTMLDialogElement>(null);
   const [board, setBoard] = useState(() => new URLSearchParams(location.search).get('view') === 'board');
   const [navOpen, setNavOpen] = useState(false);
+  const [settingsTrigger, setSettingsTrigger] = useState<HTMLElement | null>(null);
   const [adjust, setAdjust] = useState<string | null>(null);
   const [details, setDetails] = useState<Panel | null>(null);
   const [confirmation, setConfirmation] = useState<{ title: 'confirmation.discardTitle' | 'confirmation.deleteTitle'; name?: string; action: 'confirmation.discard' | 'workspace.delete'; body: 'confirmation.discardBody' | 'confirmation.deleteBody'; run: () => void } | null>(null);
@@ -294,10 +295,11 @@ export function DashboardWorkspace({ environment, connectionUi, connectionNotice
       <Button hidden={!!shared} className="new-dashboard with-icon" disabled={loading || busy} onClick={() => discardThen(() => startEdit(emptyDashboard(t('workspace.untitled'))))}><Icon name="plus" /> {t('workspace.create')}</Button>
       <Button hidden={!!shared} className="new-dashboard" disabled={loading || busy || editing} onClick={() => { rememberFocus(); importFile.current?.click(); }}>{t('workspace.import')}</Button>
       <input ref={importFile} id="import-board-file" type="file" accept="application/json,.json" hidden onChange={event => { void readImport(event.target.files?.[0]); }} />
+      <div className="sidebar-footer"><Button className="settings-button dashboard-link" aria-haspopup="dialog" onClick={event => setSettingsTrigger(event.currentTarget)}>{t('settings.title')}</Button></div>
     </aside>
     <main id="workspace" tabIndex={-1} className="workspace">
       <div className="workspace-status"><div className="workspace-connection"><ConnectionMenu name={connectionName || t(direct ? 'workspace.gateways' : 'workspace.localHub')} status={session.status.replace(/…$/, '')} statusLabel={connectionStatus} available={available} readOnly={board}>{connectionUi}</ConnectionMenu>
-      {board && <Button className="exit-board" onClick={() => { setBoard(false); requestAnimationFrame(() => { if (boardTrigger.current) boardTrigger.current.focus(); else focusMain(); }); }}>{t('workspace.exitBoard')}</Button>}</div><LanguageSwitcher /></div>
+      {board && <Button className="exit-board" onClick={() => { setBoard(false); requestAnimationFrame(() => { if (boardTrigger.current) boardTrigger.current.focus(); else focusMain(); }); }}>{t('workspace.exitBoard')}</Button>}</div></div>
 
       <header className="page-header">
         <div className="header-copy">
@@ -375,6 +377,7 @@ export function DashboardWorkspace({ environment, connectionUi, connectionNotice
       </div>}
       <p id="layout-help" className="sr-only">{t('view.keyboardHelp')}</p>
     </main>
+    <DashboardSettings returnTo={settingsTrigger} onClose={() => setSettingsTrigger(null)} browserIdentity={browserIdentity} />
     {picker && <dialog ref={pickerDialog} aria-labelledby="picker-title" className="picker" onCancel={closePicker}>
       <DialogHeader id="picker-title" title={t('picker.title')} onClose={closePicker} />
       <p>{direct ? t('picker.chooseApp') : t('picker.chooseView')}</p><label htmlFor="search-views">{t('picker.search')}</label>

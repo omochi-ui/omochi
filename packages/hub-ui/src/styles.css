@@ -41,8 +41,10 @@ body { margin: 0; }
 .hub-layout .field-error { color: var(--omochi-color-danger); font-size: .875rem; margin: 4px 0; }
 .hub-icon { width: 20px; height: 20px; flex-shrink: 0; vertical-align: middle; }
 .with-icon { display: inline-flex; align-items: center; justify-content: center; gap: 8px; }
-.sidebar { position: sticky; top: 0; height: 100dvh; overflow: auto; overscroll-behavior: contain; padding: 24px 16px; background: var(--omochi-color-bg-inverse); color: var(--omochi-color-text-inverse); }
+.sidebar { display: flex; flex-direction: column; position: sticky; top: 0; height: 100dvh; overflow: auto; overscroll-behavior: contain; padding: 24px 16px; background: var(--omochi-color-bg-inverse); color: var(--omochi-color-text-inverse); }
+.sidebar > * { flex-shrink: 0; }
 .sidebar :focus-visible { outline-color: var(--omochi-color-focus-inverse); }
+.sidebar-footer { margin-block-start: auto; padding-block-start: var(--omochi-space-8); }
 .brand { display: flex; align-items: center; gap: 8px; color: inherit; text-decoration: none; font-size: 1.5rem; font-weight: 600; padding-block-end: 32px; }
 .brand-mark { width: 32px; height: 32px; color: var(--omochi-color-focus-inverse); }
 .brand-tag { font-size: .8125rem; font-weight: 400; }
@@ -147,12 +149,19 @@ body { margin: 0; }
 .board-only .workspace { min-height: 100dvh; padding: 16px; }
 .board-only .workspace-status { margin-block-end: 16px; }
 .exit-board { max-width: 100%; }
-.workspace-status { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 16px; margin-block-end: 24px; }
+.workspace-status { display: grid; grid-template-columns: minmax(0, 1fr); align-items: center; gap: 16px; margin-block-end: 24px; }
+.connections-page .workspace-status { grid-template-columns: minmax(0, 1fr) auto; }
 .workspace-connection { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 16px; min-width: 0; }
 .workspace-status > .language-switcher { grid-area: 1 / 2; justify-self: end; }
 .language-switcher { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 8px; max-width: 100%; font-size: .875rem; }
 .language-switcher select { min-height: 40px; max-width: 100%; padding: 8px 12px; font: inherit; color: var(--omochi-color-text-primary); background: var(--omochi-color-bg-surface); border: 1px solid var(--omochi-color-border-control); border-radius: var(--omochi-radius-control); }
 .language-switcher select:focus-visible { outline: 3px solid var(--omochi-color-focus); outline-offset: 3px; }
+.settings-section { margin-block-start: var(--omochi-space-6); }
+.settings-section h3 { margin: 0; font-size: 1rem; }
+.settings-section p { font-size: .875rem; }
+.settings-dialog .language-switcher { width: 100%; justify-content: space-between; }
+.browser-identity { display: block; margin-block: var(--omochi-space-4); padding: var(--omochi-space-2); background: var(--omochi-color-bg-subtle); border-radius: var(--omochi-radius-control); overflow-wrap: anywhere; }
+.settings-reset { margin-block-start: var(--omochi-space-6); }
 .panel-content .omochi-surface { --a2ui-color-primary: var(--omochi-color-accent-solid); --a2ui-color-primary-hover: var(--omochi-color-accent-hover); --a2ui-color-border: var(--omochi-color-border-control); --a2ui-text-caption-color: var(--omochi-color-text-secondary); }
 @media (hover: hover) { .hub-button:hover:not(:disabled) { background: var(--omochi-color-bg-subtle); } .hub-button.primary:hover:not(:disabled) { background: var(--omochi-color-accent-hover); } .hub-button.danger:hover:not(:disabled) { background: var(--omochi-color-danger-bg); } .sidebar .hub-button:hover:not(:disabled) { background: var(--omochi-color-accent-solid); } }
 /* Press feedback follows hover and keeps control geometry and selection intact. */
@@ -165,7 +174,7 @@ body { margin: 0; }
   .hub-layout { display: block; }
   .mobile-nav { display: block; margin: 16px; }
   .sidebar { display: none; position: static; height: auto; margin: 16px; border-radius: 12px; }
-  .nav-open .sidebar { display: block; }
+  .nav-open .sidebar { display: flex; }
   .workspace { padding: 16px; }
   .hub-button { min-height: 48px; min-width: 48px; }
   .language-switcher select { min-height: 48px; }

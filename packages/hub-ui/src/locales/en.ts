@@ -16,6 +16,14 @@ export default {
   "language": {
     "label": "Language"
   },
+  "settings": {
+    "title": "Settings",
+    "browserIdentity": "Browser ID",
+    "identityHelp": "This site's browser ID is used when registering with a hub.",
+    "copy": "Copy browser ID",
+    "copied": "Browser ID copied.",
+    "selected": "Browser ID selected. Copy the selected text."
+  },
   "workspace": {
     "title": "Dashboards",
     "caption": "WORKSPACE",

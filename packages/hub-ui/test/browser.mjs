@@ -99,6 +99,14 @@ try {
   await until(async () => (await text()).includes('Task runner') && (await text()).includes('Create dashboard'), 'saved language overrides Japanese browser preference');
   assert.equal(await evaluate('document.documentElement.lang'), 'en');
   await screenshot('dashboard.png');
+  await click('Settings');
+  await until(() => evaluate('!!document.querySelector(".settings-dialog:modal")'), 'local settings');
+  assert.equal(await evaluate('document.querySelector(".settings-dialog select").checkVisibility()'), true);
+  assert.equal(await evaluate('!!document.querySelector(".settings-dialog [data-browser-id], .settings-dialog .danger")'), false, 'local hub has no remote browser identity');
+  await screenshot('settings-local.png');
+  await cdp('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 });
+  await cdp('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 });
+  await until(() => evaluate('document.activeElement.matches(".settings-button")'), 'local settings focus restored');
   if (process.env.CAPTURE_ONLY) { console.log(`Baseline: ${output}`); } else {
     // File recovery stays separate from dashboard loading and editing errors.
     await importText('{invalid');

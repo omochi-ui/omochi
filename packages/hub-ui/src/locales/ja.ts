@@ -18,6 +18,14 @@ export default {
   "language": {
     "label": "言語"
   },
+  "settings": {
+    "title": "設定",
+    "browserIdentity": "ブラウザーID",
+    "identityHelp": "ハブへの登録に使用する、このサイトのブラウザーIDです。",
+    "copy": "ブラウザーIDをコピー",
+    "copied": "ブラウザーIDをコピーしました。",
+    "selected": "ブラウザーIDを選択しました。選択したテキストをコピーしてください。"
+  },
   "workspace": {
     "title": "ダッシュボード",
     "caption": "ワークスペース",

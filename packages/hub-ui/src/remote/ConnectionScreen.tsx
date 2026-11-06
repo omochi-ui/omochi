@@ -59,6 +59,7 @@ function Connections(props: ConnectionScreenProps) {
       connectionUi={controls}
       connectionNotice={notice}
       connectionName={connectionName}
+      browserIdentity={browserId ? { id: browserId, busy, onReset: setResetTrigger } : undefined}
       renderSharing={active.owner
         ? board => <ShareSettings boardId={board.id} repository={new OwnerSharingRepository(active.session)} />
         : undefined}

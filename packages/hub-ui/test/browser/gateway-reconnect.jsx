@@ -67,6 +67,8 @@ window.gatewayTest = {
   invite() { location.hash = payload(); },
   reply(index, status, id = 'job1') { replies[index].resolve({ id, status, gatewayId: 'e'.repeat(64) }); },
   fail(index) { replies[index].reject(Error('Disconnected')); },
-  changeIdentity() { restoreRecords = true; identity.endpointId = '9'.repeat(64); identity.secretHex = '8'.repeat(64); },
+  changeIdentity({ restore = true, endpointId = '9'.repeat(64), secretHex = '8'.repeat(64) } = {}) {
+    restoreRecords = restore; identity.endpointId = endpointId; identity.secretHex = secretHex;
+  },
 };
 createRoot(document.getElementById('root')).render(<ConnectionScreen transport={transport} takeLink={() => null} bootstrapError={null} subscribeFragment={fragments.subscribe} />);
