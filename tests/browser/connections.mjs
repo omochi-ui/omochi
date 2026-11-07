@@ -27,9 +27,16 @@ try {
   const otherId = 'b'.repeat(64) + '/22222222-2222-4222-8222-222222222222';
   const shareId = 'a'.repeat(64) + '/44444444-4444-4444-8444-444444444444';
   const row = id => `[data-connection-id="${id}"]`;
-  const select = id => click(row(id) + ' .connection-select');
+  const select = async id => {
+    await click(row(id) + ' .connection-select');
+    await until(`document.querySelector('.workspace-status .current-connection-actions')?.dataset.currentConnectionId === ${JSON.stringify(id)}`);
+  };
   const share = { version: 2, hubId: 'a'.repeat(64), grantId: shareId.split('/')[1], relayUrls: ['https://relay.example/'], mode: 'share', secret: '2'.repeat(64) };
-  const openShare = async () => { await evaluate(`location.hash = ${JSON.stringify('#share:' + Buffer.from(JSON.stringify(share)).toString('base64url'))}`); await heading('Public dashboard'); };
+  const openShare = async (link = share) => {
+    await evaluate(`location.hash = ${JSON.stringify('#share:' + Buffer.from(JSON.stringify(link)).toString('base64url'))}`);
+    await heading('Public dashboard');
+    await until(`document.querySelector('.workspace-status .current-connection-actions')?.dataset.currentConnectionId === ${JSON.stringify(link.hubId + '/' + link.grantId)}`);
+  };
   const shot = async name => {
     await mkdir(screenshots, { recursive: true });
     await evaluate('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))');
@@ -66,9 +73,34 @@ try {
   await evaluate('document.querySelector(".workspace-status .connection-remember").focus()');
   await click('.workspace-status .connection-remember');
   await until('document.querySelector(".workspace-status .current-connection-actions [role=status]")?.textContent === "Connection remembered in this browser."');
-  await until('document.activeElement.matches(".connection-remembered")');
-  assert.equal(await evaluate('!!document.querySelector(".workspace-status .connection-remember")'), false, 'remembering replaces the action with a static status');
+  await until('document.activeElement.matches(".connection-open-app")');
+  assert.ok(await evaluate('!!document.querySelector(".workspace-status .connection-remembered")'), 'remembering shows a temporary confirmation');
+  assert.equal(await evaluate('!!document.querySelector(".workspace-status .connection-remember")'), false, 'a saved connection cannot be saved again');
   assert.equal(await evaluate(`document.querySelector(${JSON.stringify(row(shareId))}).dataset.persistent`), 'true');
+  await shot('share-remembered');
+  await until('!document.querySelector(".workspace-status .connection-remembered")');
+  assert.equal(await evaluate('document.querySelector(".workspace-status .current-connection-actions [role=status]").textContent'), '');
+  assert.equal(await evaluate('document.activeElement.matches(".connection-open-app")'), true, 'expiry does not remove keyboard focus');
+  assert.equal(await evaluate(`document.querySelector(${JSON.stringify(row(shareId))}).dataset.persistent`), 'true', 'expiry does not forget the connection');
+  assert.equal(await evaluate('!!document.querySelector(".workspace-status .connection-remember")'), false);
+  await shot('share-remembered-expired');
+
+  const secondShare = { ...share, hubId: 'b'.repeat(64), grantId: '55555555-5555-4555-8555-555555555555' };
+  const secondShareId = secondShare.hubId + '/' + secondShare.grantId;
+  await openShare(secondShare);
+  await click('.workspace-status .connection-remember');
+  await until('!!document.querySelector(".workspace-status .connection-remembered")');
+  await select(ownerId); await heading('Home dashboard 2');
+  assert.equal(await evaluate('!!document.querySelector(".workspace-status .connection-remembered")'), false, 'switching Hubs dismisses the confirmation');
+  await select(secondShareId); await heading('Public dashboard');
+  assert.equal(await evaluate('!!document.querySelector(".workspace-status .connection-remembered, .workspace-status .connection-remember")'), false, 'returning to a saved connection does not replay the confirmation or offer saving');
+  await select(shareId); await heading('Public dashboard');
+  const beforeReload = await evaluate('performance.timeOrigin');
+  await browser.command('Page.reload');
+  await until(`performance.timeOrigin > ${beforeReload}`);
+  await heading('Public dashboard');
+  await until(`document.querySelector(${JSON.stringify(row(shareId))})?.dataset.persistent === 'true'`);
+  assert.equal(await evaluate('!!document.querySelector(".workspace-status .connection-remembered, .workspace-status .connection-remember")'), false, 'a reload restores storage without replaying confirmation');
   // The new tab reads a saved bearer and connection metadata without an endpoint lease.
   const tab = await browser.tab(url);
   const deadline = Date.now() + 10000;
@@ -110,5 +142,5 @@ try {
   await browser.command('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 });
   await until('!document.querySelector("dialog:modal")');
   await until('document.activeElement.matches(".connection-manage")');
-  console.log('PASS: cold share navigation, per-Hub board restoration, explicit share save, new-tab restore, disconnect lease release, 320px/200% text, and focus recovery. Screenshots: ' + screenshots);
+  console.log('PASS: cold share navigation, per-Hub board restoration, explicit share save, confirmation expiry and dismissal, new-tab restore, disconnect lease release, 320px/200% text, and focus recovery. Screenshots: ' + screenshots);
 } finally { await browser?.close(); server?.stop(true); await rm(temp, { recursive: true, force: true }); }

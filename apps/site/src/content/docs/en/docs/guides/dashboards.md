@@ -52,7 +52,9 @@ saved entry. The header places **Remember connection**, **Open in app** and
 in this browser so it can be opened after closing the tab. Without saving,
 opened shares remain available only in the current tab. Saving does not increase
 permissions, and removing a saved connection does not revoke Hub access. The
-button changes to **Remembered** after saving. Remember and app handoff are
+button changes to **Remembered** after saving, then disappears after five seconds
+or when you switch connections. The connection stays saved; returning to it or
+reloading does not show the confirmation again. Remember and app handoff are
 available when connected through a public sharing link.
 
 On narrow screens, **Switch connection** opens the connection list. Choose

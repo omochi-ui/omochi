@@ -61,7 +61,8 @@ layout instead of inheriting text-input dimensions.
 The sidebar keeps owner and shared connections above the dashboards available
 through the selected connection. Each row identifies authority and Hub; repeated
 Hub grants also show a grant identifier. The current row shows connection state.
-The mobile **Switch connection** control opens the same sidebar. Selection
+The **Switch connection** control appears only at widths of 760px or less, where
+it opens the same sidebar. Wider screens keep the sidebar visible. Selection
 restores the last dashboard/preset and board-view mode for that connection.
 
 The sidebar is connection navigation: it does not repeat the shared-view banner,
@@ -69,9 +70,12 @@ connection details, or disconnect action. Per-row **Manage** opens IDs, a local
 display name and removal of the remembered entry. The main content's connection
 header shows the current name, authority and status beside **Remember connection**,
 **Open in app** and **Disconnect**. Remember and app handoff appear for public
-shares; remembering replaces the button with a static **Remembered** status and
-preserves keyboard focus. The actions wrap on narrow screens. Opening another
-record's manager never changes their target. The gateway invitation also exposes
+shares; remembering replaces the button with a **Remembered** confirmation for
+five seconds, or until switching connections. Saved connections stay saved;
+returning to one or reloading does not replay the confirmation. Keyboard focus
+moves to **Open in app** when the save button disappears. The actions wrap on
+narrow screens. Opening another record's manager never changes their target.
+The gateway invitation also exposes
 current-connection actions within its connection chooser, outside record menus.
 Board view keeps its compact connection display. Recovery keeps **Retry** beside
 the connection list. Public links opened in the tab remain available when switching
