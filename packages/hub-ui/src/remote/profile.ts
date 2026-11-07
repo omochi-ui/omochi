@@ -136,3 +136,20 @@ export async function resetHubProfile(): Promise<void> {
     });
   } finally { await release(); }
 }
+
+/** Inspect saved metadata without claiming an endpoint or generating an identity. */
+export async function readHubProfile(): Promise<{ browserId: string | null; records: ShareRecord[] }> {
+  const db = await open();
+  try {
+    const data = await read(db);
+    if (data.identities.length > 1 || data.shares.length > 1000 || !data.shares.every(validRecord)) throw new SessionFault('StorageCorrupt');
+    const identity = data.identities[0] as StoredIdentity | undefined;
+    if ((!identity && data.shares.length) || (identity && (identity.id !== 'default' || Object.keys(identity).sort().join(',') !== 'endpointId,id,secretHex' || typeof identity.endpointId !== 'string' || !/^[a-f0-9]{64}$/.test(identity.endpointId) || typeof identity.secretHex !== 'string' || !/^[a-f0-9]{64}$/.test(identity.secretHex)))) throw new SessionFault('StorageCorrupt');
+    return { browserId: identity?.endpointId ?? null, records: data.shares };
+  } finally { db.close(); }
+}
+export async function forgetHubRecord(id: string) {
+  const db = await open();
+  try { await tx<void>(db, ['shares'], 'readwrite', t => { t.objectStore('shares').delete(id); }); }
+  finally { db.close(); }
+}

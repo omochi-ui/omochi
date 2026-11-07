@@ -104,9 +104,12 @@ Native profile loading validates and removes recognized v1 `invite`/`public`
 records with compare-and-exchange, preserving the existing identity, owner
 records and v2 shares. Unrecognized or malformed profile data remains an error.
 
-Browsers keep bearer context in tab-scoped sessionStorage, without enrolling or
-saving an identity grant. Native clients retain bearer credentials in protected
-storage only when explicitly saved. Bearer secrets are removed from URL history
+Browsers keep unsaved bearer context in tab-scoped sessionStorage, without
+enrolling or saving an identity grant. An explicit save operation may retain a
+public share link and its bearer secret in a separate browser connection catalog
+in IndexedDB; deleting that entry must not revoke Hub authority or resurrect the
+credential from cached metadata. Native clients retain bearer credentials in
+protected storage only when explicitly saved. Bearer secrets are removed from URL history
 before loading the application; they are never returned in share listings.
 
 ## Verification

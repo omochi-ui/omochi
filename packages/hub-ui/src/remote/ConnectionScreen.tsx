@@ -40,7 +40,7 @@ function Connections(props: ConnectionScreenProps) {
       session={active?.owner ? active.session : null}
       ownerScope={active?.owner && browserId ? `${active.id}/${browserId}` : null}
       hubName={active ? connectionName : ''}
-      ownsProfile={!!browserId}
+      ownsProfile={state.ownsProfile}
       connections={<>
         {!active && notice}
         <ConnectionControls state={state} dispatch={dispatch} onReset={setResetTrigger} />
@@ -59,7 +59,7 @@ function Connections(props: ConnectionScreenProps) {
       connectionUi={controls}
       connectionNotice={notice}
       connectionName={connectionName}
-      browserIdentity={{ id: browserId, busy, error, onLoad: () => { void dispatch({ type: 'loadProfile' }); }, onReset: setResetTrigger }}
+      browserIdentity={{ id: browserId, busy, error: error ?? state.listError, onLoad: () => { void dispatch({ type: 'loadProfile' }); }, onReset: setResetTrigger }}
       renderSharing={active.owner
         ? board => <ShareSettings boardId={board.id} repository={new OwnerSharingRepository(active.session)} />
         : undefined}
@@ -72,7 +72,7 @@ function Connections(props: ConnectionScreenProps) {
     {invitation && <OwnerInvitation
       invitation={invitation}
       busy={busy}
-      ownsProfile={!!browserId}
+      ownsProfile={state.ownsProfile}
       error={error}
       dispatch={dispatch}
     />}

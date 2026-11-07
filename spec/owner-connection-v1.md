@@ -63,7 +63,9 @@ recovery flow. An optional `owner:true` distinguishes saved owner records from
 legacy share records; absence always means share access. Secrets are not saved.
 Several Hub records may be saved; only one identity connection is active at a
 time. Switching joins the previous session and confirms discard of unsaved
-edits. Local forget/reset does not revoke server-side authority.
+edits. Connection metadata can be read without claiming the identity endpoint.
+An explicit disconnect releases the endpoint lock after stopping the session;
+active enrollment/recovery retains its lease until completed or dismissed. Local forget/reset does not revoke server-side authority.
 
 Browser owner and share sessions admit Hub Surfaces across Gateways and services
 within the shared frame, lease and snapshot byte budgets. The mobile adapter's

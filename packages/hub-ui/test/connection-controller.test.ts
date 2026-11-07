@@ -160,7 +160,7 @@ test('pending owner invitations and their dismissal never replace the active pub
 
 test('owner invitation retries acquire the profile after another tab releases it while preserving the public share', async t => {
   const f = fixture(t);
-  const otherTab = f.create(null);
+  const otherTab = f.create(ownerLink);
   await otherTab.start();
   const controller = f.create(publicLink);
   await controller.start();
@@ -168,11 +168,11 @@ test('owner invitation retries acquire the profile after another tab releases it
   controller.receive(fragment(ownerLink));
   await until(controller, state => !state.busy);
   assert.equal(controller.getSnapshot().error?.code, 'OwnerBusy');
-  assert.equal(controller.getSnapshot().browserId, null);
+  assert.equal(controller.getSnapshot().ownsProfile, false);
 
   await controller.dispatch({ type: 'retry' });
   assert.equal(controller.getSnapshot().error?.code, 'OwnerBusy', 'failed profile retries remain recoverable');
-  assert.equal(controller.getSnapshot().browserId, null);
+  assert.equal(controller.getSnapshot().ownsProfile, false);
   assert.equal(controller.getSnapshot().active, active);
 
   await otherTab.dispose();
@@ -349,7 +349,7 @@ test('disposal releases an in-flight profile acquisition before a replacement co
     generated();
     return new Promise(resolve => { finish = resolve; });
   };
-  const controller = f.create(null);
+  const controller = f.create(ownerLink);
   const starting = controller.start();
   await generating;
   const disposing = controller.dispose();
@@ -361,4 +361,110 @@ test('disposal releases an in-flight profile acquisition before a replacement co
   await replacement.start();
   assert.equal(replacement.getSnapshot().browserId, f.identity.endpointId);
   assert.equal(replacement.getSnapshot().error, null);
+});
+
+test('cold public viewing lists owners without claiming their endpoint, and disconnect releases it', async t => {
+  const f = fixture(t); await f.seed();
+  const owner = f.create(null); await owner.start();
+  assert.equal(f.locked, false);
+  await owner.dispatch({ type: 'select', id: savedId });
+  assert.equal(f.locked, true);
+  const viewer = f.create(publicLink); await viewer.start();
+  assert.equal(viewer.getSnapshot().entries.some(e => e.id === savedId), true);
+  assert.equal(viewer.getSnapshot().ownsProfile, false);
+  await viewer.dispatch({ type: 'loadProfile' });
+  assert.equal(viewer.getSnapshot().error, null, 'identity inspection does not compete for the endpoint');
+  await owner.dispatch({ type: 'disconnect' });
+  assert.equal(f.locked, false);
+  await viewer.dispatch({ type: 'select', id: savedId });
+  assert.equal(viewer.getSnapshot().active?.owner, true);
+  assert.equal(f.locked, true);
+});
+
+test('public links require explicit persistence and forgetting never restores a cached saved link', async t => {
+  const f = fixture(t);
+  const id = `${publicLink.hubId}/${publicLink.grantId}`;
+  const controller = f.create(publicLink); await controller.start();
+  assert.equal(controller.getSnapshot().entries[0]?.persistent, false);
+  await controller.dispatch({ type: 'saveShare', id });
+  assert.equal(controller.getSnapshot().entries[0]?.persistent, true);
+  await controller.dispose(); f.storage.clear();
+  const fresh = f.create(null); await fresh.start();
+  assert.equal(fresh.getSnapshot().entries[0]?.id, id, 'a new tab sees explicitly saved links');
+  await fresh.dispatch({ type: 'select', id });
+  assert.equal(fresh.getSnapshot().active?.kind, 'public');
+  await fresh.dispatch({ type: 'forget', id });
+  assert.equal(fresh.getSnapshot().active?.kind, 'public', 'forget does not interrupt the live session');
+  assert.equal(fresh.getSnapshot().entries[0]?.persistent, false);
+  await fresh.dispatch({ type: 'rememberLocation', id, location: 'dashboard=last' });
+  await fresh.dispose(); f.storage.clear();
+  const forgotten = f.create(null); await forgotten.start();
+  assert.equal(forgotten.getSnapshot().entries.length, 0, 'navigation metadata cannot resurrect a bearer');
+});
+
+test('several tab shares survive switching and reload without becoming durable', async t => {
+  const f = fixture(t); await f.seed();
+  const first = f.create(publicLink); await first.start();
+  const secondLink = { ...publicLink, grantId: '33333333-3333-4333-8333-333333333333' };
+  first.receive(fragment(secondLink));
+  await until(first, state => !state.busy && state.active?.id.endsWith(secondLink.grantId) === true);
+  await first.dispatch({ type: 'select', id: savedId });
+  await first.dispose();
+  const reloaded = f.create(null); await reloaded.start();
+  assert.equal(reloaded.getSnapshot().entries.filter(e => e.link).length, 2);
+  assert.equal(reloaded.getSnapshot().entries.filter(e => e.link).every(e => !e.persistent), true);
+  await reloaded.dispose(); f.storage.clear();
+  const newTab = f.create(null); await newTab.start();
+  assert.equal(newTab.getSnapshot().entries.filter(e => e.link).length, 0);
+});
+
+test('catalog patches preserve concurrent names and locations and reset removes saved shares', async t => {
+  const f = fixture(t); await f.seed();
+  const { changeCatalog, readCatalog } = await import('../src/remote/catalog.js');
+  await Promise.all([changeCatalog(savedId, { name: 'Home' }), changeCatalog(savedId, { location: 'dashboard=second&view=board' })]);
+  assert.deepEqual((await readCatalog())[0], { id: savedId, name: 'Home', location: 'dashboard=second&view=board' });
+  const controller = f.create(publicLink); await controller.start();
+  assert.equal(controller.getSnapshot().entries.find(e => e.id === savedId)?.name, 'Home');
+  await controller.dispatch({ type: 'saveShare', id: `${publicLink.hubId}/${publicLink.grantId}` });
+  await controller.dispatch({ type: 'reset' });
+  assert.equal(controller.getSnapshot().entries.length, 0);
+  assert.deepEqual(await readCatalog(), []);
+  assert.equal(f.locked, false);
+});
+
+test('catalog loading failure does not replace a usable public connection', async t => {
+  const f = fixture(t);
+  const getAll = IDBObjectStore.prototype.getAll;
+  IDBObjectStore.prototype.getAll = function(...args) {
+    if (this.name === 'connections') throw new DOMException('denied', 'InvalidStateError');
+    return getAll.apply(this, args);
+  };
+  t.after(() => { IDBObjectStore.prototype.getAll = getAll; });
+  const controller = f.create(publicLink); await controller.start();
+  assert.equal(controller.getSnapshot().active?.kind, 'public');
+  assert.equal(controller.getSnapshot().listError?.code, 'StorageUnavailable');
+  IDBObjectStore.prototype.getAll = getAll;
+  await controller.dispatch({ type: 'refresh' });
+  assert.equal(controller.getSnapshot().listError, null);
+});
+
+test('retry resumes the selected owner after another tab releases its identity', async t => {
+  const f = fixture(t); await f.seed();
+  const first = f.create(null); await first.start();
+  await first.dispatch({ type: 'select', id: savedId });
+  const second = f.create(publicLink); await second.start();
+  await second.dispatch({ type: 'select', id: savedId });
+  assert.equal(second.getSnapshot().error?.code, 'OwnerBusy');
+  await first.dispose();
+  await second.dispatch({ type: 'retry' });
+  assert.equal(second.getSnapshot().active?.id, savedId);
+  assert.equal(second.getSnapshot().error, null);
+});
+
+test('the public catalog rejects owner enrollment secrets and unknown fields', async t => {
+  fixture(t);
+  const { changeCatalog, readCatalog } = await import('../src/remote/catalog.js');
+  await assert.rejects(changeCatalog(savedId, { link: ownerLink }));
+  await assert.rejects(changeCatalog(savedId, { link: { ...publicLink, extra: true } as ShareLink }));
+  assert.deepEqual(await readCatalog(), []);
 });
