@@ -39,12 +39,15 @@ try {
   await browser.command('Emulation.setDeviceMetricsOverride', { width: 1440, height: 1000, deviceScaleFactor: 1, mobile: false });
   await browser.command('Page.navigate', { url: url + '&seed' });
   await until('document.querySelectorAll(".connection-record").length === 3');
+  assert.equal(await evaluate('!!document.querySelector(".sidebar")'), false, 'idle connections are centered');
+  assert.ok(await evaluate('!!document.querySelector(".connections-page .connection-details")'));
   assert.ok((await evaluate('document.body.innerText')).includes('Hub aaaaaaaa'));
   assert.ok((await evaluate('document.body.innerText')).includes('Hub bbbbbbbb'));
   await select(ownerId); await heading('Home dashboard 1');
   await click('.sidebar nav button:nth-child(2)'); await heading('Home dashboard 2');
   await select(otherId); await heading('Work dashboard 1');
   await select(ownerId); await heading('Home dashboard 2');
+  assert.equal(await evaluate('!!document.querySelector(".sidebar .connection-details, .sidebar .connection-disconnect")'), false, 'sidebar keeps connection navigation separate from management');
   await shot('owner-desktop');
   await openShare();
   await browser.command('Page.reload'); await heading('Public dashboard');
@@ -54,6 +57,7 @@ try {
   await select(shareId); await heading('Public dashboard');
   await click(row(shareId) + ' .connection-manage');
   await until('!!document.querySelector(".picker:modal")');
+  assert.ok(await evaluate('!!document.querySelector(".connection-dialog .connection-details a")'), 'shared handoff is available from the connection manager');
   await evaluate(`(() => {const input=document.querySelector('#connection-name'); Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,'Team report'); input.dispatchEvent(new Event('input',{bubbles:true}));})()`);
   await click('.picker:modal form button');
   await until('document.querySelector(".picker:modal [role=status]")?.textContent === "Connection name saved."');
@@ -67,7 +71,12 @@ try {
   while (Date.now() < deadline && !(await tab.evaluate(`!!document.querySelector(${JSON.stringify(row(shareId))})`))) await Bun.sleep(25);
   assert.equal(await tab.evaluate(`document.querySelector(${JSON.stringify(row(shareId))})?.textContent.includes('Team report')`), true);
   await select(ownerId); await heading('Home dashboard 2');
-  await click('.sidebar .connection-actions button');
+  await click(row(shareId) + ' .connection-manage');
+  await until('!!document.querySelector(".connection-dialog:modal")');
+  assert.equal(await evaluate('!!document.querySelector(".connection-dialog .connection-disconnect")'), false, 'an inactive connection cannot disconnect the current Hub');
+  await click('.connection-dialog .dialog-header button');
+  await click(row(ownerId) + ' .connection-manage');
+  await click('.connection-dialog .connection-disconnect');
   await until('!!document.querySelector(".connections-page")');
   await tab.evaluate(`document.querySelector(${JSON.stringify(row(ownerId) + ' .connection-select')}).click()`);
   const connected = Date.now() + 10000;

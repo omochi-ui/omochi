@@ -38,7 +38,19 @@ try {
     const element = `Array.from(document.querySelectorAll('.connection-record')).find(a=>a.textContent.includes(${JSON.stringify(name)}))`;
     await until(() => evaluate(`!!(${element}?.querySelector('.connection-select:not(:disabled)'))`), `connect ${name}`);
     await evaluate(`${element}.querySelector('button').click()`);
-    await until(() => evaluate(`!!(${button('Disconnect from Hub')})`), 'connected');
+    await until(() => evaluate(`${element}?.classList.contains('selected') && !!document.querySelector('.connection-switch')`), 'connected');
+  };
+  const manageCurrent = async () => {
+    await evaluate(`(() => { const surface = document.querySelector('.gateway-invitation:modal') ?? document; const disclosure = surface.querySelector('details:has(.shared-connections)'); if (disclosure) disclosure.open = true; surface.querySelector('.connection-record.selected .connection-manage').click(); })()`);
+    await until(() => evaluate('!!document.querySelector(".connection-dialog:modal")'), 'connection manager');
+  };
+  const closeManager = async () => {
+    await evaluate('document.querySelector(".connection-dialog .dialog-header button").click()');
+    await until(() => evaluate('!document.querySelector(".connection-dialog")'), 'connection manager closed');
+  };
+  const disconnect = async () => {
+    await manageCurrent(); await click('Disconnect from Hub');
+    await until(() => evaluate('!!document.querySelector(".connections-page")'), 'disconnected');
   };
   const count = () => evaluate('gatewayTest.calls.length');
   const calls = () => evaluate('gatewayTest.calls');
@@ -64,7 +76,7 @@ try {
   await click('Add to this hub');
   await nextCall(0, 'gatewayPairStart'); await reply(0, 'pairing');
   await nextCall(1, 'gatewayPairStatus'); // Hold an old-session poll across disconnect.
-  await click('Disconnect from Hub');
+  await disconnect();
   await until(async () => (await content()).includes('Reconnect to Original Hub'), 'disconnected recovery');
   await shot('disconnected');
   await connect('Other Hub');
@@ -85,7 +97,7 @@ try {
   assert.equal(await count(), 3, 'status requests never overlap');
   await reply(2, 'savePending');
   await until(async () => (await content()).includes('saving on the hub failed'), 'save pending');
-  await click('Disconnect from Hub'); await connect('Other Hub');
+  await disconnect(); await connect('Other Hub');
   assert.equal(await evaluate(`!!(${button('Retry saving registration')})`), false);
   await connect('Original Hub'); await click('Retry saving registration');
   const save = await nextCall(3, 'gatewayPairRetrySave'); assert.equal(save.id, 'job1');
@@ -124,7 +136,7 @@ try {
 
   // Replacing the browser identity cannot resume a job even on the same grant.
   await click('Add to this hub'); await nextCall(11, 'gatewayPairStart'); await reply(11, 'pairing', 'job5');
-  await click('Disconnect from Hub');
+  await disconnect();
   await evaluate('gatewayTest.changeIdentity()');
   await click('Reset browser identity…'); await click('Confirm identity reset');
   await until(() => evaluate(`document.querySelector('[data-browser-id]')?.textContent === '9'.repeat(64)`), 'new browser identity');
@@ -180,6 +192,7 @@ try {
   await until(() => evaluate('document.querySelector("h1")?.textContent === "Public dashboard"'), 'public dashboard');
   await invalidLink('share');
   const shareSessions = await evaluate('gatewayTest.sessions.length');
+  await manageCurrent();
   const shareHandoff = await evaluate('document.querySelector(".connection-details a").href');
   assert.equal(shareHandoff, 'omochi://share/' + publicFragment.slice(7), 'active dashboard has a share handoff');
 
@@ -198,9 +211,17 @@ try {
   await until(() => evaluate('location.hash === ""'), 'duplicate share consumed');
   assert.equal(await evaluate('gatewayTest.sessions.length'), shareSessions, 'dismissal and duplicate links retain the share session');
 
+  await closeManager();
+
   // Cancelling a dirty switch preserves the share; accepting it removes its bearer.
   await click('Edit dashboard');
   await evaluate(`(() => { const input = document.querySelector('.dashboard-name'); Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, 'Unsaved shared work'); input.dispatchEvent(new Event('input', { bubbles: true })); })()`);
+  await manageCurrent(); await click('Disconnect from Hub');
+  await until(() => evaluate('!!document.querySelector("#confirm-title")'), 'disconnect asks before leaving dirty work');
+  await evaluate('document.querySelector("[aria-labelledby=confirm-title] .toolbar button").click()');
+  await until(() => evaluate('!document.querySelector("#confirm-title")'), 'disconnect cancelled');
+  assert.equal(await evaluate('document.querySelector(".dashboard-name").value'), 'Unsaved shared work');
+  assert.equal(await evaluate('gatewayTest.sessions.length'), shareSessions);
   const selectSaved = async () => {
     await evaluate('Array.from(document.querySelectorAll(".sidebar .connection-record")).find(record => record.textContent.includes("Other Hub")).querySelector("button").click()');
     await until(() => evaluate('!!document.querySelector("#confirm-title")'), 'confirm saved connection switch');
@@ -210,12 +231,16 @@ try {
   await until(() => evaluate('!document.querySelector("#confirm-title") && !!document.querySelector(".connection-record button:not(:disabled)")'), 'switch cancelled');
   assert.equal(await evaluate('gatewayTest.sessions.length'), shareSessions);
   assert.equal(await evaluate('document.querySelector(".dashboard-name").value'), 'Unsaved shared work');
+  await manageCurrent();
   assert.equal(await evaluate('document.querySelector(".connection-details a").href'), shareHandoff);
+  await closeManager();
   assert.deepEqual(JSON.parse(await evaluate('sessionStorage.getItem("omochi.shared.public")')), publicPayload);
   await selectSaved(); await click('Discard changes');
   await until(() => evaluate('!!sessionStorage.getItem("omochi.shared.selected") && !document.querySelector(".dashboard-name")'), 'saved owner connected');
   assert.equal(await evaluate('sessionStorage.getItem("omochi.shared.public")'), null);
+  await manageCurrent();
   assert.equal(await evaluate('!!document.querySelector(".connection-details a")'), false, 'saved owner has no stale share handoff');
+  await closeManager();
   await evaluate(`location.hash = ${JSON.stringify(publicFragment)}`);
   await until(() => evaluate('document.querySelector("h1")?.textContent === "Public dashboard"'), 'previous share can be opened again after switching away');
   await connect('Original Hub');
@@ -325,7 +350,8 @@ try {
   await click('Discard changes');
   await until(() => evaluate('!!document.querySelector(".connections-page") && document.querySelector("[data-browser-id]")?.textContent === "6".repeat(64)'), 'reset creates a new browser identity');
   assert.equal(await evaluate('document.querySelectorAll(".connection-record").length'), 0, 'reset clears saved connections');
-  assert.equal(await evaluate('!!document.querySelector(".sidebar")'), true, 'idle screen retains connection navigation');
+  assert.equal(await evaluate('!!document.querySelector(".sidebar")'), false, 'idle screen centers connection navigation');
+  assert.equal(await evaluate('!!document.querySelector(".connections-page .shared-connections")'), true);
   assert.equal(await evaluate('document.querySelector(".connections-page .workspace-status select").value'), 'en', 'idle language stays in its original location and survives identity reset');
   await shot('settings-reset-idle');
 

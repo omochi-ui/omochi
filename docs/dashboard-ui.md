@@ -41,7 +41,9 @@ Same seeded dashboard before and after the change:
 
 [Owner connections](assets/dashboard-ui/connections-owner.png) ·
 [Shared connection](assets/dashboard-ui/connections-share.png) ·
-[Mobile connections](assets/dashboard-ui/connections-mobile.png)
+[Mobile connections](assets/dashboard-ui/connections-mobile.png) ·
+[Connection manager](assets/dashboard-ui/connections-manage.png) ·
+[Disconnected screen](assets/dashboard-ui/connections-idle.png)
 
 These screenshots use controlled session responses and isolated browser data.
 
@@ -61,8 +63,11 @@ Hub grants also show a grant identifier. The current row shows connection state.
 The mobile **Switch connection** control opens the same sidebar. Selection
 restores the last dashboard/preset and board-view mode for that connection.
 
-Per-row **Manage** opens details, a local display name, explicit shared-link
-saving, and removal. Public links opened in the tab remain available when switching
+The sidebar is connection navigation: it does not repeat the shared-view banner,
+connection details, or disconnect action. Per-row **Manage** opens details, a
+local display name, native-app handoff, explicit shared-link saving, and removal.
+Only the current connection's manager offers **Disconnect from Hub**. Recovery
+keeps **Retry** beside the connection list. Public links opened in the tab remain available when switching
 away; explicit save persists their bearer in a separate IndexedDB connection
 catalog. Catalog patches read the current record inside an IDB transaction;
 metadata updates never write cached bearer credentials. Cross-tab notifications
@@ -79,20 +84,30 @@ The sidebar's **Settings** opens language and browser identity preferences witho
 leaving the board. Reset confirms deletion of the identity, saved connections,
 saved shared links and tab history, and preserves the unsaved-edit guard. Hub
 boards and server grants remain. Local Hub administration is under its sidebar
-connection details. The disconnected hosted screen also retains connection
-navigation. Normal board actions keep Edit and Share visible, with Export, Board
+connection details. The disconnected hosted screen centers connection navigation
+and browser identity details in the main content, without a sidebar. Normal board actions keep Edit and Share visible, with Export, Board
 view and Delete under **More actions**; Delete retains confirmation.
 
 `bun tests/browser/connections.mjs` checks cold shared startup, multi-Hub board
 restoration, explicit share saving, new-tab access, endpoint release, 320px/200%
 text layouts and focus recovery with real React, IndexedDB and Web Locks and
-controlled transport responses. Screenshots are written to
+controlled transport responses. It also verifies that only the current
+connection's manager offers disconnect and that native handoff remains available.
+Screenshots are written to
 `/tmp/omochi-connections-screenshots` (or `SCREENSHOT_DIR`).
+
+The connection layout was additionally checked at 320, 360, 390, 640, 760, 761,
+1024, 1440 and 1920 CSS pixels in both directions, using English, Japanese,
+German test strings and pseudo-localization. The checks include long names, 200%
+text, simulated 200% browser-zoom geometry, and scrolling controls beneath the
+measured sticky dialog header. Connection names wrap in the switch control;
+management titles stay short while the full editable name remains in the form.
+Real-device Safari and browser zoom shortcuts were not verified.
 
 The pre-bootstrap native-app link remains available if transport initialization
 fails. Once React loads, the invitation dialog owns that action, so registering
 or dismissing the invitation removes it. Public-share native handoff is available
-under connection details. These labels follow the selected interface language.
+under the shared connection's **Manage** details. These labels follow the selected interface language.
 
 The controlled-session browser regression checks are run with
 `bun tests/browser/gateway-reconnect.mjs`. They cover modal dismissal, owner

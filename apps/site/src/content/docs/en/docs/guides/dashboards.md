@@ -44,15 +44,16 @@ Use an [owner connection](../remote/#connect-from-a-hosted-browser) for full man
 The sidebar's **Connections** lists owner connections and shared dashboards.
 Select a connection, then choose one of its dashboards below. Switching back
 restores your previous dashboard. Shared access stays separate from owner access;
-choose **Return to owner view** or an owner connection to manage the Hub.
+choose an owner connection in the list to manage the Hub.
 
-Open a connection's **…** control to rename it, inspect its IDs, or remove its
+Open a connection's **…** control to rename it, inspect its IDs, open a shared link in the app, or remove its
 saved entry. **Save this shared connection** keeps the link and its access secret
 in this browser so it can be opened after closing the tab. Without saving,
 opened shares remain available only in the current tab. Saving does not increase
 permissions, and removing a saved connection does not revoke Hub access.
 
-On narrow screens, **Switch connection** opens the connection list. **Disconnect
-from Hub** makes the browser identity available to another tab. Close or finish
+On narrow screens, **Switch connection** opens the connection list. Choose **Disconnect
+from Hub** in the current connection's **…** control to make the browser identity available to another tab. Close or finish
 an owner invitation before disconnecting. Export, Board view and Delete are in
 **More actions**; deleting a dashboard still requires confirmation.
+When disconnected, choose a connection from the centered list. **Connection details** below it contains the browser ID and its reset action.

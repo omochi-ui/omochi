@@ -38,7 +38,11 @@ export function Modal({
     const element = dialog.current;
     if (!open) return;
     element?.showModal();
-    return () => { element?.close(); restoreDialogFocus(returnTo); };
+    const header = element?.querySelector('.dialog-header');
+    const measureHeader = () => { if (element && header) element.style.setProperty('--dialog-header-height', `${header.getBoundingClientRect().height}px`); };
+    const observer = new ResizeObserver(measureHeader);
+    if (header) { measureHeader(); observer.observe(header); }
+    return () => { observer.disconnect(); element?.close(); restoreDialogFocus(returnTo); };
   }, [open, returnTo]);
   return (
     <dialog

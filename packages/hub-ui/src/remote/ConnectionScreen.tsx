@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import App from '../App.js';
+import { Button } from '../Button.js';
 import { DashboardNavigationProvider } from '../DashboardNavigation.js';
 import { LanguageSwitcher } from '../LanguageSwitcher.js';
 import { ShareSettings } from '../ShareSettings.js';
@@ -38,10 +39,15 @@ function Connections(props: ConnectionScreenProps) {
     state={state}
     dispatch={dispatch}
     heading={heading}
+    showHeading={!!active}
     onForget={(record, trigger) => setForget({ record, trigger })}
-    onReset={setResetTrigger}
   />;
   const notice = !invitation && <ConnectionError error={error} />;
+  const identityDetails = <details className="connection-details">
+    <summary>{t('connection.details')}</summary>
+    {browserId && <dl><dt>{t('connection.browserId')}</dt><dd><code data-browser-id={browserId}>{browserId}</code></dd></dl>}
+    <Button disabled={busy} className="danger" onClick={event => setResetTrigger(event.currentTarget)}>{t('connection.reset')}</Button>
+  </details>;
 
   return <>
     <GatewayInvitation
@@ -52,7 +58,8 @@ function Connections(props: ConnectionScreenProps) {
       ownsProfile={state.ownsProfile}
       connections={<>
         {!active && notice}
-        <ConnectionControls state={state} dispatch={dispatch} onReset={setResetTrigger} />
+        <ConnectionControls state={state} dispatch={dispatch} />
+        {!active && identityDetails}
       </>}
       suspended={!!invitation}
     />
@@ -73,12 +80,14 @@ function Connections(props: ConnectionScreenProps) {
       renderSharing={active.owner
         ? board => <ShareSettings boardId={board.id} repository={new OwnerSharingRepository(active.session)} />
         : undefined}
-    /> : <div className="hub-layout nav-open"><aside className="sidebar">{controls}</aside><main className="workspace connections-page">
+    /> : <main id="workspace" tabIndex={-1} className="workspace connections-page">
       <div className="workspace-status"><LanguageSwitcher /></div>
       <h1 tabIndex={-1}>{t('connection.title')}</h1>
       {notice}
-      <p>{t('connection.chooseConnection')}</p>
-    </main></div>}
+      {!!state.entries.length && <p>{t('connection.chooseConnection')}</p>}
+      {controls}
+      {identityDetails}
+    </main>}
     {invitation && <OwnerInvitation
       invitation={invitation}
       busy={busy}
