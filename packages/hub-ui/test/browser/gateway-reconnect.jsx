@@ -10,6 +10,7 @@ import i18n from '../../src/i18n.ts';
 import '../../src/styles.css';
 import '@omochi-ui/renderer/styles.css';
 await i18n.changeLanguage('en');
+const scenario = new URLSearchParams(location.search).has('connections');
 const publicStartup = new URLSearchParams(location.search).has('public');
 const publicLink = { version: 2, mode: 'share', hubId: 'a'.repeat(64), grantId: '44444444-4444-4444-8444-444444444444', relayUrls: ['https://relay.example/'], secret: '2'.repeat(64) };
 const identity = { endpointId: 'c'.repeat(64), secretHex: 'd'.repeat(64) };
@@ -35,8 +36,8 @@ const sources = [
   { name: 'Original Hub', hubId: 'a'.repeat(64), grantId: '11111111-1111-4111-8111-111111111111' },
   { name: 'Other Hub', hubId: 'b'.repeat(64), grantId: '22222222-2222-4222-8222-222222222222' },
   { name: 'Other owner grant', hubId: 'a'.repeat(64), grantId: '33333333-3333-4333-8333-333333333333' },
-].map(source => ({ ...source, owner: true, relayUrls: ['https://relay.example/'] }));
-if (!publicStartup) {
+].map(source => ({ ...source, ...(scenario ? { name: 'Owner hub' } : {}), owner: true, relayUrls: ['https://relay.example/'] }));
+if (!publicStartup && (!scenario || new URLSearchParams(location.search).has('seed'))) {
   const seed = await openHubProfile(transport);
   for (const source of sources) await seed.save(source, 'accepted');
   await seed.close();
@@ -57,13 +58,17 @@ RemoteHubSession.prototype.start = async function () {
 };
 RemoteHubSession.prototype.stop = async function () {};
 RemoteHubSession.prototype.control = async function (command) {
+  if (scenario && command.method === 'boardsList') {
+    const prefix = this.options.source.hubId[0];
+    return [1, 2].map(n => ({ id: prefix + '-board-' + n, revision: 1, name: (prefix === 'a' ? 'Home' : 'Work') + ' dashboard ' + n, panels: [] }));
+  }
   if (!command.method.startsWith('gatewayPair')) return [];
   const index = calls.length;
   calls.push({ ...command, source: this.options.source, identity: this.options.secretHex, session: sessions.indexOf(this) });
   return new Promise((resolve, reject) => { replies[index] = { resolve, reject }; });
 };
 const payload = () => '#g:' + btoa(JSON.stringify({ version: 4, address: { id: 'e'.repeat(64), addrs: [] }, secret: 'f'.repeat(64), expires: Math.floor(Date.now() / 1000) + 180 })).replaceAll('+', '-').replaceAll('/', '_').replaceAll('=', '');
-if (!publicStartup) history.replaceState(null, '', payload());
+if (!publicStartup && !scenario) history.replaceState(null, '', payload());
 const fragments = createHostedFragmentInbox(window, fragment => installNativeInvitationButton(document, fragment));
 window.gatewayTest = {
   calls, sources, sessions,
@@ -75,4 +80,4 @@ window.gatewayTest = {
     restoreRecords = restore; identity.endpointId = endpointId; identity.secretHex = secretHex;
   },
 };
-createRoot(document.getElementById('root')).render(<ConnectionScreen transport={transport} takeLink={() => publicStartup ? publicLink : null} bootstrapError={null} subscribeFragment={fragments.subscribe} />);
+createRoot(document.getElementById('root')).render(<ConnectionScreen transport={transport} takeLink={() => publicStartup ? publicLink : scenario ? JSON.parse(sessionStorage.getItem("omochi.shared.public") || "null") : null} bootstrapError={null} subscribeFragment={fragments.subscribe} />);

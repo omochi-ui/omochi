@@ -18,7 +18,7 @@ import { emptyDashboard, useDashboardEditor } from './useDashboardEditor.js';
 import { useDashboards } from './useDashboards.js';
 import { useDashboardNavigation } from './DashboardNavigation.js';
 
-export function DashboardWorkspace({ environment, connectionUi, connectionNotice, connectionName, browserIdentity, renderSharing }: { environment: DashboardEnvironment; connectionUi?: ReactNode; connectionNotice?: ReactNode; connectionName?: string; browserIdentity?: BrowserIdentitySettings; renderSharing?: (board: Dashboard) => ReactNode }) {
+export function DashboardWorkspace({ environment, connectionUi, connectionSidebar, onLocationChange, connectionNotice, connectionName, browserIdentity, renderSharing }: { environment: DashboardEnvironment; connectionUi?: ReactNode; connectionSidebar?: ReactNode; onLocationChange?: (location: string) => void; connectionNotice?: ReactNode; connectionName?: string; browserIdentity?: BrowserIdentitySettings; renderSharing?: (board: Dashboard) => ReactNode }) {
   const { t } = useTranslation();
   const session = useA2uiSource(environment.session);
   const services: readonly ServiceView[] = session.services;
@@ -89,7 +89,12 @@ export function DashboardWorkspace({ environment, connectionUi, connectionNotice
     }
     if (board) url.searchParams.set('view', 'board'); else url.searchParams.delete('view');
     history.replaceState(null, '', url);
-  }, [selected, board]);
+    if (selected) {
+      const saved = new URLSearchParams();
+      for (const key of ['dashboard', 'preset', 'view']) if (url.searchParams.has(key)) saved.set(key, url.searchParams.get(key)!);
+      onLocationChange?.(saved.toString());
+    }
+  }, [selected, board, onLocationChange]);
   useEffect(() => { document.title = `${active?.name ?? t('workspace.title')} · omochi`; }, [active?.name, t]);
   useEffect(() => { if (confirmation) confirmDialog.current?.showModal(); }, [confirmation]);
   useEffect(() => { if (details) detailsDialog.current?.showModal(); }, [details]);
@@ -280,6 +285,8 @@ export function DashboardWorkspace({ environment, connectionUi, connectionNotice
     <Button className="mobile-nav" aria-expanded={navOpen} aria-controls="dashboard-navigation" onClick={() => setNavOpen(!navOpen)}>{t('workspace.title')}</Button>
     <aside id="dashboard-navigation" className="sidebar">
       <a className="brand" href="./" onClick={event => { if (dirty || busy) { event.preventDefault(); discardThen(() => { location.href = './'; }); } }}><svg className="brand-mark" viewBox="0 0 96 96" aria-hidden="true"><path fill="currentColor" fillRule="evenodd" d="M32 12h20q24 0 24 24v-2h1a13 13 0 0 1 13 13v2a13 13 0 0 1-13 13h-1q-1 22-24 22H32Q8 84 8 60V36Q8 12 32 12Zm27 36a17 17 0 1 0-34 0 17 17 0 0 0 34 0Z" /></svg> omochi <span className="brand-tag">hub</span></a>
+      {connectionSidebar}
+      {!connectionSidebar && connectionUi && <section className="local-connections"><h2>{t('connection.title')}</h2><p>{t('workspace.localHub')} · {t('connection.ownerRole')}</p><ConnectionMenu name={t('workspace.localHub')} status={session.status.replace(/…$/, '')} statusLabel={connectionStatus} available={available}>{connectionUi}</ConnectionMenu></section>}
       <div className="nav-caption">{t('workspace.caption')}</div>
       {!!presets.length && <><div className="nav-section"><Icon name="preset" /> {t('workspace.presets')} <span className="count">{presets.length}</span></div>
       <nav aria-label={t('workspace.presets')}>
@@ -301,7 +308,7 @@ export function DashboardWorkspace({ environment, connectionUi, connectionNotice
       }}>{t('settings.title')}</Button></div>
     </aside>
     <main id="workspace" tabIndex={-1} className="workspace">
-      <div className="workspace-status"><div className="workspace-connection"><ConnectionMenu name={connectionName || t(direct ? 'workspace.gateways' : 'workspace.localHub')} status={session.status.replace(/…$/, '')} statusLabel={connectionStatus} available={available} readOnly={board}>{connectionUi}</ConnectionMenu>
+      <div className="workspace-status"><div className="workspace-connection"><span className="sr-only" role="status">{connectionSidebar && t('workspace.connectionStatus', { target: connectionName, status: connectionStatus })}</span>{connectionSidebar && !board ? <Button className="connection-switch" data-connection-state={session.status.replace(/…$/, '')} aria-controls="dashboard-navigation" onClick={() => { setNavOpen(true); requestAnimationFrame(() => document.querySelector<HTMLElement>('.sidebar .shared-connections h2')?.focus()); }}>{connectionName} · {connectionStatus} — {t('connection.switch')}</Button> : <ConnectionMenu name={connectionName || t(direct ? 'workspace.gateways' : 'workspace.localHub')} status={session.status.replace(/…$/, '')} statusLabel={connectionStatus} available={available} readOnly={board} />}
       {board && <Button className="exit-board" onClick={() => { setBoard(false); requestAnimationFrame(() => { if (boardTrigger.current) boardTrigger.current.focus(); else focusMain(); }); }}>{t('workspace.exitBoard')}</Button>}</div></div>
 
       <header className="page-header">
@@ -314,9 +321,8 @@ export function DashboardWorkspace({ environment, connectionUi, connectionNotice
           <Button disabled={busy} onClick={() => discardThen(focusMain)}>{t('common.cancel')}</Button>
           <Button className="primary" disabled={busy} onClick={save}>{busy ? t('workspace.saving') : t('workspace.save')}</Button>
         </> : current ? <>
-          <Button hidden={!!shared} disabled={busy} className="danger" onClick={remove}>{t('workspace.delete')}</Button>
           <Button hidden={!canEdit} className="primary" disabled={busy} onClick={() => startEdit(structuredClone(current))}>{t('workspace.edit')}</Button>{!shared && renderSharing?.(current)}
-        </> : preset ? <Button className="primary" disabled={busy} onClick={() => startEdit({ ...structuredClone(preset), id: '', revision: 0 })}>{t('workspace.saveCopy')}</Button> : null}{!editing && active && <><Button disabled={busy} onClick={download}>{t('workspace.export')}</Button><Button ref={boardTrigger} disabled={busy} onClick={() => { setBoard(true); requestAnimationFrame(() => document.querySelector<HTMLButtonElement>('.exit-board')?.focus()); }}>{t('workspace.boardView')}</Button></>}</div>
+        </> : preset ? <Button className="primary" disabled={busy} onClick={() => startEdit({ ...structuredClone(preset), id: '', revision: 0 })}>{t('workspace.saveCopy')}</Button> : null}{!editing && active && <><details className="board-actions"><summary>{t('workspace.more')}</summary><div className="board-actions-menu"><Button disabled={busy} onClick={download}>{t('workspace.export')}</Button><Button ref={boardTrigger} disabled={busy} onClick={() => { setBoard(true); requestAnimationFrame(() => document.querySelector<HTMLButtonElement>('.exit-board')?.focus()); }}>{t('workspace.boardView')}</Button>{current && !shared && <Button disabled={busy} className="danger" onClick={remove}>{t('workspace.delete')}</Button>}</div></details></>}</div>
       </header>
       {shared && <p hidden={board} className="notice" role="status">{canInteract ? t('workspace.interact') : t('workspace.readonly')} {shared.editLayout ? t('workspace.sharedEdit') : ''}</p>}
       <div hidden={board} className="announcement" role="status">{message && t(message.key, { ...message.values })}</div>

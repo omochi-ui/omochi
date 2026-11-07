@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import App from '../App.js';
 import { DashboardNavigationProvider } from '../DashboardNavigation.js';
@@ -9,7 +9,7 @@ import { ConnectionControls } from './ConnectionControls.js';
 import { GatewayInvitation } from './GatewayInvitation.js';
 import { ConnectionError, OwnerInvitation } from './OwnerInvitation.js';
 import { OwnerSharingRepository } from './owner-boards.js';
-import type { ShareRecord } from './profile.js';
+import type { ConnectionEntry } from './connection-controller.js';
 import { useConnections, type ConnectionScreenProps } from './useConnections.js';
 
 function Connections(props: ConnectionScreenProps) {
@@ -17,10 +17,19 @@ function Connections(props: ConnectionScreenProps) {
   const { state, dispatch, subscribeGateway } = useConnections(props);
   const { active, invitation, browserId, busy, error } = state;
   const fallbackName = active?.kind === 'saved' ? active.name : t('connection.defaultName');
-  const connectionName = active?.owner ? fallbackName : active?.view?.board.name || fallbackName;
+  const connectionName = state.entries.find(e => e.id === active?.id)?.name || (active?.owner ? fallbackName : active?.view?.board.name || fallbackName);
   const [resetTrigger, setResetTrigger] = useState<HTMLElement | null>(null);
-  const [forget, setForget] = useState<{ record: ShareRecord; trigger: HTMLElement } | null>(null);
+  const [forget, setForget] = useState<{ record: ConnectionEntry; trigger: HTMLElement } | null>(null);
+  const rememberLocation = useCallback((location: string) => {
+    if (active) void dispatch({ type: 'rememberLocation', id: active.id, location });
+  }, [active?.id, dispatch]);
   const heading = useRef<HTMLHeadingElement>(null);
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => {
+      if (!document.querySelector('dialog:modal')) document.querySelector<HTMLElement>('#workspace, .connections-page h1')?.focus();
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [active?.id]);
   useEffect(() => {
     if (!active) document.title = `${t('connection.title')} · omochi`;
   }, [active, t]);
@@ -56,19 +65,20 @@ function Connections(props: ConnectionScreenProps) {
           ? { kind: 'owner' }
           : { kind: 'share', permissions: active.view?.permissions ?? { interact: false, editLayout: false } },
       }}
-      connectionUi={controls}
+      connectionSidebar={controls}
+      onLocationChange={rememberLocation}
       connectionNotice={notice}
       connectionName={connectionName}
       browserIdentity={{ id: browserId, busy, error: error ?? state.listError, onLoad: () => { void dispatch({ type: 'loadProfile' }); }, onReset: setResetTrigger }}
       renderSharing={active.owner
         ? board => <ShareSettings boardId={board.id} repository={new OwnerSharingRepository(active.session)} />
         : undefined}
-    /> : <main className="workspace connections-page">
+    /> : <div className="hub-layout nav-open"><aside className="sidebar">{controls}</aside><main className="workspace connections-page">
       <div className="workspace-status"><LanguageSwitcher /></div>
       <h1 tabIndex={-1}>{t('connection.title')}</h1>
       {notice}
-      {controls}
-    </main>}
+      <p>{t('connection.chooseConnection')}</p>
+    </main></div>}
     {invitation && <OwnerInvitation
       invitation={invitation}
       busy={busy}
