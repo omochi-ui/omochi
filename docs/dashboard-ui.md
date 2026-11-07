@@ -39,6 +39,12 @@ Same seeded dashboard before and after the change:
 
 ## Invitations and connection controls
 
+[Owner connections](assets/dashboard-ui/connections-owner.png) ·
+[Shared connection](assets/dashboard-ui/connections-share.png) ·
+[Mobile connections](assets/dashboard-ui/connections-mobile.png)
+
+These screenshots use controlled session responses and isolated browser data.
+
 Owner registration and gateway invitations open in native modal dialogs. Receiving
 an owner invitation preserves the current board and unsaved edits; accepting it
 uses the existing unsaved-change confirmation before switching connections.
@@ -49,20 +55,39 @@ the content scrolls. Action rows wrap with consistent spacing, and button-shaped
 links remain a single control at narrow widths. Sharing checkboxes have their own
 layout instead of inheriting text-input dimensions.
 
-Connection management starts collapsed. Full hub and gateway IDs are available
-under details; panel headers prefer readable source names. The main status row
-shows connection text only while disconnected or reconnecting.
+The sidebar keeps owner and shared connections above the dashboards available
+through the selected connection. Each row identifies authority and Hub; repeated
+Hub grants also show a grant identifier. The current row shows connection state.
+The mobile **Switch connection** control opens the same sidebar. Selection
+restores the last dashboard/preset and board-view mode for that connection.
 
-The sidebar's **Settings** opens language preferences without leaving the board or
-discarding edits. Hosted clients can also view, copy and reset the browser identity
-there. Opening settings from a public share loads the registered browser profile
-without changing the share's connection or permissions. Profile-loading errors
-remain visible in settings with a retry action. Reset requires confirmation and respects the
-existing unsaved-change guard; it clears the local identity and saved connections,
-not hub dashboards or access grants. Saved connections and owner-browser management
-stay in the connection menu. The disconnected hosted screen keeps its language
-selector at the top and browser identity/reset under connection details, without a
-sidebar. Local dashboards offer language settings only.
+Per-row **Manage** opens details, a local display name, explicit shared-link
+saving, and removal. Public links opened in the tab remain available when switching
+away; explicit save persists their bearer in a separate IndexedDB connection
+catalog. Catalog patches read the current record inside an IDB transaction;
+metadata updates never write cached bearer credentials. Cross-tab notifications
+contain no secrets and cause a fresh read. The catalog admits at most 1,000
+records; tab history retains at most 100 shares.
+
+Shared views keep the owner list visible without acquiring its endpoint lock.
+Returning to owner access requires an explicit selection, including when a share
+belongs to the same Hub. Identity inspection and connection-list loading are
+independent of endpoint ownership; disconnect stops the session and releases the
+lease. Owner invitations retain their lease until completion or dismissal.
+
+The sidebar's **Settings** opens language and browser identity preferences without
+leaving the board. Reset confirms deletion of the identity, saved connections,
+saved shared links and tab history, and preserves the unsaved-edit guard. Hub
+boards and server grants remain. Local Hub administration is under its sidebar
+connection details. The disconnected hosted screen also retains connection
+navigation. Normal board actions keep Edit and Share visible, with Export, Board
+view and Delete under **More actions**; Delete retains confirmation.
+
+`bun tests/browser/connections.mjs` checks cold shared startup, multi-Hub board
+restoration, explicit share saving, new-tab access, endpoint release, 320px/200%
+text layouts and focus recovery with real React, IndexedDB and Web Locks and
+controlled transport responses. Screenshots are written to
+`/tmp/omochi-connections-screenshots` (or `SCREENSHOT_DIR`).
 
 The pre-bootstrap native-app link remains available if transport initialization
 fails. Once React loads, the invitation dialog owns that action, so registering

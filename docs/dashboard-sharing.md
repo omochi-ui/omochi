@@ -52,11 +52,18 @@ unresponsive hub processes.
 
 Sharing secrets are removed from history before UI/transport imports. Warm link
 navigation confirms discarding unsaved edits and closes the previous connection
-before opening the next. Reload restores bearer context only from that tab's
-sessionStorage. If storage is denied, reopen the original URL.
+before opening the next. Opened shares remain in that tab's sessionStorage history.
+**Save this shared connection** explicitly stores the link and bearer secret in
+the separate `omochi.connections.v1` IndexedDB catalog, allowing another tab or a
+later browser session to reopen it. Unsaved shares remain tab-scoped. If storage
+is denied, reopen the original URL; a catalog error does not stop share viewing.
+Deleting a saved entry removes its durable bearer, while an active share remains
+available in its current tab until removed there. Saving never changes authority.
 
 Owner enrollment still uses a durable browser identity in IndexedDB, owned by
-one tab through Web Locks. Owner invitations require explicit acceptance and
+one active owner session or enrollment flow through Web Locks. Reading the
+connection list or existing browser identity does not acquire the endpoint lock;
+disconnecting releases it after the session stops. Owner invitations require explicit acceptance and
 expire after three minutes. Local forget/reset does not revoke Hub authority.
 
 Images use scoped native fetch/validation and bounded browser decoding. A
@@ -127,8 +134,8 @@ The [Flutter app](../apps/mobile/README.md#connecting-to-an-external-hub) accept
 links as an external-Hub client with the same server permissions. It displays one
 selected connection and suspends its embedded Hub while using an external one.
 It stores external-client identity separately in OS-protected storage. Explicitly
-saved public shares retain their bearer credential there; this differs from the
-browser's tab-scoped sessionStorage behavior.
+saved public shares retain their bearer credential there. Browsers use IndexedDB
+for explicitly saved shares and sessionStorage for unsaved tab history.
 
 Use the same sharing link in browsers and the app. Local forget does not revoke Hub access.
 See the [remote connection validation record](../apps/mobile/docs/remote-connections-validation.md).

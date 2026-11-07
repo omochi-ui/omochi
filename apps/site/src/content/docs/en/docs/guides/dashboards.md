@@ -38,3 +38,21 @@ Layout editing permits changes to names, titles, positions, and sizes. Adding or
 To change permissions, revoke and reissue the link. **Revoke access…** ends access for everyone holding that link. Removing a local connection record does not revoke permission, and delivered data or completed actions cannot be recalled. See [troubleshooting](../../understand/troubleshooting/#revocation-reports-an-error) if revocation reports an error.
 
 Use an [owner connection](../remote/#connect-from-a-hosted-browser) for full management. The [mobile and desktop app](../mobile/) can also open sharing links.
+
+## Switch and save connections
+
+The sidebar's **Connections** lists owner connections and shared dashboards.
+Select a connection, then choose one of its dashboards below. Switching back
+restores your previous dashboard. Shared access stays separate from owner access;
+choose **Return to owner view** or an owner connection to manage the Hub.
+
+Open a connection's **…** control to rename it, inspect its IDs, or remove its
+saved entry. **Save this shared connection** keeps the link and its access secret
+in this browser so it can be opened after closing the tab. Without saving,
+opened shares remain available only in the current tab. Saving does not increase
+permissions, and removing a saved connection does not revoke Hub access.
+
+On narrow screens, **Switch connection** opens the connection list. **Disconnect
+from Hub** makes the browser identity available to another tab. Close or finish
+an owner invitation before disconnecting. Export, Board view and Delete are in
+**More actions**; deleting a dashboard still requires confirmation.

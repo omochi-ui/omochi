@@ -54,3 +54,9 @@ are saved in `/tmp/omochi-gateway-reconnect` (or `SCREENSHOT_DIR`).
 After building hosted assets, `bun tests/browser/gateway-bootstrap.mjs` delays the
 transport module in Chromium and verifies immediate fragment scrubbing, latest
 startup invitation selection and gateway routing after the UI mounts.
+
+Connection navigation regression: `bun tests/browser/connections.mjs` exercises
+cold share startup, remembered dashboards, explicit share persistence, cross-tab
+endpoint ownership, and narrow Japanese layouts. It uses Chromium with real
+IndexedDB/Web Locks and controlled transport responses. Screenshots are written
+to `/tmp/omochi-connections-screenshots` (or `SCREENSHOT_DIR`).
