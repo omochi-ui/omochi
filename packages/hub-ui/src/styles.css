@@ -254,18 +254,26 @@ body { margin: 0; }
 .connection-record.selected .connection-select { border-inline-start: 3px solid var(--omochi-color-accent-solid); padding-inline-start: 12px; }
 .connection-actions { margin-block-start: 16px; }
 .connection-switch { overflow-wrap: anywhere; }
+.connection-context { display: flex; flex: 1 1 280px; align-items: center; gap: var(--omochi-space-4); min-width: 0; }
+.connection-context-copy { flex: 1; min-width: 0; font-size: .875rem; overflow-wrap: anywhere; }
+.connection-context-copy strong, .connection-context-copy > span { display: block; }
+.connection-context-copy > span { color: var(--omochi-color-text-secondary); }
+.connection-context .connection-switch { flex: 0 1 auto; }
+.current-connection-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--omochi-space-2); min-width: 0; max-width: 100%; }
+.current-connection-actions .hub-button { overflow-wrap: anywhere; }
+.current-connection-actions .connection-disconnect { margin-inline-start: var(--omochi-space-2); }
+.connection-remembered { max-width: 100%; padding-block: 8px; font-size: .875rem; color: var(--omochi-color-text-secondary); overflow-wrap: anywhere; }
+.invitation-current-connection { margin-block-end: var(--omochi-space-6); }
 .sidebar .picker { color: var(--omochi-color-text-primary); }
 .sidebar .picker :focus-visible { outline-color: var(--omochi-color-focus); }
 .connection-dialog form { display: grid; gap: 12px; }
-.connection-dialog .connection-session { margin-block-end: var(--omochi-space-6); }
-.connection-session p { margin-block: 0 var(--omochi-space-2); }
-.connection-dialog :is(.connection-details, .connection-save, .connection-forget) { margin-block-start: var(--omochi-space-6); }
-.connection-dialog a { color: var(--omochi-color-accent-solid); }
+.connection-dialog :is(.connection-details, .connection-forget) { margin-block-start: var(--omochi-space-6); }
 .board-actions { position: relative; }
 .board-actions > summary { cursor: pointer; padding: 8px 12px; border: 1px solid var(--omochi-color-border-control); border-radius: var(--omochi-radius-control); min-height: 40px; font-size: .875rem; font-weight: 600; line-height: 1.5; background: var(--omochi-color-bg-surface); color: var(--omochi-color-text-primary); }
 .board-actions-menu { position: absolute; z-index: 3; inset-inline-end: 0; min-width: 200px; max-width: calc(100vw - 32px); display: grid; gap: 8px; padding: 12px; background: var(--omochi-color-bg-surface); border: 1px solid var(--omochi-color-border-control); border-radius: calc(var(--omochi-radius-control) + 12px + 1px); box-shadow: var(--omochi-shadow-surface); }
 @media (max-width: 760px) {
-  .connection-switch { width: 100%; }
+  .connection-context { flex-wrap: wrap; }
+  .current-connection-actions .connection-disconnect { margin-inline-start: 0; }
   .board-actions > summary { min-height: 48px; }
 }
 

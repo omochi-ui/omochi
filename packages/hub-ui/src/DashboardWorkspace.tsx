@@ -18,7 +18,7 @@ import { emptyDashboard, useDashboardEditor } from './useDashboardEditor.js';
 import { useDashboards } from './useDashboards.js';
 import { useDashboardNavigation } from './DashboardNavigation.js';
 
-export function DashboardWorkspace({ environment, connectionUi, connectionSidebar, onLocationChange, connectionNotice, connectionName, browserIdentity, renderSharing }: { environment: DashboardEnvironment; connectionUi?: ReactNode; connectionSidebar?: ReactNode; onLocationChange?: (location: string) => void; connectionNotice?: ReactNode; connectionName?: string; browserIdentity?: BrowserIdentitySettings; renderSharing?: (board: Dashboard) => ReactNode }) {
+export function DashboardWorkspace({ environment, connectionUi, connectionSidebar, connectionActions, onLocationChange, connectionNotice, connectionName, browserIdentity, renderSharing }: { environment: DashboardEnvironment; connectionUi?: ReactNode; connectionSidebar?: ReactNode; connectionActions?: ReactNode; onLocationChange?: (location: string) => void; connectionNotice?: ReactNode; connectionName?: string; browserIdentity?: BrowserIdentitySettings; renderSharing?: (board: Dashboard) => ReactNode }) {
   const { t } = useTranslation();
   const session = useA2uiSource(environment.session);
   const services: readonly ServiceView[] = session.services;
@@ -308,8 +308,17 @@ export function DashboardWorkspace({ environment, connectionUi, connectionSideba
       }}>{t('settings.title')}</Button></div>
     </aside>
     <main id="workspace" tabIndex={-1} className="workspace">
-      <div className="workspace-status"><div className="workspace-connection"><span className="sr-only" role="status">{connectionSidebar && t('workspace.connectionStatus', { target: connectionName, status: connectionStatus })}</span>{connectionSidebar && !board ? <Button className="connection-switch" data-connection-state={session.status.replace(/…$/, '')} aria-controls="dashboard-navigation" onClick={() => { setNavOpen(true); requestAnimationFrame(() => document.querySelector<HTMLElement>('.sidebar .shared-connections h2')?.focus()); }}>{connectionName} · {connectionStatus} — {t('connection.switch')}</Button> : <ConnectionMenu name={connectionName || t(direct ? 'workspace.gateways' : 'workspace.localHub')} status={session.status.replace(/…$/, '')} statusLabel={connectionStatus} available={available} readOnly={board} />}
-      {board && <Button className="exit-board" onClick={() => { setBoard(false); requestAnimationFrame(() => { if (boardTrigger.current) boardTrigger.current.focus(); else focusMain(); }); }}>{t('workspace.exitBoard')}</Button>}</div></div>
+      <div className="workspace-status"><div className="workspace-connection">
+        <span className="sr-only" role="status">{connectionSidebar && t('workspace.connectionStatus', { target: connectionName, status: connectionStatus })}</span>
+        {connectionSidebar && !board ? <>
+          <div className="connection-context">
+            <div className="connection-context-copy"><strong>{connectionName}</strong><span>{t(shared ? 'connection.shareRole' : 'connection.ownerRole')} · {connectionStatus}</span></div>
+            <Button className="connection-switch" data-connection-state={session.status.replace(/…$/, '')} aria-controls="dashboard-navigation" onClick={() => { setNavOpen(true); requestAnimationFrame(() => document.querySelector<HTMLElement>('.sidebar .shared-connections h2')?.focus()); }}>{t('connection.switch')}</Button>
+          </div>
+          {connectionActions}
+        </> : <ConnectionMenu name={connectionName || t(direct ? 'workspace.gateways' : 'workspace.localHub')} status={session.status.replace(/…$/, '')} statusLabel={connectionStatus} available={available} readOnly={board} />}
+        {board && <Button className="exit-board" onClick={() => { setBoard(false); requestAnimationFrame(() => { if (boardTrigger.current) boardTrigger.current.focus(); else focusMain(); }); }}>{t('workspace.exitBoard')}</Button>}
+      </div></div>
 
       <header className="page-header">
         <div className="header-copy">

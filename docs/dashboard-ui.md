@@ -42,6 +42,7 @@ Same seeded dashboard before and after the change:
 [Owner connections](assets/dashboard-ui/connections-owner.png) ·
 [Shared connection](assets/dashboard-ui/connections-share.png) ·
 [Mobile connections](assets/dashboard-ui/connections-mobile.png) ·
+[Mobile connection actions](assets/dashboard-ui/connection-actions-mobile.png) ·
 [Connection manager](assets/dashboard-ui/connections-manage.png) ·
 [Disconnected screen](assets/dashboard-ui/connections-idle.png)
 
@@ -64,10 +65,16 @@ The mobile **Switch connection** control opens the same sidebar. Selection
 restores the last dashboard/preset and board-view mode for that connection.
 
 The sidebar is connection navigation: it does not repeat the shared-view banner,
-connection details, or disconnect action. Per-row **Manage** opens details, a
-local display name, native-app handoff, explicit shared-link saving, and removal.
-Only the current connection's manager offers **Disconnect from Hub**. Recovery
-keeps **Retry** beside the connection list. Public links opened in the tab remain available when switching
+connection details, or disconnect action. Per-row **Manage** opens IDs, a local
+display name and removal of the remembered entry. The main content's connection
+header shows the current name, authority and status beside **Remember connection**,
+**Open in app** and **Disconnect**. Remember and app handoff appear for public
+shares; remembering replaces the button with a static **Remembered** status and
+preserves keyboard focus. The actions wrap on narrow screens. Opening another
+record's manager never changes their target. The gateway invitation also exposes
+current-connection actions within its connection chooser, outside record menus.
+Board view keeps its compact connection display. Recovery keeps **Retry** beside
+the connection list. Public links opened in the tab remain available when switching
 away; explicit save persists their bearer in a separate IndexedDB connection
 catalog. Catalog patches read the current record inside an IDB transaction;
 metadata updates never write cached bearer credentials. Cross-tab notifications
@@ -91,8 +98,9 @@ view and Delete under **More actions**; Delete retains confirmation.
 `bun tests/browser/connections.mjs` checks cold shared startup, multi-Hub board
 restoration, explicit share saving, new-tab access, endpoint release, 320px/200%
 text layouts and focus recovery with real React, IndexedDB and Web Locks and
-controlled transport responses. It also verifies that only the current
-connection's manager offers disconnect and that native handoff remains available.
+controlled transport responses. It also verifies that header actions target the
+current connection, record menus do not contain session actions, and native
+handoff and focus remain available after remembering a connection.
 Screenshots are written to
 `/tmp/omochi-connections-screenshots` (or `SCREENSHOT_DIR`).
 
@@ -100,14 +108,15 @@ The connection layout was additionally checked at 320, 360, 390, 640, 760, 761,
 1024, 1440 and 1920 CSS pixels in both directions, using English, Japanese,
 German test strings and pseudo-localization. The checks include long names, 200%
 text, simulated 200% browser-zoom geometry, and scrolling controls beneath the
-measured sticky dialog header. Connection names wrap in the switch control;
+measured sticky dialog header. Connection names wrap in the connection header;
 management titles stay short while the full editable name remains in the form.
 Real-device Safari and browser zoom shortcuts were not verified.
 
 The pre-bootstrap native-app link remains available if transport initialization
 fails. Once React loads, the invitation dialog owns that action, so registering
 or dismissing the invitation removes it. Public-share native handoff is available
-under the shared connection's **Manage** details. These labels follow the selected interface language.
+beside the active connection's name in the main content header. These labels
+follow the selected interface language.
 
 The controlled-session browser regression checks are run with
 `bun tests/browser/gateway-reconnect.mjs`. They cover modal dismissal, owner

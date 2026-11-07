@@ -46,14 +46,17 @@ Select a connection, then choose one of its dashboards below. Switching back
 restores your previous dashboard. Shared access stays separate from owner access;
 choose an owner connection in the list to manage the Hub.
 
-Open a connection's **…** control to rename it, inspect its IDs, open a shared link in the app, or remove its
-saved entry. **Save this shared connection** keeps the link and its access secret
+Open a connection's **…** control to rename it, inspect its IDs, or remove its
+saved entry. The header places **Remember connection**, **Open in app** and
+**Disconnect** beside the current connection's name. **Remember connection** keeps the link and its access secret
 in this browser so it can be opened after closing the tab. Without saving,
 opened shares remain available only in the current tab. Saving does not increase
-permissions, and removing a saved connection does not revoke Hub access.
+permissions, and removing a saved connection does not revoke Hub access. The
+button changes to **Remembered** after saving. Remember and app handoff are
+available when connected through a public sharing link.
 
-On narrow screens, **Switch connection** opens the connection list. Choose **Disconnect
-from Hub** in the current connection's **…** control to make the browser identity available to another tab. Close or finish
+On narrow screens, **Switch connection** opens the connection list. Choose
+**Disconnect** in the header to make the browser identity available to another tab. Close or finish
 an owner invitation before disconnecting. Export, Board view and Delete are in
 **More actions**; deleting a dashboard still requires confirmation.
 When disconnected, choose a connection from the centered list. **Connection details** below it contains the browser ID and its reset action.

@@ -7,6 +7,7 @@ import { LanguageSwitcher } from '../LanguageSwitcher.js';
 import { ShareSettings } from '../ShareSettings.js';
 import { ConfirmationDialog, restoreDialogFocus } from '../dialogs.js';
 import { ConnectionControls } from './ConnectionControls.js';
+import { CurrentConnectionActions } from './CurrentConnectionActions.js';
 import { GatewayInvitation } from './GatewayInvitation.js';
 import { ConnectionError, OwnerInvitation } from './OwnerInvitation.js';
 import { OwnerSharingRepository } from './owner-boards.js';
@@ -43,6 +44,7 @@ function Connections(props: ConnectionScreenProps) {
     onForget={(record, trigger) => setForget({ record, trigger })}
   />;
   const notice = !invitation && <ConnectionError error={error} />;
+  const currentActions = <CurrentConnectionActions state={state} dispatch={dispatch} />;
   const identityDetails = <details className="connection-details">
     <summary>{t('connection.details')}</summary>
     {browserId && <dl><dt>{t('connection.browserId')}</dt><dd><code data-browser-id={browserId}>{browserId}</code></dd></dl>}
@@ -58,6 +60,7 @@ function Connections(props: ConnectionScreenProps) {
       ownsProfile={state.ownsProfile}
       connections={<>
         {!active && notice}
+        {active && <section className="invitation-current-connection"><p>{t('connection.current')} · {connectionName}</p>{currentActions}</section>}
         <ConnectionControls state={state} dispatch={dispatch} />
         {!active && identityDetails}
       </>}
@@ -73,6 +76,7 @@ function Connections(props: ConnectionScreenProps) {
           : { kind: 'share', permissions: active.view?.permissions ?? { interact: false, editLayout: false } },
       }}
       connectionSidebar={controls}
+      connectionActions={currentActions}
       onLocationChange={rememberLocation}
       connectionNotice={notice}
       connectionName={connectionName}

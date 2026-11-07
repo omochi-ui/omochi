@@ -55,15 +55,19 @@ try {
   await shot('share-desktop');
   await select(ownerId); await heading('Home dashboard 2');
   await select(shareId); await heading('Public dashboard');
+  assert.ok(await evaluate('!!document.querySelector(".workspace-status .connection-open-app")'), 'shared handoff is available beside the current connection');
   await click(row(shareId) + ' .connection-manage');
   await until('!!document.querySelector(".picker:modal")');
-  assert.ok(await evaluate('!!document.querySelector(".connection-dialog .connection-details a")'), 'shared handoff is available from the connection manager');
+  assert.equal(await evaluate('!!document.querySelector(".connection-dialog .connection-open-app, .connection-dialog .connection-remember, .connection-dialog .connection-disconnect")'), false, 'record management does not contain current-connection actions');
   await evaluate(`(() => {const input=document.querySelector('#connection-name'); Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,'Team report'); input.dispatchEvent(new Event('input',{bubbles:true}));})()`);
   await click('.picker:modal form button');
   await until('document.querySelector(".picker:modal [role=status]")?.textContent === "Connection name saved."');
-  await evaluate(`Array.from(document.querySelectorAll('.picker:modal button')).find(b=>b.textContent==='Save this shared connection').click()`);
-  await until('document.querySelector(".picker:modal [role=status]")?.textContent === "Shared connection saved."');
   await click('.picker:modal .dialog-header button');
+  await evaluate('document.querySelector(".workspace-status .connection-remember").focus()');
+  await click('.workspace-status .connection-remember');
+  await until('document.querySelector(".workspace-status .current-connection-actions [role=status]")?.textContent === "Connection remembered in this browser."');
+  await until('document.activeElement.matches(".connection-remembered")');
+  assert.equal(await evaluate('!!document.querySelector(".workspace-status .connection-remember")'), false, 'remembering replaces the action with a static status');
   assert.equal(await evaluate(`document.querySelector(${JSON.stringify(row(shareId))}).dataset.persistent`), 'true');
   // The new tab reads a saved bearer and connection metadata without an endpoint lease.
   const tab = await browser.tab(url);
@@ -74,9 +78,9 @@ try {
   await click(row(shareId) + ' .connection-manage');
   await until('!!document.querySelector(".connection-dialog:modal")');
   assert.equal(await evaluate('!!document.querySelector(".connection-dialog .connection-disconnect")'), false, 'an inactive connection cannot disconnect the current Hub');
+  assert.equal(await evaluate('document.querySelector(".workspace-status .current-connection-actions").dataset.currentConnectionId'), ownerId, 'opening another record does not retarget current actions');
   await click('.connection-dialog .dialog-header button');
-  await click(row(ownerId) + ' .connection-manage');
-  await click('.connection-dialog .connection-disconnect');
+  await click('.workspace-status .connection-disconnect');
   await until('!!document.querySelector(".connections-page")');
   await tab.evaluate(`document.querySelector(${JSON.stringify(row(ownerId) + ' .connection-select')}).click()`);
   const connected = Date.now() + 10000;

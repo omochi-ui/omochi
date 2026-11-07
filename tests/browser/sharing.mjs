@@ -196,7 +196,7 @@ try {
   await until(async()=>await recipient.evaluate('!!document.querySelector(".connection-popover:modal")'), 'saved connections over public share');
   await click(recipient, 'Connect');
   await until(async()=>await recipient.evaluate(`document.querySelector('.connection-control')?.dataset.connectionState === 'Connected'&&!!${button('Create dashboard')}`), 'saved owner connection restored');
-  passed('switching from a public share to a saved owner clears its bearer and native handoff', await recipient.evaluate("sessionStorage.getItem('omochi.shared.public')===null&&!document.querySelector('.connection-details a')"));
+  passed('switching from a public share to a saved owner clears its bearer and native handoff', await recipient.evaluate("sessionStorage.getItem('omochi.shared.public')===null&&!document.querySelector('.workspace-status .connection-open-app')"));
   await recipient.command('Page.reload');
   await until(async()=>await recipient.evaluate(`document.querySelector('.connection-control')?.dataset.connectionState === 'Connected'&&!!${button('Create dashboard')}`),'owner reload');
   passed('owner identity reconnects without retaining its invitation secret');

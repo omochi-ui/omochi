@@ -40,16 +40,9 @@ try {
     await evaluate(`${element}.querySelector('button').click()`);
     await until(() => evaluate(`${element}?.classList.contains('selected') && !!document.querySelector('.connection-switch')`), 'connected');
   };
-  const manageCurrent = async () => {
-    await evaluate(`(() => { const surface = document.querySelector('.gateway-invitation:modal') ?? document; const disclosure = surface.querySelector('details:has(.shared-connections)'); if (disclosure) disclosure.open = true; surface.querySelector('.connection-record.selected .connection-manage').click(); })()`);
-    await until(() => evaluate('!!document.querySelector(".connection-dialog:modal")'), 'connection manager');
-  };
-  const closeManager = async () => {
-    await evaluate('document.querySelector(".connection-dialog .dialog-header button").click()');
-    await until(() => evaluate('!document.querySelector(".connection-dialog")'), 'connection manager closed');
-  };
   const disconnect = async () => {
-    await manageCurrent(); await click('Disconnect from Hub');
+    await evaluate(`(() => {const invitation=document.querySelector('.gateway-invitation:modal');const disclosure=invitation?.querySelector('details:has(.shared-connections)');if(disclosure)disclosure.open=true;})()`);
+    await click('Disconnect');
     await until(() => evaluate('!!document.querySelector(".connections-page")'), 'disconnected');
   };
   const count = () => evaluate('gatewayTest.calls.length');
@@ -192,31 +185,29 @@ try {
   await until(() => evaluate('document.querySelector("h1")?.textContent === "Public dashboard"'), 'public dashboard');
   await invalidLink('share');
   const shareSessions = await evaluate('gatewayTest.sessions.length');
-  await manageCurrent();
-  const shareHandoff = await evaluate('document.querySelector(".connection-details a").href');
+  const shareHandoff = await evaluate('document.querySelector(".workspace-status .connection-open-app").href');
   assert.equal(shareHandoff, 'omochi://share/' + publicFragment.slice(7), 'active dashboard has a share handoff');
 
   // An owner invitation has its own handoff without replacing the active share.
   const owner = Buffer.from(JSON.stringify({ version: 1, hubId: 'b'.repeat(64), grantId: '22222222-2222-4222-8222-222222222222', relayUrls: ['https://relay.example/'], mode: 'owner', secret: '1'.repeat(64) })).toString('base64url');
   await evaluate(`location.hash = ${JSON.stringify('#owner:' + owner)}`);
   await until(() => evaluate('!!document.querySelector(".owner-invitation:modal")'), 'owner invitation over share');
-  assert.equal(await evaluate('document.querySelector(".connection-details a").href'), shareHandoff);
+  assert.equal(await evaluate('document.querySelector(".workspace-status .connection-open-app").href'), shareHandoff);
   await until(() => evaluate('!!document.querySelector(".owner-invitation a")'), 'invitation profile ready');
   assert.equal(await evaluate('document.querySelector(".owner-invitation a").href'), 'omochi://owner/' + owner);
   await click('Not now');
   await until(() => evaluate('!document.querySelector(".owner-invitation")'), 'owner invitation dismissed');
-  assert.equal(await evaluate('document.querySelector(".connection-details a").href'), shareHandoff);
+  assert.equal(await evaluate('document.querySelector(".workspace-status .connection-open-app").href'), shareHandoff);
   assert.deepEqual(JSON.parse(await evaluate('sessionStorage.getItem("omochi.shared.public")')), publicPayload);
   await evaluate(`location.hash = ${JSON.stringify(publicFragment)}`);
   await until(() => evaluate('location.hash === ""'), 'duplicate share consumed');
   assert.equal(await evaluate('gatewayTest.sessions.length'), shareSessions, 'dismissal and duplicate links retain the share session');
 
-  await closeManager();
 
   // Cancelling a dirty switch preserves the share; accepting it removes its bearer.
   await click('Edit dashboard');
   await evaluate(`(() => { const input = document.querySelector('.dashboard-name'); Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, 'Unsaved shared work'); input.dispatchEvent(new Event('input', { bubbles: true })); })()`);
-  await manageCurrent(); await click('Disconnect from Hub');
+  await click('Disconnect');
   await until(() => evaluate('!!document.querySelector("#confirm-title")'), 'disconnect asks before leaving dirty work');
   await evaluate('document.querySelector("[aria-labelledby=confirm-title] .toolbar button").click()');
   await until(() => evaluate('!document.querySelector("#confirm-title")'), 'disconnect cancelled');
@@ -231,16 +222,12 @@ try {
   await until(() => evaluate('!document.querySelector("#confirm-title") && !!document.querySelector(".connection-record button:not(:disabled)")'), 'switch cancelled');
   assert.equal(await evaluate('gatewayTest.sessions.length'), shareSessions);
   assert.equal(await evaluate('document.querySelector(".dashboard-name").value'), 'Unsaved shared work');
-  await manageCurrent();
-  assert.equal(await evaluate('document.querySelector(".connection-details a").href'), shareHandoff);
-  await closeManager();
+  assert.equal(await evaluate('document.querySelector(".workspace-status .connection-open-app").href'), shareHandoff);
   assert.deepEqual(JSON.parse(await evaluate('sessionStorage.getItem("omochi.shared.public")')), publicPayload);
   await selectSaved(); await click('Discard changes');
   await until(() => evaluate('!!sessionStorage.getItem("omochi.shared.selected") && !document.querySelector(".dashboard-name")'), 'saved owner connected');
   assert.equal(await evaluate('sessionStorage.getItem("omochi.shared.public")'), null);
-  await manageCurrent();
-  assert.equal(await evaluate('!!document.querySelector(".connection-details a")'), false, 'saved owner has no stale share handoff');
-  await closeManager();
+  assert.equal(await evaluate('!!document.querySelector(".workspace-status .connection-open-app")'), false, 'saved owner has no stale share handoff');
   await evaluate(`location.hash = ${JSON.stringify(publicFragment)}`);
   await until(() => evaluate('document.querySelector("h1")?.textContent === "Public dashboard"'), 'previous share can be opened again after switching away');
   await connect('Original Hub');
