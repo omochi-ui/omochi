@@ -54,5 +54,5 @@ const index = JSON.parse(await readFile(join(dist, 'pagefind/pagefind-entry.json
 assert(index.languages.en, 'English search index');
 assert(index.languages.ja, 'Japanese search index');
 const docCount = (await files(content)).filter(p => /\.mdx?$/.test(p)).length;
-assert.equal(htmlFiles.length, docCount + 3, 'Each doc, two LPs, and a 404 are built');
+assert.equal(htmlFiles.length, docCount + 4, 'Each doc, two LPs, the talk page, and a 404 are built');
 console.log(`Verified ${htmlFiles.length} pages: local links, anchors, assets, translations, canonical URLs, and en/ja search.`);

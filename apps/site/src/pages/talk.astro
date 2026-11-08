@@ -1,0 +1,129 @@
+---
+import '../styles/landing.css';
+
+const title = '発表リンク | Omochi';
+const description = 'ご覧いただきありがとうございました。発表スライドとデモはこちらから。';
+const canonical = new URL('/talk/', Astro.site);
+---
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width" />
+    <title>{title}</title>
+    <meta name="description" content={description} />
+    <link rel="icon" href="/assets/mark.svg" type="image/svg+xml" />
+    <link rel="canonical" href={canonical} />
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content={canonical} />
+    <meta property="og:image" content={new URL('/assets/og.png', Astro.site)} />
+    <meta name="twitter:card" content="summary_large_image" />
+  </head>
+  <body>
+    <main class="talk">
+      <h1 class="talk-brand">
+        <img src="/assets/mark.svg" alt="" width="56" height="56" />
+        <span class="brand-divider" aria-hidden="true"></span>
+        <span>Omochi</span>
+      </h1>
+      <p class="thanks">ご覧いただきありがとうございました。</p>
+      <div class="talk-links">
+        <a class="button slides" href="https://speakerdeck.com/kkozika/omochi-talk">
+          スライドを見る<span aria-hidden="true">→</span>
+        </a>
+        <a class="button demo" href="https://demo.omochi.fyi/" aria-describedby="demo-note">デモを見る</a>
+      </div>
+      <p id="demo-note" class="demo-note">発表会のデモは12月までオンラインです</p>
+      <a class="home" href="/">ホームへ</a>
+    </main>
+  </body>
+</html>
+
+<style>
+  body {
+    display: grid;
+    min-height: 100svh;
+    place-items: center;
+    padding: 48px 24px;
+  }
+
+  .talk {
+    width: min(100%, 440px);
+    text-align: center;
+  }
+
+  .talk-brand {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 18px;
+    margin: 0;
+    font-size: 40px;
+    font-weight: 700;
+    line-height: 1.2;
+    letter-spacing: -1px;
+  }
+
+  .brand-divider {
+    width: 1px;
+    height: 36px;
+    background: #d6ddcf;
+  }
+
+  .thanks {
+    margin: 28px 0 36px;
+    font-size: 17px;
+    text-wrap: balance;
+  }
+
+  .talk-links {
+    display: grid;
+    gap: 14px;
+  }
+
+  .button {
+    justify-content: center;
+    min-height: 56px;
+    font-size: 16px;
+  }
+
+  .slides {
+    position: relative;
+    padding-inline: 48px;
+  }
+
+  .slides span {
+    position: absolute;
+    right: 22px;
+  }
+
+  .demo {
+    border: 1px solid #315c2b;
+    background: transparent;
+    color: #315c2b;
+  }
+
+  .demo:hover {
+    background: #e8eddf;
+  }
+
+  .demo-note {
+    margin: 14px 0 28px;
+    color: #526052;
+    font-size: 13px;
+    text-wrap: balance;
+  }
+
+  .home {
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
+    padding-inline: 12px;
+    color: #526052;
+    font-size: 14px;
+    text-decoration: underline;
+    text-underline-offset: 5px;
+  }
+</style>
