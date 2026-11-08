@@ -10,7 +10,10 @@ export default defineConfig({
     routing: { prefixDefaultLocale: false },
   },
   integrations: [sitemap(), starlight({
-    favicon: '/assets/mark.svg', disable404Route: true, title: 'omochi', description: 'Attach a UI to your program.',
+    favicon: '/assets/mark.svg', disable404Route: true,
+    // Starlight 0.42.8 normalizes string titles before applying Astro's default locale.
+    title: { ja: 'omochi', en: 'omochi' },
+    description: 'Attach a UI to your program.',
     // The landing page's Astro Code component also needs the github-dark Shiki theme.
     expressiveCode: { removeUnusedThemes: false },
     logo: { src: './public/assets/mark.svg', replacesTitle: false },
