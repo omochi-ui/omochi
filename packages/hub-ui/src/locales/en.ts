@@ -123,6 +123,16 @@ export default {
     "wider": "Wider",
     "shorter": "Shorter",
     "taller": "Taller",
+    "adjustment": {
+      "shorter": "Height −",
+      "up": "↑ Up",
+      "narrower": "Width −",
+      "left": "← Left",
+      "right": "Right →",
+      "wider": "Width +",
+      "down": "↓ Down",
+      "taller": "Height +"
+    },
     "keyboardHelp": "Use arrow keys on the move handle, or select Adjust layout for move and resize buttons.",
     "detailsTitle": "View details",
     "moveLabel": "Move {{name}}",

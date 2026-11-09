@@ -125,6 +125,16 @@ export default {
     "wider": "幅を広げる",
     "shorter": "高さを縮める",
     "taller": "高さを広げる",
+    "adjustment": {
+      "shorter": "高さ −",
+      "up": "↑ 上",
+      "narrower": "幅 −",
+      "left": "← 左",
+      "right": "右 →",
+      "wider": "幅 +",
+      "down": "↓ 下",
+      "taller": "高さ +"
+    },
     "keyboardHelp": "移動ハンドルで矢印キーを使うか、「レイアウトを調整」の移動・サイズ変更ボタンを使ってください。",
     "detailsTitle": "ビューの詳細",
     "moveLabel": "「{{name}}」を移動",

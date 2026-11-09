@@ -6,6 +6,7 @@ import { useEffect, useId, useLayoutEffect, useRef, useState, type PointerEvent,
 import { SurfaceView, useA2uiSource } from '@omochi-ui/renderer';
 import { Button } from './Button.js';
 import { Icon } from './Icon.js';
+import { PanelLayoutControls } from './PanelLayoutControls.js';
 import { DialogHeader, restoreDialogFocus } from './dialogs.js';
 import { referenceId, type Dashboard, type Panel } from './contracts.js';
 import { appendPanel, placePanel, resizePanel, reorderPanels, type ResizeEdge } from './layout.js';
@@ -46,7 +47,6 @@ export function DashboardWorkspace({ environment, connectionUi, connectionSideba
   const [board, setBoard] = useState(() => new URLSearchParams(location.search).get('view') === 'board');
   const [navOpen, setNavOpen] = useState(false);
   const [settingsTrigger, setSettingsTrigger] = useState<HTMLElement | null>(null);
-  const [adjust, setAdjust] = useState<string | null>(null);
   const [details, setDetails] = useState<Panel | null>(null);
   const [confirmation, setConfirmation] = useState<{ title: 'confirmation.discardTitle' | 'confirmation.deleteTitle'; name?: string; action: 'confirmation.discard' | 'workspace.delete'; body: 'confirmation.discardBody' | 'confirmation.deleteBody'; run: () => void } | null>(null);
   const confirmDialog = useRef<HTMLDialogElement>(null);
@@ -124,7 +124,7 @@ export function DashboardWorkspace({ environment, connectionUi, connectionSideba
     begin(value); setError(null); setImportError(null);
     requestAnimationFrame(() => { if (!document.querySelector('dialog[open]')) document.querySelector<HTMLInputElement>('.dashboard-name')?.focus(); });
   };
-  const clearDraft = () => { setDraft(null); setPicker(false); setUndo(null); setAdjust(null); setValidated(false); setError(null); setImportError(null); };
+  const clearDraft = () => { setDraft(null); setPicker(false); setUndo(null); setValidated(false); setError(null); setImportError(null); };
   const pendingLeave = useRef<((allowed: boolean) => void) | null>(null);
   const requestLeave = async (): Promise<boolean> => {
     if (busy || pendingLeave.current) return false;
@@ -252,7 +252,7 @@ export function DashboardWorkspace({ environment, connectionUi, connectionSideba
   };
   const removePanel = (panel: Panel) => {
     if (!draft) return;
-    setUndo(draft.panels); setDraft({ ...draft, panels: draft.panels.filter(p => p.id !== panel.id) }); setAdjust(null);
+    setUndo(draft.panels); setDraft({ ...draft, panels: draft.panels.filter(p => p.id !== panel.id) });
     setMessage({ key: 'announcement.removed', values: { name: panel.title } });
     requestAnimationFrame(() => (document.querySelector<HTMLButtonElement>('.panel .details-button') ?? document.querySelector<HTMLButtonElement>('#add-view'))?.focus());
   };
@@ -376,17 +376,8 @@ export function DashboardWorkspace({ environment, connectionUi, connectionSideba
                   setSourceError(null); void environment.session.retry({ service: `${panel.reference.nodeId}~${panel.reference.serviceId}` }).catch(reason => setSourceError(reason instanceof Error ? reason : new SessionFault('SourceUnavailable')));
                 }}>{t('view.retry')}</Button>}</div>}</div>
             {editing && <footer className="panel-editor">
-              {narrow ? <><Button disabled={busy || panels[0]?.id === panel.id} onClick={() => reorder(panel.id, -1)}>{t('view.up')}</Button><Button disabled={busy || panels[panels.length - 1]?.id === panel.id} onClick={() => reorder(panel.id, 1)}>{t('view.down')}</Button></> : <>
-                <Button aria-expanded={adjust === panel.id} aria-controls={`adjust-${panel.id}`} disabled={busy} onClick={() => setAdjust(adjust === panel.id ? null : panel.id)}>{t('view.adjust')}</Button>
-                {adjust === panel.id && <div id={`adjust-${panel.id}`} className="adjust-controls" role="group" aria-label={t('view.adjustLabel', { name: panel.title })}>
-                  {([
-                    [t('view.left'), { ...panel, x: panel.x - 1 }, panel.x === 0], [t('view.right'), { ...panel, x: panel.x + 1 }, panel.x + panel.w === 12],
-                    [t('view.up'), { ...panel, y: panel.y - 1 }, panel.y === 0], [t('view.down'), { ...panel, y: panel.y + 1 }, panel.y >= 100000],
-                    [t('view.narrower'), resizePanel(panel, 'e', -1, 0), panel.w === 1], [t('view.wider'), resizePanel(panel, 'e', 1, 0), panel.x + panel.w === 12],
-                    [t('view.shorter'), resizePanel(panel, 's', 0, -1), panel.h === 1], [t('view.taller'), resizePanel(panel, 's', 0, 1), panel.h === 1000],
-                  ] as [string, Panel, boolean][]).map(([label, next, boundary]) => <Button key={label} disabled={busy || boundary} onClick={() => changePanel(next)}>{label}</Button>)}
-                </div>}
-              </>}
+              {narrow ? <><Button disabled={busy || panels[0]?.id === panel.id} onClick={() => reorder(panel.id, -1)}>{t('view.up')}</Button><Button disabled={busy || panels[panels.length - 1]?.id === panel.id} onClick={() => reorder(panel.id, 1)}>{t('view.down')}</Button></>
+                : <PanelLayoutControls panel={panel} busy={busy} onChange={changePanel} />}
             </footer>}
             {editing && !narrow && (['n', 's', 'e', 'w', 'ne', 'nw', 'se', 'sw'] as ResizeEdge[]).map(edge => <Button static key={edge} className={`resize-edge resize-${edge}`} aria-label={t('view.resizeLabel', { name: panel.title, edge: t(`edge.${edge}`) })} tabIndex={-1} disabled={busy}
               onPointerDown={e => beginGesture(e, panel, edge)} onPointerMove={moveGesture} onPointerUp={endGesture} onPointerCancel={cancelGesture} onLostPointerCapture={cancelGesture} />)}

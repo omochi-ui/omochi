@@ -172,8 +172,12 @@ try {
     await input('[aria-label="Dashboard name"]', 'Daily overview');
     assert.equal(await evaluate("document.querySelectorAll('.panel input[type=number]').length"), 0);
     assert.equal(await evaluate("document.querySelectorAll('.resize-edge').length"), 8);
-    await click('Adjust layout'); await click('Wider');
+    await click('Adjust layout');
+    await evaluate("document.querySelector('.adjust-controls [aria-label=\"Wider\"]').click()");
     assert.equal(await evaluate("document.querySelector('.panel').style.gridColumn"), '1 / span 7');
+    await cdp('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 });
+    await cdp('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 });
+    await until(() => evaluate("!document.querySelector('.adjust-controls:popover-open')"), 'layout menu dismissed before dragging');
     // Pointer moves are previews; escape returns the original rectangle.
     const bounds = await evaluate("(() => { const r = document.querySelector('.drag-handle').getBoundingClientRect(); return {x:r.x+r.width/2,y:r.y+r.height/2}; })()");
     await screenshot('before-drag.png');

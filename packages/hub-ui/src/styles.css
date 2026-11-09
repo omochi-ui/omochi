@@ -101,7 +101,13 @@ body { margin: 0; }
 .view-status { font-size: .8125rem; color: var(--omochi-color-text-secondary); }
 .panel-content { flex: 1; overflow: auto; min-height: 0; padding: 16px; scrollbar-gutter: stable; border-block-start: 1px solid var(--omochi-color-border-subtle); border-radius: 0 0 12px 12px; }
 .panel-editor { padding: 8px 16px; display: flex; flex-wrap: wrap; gap: 8px; flex-shrink: 0; max-height: 45%; overflow: auto; overscroll-behavior: contain; }
-.adjust-controls { display: flex; flex-wrap: wrap; gap: 8px; }
+.adjust-controls { position: fixed; inset: auto; margin: 0; width: 360px; max-width: calc(100% - 32px); max-height: calc(100dvh - 32px); overflow: auto; overscroll-behavior: contain; padding: 12px; border: 1px solid var(--omochi-color-border-control); border-radius: calc(var(--omochi-radius-control) + 12px + 1px); background: var(--omochi-color-bg-surface); color: var(--omochi-color-text-primary); box-shadow: 0 8px 24px rgb(0 0 0 / 16%); }
+.adjust-controls:popover-open { display: grid; gap: 8px; }
+.adjust-row { display: flex; justify-content: center; }
+.adjust-row > .hub-button { min-width: 72px; padding-inline: 8px; }
+/* These controls describe physical directions, including in RTL layouts. */
+.adjust-horizontal { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; direction: ltr; }
+.adjust-horizontal > .hub-button { min-width: 0; }
 .drag-handle { touch-action: none; cursor: grab; }
 .resize-edge.hub-button { position: absolute; padding: 0; min-width: 0; min-height: 0; background: transparent; border: 0; border-radius: 4px; touch-action: none; z-index: 1; }
 .resize-edge::after { content: ''; position: absolute; background: var(--omochi-color-border-control); border-radius: 2px; }
