@@ -29,64 +29,64 @@ const _badCReverse: ReverseProps = { ...valid, value: 'c' };
 const _badCParent: ParentProps = { ...valid, value: 'c' };
 // @ts-expect-error Every layer constrains ParentReverseProps.
 const _badCParentReverse: ParentReverseProps = { ...valid, value: 'c' };
-// @ts-expect-error Every layer constrains ForwardProps.
 const _missingLabelForward: ForwardProps = {
   ...valid,
+  // @ts-expect-error Every layer constrains ForwardProps.
   details: { enabled: true, count: 2 },
 };
-// @ts-expect-error Every layer constrains ReverseProps.
 const _missingLabelReverse: ReverseProps = {
   ...valid,
+  // @ts-expect-error Every layer constrains ReverseProps.
   details: { enabled: true, count: 2 },
 };
-// @ts-expect-error Every layer constrains ParentProps.
 const _missingLabelParent: ParentProps = {
   ...valid,
+  // @ts-expect-error Every layer constrains ParentProps.
   details: { enabled: true, count: 2 },
 };
-// @ts-expect-error Every layer constrains ParentReverseProps.
 const _missingLabelParentReverse: ParentReverseProps = {
   ...valid,
+  // @ts-expect-error Every layer constrains ParentReverseProps.
   details: { enabled: true, count: 2 },
 };
-// @ts-expect-error Every layer constrains ForwardProps.
 const _missingEnabledForward: ForwardProps = {
   ...valid,
+  // @ts-expect-error Every layer constrains ForwardProps.
   details: { label: 'label', count: 2 },
 };
-// @ts-expect-error Every layer constrains ReverseProps.
 const _missingEnabledReverse: ReverseProps = {
   ...valid,
+  // @ts-expect-error Every layer constrains ReverseProps.
   details: { label: 'label', count: 2 },
 };
-// @ts-expect-error Every layer constrains ParentProps.
 const _missingEnabledParent: ParentProps = {
   ...valid,
+  // @ts-expect-error Every layer constrains ParentProps.
   details: { label: 'label', count: 2 },
 };
-// @ts-expect-error Every layer constrains ParentReverseProps.
 const _missingEnabledParentReverse: ParentReverseProps = {
   ...valid,
+  // @ts-expect-error Every layer constrains ParentReverseProps.
   details: { label: 'label', count: 2 },
 };
-// @ts-expect-error Every layer constrains ForwardProps.
 const _missingCountForward: ForwardProps = {
   ...valid,
+  // @ts-expect-error Every layer constrains ForwardProps.
   details: { label: 'label', enabled: true },
 };
-// @ts-expect-error Every layer constrains ReverseProps.
 const _missingCountReverse: ReverseProps = {
   ...valid,
+  // @ts-expect-error Every layer constrains ReverseProps.
   details: { label: 'label', enabled: true },
 };
-// @ts-expect-error Every layer constrains ParentProps.
 const _missingCountParent: ParentProps = {
   ...valid,
+  // @ts-expect-error Every layer constrains ParentProps.
   details: { label: 'label', enabled: true },
 };
-// @ts-expect-error Every layer constrains ParentReverseProps.
 const _missingCountParentReverse: ParentReverseProps = {
   ...valid,
+  // @ts-expect-error Every layer constrains ParentReverseProps.
   details: { label: 'label', enabled: true },
 };
 // @ts-expect-error Every layer constrains ForwardProps.

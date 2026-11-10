@@ -13,12 +13,10 @@ const { UnixSocketServerTransport } = await import(
 const app = new App({ temperature: 50, result: '' });
 const image = process.env.OMOCHI_IMAGE
   ? app.resources.bytes(
-      process.env.OMOCHI_IMAGE_FILE
-        ? readFileSync(process.env.OMOCHI_IMAGE_FILE)
-        : Buffer.from(
-            'iVBORw0KGgoAAAANSUhEUgAAAEAAAAAgCAYAAACinX6EAAAAfUlEQVR4nO3RQQ2AQADEwDODHJSgEAk4wA044HeZI+ljn0027Tjv6/naduyf+zs/9AHNJ0AX0HwCdAHNJ0AX0PxY/eBsPgG6gOYToAtoPgG6gOYTsHqh2XwCdAHNJ0AX0HwCdAHNJ2D1QrP5BOgCmk+ALqD5BOgCmh/6gOZflSbVLXnqnYIAAAAASUVORK5CYII=',
-            'base64',
-          ),
+      readFileSync(
+        process.env.OMOCHI_IMAGE_FILE ||
+          new URL('../test/fixtures/resource-image.png', import.meta.url),
+      ),
       'image/png',
     )
   : null;

@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -363,12 +362,7 @@ void main() {
       final client = TestClient();
       final hub = session(client);
       await hub.startNative();
-      final fixture = File('tool/sdk_fixture.ts').readAsStringSync();
-      final bytes = base64Decode(
-        RegExp(r"Buffer.from\('([^']+)', 'base64'\)")
-            .firstMatch(fixture)!
-            .group(1)!,
-      );
+      final bytes = File('test/fixtures/resource-image.png').readAsBytesSync();
       final scope = TestScope('image:variants')
         ..imageFuture = Future.value(bytes);
       client.show(scope);
