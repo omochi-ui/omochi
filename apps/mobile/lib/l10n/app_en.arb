@@ -155,5 +155,17 @@
   "remoteHubAdd": "Add Hub connection",
   "remoteHubPending": "Pending",
   "remoteHubInvite": "Shared access",
-  "remoteHubPublic": "Shared link"
+  "remoteHubPublic": "Shared link",
+  "boardSize": "Size",
+  "boardCompact": "Compact",
+  "boardStandard": "Standard",
+  "boardWide": "Wide",
+  "boardFull": "Full width",
+  "boardShorter": "Shorter",
+  "boardTaller": "Taller",
+  "boardPreview": "Layout on wide screens",
+  "boardApply": "Apply",
+  "boardMove": "Move panel",
+  "boardUp": "Move up",
+  "boardDown": "Move down"
 }

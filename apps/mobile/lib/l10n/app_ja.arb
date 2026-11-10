@@ -138,5 +138,17 @@
   "remoteHubAdd": "Hub接続を追加",
   "remoteHubPending": "承認待ち",
   "remoteHubInvite": "共有接続",
-  "remoteHubPublic": "共有リンク"
+  "remoteHubPublic": "共有リンク",
+  "boardSize": "サイズ調整",
+  "boardCompact": "コンパクト",
+  "boardStandard": "標準",
+  "boardWide": "ワイド",
+  "boardFull": "全幅",
+  "boardShorter": "低く",
+  "boardTaller": "高く",
+  "boardPreview": "広い画面の配置",
+  "boardApply": "適用",
+  "boardMove": "パネルを移動",
+  "boardUp": "上へ移動",
+  "boardDown": "下へ移動"
 }

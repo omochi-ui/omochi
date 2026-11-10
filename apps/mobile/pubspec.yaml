@@ -17,6 +17,7 @@ dependencies:
   ffi: ^2.1.4
   flutter_markdown_plus: ^1.0.12
   flutter_secure_storage: ^11.2.0
+  sliver_dashboard: 2.8.0
   genui: ^0.10.4
   intl: ^0.20.3
   json_schema_builder: ^0.1.7

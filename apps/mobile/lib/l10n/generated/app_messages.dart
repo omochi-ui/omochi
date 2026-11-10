@@ -650,6 +650,78 @@ abstract class AppMessages {
   /// In en, this message translates to:
   /// **'Shared link'**
   String get remoteHubPublic;
+
+  /// No description provided for @boardSize.
+  ///
+  /// In en, this message translates to:
+  /// **'Size'**
+  String get boardSize;
+
+  /// No description provided for @boardCompact.
+  ///
+  /// In en, this message translates to:
+  /// **'Compact'**
+  String get boardCompact;
+
+  /// No description provided for @boardStandard.
+  ///
+  /// In en, this message translates to:
+  /// **'Standard'**
+  String get boardStandard;
+
+  /// No description provided for @boardWide.
+  ///
+  /// In en, this message translates to:
+  /// **'Wide'**
+  String get boardWide;
+
+  /// No description provided for @boardFull.
+  ///
+  /// In en, this message translates to:
+  /// **'Full width'**
+  String get boardFull;
+
+  /// No description provided for @boardShorter.
+  ///
+  /// In en, this message translates to:
+  /// **'Shorter'**
+  String get boardShorter;
+
+  /// No description provided for @boardTaller.
+  ///
+  /// In en, this message translates to:
+  /// **'Taller'**
+  String get boardTaller;
+
+  /// No description provided for @boardPreview.
+  ///
+  /// In en, this message translates to:
+  /// **'Layout on wide screens'**
+  String get boardPreview;
+
+  /// No description provided for @boardApply.
+  ///
+  /// In en, this message translates to:
+  /// **'Apply'**
+  String get boardApply;
+
+  /// No description provided for @boardMove.
+  ///
+  /// In en, this message translates to:
+  /// **'Move panel'**
+  String get boardMove;
+
+  /// No description provided for @boardUp.
+  ///
+  /// In en, this message translates to:
+  /// **'Move up'**
+  String get boardUp;
+
+  /// No description provided for @boardDown.
+  ///
+  /// In en, this message translates to:
+  /// **'Move down'**
+  String get boardDown;
 }
 
 class _AppMessagesDelegate extends LocalizationsDelegate<AppMessages> {

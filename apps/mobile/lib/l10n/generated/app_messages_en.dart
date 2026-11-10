@@ -315,4 +315,40 @@ class AppMessagesEn extends AppMessages {
 
   @override
   String get remoteHubPublic => 'Shared link';
+
+  @override
+  String get boardSize => 'Size';
+
+  @override
+  String get boardCompact => 'Compact';
+
+  @override
+  String get boardStandard => 'Standard';
+
+  @override
+  String get boardWide => 'Wide';
+
+  @override
+  String get boardFull => 'Full width';
+
+  @override
+  String get boardShorter => 'Shorter';
+
+  @override
+  String get boardTaller => 'Taller';
+
+  @override
+  String get boardPreview => 'Layout on wide screens';
+
+  @override
+  String get boardApply => 'Apply';
+
+  @override
+  String get boardMove => 'Move panel';
+
+  @override
+  String get boardUp => 'Move up';
+
+  @override
+  String get boardDown => 'Move down';
 }
