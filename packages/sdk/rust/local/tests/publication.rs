@@ -139,17 +139,16 @@ fn default_runtime_rejects_unsafe_xdg_before_touching_children() {
     std::fs::set_permissions(&xdg, std::fs::Permissions::from_mode(0o777)).unwrap();
     let link = temp.path().join("link");
     symlink(&xdg, &link).unwrap();
-    let foreign = if unsafe { libc::geteuid() } == 0 {
-        let path = temp.path().join("foreign");
-        std::fs::create_dir(&path).unwrap();
+    let foreign = temp.path().join("foreign");
+    let mut paths = vec![&xdg, &link];
+    if unsafe { libc::geteuid() } == 0 {
+        std::fs::create_dir(&foreign).unwrap();
         use std::os::unix::ffi::OsStrExt;
-        let name = std::ffi::CString::new(path.as_os_str().as_bytes()).unwrap();
+        let name = std::ffi::CString::new(foreign.as_os_str().as_bytes()).unwrap();
         assert_eq!(unsafe { libc::chown(name.as_ptr(), 1, 1) }, 0);
-        path
-    } else {
-        std::path::PathBuf::from("/")
-    };
-    for path in [&xdg, &link, &foreign] {
+        paths.push(&foreign);
+    }
+    for path in paths {
         let output = std::process::Command::new(std::env::current_exe().unwrap())
             .args([
                 "--ignored",
@@ -167,6 +166,7 @@ fn default_runtime_rejects_unsafe_xdg_before_touching_children() {
             path.display()
         );
         assert!(!xdg.join("omochi").exists(), "traversed unsafe XDG");
+        assert!(!foreign.join("omochi").exists(), "traversed foreign XDG");
     }
     assert_eq!(
         std::fs::metadata(&xdg).unwrap().permissions().mode() & 0o777,
