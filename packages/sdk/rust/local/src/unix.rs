@@ -47,7 +47,11 @@ pub fn private_directory(path: &Path) -> io::Result<()> {
                 .parent()
                 .ok_or_else(|| crate::invalid("directory needs a parent"))?;
             private_directory(parent)?;
-            fs::DirBuilder::new().mode(0o700).create(path)?;
+            match fs::DirBuilder::new().mode(0o700).create(path) {
+                Ok(()) => {}
+                Err(e) if e.kind() == io::ErrorKind::AlreadyExists => {}
+                Err(e) => return Err(e),
+            }
         }
         Err(e) => return Err(e),
     }
@@ -109,7 +113,9 @@ pub fn prepare_default_runtime() -> io::Result<PathBuf> {
     if std::env::var_os("OMOCHI_RUNTIME_DIR").is_some_and(|s| !s.is_empty()) {
         private_directory(&root)?;
     } else if let Some(xdg) = std::env::var_os("XDG_RUNTIME_DIR").filter(|s| !s.is_empty()) {
-        private_directory(&PathBuf::from(xdg).join("omochi"))?;
+        let xdg = PathBuf::from(xdg);
+        private_directory(&xdg)?;
+        private_directory(&xdg.join("omochi"))?;
         private_directory(&root)?;
     } else {
         let parent = root.parent().unwrap().parent().unwrap();

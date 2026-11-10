@@ -121,6 +121,100 @@ fn refuses_foreign_writable_root_and_symlink() {
     symlink(&public, &link).unwrap();
     assert!(LocalRuntime::prepare(Some(link)).is_err());
 }
+
+#[cfg(unix)]
+#[test]
+#[ignore = "isolated default-runtime environment fixture"]
+fn default_runtime_fixture() {
+    LocalRuntime::prepare(None).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn default_runtime_rejects_unsafe_xdg_before_touching_children() {
+    use std::os::unix::fs::{PermissionsExt, symlink};
+    let temp = tempfile::tempdir().unwrap();
+    let xdg = temp.path().join("xdg");
+    std::fs::create_dir(&xdg).unwrap();
+    std::fs::set_permissions(&xdg, std::fs::Permissions::from_mode(0o777)).unwrap();
+    let link = temp.path().join("link");
+    symlink(&xdg, &link).unwrap();
+    let foreign = if unsafe { libc::geteuid() } == 0 {
+        let path = temp.path().join("foreign");
+        std::fs::create_dir(&path).unwrap();
+        use std::os::unix::ffi::OsStrExt;
+        let name = std::ffi::CString::new(path.as_os_str().as_bytes()).unwrap();
+        assert_eq!(unsafe { libc::chown(name.as_ptr(), 1, 1) }, 0);
+        path
+    } else {
+        std::path::PathBuf::from("/")
+    };
+    for path in [&xdg, &link, &foreign] {
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--ignored",
+                "--exact",
+                "default_runtime_fixture",
+                "--nocapture",
+            ])
+            .env_remove("OMOCHI_RUNTIME_DIR")
+            .env("XDG_RUNTIME_DIR", path)
+            .output()
+            .unwrap();
+        assert!(
+            !output.status.success(),
+            "accepted unsafe XDG: {}",
+            path.display()
+        );
+        assert!(!xdg.join("omochi").exists(), "traversed unsafe XDG");
+    }
+    assert_eq!(
+        std::fs::metadata(&xdg).unwrap().permissions().mode() & 0o777,
+        0o777
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn concurrent_publishers_prepare_a_missing_nested_runtime() {
+    use std::sync::{Arc, Barrier};
+    for _ in 0..20 {
+        // Keep the socket below the portable Unix path limit on macOS as well.
+        let temp = tempfile::Builder::new()
+            .prefix("oc-")
+            .tempdir_in("/tmp")
+            .unwrap();
+        let root = temp.path().join("missing/nested/v2");
+        let barrier = Arc::new(Barrier::new(16));
+        std::thread::scope(|scope| {
+            let threads: Vec<_> = (0..16)
+                .map(|index| {
+                    let barrier = barrier.clone();
+                    let root = root.clone();
+                    scope.spawn(move || {
+                        barrier.wait();
+                        let runtime = LocalRuntime::prepare(Some(root)).unwrap();
+                        tokio::runtime::Builder::new_current_thread()
+                            .enable_all()
+                            .build()
+                            .unwrap()
+                            .block_on(async {
+                                let owner = runtime
+                                    .publish(&format!("publisher-{index}"), "Concurrent", None)
+                                    .await
+                                    .unwrap();
+                                owner.stop().await;
+                            });
+                    })
+                })
+                .collect();
+            for thread in threads {
+                thread.join().unwrap();
+            }
+        });
+        assert!(LocalRuntime::open(root).is_ok());
+    }
+}
 #[tokio::test]
 async fn gateway_record_and_independent_budget_streams() {
     let temp = tempfile::tempdir().unwrap();
