@@ -244,13 +244,14 @@ class LocalServerTransport(Transport):
 
     async def close(self) -> None:
         if self._close_task is None:
+            # Stop inbound work before teardown can join the client tasks.
+            self._closed = True
             self._close_task = asyncio.create_task(self._close(asyncio.current_task()))
         await asyncio.shield(self._close_task)
 
     async def _close(self, origin: asyncio.Task[Any] | None) -> None:
         from ._native_local import request
         async with self._start_lock:
-            self._closed = True
             if self._native_id is not None:
                 handle, self._native_id = self._native_id, None
                 await asyncio.shield(request("close", handle))
@@ -276,7 +277,7 @@ class LocalServerTransport(Transport):
         client.task = asyncio.create_task(client.pump(bootstrap))
         try:
             while not self._closed and not client.closed and (line := await reader.readline()):
-                if client.closed:
+                if self._closed or client.closed:
                     break
                 text = line.decode().strip()
                 if not text:
