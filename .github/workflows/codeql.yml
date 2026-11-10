@@ -75,10 +75,14 @@ jobs:
             platform: macos
             os: macos-latest
             rust-targets: aarch64-apple-darwin,x86_64-apple-darwin
+            xcode-sdk: macosx
+            xcode-destination: platform=macOS
           - language: swift
             platform: ios
             os: macos-latest
             rust-targets: aarch64-apple-ios,aarch64-apple-ios-sim,x86_64-apple-ios
+            xcode-sdk: iphonesimulator
+            xcode-destination: generic/platform=iOS Simulator
     steps:
       - uses: actions/checkout@v7
         with:
@@ -106,18 +110,14 @@ jobs:
       # Flutter generates the plugin packages and platform configuration needed
       # by Xcode and Gradle; CodeQL autobuild cannot prepare a Flutter project.
       - run: flutter pub get --enforce-lockfile
-      - if: matrix.language == 'swift'
-        name: Configure Swift tracing
-        # Apply CodeQL's Xcode settings through Flutter's xcodebuild invocation.
-        run: |
-          cat > "$RUNNER_TEMP/codeql.xcconfig" <<'EOF'
-          CODE_SIGNING_REQUIRED = NO
-          CODE_SIGNING_ALLOWED = NO
-          COMPILATION_CACHE_ENABLE_CACHING = NO
-          SWIFT_ENABLE_COMPILE_CACHE = NO
-          SWIFT_USE_INTEGRATED_DRIVER = NO
-          EOF
-          echo "XCODE_XCCONFIG_FILE=$RUNNER_TEMP/codeql.xcconfig" >> "$GITHUB_ENV"
+      # Generate Flutter's Xcode configuration without compiling Swift. The
+      # actual build must run directly under CodeQL's compiler tracing below.
+      - if: matrix.platform == 'macos'
+        name: Prepare macOS project
+        run: flutter build macos --debug --no-pub --config-only
+      - if: matrix.platform == 'ios'
+        name: Prepare iOS project
+        run: flutter build ios --debug --no-pub --simulator --no-codesign --config-only
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v4
         with:
@@ -130,12 +130,25 @@ jobs:
         run: flutter build apk --debug --no-pub --target-platform android-arm64
         env:
           GRADLE_OPTS: -Dorg.gradle.daemon=false -Dorg.gradle.caching=false
-      - if: matrix.platform == 'macos'
-        name: Build macOS for Swift analysis
-        run: flutter build macos --debug --no-pub
-      - if: matrix.platform == 'ios'
-        name: Build iOS for Swift analysis
-        run: flutter build ios --debug --no-pub --simulator --no-codesign
+      - if: matrix.language == 'swift'
+        name: Build Xcode project for Swift analysis
+        # Flutter's build launcher succeeded without any Swift being captured.
+        # Invoke xcodebuild directly and pass the tracing settings explicitly.
+        run: |
+          xcodebuild build \
+            -workspace "${{ matrix.platform }}/Runner.xcworkspace" \
+            -scheme Runner \
+            -configuration Debug \
+            -sdk "${{ matrix.xcode-sdk }}" \
+            -destination "${{ matrix.xcode-destination }}" \
+            -derivedDataPath "$RUNNER_TEMP/codeql-xcode-${{ matrix.platform }}" \
+            ARCHS="$(uname -m)" \
+            ONLY_ACTIVE_ARCH=YES \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            COMPILATION_CACHE_ENABLE_CACHING=NO \
+            SWIFT_ENABLE_COMPILE_CACHE=NO \
+            SWIFT_USE_INTEGRATED_DRIVER=NO
       - name: Perform CodeQL analysis
         uses: github/codeql-action/analyze@v4
         with:
