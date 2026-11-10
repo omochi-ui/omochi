@@ -17,6 +17,14 @@ closes the sheet without applying it. Narrow card heights are clamped to 320–6
 the preview shows how size changes affect the shared wide layout.
 
 GenUI widgets are retained across width changes and when scrolled offscreen.
+Each visited panel owns a stable Surface host outside the replaceable slivers.
+Composited body slots position those hosts; hidden hosts pause tickers and leave
+focus and semantics traversal. A shared Scrollable keeps wheel and touch scrolling
+working over application content. Header grips authorize grid drags, while edge
+hit regions preserve native resizing. Delete and Backspace never remove panels;
+owner membership controls remain the only removal path. The editor footer shrinks
+with the available body height when the keyboard opens.
+
 The runtime and image budgets still belong to HubSession. Retained card state is
 released when the panel is removed or its owning viewport is disposed; a new
 renderer ID replaces the inner Surface. Editing and app interaction permissions
@@ -25,7 +33,10 @@ remain independent. Shared editors cannot change panel membership.
 ## Validation (2026-11-10)
 
 Automated coverage includes actual GenUI input state across wide/narrow switches
-and offscreen scrolling, no layout writes on width changes, touch-handle reorder,
+and offscreen scrolling in both breakpoint directions, state release after panel,
+viewport or renderer replacement, desktop app input preserving saved gaps, native
+resize and header drag, deletion-key vetoes, restored touch grips after a failed
+save, a landscape keyboard, no layout writes on width changes, touch-handle reorder,
 staged size application, geometry validation, metadata preservation, pending writes
 and conflict handling. Screenshots below are widget-test fixtures using real fonts,
 not captures of a running device app. Physical Android and desktop app interaction

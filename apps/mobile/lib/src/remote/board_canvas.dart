@@ -7,6 +7,7 @@ import '../hub_session.dart';
 import '../messages.dart';
 import 'board_models.dart';
 import 'board_layout.dart';
+import 'board_surface.dart';
 
 class BoardCanvas extends StatefulWidget {
   const BoardCanvas({
@@ -26,7 +27,10 @@ class BoardCanvas extends StatefulWidget {
 
 class _BoardCanvasState extends State<BoardCanvas> with WidgetsBindingObserver {
   late final grid.DashboardController controller;
-  final keys = <String, GlobalKey>{};
+  final surfaces = <String, BoardSurfaceAnchor>{};
+  String? dragItemId;
+  final scrollController = ScrollController();
+  final sliverKey = GlobalKey();
   final redraw = ValueNotifier(0);
   bool importing = false;
   double? previousWidth;
@@ -49,6 +53,7 @@ class _BoardCanvasState extends State<BoardCanvas> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    scrollController.addListener(refreshSurfaces);
     controller = grid.DashboardController(
       initialSlotCount: 12,
       initialLayout: layout,
@@ -74,12 +79,20 @@ class _BoardCanvasState extends State<BoardCanvas> with WidgetsBindingObserver {
         if (!validLayout(next)) sync();
       },
     );
+    controller.policy = _HandleDragPolicy((id) => editing && id == dragItemId);
     sync();
+  }
+
+  void refreshSurfaces() {
+    for (final anchor in surfaces.values) {
+      anchor.refresh();
+    }
   }
 
   void sync() {
     importing = true;
     controller.cancelInteraction();
+    dragItemId = null;
     controller.setCompactionType(grid.CompactType.none);
     controller.importLayout([for (final i in layout) i.toMap()]);
     controller.setCompactionType(
@@ -87,7 +100,9 @@ class _BoardCanvasState extends State<BoardCanvas> with WidgetsBindingObserver {
     );
     // Strategy changes compact immediately; imports must preserve saved geometry.
     controller.layout.value = layout;
-    controller.setEditMode(editing);
+    controller.setEditMode(
+      editing && (previousWidth == null || previousWidth! > 760),
+    );
     importing = false;
   }
 
@@ -96,13 +111,21 @@ class _BoardCanvasState extends State<BoardCanvas> with WidgetsBindingObserver {
     super.didUpdateWidget(oldWidget);
     sync();
     redraw.value++;
-    keys.removeWhere((id, _) => !widget.panels.any((p) => p.id == id));
+    surfaces.removeWhere((id, anchor) {
+      if (widget.panels.any((p) => p.id == id)) return false;
+      anchor.dispose();
+      return true;
+    });
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     redraw.dispose();
+    scrollController.dispose();
+    for (final anchor in surfaces.values) {
+      anchor.dispose();
+    }
     controller.dispose();
     super.dispose();
   }
@@ -241,117 +264,104 @@ class _BoardCanvasState extends State<BoardCanvas> with WidgetsBindingObserver {
     if (result != null && mounted && editing) widget.onChange?.call(result);
   }
 
-  Widget card(BoardPanel panel, Widget? handle) => _RetainedCard(
-    key: keys.putIfAbsent(panel.id, GlobalKey.new),
-    child: ValueListenableBuilder(
-      valueListenable: redraw,
-      builder: (context, _, _) {
-        final p = widget.panels.firstWhere(
-          (p) => p.id == panel.id,
-          orElse: () => panel,
-        );
-        final order = readingOrder(widget.panels);
-        final index = order.indexWhere((item) => item.id == p.id);
-        return Card(
-          margin: EdgeInsets.zero,
-          clipBehavior: Clip.antiAlias,
-          child: LayoutBuilder(
-            builder: (context, bounds) => Column(
-              children: [
-                SizedBox(
-                  height: bounds.maxHeight < 96 ? bounds.maxHeight / 2 : 48,
-                  child: ClipRect(
-                    child: SingleChildScrollView(
-                      scrollDirection: Axis.horizontal,
-                      child: SizedBox(
-                        width: bounds.maxWidth < (editing ? 280 : 96)
-                            ? (editing ? 280.0 : 96.0)
-                            : bounds.maxWidth,
-                        child: Row(
-                          children: [
-                            if (editing) ...[
-                              if (handle != null)
-                                handle is grid.DashboardDragStartListener
-                                    ? handle
-                                    : narrowHandle(
-                                        index: index,
-                                        child: Semantics(
-                                          label: messagesFor(context).boardMove,
-                                          child: const Padding(
-                                            padding: EdgeInsets.all(12),
-                                            child: Icon(Icons.drag_handle),
-                                          ),
-                                        ),
-                                      ),
-                              IconButton(
-                                tooltip: messagesFor(context).boardUp,
-                                onPressed: index > 0
-                                    ? () => reorder(index, index - 1)
-                                    : null,
-                                icon: const Icon(Icons.arrow_upward),
-                              ),
-                              IconButton(
-                                tooltip: messagesFor(context).boardDown,
-                                onPressed:
-                                    index >= 0 && index < order.length - 1
-                                    ? () => reorder(index, index + 1)
-                                    : null,
-                                icon: const Icon(Icons.arrow_downward),
-                              ),
-                            ],
-                            Expanded(
-                              child: Padding(
-                                padding: const EdgeInsets.all(8),
-                                child: Text(
-                                  p.title,
-                                  maxLines: 2,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
+  BoardSurfaceAnchor anchor(String id) =>
+      surfaces.putIfAbsent(id, BoardSurfaceAnchor.new);
+
+  Widget handle(BoardPanel panel, int index, {required bool wide}) {
+    final grip = Semantics(
+      label: messagesFor(context).boardMove,
+      child: const Padding(
+        padding: EdgeInsets.all(12),
+        child: Icon(Icons.drag_handle),
+      ),
+    );
+    if (!wide) return narrowHandle(index: index, child: grip);
+    return Builder(
+      builder: (context) => Listener(
+        onPointerDown: (event) {
+          if (!editing) return;
+          dragItemId = panel.id;
+          grid.DashboardOverlayProvider.maybeOf(context)
+              ?.startDragging(panel.id, event.position);
+        },
+        onPointerUp: (_) => dragItemId = null,
+        onPointerCancel: (_) => dragItemId = null,
+        child: Tooltip(message: messagesFor(context).boardMove, child: grip),
+      ),
+    );
+  }
+
+  Widget card(BoardPanel panel, {required bool wide}) => ValueListenableBuilder(
+    valueListenable: redraw,
+    builder: (context, _, _) {
+      final p = widget.panels.firstWhere(
+        (p) => p.id == panel.id,
+        orElse: () => panel,
+      );
+      final order = readingOrder(widget.panels);
+      final index = order.indexWhere((item) => item.id == p.id);
+      return Card(
+        margin: EdgeInsets.zero,
+        clipBehavior: Clip.antiAlias,
+        child: LayoutBuilder(
+          builder: (context, bounds) => Column(
+            children: [
+              SizedBox(
+                height: bounds.maxHeight < 96 ? bounds.maxHeight / 2 : 48,
+                child: ClipRect(
+                  child: SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: SizedBox(
+                      width: bounds.maxWidth < (editing ? 280 : 96)
+                          ? (editing ? 280.0 : 96.0)
+                          : bounds.maxWidth,
+                      child: Row(
+                        children: [
+                          if (editing) ...[
+                            handle(p, index, wide: wide),
+                            IconButton(
+                              tooltip: messagesFor(context).boardUp,
+                              onPressed: index > 0
+                                  ? () => reorder(index, index - 1)
+                                  : null,
+                              icon: const Icon(Icons.arrow_upward),
+                            ),
+                            IconButton(
+                              tooltip: messagesFor(context).boardDown,
+                              onPressed: index >= 0 && index < order.length - 1
+                                  ? () => reorder(index, index + 1)
+                                  : null,
+                              icon: const Icon(Icons.arrow_downward),
+                            ),
+                          ],
+                          Expanded(
+                            child: Padding(
+                              padding: const EdgeInsets.all(8),
+                              child: Text(
+                                p.title,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
                               ),
                             ),
-                            if (editing)
-                              IconButton(
-                                tooltip: messagesFor(context).boardSize,
-                                onPressed: () => size(p),
-                                icon: const Icon(Icons.aspect_ratio),
-                              ),
-                          ],
-                        ),
+                          ),
+                          if (editing)
+                            IconButton(
+                              tooltip: messagesFor(context).boardSize,
+                              onPressed: () => size(p),
+                              icon: const Icon(Icons.aspect_ratio),
+                            ),
+                        ],
                       ),
                     ),
                   ),
                 ),
-                Expanded(
-                  child: ListenableBuilder(
-                    listenable: widget.session,
-                    builder: (context, _) {
-                      if (!widget.session.surfaceIds.contains(p.reference.id)) {
-                        return const Center(
-                          child: Icon(Icons.cloud_off_outlined),
-                        );
-                      }
-                      final surface = widget.session.contextForSurface(
-                        p.reference.id,
-                      );
-                      return ExcludeFocus(
-                        excluding: !widget.interact,
-                        child: IgnorePointer(
-                          ignoring: !widget.interact,
-                          child: Surface(
-                            key: ValueKey(surface.surfaceId),
-                            surfaceContext: surface,
-                          ),
-                        ),
-                      );
-                    },
-                  ),
-                ),
-              ],
-            ),
+              ),
+              Expanded(child: BoardSurfaceSlot(anchor: anchor(p.id))),
+            ],
           ),
-        );
-      },
-    ),
+        ),
+      );
+    },
   );
 
   @override
@@ -361,102 +371,124 @@ class _BoardCanvasState extends State<BoardCanvas> with WidgetsBindingObserver {
         controller.cancelInteraction();
         previousWidth = c.maxWidth;
       }
+      controller.isDragging.watch(context);
+      refreshSurfaces();
       final ordered = readingOrder(widget.panels);
+      final wide = c.maxWidth > 760;
+      controller.setEditMode(editing && wide);
+      final aspectRatio = wide ? ((c.maxWidth - 32 - 11 * 16) / 12) / 40 : 1.0;
+      Widget gridCard(BuildContext context, grid.LayoutItem item) =>
+          card(widget.panels.firstWhere((p) => p.id == item.id), wide: true);
       return CallbackShortcuts(
         bindings: {
           const SingleActivator(LogicalKeyboardKey.escape):
               controller.cancelInteraction,
         },
-        child: c.maxWidth <= 760
-            ? CustomScrollView(
-                slivers: [
-                  SliverPadding(
-                    padding: const EdgeInsets.all(16),
-                    sliver: SliverReorderableList(
-                      itemCount: ordered.length,
-                      onReorderItem: reorder,
-                      itemBuilder: (context, index) {
-                        final p = ordered[index];
-                        return Padding(
-                          key: ValueKey(p.id),
-                          padding: const EdgeInsets.only(bottom: 16),
-                          child: SizedBox(
-                            height: (p.h * 56 - 16).clamp(320, 600).toDouble(),
-                            child: card(
-                              p,
-                              editing
-                                  ? narrowHandle(
-                                      index: index,
-                                      child: Semantics(
-                                        label: messagesFor(context).boardMove,
-                                        child: const Padding(
-                                          padding: EdgeInsets.all(12),
-                                          child: Icon(Icons.drag_handle),
-                                        ),
-                                      ),
-                                    )
-                                  : null,
+        child: grid.DashboardOverlay(
+          controller: controller,
+          scrollController: scrollController,
+          sliverKey: sliverKey,
+          gridStyle: wide ? const grid.GridStyle() : null,
+          fillViewport: wide,
+          padding: const EdgeInsets.all(16),
+          slotAspectRatio: aspectRatio,
+          mainAxisSpacing: 16,
+          crossAxisSpacing: 16,
+          dragStartGesture: grid.DragStartGesture.none,
+          onWillDelete: (_) async => false,
+          itemBuilder: gridCard,
+          itemFeedbackBuilder: (context, item, child) => Material(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Text(
+                widget.panels.firstWhere((p) => p.id == item.id).title,
+              ),
+            ),
+          ),
+          child: BoardScrollView(
+            controller: scrollController,
+            slivers: [
+              SliverPadding(
+                padding: const EdgeInsets.all(16),
+                sliver: wide
+                    ? grid.SliverDashboard(
+                        key: sliverKey,
+                        controller: controller,
+                        slotAspectRatio: aspectRatio,
+                        mainAxisSpacing: 16,
+                        crossAxisSpacing: 16,
+                        itemBuilder: gridCard,
+                      )
+                    : SliverReorderableList(
+                        itemCount: ordered.length,
+                        onReorderItem: reorder,
+                        onReorderStart: (_) => refreshSurfaces(),
+                        onReorderEnd: (_) => refreshSurfaces(),
+                        // The app stays in its stable host during the drag.
+                        proxyDecorator: (child, index, animation) => Material(
+                          child: Center(child: Text(ordered[index].title)),
+                        ),
+                        itemBuilder: (context, index) {
+                          final p = ordered[index];
+                          return Padding(
+                            key: ValueKey(p.id),
+                            padding: const EdgeInsets.only(bottom: 16),
+                            child: SizedBox(
+                              height: (p.h * 56 - 16)
+                                  .clamp(320, 600)
+                                  .toDouble(),
+                              child: card(p, wide: false),
+                            ),
+                          );
+                        },
+                      ),
+              ),
+            ],
+            surfaces: [
+              for (final p in widget.panels)
+                Positioned.fill(
+                  key: ValueKey(p.id),
+                  child: BoardSurfaceHost(
+                    anchor: anchor(p.id),
+                    resizeEdges: editing && wide,
+                    child: ListenableBuilder(
+                      listenable: widget.session,
+                      builder: (context, _) {
+                        if (!widget.session.surfaceIds.contains(
+                          p.reference.id,
+                        )) {
+                          return const Center(
+                            child: Icon(Icons.cloud_off_outlined),
+                          );
+                        }
+                        final surface = widget.session.contextForSurface(
+                          p.reference.id,
+                        );
+                        return ExcludeFocus(
+                          excluding: !widget.interact,
+                          child: IgnorePointer(
+                            ignoring: !widget.interact,
+                            child: Surface(
+                              key: ValueKey(surface.surfaceId),
+                              surfaceContext: surface,
                             ),
                           ),
                         );
                       },
                     ),
                   ),
-                ],
-              )
-            : grid.Dashboard(
-                controller: controller,
-                padding: const EdgeInsets.all(16),
-                slotAspectRatio: ((c.maxWidth - 32 - 11 * 16) / 12) / 40,
-                mainAxisSpacing: 16,
-                crossAxisSpacing: 16,
-                dragStartGesture: grid.DragStartGesture.none,
-                itemFeedbackBuilder: (context, item, child) => Material(
-                  child: Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: Text(
-                      widget.panels.firstWhere((p) => p.id == item.id).title,
-                    ),
-                  ),
                 ),
-                itemBuilder: (context, item) {
-                  final p = widget.panels.firstWhere((p) => p.id == item.id);
-                  return card(
-                    p,
-                    editing
-                        ? grid.DashboardDragStartListener(
-                            itemId: p.id,
-                            child: Tooltip(
-                              message: messagesFor(context).boardMove,
-                              child: const Padding(
-                                padding: EdgeInsets.all(8),
-                                child: Icon(Icons.drag_handle),
-                              ),
-                            ),
-                          )
-                        : null,
-                  );
-                },
-              ),
+            ],
+          ),
+        ),
       );
     },
   );
 }
 
-class _RetainedCard extends StatefulWidget {
-  const _RetainedCard({super.key, required this.child});
-  final Widget child;
+class _HandleDragPolicy extends grid.DashboardPolicy {
+  const _HandleDragPolicy(this.allowed);
+  final bool Function(String) allowed;
   @override
-  State<_RetainedCard> createState() => _RetainedCardState();
-}
-
-class _RetainedCardState extends State<_RetainedCard>
-    with AutomaticKeepAliveClientMixin {
-  @override
-  bool get wantKeepAlive => true;
-  @override
-  Widget build(BuildContext context) {
-    super.build(context);
-    return widget.child;
-  }
+  bool canDrag(grid.LayoutItem item) => allowed(item.id);
 }

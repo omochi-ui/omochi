@@ -418,6 +418,42 @@ void main() {
     await tester.pumpWidget(const SizedBox());
   });
 
+  testWidgets('editor footer fits above a landscape keyboard', (tester) async {
+    tester.view.physicalSize = const Size(800, 400);
+    tester.view.devicePixelRatio = 1;
+    tester.view.viewInsets = const FakeViewPadding(bottom: 180);
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetViewInsets);
+    final hub = HubSession();
+    addTearDown(hub.dispose);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: BoardEditor(
+          repository: RemoteBoardsRepository(BoardClient('owner')),
+          session: hub,
+          board: board(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+    await tester.scrollUntilVisible(
+      find.text('Add panel'),
+      100,
+      scrollable: find
+          .descendant(
+            of: find.byType(ListView),
+            matching: find.byType(Scrollable),
+          )
+          .first,
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Add panel').hitTestable(), findsOneWidget);
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox());
+  });
+
   testWidgets(
     'shared layout editor cannot change membership and preserves conflicting draft',
     (tester) async {

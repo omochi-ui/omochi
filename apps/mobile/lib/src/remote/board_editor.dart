@@ -162,92 +162,97 @@ class _BoardEditorState extends State<BoardEditor> {
         ),
         body: Form(
           key: form,
-          child: Column(
-            children: [
-              Expanded(
-                child: BoardCanvas(
-                  panels: controller.panels.map((p) => p.snapshot()).toList(),
-                  session: widget.session,
-                  interact: widget.repository.interact,
-                  onChange: controller.busy || !widget.repository.editLayout
-                      ? null
-                      : controller.applyLayout,
+          child: LayoutBuilder(
+            builder: (context, bounds) => Column(
+              children: [
+                Expanded(
+                  child: BoardCanvas(
+                    panels: controller.panels.map((p) => p.snapshot()).toList(),
+                    session: widget.session,
+                    interact: widget.repository.interact,
+                    onChange: controller.busy || !widget.repository.editLayout
+                        ? null
+                        : controller.applyLayout,
+                  ),
                 ),
-              ),
-              SizedBox(
-                height: 220,
-                child: ListView(
-                  padding: const EdgeInsets.all(16),
-                  children: [
-                    if (controller.error != null) ...[
-                      Text(
-                        controller.invalidLayout
-                            ? messagesFor(context).remoteInvalidValue
-                            : describeFailure(controller.error!),
-                      ),
-                      if (controller.conflict)
-                        TextButton(
-                          onPressed: controller.busy
-                              ? null
-                              : () async {
-                                  if (await discard()) {
-                                    await controller.reload();
-                                  }
-                                },
-                          child: Text(messagesFor(context).remoteReloadBoard),
+                SizedBox(
+                  height: (bounds.maxHeight / 2).clamp(0, 220).toDouble(),
+                  child: ListView(
+                    padding: const EdgeInsets.all(16),
+                    children: [
+                      if (controller.error != null) ...[
+                        Text(
+                          controller.invalidLayout
+                              ? messagesFor(context).remoteInvalidValue
+                              : describeFailure(controller.error!),
                         ),
-                    ],
-                    KeyedSubtree(
-                      key: ValueKey(controller.revision),
-                      child: Column(
-                        children: [
-                          field(
-                            controller.name,
-                            messagesFor(context).remoteName,
-                            controller.rename,
+                        if (controller.conflict)
+                          TextButton(
+                            onPressed: controller.busy
+                                ? null
+                                : () async {
+                                    if (await discard()) {
+                                      await controller.reload();
+                                    }
+                                  },
+                            child: Text(messagesFor(context).remoteReloadBoard),
                           ),
-                          for (final panel in controller.panels)
-                            Card(
-                              key: ValueKey(
-                                '${controller.revision}/${panel.id}',
-                              ),
-                              child: Padding(
-                                padding: const EdgeInsets.all(12),
-                                child: Column(
-                                  children: [
-                                    field(
-                                      panel.title,
-                                      messagesFor(context).remoteTitle,
-                                      (value) =>
-                                          controller.renamePanel(panel, value),
-                                    ),
-                                    if (widget.repository.owner)
-                                      TextButton(
-                                        onPressed: controller.busy
-                                            ? null
-                                            : () =>
-                                                  controller.removePanel(panel),
-                                        child: Text(
-                                          messagesFor(context)
-                                              .remoteRemovePanel,
+                      ],
+                      KeyedSubtree(
+                        key: ValueKey(controller.revision),
+                        child: Column(
+                          children: [
+                            field(
+                              controller.name,
+                              messagesFor(context).remoteName,
+                              controller.rename,
+                            ),
+                            for (final panel in controller.panels)
+                              Card(
+                                key: ValueKey(
+                                  '${controller.revision}/${panel.id}',
+                                ),
+                                child: Padding(
+                                  padding: const EdgeInsets.all(12),
+                                  child: Column(
+                                    children: [
+                                      field(
+                                        panel.title,
+                                        messagesFor(context).remoteTitle,
+                                        (value) => controller.renamePanel(
+                                          panel,
+                                          value,
                                         ),
                                       ),
-                                  ],
+                                      if (widget.repository.owner)
+                                        TextButton(
+                                          onPressed: controller.busy
+                                              ? null
+                                              : () => controller.removePanel(
+                                                  panel,
+                                                ),
+                                          child: Text(
+                                            messagesFor(context)
+                                                .remoteRemovePanel,
+                                          ),
+                                        ),
+                                    ],
+                                  ),
                                 ),
                               ),
-                            ),
-                        ],
+                          ],
+                        ),
                       ),
-                    ),
-                    if (widget.repository.owner)
-                      TextButton(
-                        onPressed: controller.busy ? null : addPanel,
-                        child: Text(messagesFor(context).remoteAddPanel),
-                      ),
-                  ],
+                      if (widget.repository.owner)
+                        TextButton(
+                          onPressed: controller.busy ? null : addPanel,
+                          child: Text(messagesFor(context).remoteAddPanel),
+                        ),
+                    ],
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ),
