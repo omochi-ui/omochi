@@ -1,4 +1,4 @@
-param([string]$Prefix = (Join-Path $env:LOCALAPPDATA 'Omochi\bin'))
+param([string]$Prefix = (Join-Path $env:LOCALAPPDATA 'Programs\Omochi\bin'))
 $ErrorActionPreference = 'Stop'
 New-Item -ItemType Directory -Force -Path $Prefix | Out-Null
 foreach ($Name in @('omochi-ui.exe', 'omochi-utils.exe')) {

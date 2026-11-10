@@ -94,6 +94,9 @@ jobs:
         name: Build native services with browser assets
         run: bun run build:native
       - if: runner.os == 'Windows'
+        name: Verify archive installation and default runtime
+        run: python scripts/test-install-native.py
+      - if: runner.os == 'Windows'
         run: python tests/sdk/socket_ownership.py
       - if: runner.os == 'Windows'
         name: Exercise SDK to gateway to hub

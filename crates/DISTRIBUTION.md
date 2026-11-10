@@ -79,6 +79,7 @@ See `spec/local-service-ownership.md` in the repository for API migration.
 Unix native state lives at $XDG_CONFIG_HOME/omochi/rust-v1 or
 $HOME/.config/omochi/rust-v1; Windows uses the LocalAppData known folder's
 Omochi\rust-v1. Windows archives include `install.ps1`; run
+`./install.ps1` to install in `$env:LOCALAPPDATA\Programs\Omochi\bin`, or
 `./install.ps1 -Prefix "$HOME/bin"` in PowerShell to select an install directory.
 
 Linux binaries use their build runner's libc; choose an OS/architecture-compatible

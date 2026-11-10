@@ -37,9 +37,11 @@ No Bun or Rust installation is required on the host. The runtime contains
 ## Storage and lifecycle
 
 The processes run as UID/GID 10001. Each container has a private, mode-0700
-`/run/omochi` tmpfs. A named volume shares only the `python-example` service
-socket and manifest. The hub's gateway socket is temporary and is recreated
-on container restart. Docker volumes stay inside the Linux VM on Docker Desktop;
+`/run/omochi` tmpfs. A named volume shares the complete `/run/omochi/v2` runtime,
+including its format marker, permanent ownership locks, service manifests and
+sockets. Both images select this complete root with `OMOCHI_RUNTIME_DIR`.
+Endpoints are recreated by their owners after a container restart.
+Docker volumes stay inside the Linux VM on Docker Desktop;
 host filesystem socket forwarding is not needed.
 
 The `config` volume preserves identities, trust and dashboards in

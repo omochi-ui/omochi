@@ -32,6 +32,12 @@ interface Workspace { directory: string; manifest: Manifest }
 interface Packed { name: string; version: string; filename: string; integrity: string }
 interface PyPiFile { filename: string; digests: { sha256: string } }
 
+/** Install the host adapter explicitly; foreign adapters must remain optional. */
+export function smokePackages<T extends { name: string }>(packages: T[], hostAdapter: string): T[] {
+  if (!packages.some(({ name }) => name === hostAdapter)) throw new Error(`Missing host adapter: ${hostAdapter}`);
+  return packages.filter(({ name }) => !name.startsWith('@omochi-ui/local-') || name === hostAdapter);
+}
+
 /** Private browser build inputs and native launcher versions are independent of SDK releases. */
 export function sdkWorkspaces(workspaces: Workspace[]): Workspace[] {
   return workspaces.filter(({ manifest }) => !manifest.private && !manifest.omochiNative);

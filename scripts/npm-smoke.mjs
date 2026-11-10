@@ -4,11 +4,17 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createRequire } from 'node:module';
 import { App } from '@omochi-ui/sdk';
 import * as nodeSdk from '@omochi-ui/sdk/node';
 assert.equal(typeof App, 'function');
 assert.equal(typeof nodeSdk.WebSocketServerTransport, 'function');
 assert.equal(typeof nodeSdk.LocalServerTransport, 'function');
+const require = createRequire(import.meta.url);
+const libc = process.platform === 'linux' ? process.report.getReport().header.glibcVersionRuntime ? '-gnu' : '-musl' : '';
+const hostAdapter = `@omochi-ui/local-${process.platform}-${process.arch}${libc}`;
+assert.equal(process.env.OMOCHI_LOCAL_NODE, undefined);
+assert.ok(require.resolve(hostAdapter).startsWith(path.join(path.dirname(fileURLToPath(import.meta.url)), 'node_modules', hostAdapter)));
 const runtimeDir = await mkdtemp(path.join(process.platform === 'win32' ? tmpdir() : '/tmp', 'omochi-sdk-pack-'));
 const transport = new nodeSdk.LocalServerTransport({ serviceId: 'con', runtimeDir });
 try {

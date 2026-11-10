@@ -1,9 +1,23 @@
+# syntax=docker/dockerfile:1
+FROM rust:bookworm AS wheel
+RUN apt-get update && apt-get install -y --no-install-recommends python3 python3-venv \
+    && rm -rf /var/lib/apt/lists/*
+RUN python3 -m venv /opt/build && /opt/build/bin/pip install --no-cache-dir build
+WORKDIR /src
+COPY packages/sdk/python packages/sdk/python
+COPY packages/sdk/rust/local packages/sdk/rust/local
+COPY packages/sdk/rust/local-ffi packages/sdk/rust/local-ffi
+# This isolated workspace contains exactly the native crates required by the sdist.
+COPY packages/sdk/python/native/Cargo.toml packages/sdk/rust/Cargo.toml
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    /opt/build/bin/python -m build --wheel --outdir /wheels packages/sdk/python
+
 FROM python:3.12-slim-bookworm
 RUN groupadd --gid 10001 omochi && useradd --uid 10001 --gid 10001 --create-home omochi \
-    && install -d -o 10001 -g 10001 -m 0700 /run/omochi /run/omochi/python-example
-COPY packages/sdk/python /tmp/sdk
-RUN pip install --no-cache-dir /tmp/sdk && rm -rf /tmp/sdk
+    && install -d -o 10001 -g 10001 -m 0700 /run/omochi /run/omochi/v2
+COPY --from=wheel /wheels /tmp/wheels
+RUN pip install --no-cache-dir /tmp/wheels/*.whl && rm -rf /tmp/wheels
 COPY examples/python/app.py /app/app.py
-ENV XDG_RUNTIME_DIR=/run OMOCHI_SERVICE=python-example PYTHONUNBUFFERED=1
+ENV OMOCHI_RUNTIME_DIR=/run/omochi/v2 OMOCHI_SERVICE=python-example PYTHONUNBUFFERED=1
 USER 10001:10001
 CMD ["python", "/app/app.py"]

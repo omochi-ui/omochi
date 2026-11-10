@@ -10,16 +10,20 @@ from hatchling.builders.hooks.plugin.interface import BuildHookInterface
 class CustomBuildHook(BuildHookInterface):
     def initialize(self, version, build_data):
         root = Path(self.root)
-        checkout = root.parents[2]
-        repository_sdk = checkout / 'packages/sdk/rust'
-        source_build = not (repository_sdk / 'local-ffi/Cargo.toml').is_file()
+        # A source distribution may be unpacked directly under /tmp or even /.
+        # Only the checkout's known packages/sdk/python layout has Rust siblings.
+        repository_sdk = root.with_name('rust')
+        source_build = not (
+            root.name == 'python' and root.parent.name == 'sdk'
+            and root.parent.parent.name == 'packages'
+            and (repository_sdk / 'local-ffi/Cargo.toml').is_file()
+        )
         native = root / 'native' if source_build else repository_sdk
         if self.target_name == 'sdist':
-            if not source_build:
-                for name in ('local', 'local-ffi'):
-                    for file in (native / name).rglob('*'):
-                        if file.is_file() and 'target' not in file.parts:
-                            build_data['force_include'][str(file)] = f'native/{name}/{file.relative_to(native / name)}'
+            for name in ('local', 'local-ffi'):
+                for file in (native / name).rglob('*'):
+                    if file.is_file() and 'target' not in file.parts:
+                        build_data['force_include'][str(file)] = f'native/{name}/{file.relative_to(native / name)}'
             return
         if self.target_name != 'wheel':
             return

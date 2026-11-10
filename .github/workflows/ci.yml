@@ -72,6 +72,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - run: python scripts/build-local.py
       - run: python -m pip install mypy pyright build
+      - run: python scripts/test_python_packaging.py
       - run: python scripts/test-sdk-types.py
       - run: python -m build packages/sdk/python --outdir /tmp/sdk-wheel
       - run: python -m pip install /tmp/sdk-wheel/*.whl

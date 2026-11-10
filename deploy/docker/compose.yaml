@@ -8,7 +8,7 @@ services:
     tmpfs:
       - /run/omochi:uid=10001,gid=10001,mode=0700
     volumes:
-      - python-runtime:/run/omochi/python-example
+      - runtime:/run/omochi/v2
       - config:/var/lib/omochi
     healthcheck:
       test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:5555/services"]
@@ -25,7 +25,7 @@ services:
     tmpfs:
       - /run/omochi:uid=10001,gid=10001,mode=0700
     volumes:
-      - python-runtime:/run/omochi/python-example
+      - runtime:/run/omochi/v2
 volumes:
-  python-runtime:
+  runtime:
   config:

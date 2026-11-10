@@ -1,5 +1,13 @@
 import { expect, test } from 'bun:test';
-import { distributionManifest, existingPyPiFiles, npmStageId, publicationOrder, publicSdkVersions, sdkWorkspaces, validateContents, validateVersion, type Manifest } from './release.ts';
+import { distributionManifest, existingPyPiFiles, npmStageId, publicationOrder, publicSdkVersions, sdkWorkspaces, smokePackages, validateContents, validateVersion, type Manifest } from './release.ts';
+
+test('installed smoke selects exactly the host native adapter from all release platforms', async () => {
+  const targets = await Bun.file(new URL('./local/targets.json', import.meta.url)).json() as { os: string; cpu: string; libc?: string }[];
+  const adapters = targets.map(({ os, cpu, libc }) => ({ name: `@omochi-ui/local-${os}-${cpu}${os === 'linux' ? libc === 'musl' ? '-musl' : '-gnu' : ''}` }));
+  const sdk = { name: '@omochi-ui/sdk' };
+  for (const host of adapters) expect(smokePackages([sdk, ...adapters], host.name)).toEqual([sdk, host]);
+  expect(() => smokePackages([sdk], adapters[0]!.name)).toThrow('Missing host adapter');
+});
 
 test('SDK version selection excludes independent private browser and native build inputs', () => {
   const manifests: Manifest[] = [
