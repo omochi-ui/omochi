@@ -191,8 +191,19 @@ class LocalServerTransport(Transport):
             try:
                 result = json.loads(await asyncio.shield(starting))
             except asyncio.CancelledError:
-                result = json.loads(await starting)
-                await request("close", result["id"])
+                async def cleanup() -> None:
+                    result = json.loads(await starting)
+                    await request("close", result["id"])
+
+                # Keep both result delivery and teardown independent of further
+                # caller cancellations. Retain the lock until ownership is gone.
+                cleaning = asyncio.create_task(cleanup())
+                while not cleaning.done():
+                    try:
+                        await asyncio.shield(cleaning)
+                    except asyncio.CancelledError:
+                        pass
+                cleaning.result()
                 raise
             self._native_id = result["id"]
             self._directory = Path(result["directory"])
