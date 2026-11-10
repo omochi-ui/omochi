@@ -163,6 +163,177 @@ void main() {
       await tester.pumpWidget(const SizedBox());
     });
   }
+  for (final startWidth in [600.0, 1100.0]) {
+    testWidgets(
+      'offscreen bottom input reveal follows breakpoint from $startWidth',
+      (tester) async {
+        tester.view.physicalSize = Size(startWidth, 500);
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+        final hub = HubSession();
+        addTearDown(hub.dispose);
+        for (final message in surfaceMessages(
+          formId,
+          [
+            {
+              'id': 'root',
+              'component': 'Column',
+              'justify': 'end',
+              'children': ['input'],
+            },
+            {
+              'id': 'input',
+              'component': 'TextField',
+              'label': 'Bottom input',
+              'value': {'path': '/value'},
+            },
+          ],
+          {'value': ''},
+        )) {
+          hub.receive(message);
+        }
+        final panels = [
+          for (var i = 0; i < 8; i++) panel('Form$i', 0, i * 20, 12, 20),
+        ];
+        var writes = 0;
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: BoardCanvas(
+                panels: panels,
+                session: hub,
+                interact: true,
+                onChange: (_) => writes++,
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        final hosts = tester
+            .widgetList<BoardSurfaceHost>(find.byType(BoardSurfaceHost))
+            .toList();
+        expect(hosts.last.anchor.size.value, isNull);
+        final scrollable = tester.state<ScrollableState>(
+          find
+              .descendant(
+                of: find.byType(BoardScrollView),
+                matching: find.byType(Scrollable),
+              )
+              .first,
+        );
+        // On the wide-to-narrow path retain a later panel and return to the top,
+        // so the narrow list never needs to build that slot on resize.
+        final targetIndex = startWidth == 1100 ? 4 : 0;
+        final anchor = hosts[targetIndex].anchor;
+        if (targetIndex > 0) {
+          scrollable.position.jumpTo(4480);
+          await tester.pumpAndSettle();
+        }
+        final host = find.byWidgetPredicate(
+          (widget) =>
+              widget is BoardSurfaceHost && identical(widget.anchor, anchor),
+        );
+        final state = tester.state(
+          find.descendant(of: host, matching: find.byType(TextField)).first,
+        );
+        final input = find.byElementPredicate(
+          (element) => identical(element, state.context),
+          skipOffstage: false,
+        );
+        final focus = tester
+            .widget<EditableText>(
+              find.descendant(of: input, matching: find.byType(EditableText)),
+            )
+            .focusNode;
+        await Scrollable.ensureVisible(state.context);
+        await tester.pumpAndSettle();
+        await tester.enterText(input, 'Retained bottom input');
+        focus.unfocus();
+        await tester.pumpAndSettle();
+        scrollable.position.jumpTo(
+          startWidth == 1100 ? 0 : scrollable.position.maxScrollExtent,
+        );
+        await tester.pumpAndSettle();
+        expect(anchor.link.leader, isNull);
+
+        tester.view.physicalSize = Size(startWidth == 600 ? 1100 : 600, 500);
+        await tester.pumpAndSettle();
+        expect(anchor.link.leader, isNull);
+        expect(input.hitTestable(), findsNothing);
+
+        // One reveal must use the destination layout even before its sliver
+        // slot is rebuilt. Focus must not be needed to correct a stale reveal.
+        await Scrollable.ensureVisible(state.context);
+        await tester.pumpAndSettle();
+        final canvas = tester.getRect(find.byType(BoardCanvas));
+        final inputRect = tester.getRect(input);
+        expect(inputRect.top, greaterThanOrEqualTo(canvas.top));
+        expect(inputRect.bottom, lessThanOrEqualTo(canvas.bottom));
+        expect(input.hitTestable(), findsOneWidget);
+        final slot = find.byWidgetPredicate(
+          (widget) =>
+              widget is BoardSurfaceSlot && identical(widget.anchor, anchor),
+        );
+        final surface = find.ancestor(
+          of: input,
+          matching: find.byType(Surface),
+        );
+        expect(tester.getSize(surface), tester.getSize(slot));
+        await tester.tap(input);
+        await tester.pumpAndSettle();
+        expect(focus.hasFocus, true);
+        expect(tester.state(input), same(state));
+        expect(
+          tester.widget<TextField>(input).controller!.text,
+          'Retained bottom input',
+        );
+        expect(writes, 0);
+        expect(tester.takeException(), isNull);
+        await tester.pumpWidget(const SizedBox());
+      },
+    );
+  }
+  testWidgets('breakpoint projection keeps unvisited GenUI lazy', (
+    tester,
+  ) async {
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final hub = HubSession();
+    addTearDown(hub.dispose);
+    for (final message in demoMessages()) {
+      hub.receive(message);
+    }
+    tester.view.physicalSize = const Size(600, 500);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: BoardCanvas(
+            panels: [
+              for (var i = 0; i < 8; i++) panel('Form$i', 0, i * 20, 12, 20),
+            ],
+            session: hub,
+            interact: true,
+          ),
+        ),
+      ),
+    );
+    for (final width in [600.0, 1100.0, 600.0]) {
+      tester.view.physicalSize = Size(width, 500);
+      await tester.pumpAndSettle();
+      expect(
+        find.byType(TextField, skipOffstage: false).evaluate().length,
+        lessThan(8),
+      );
+      final hosts = tester.widgetList<BoardSurfaceHost>(
+        find.byType(BoardSurfaceHost),
+      );
+      expect(hosts.last.anchor.size.value, isNull);
+    }
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox());
+  });
   testWidgets(
     'width switching retains real GenUI input state without layout writes',
     (tester) async {

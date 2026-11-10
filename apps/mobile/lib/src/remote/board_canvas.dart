@@ -419,14 +419,19 @@ class _BoardCanvasState extends State<BoardCanvas> with WidgetsBindingObserver {
       refreshSurfaces();
       final ordered = readingOrder(widget.panels);
       final wide = c.maxWidth > 760;
+      final columnWidth = (c.maxWidth - 32 - 11 * 16) / 12;
       var narrowTop = 16.0;
       for (final p in ordered) {
-        anchor(p.id).contentOrigin = wide
-            ? Offset(
-                16 + p.x * ((c.maxWidth - 32 - 11 * 16) / 12 + 16),
-                16 + p.y * 56 + headerHeight(p.h * 56 - 16),
-              )
-            : Offset(16, narrowTop + headerHeight(narrowHeight(p)));
+        final height = wide ? p.h * 56.0 - 16 : narrowHeight(p);
+        final header = headerHeight(height);
+        anchor(p.id).projectBody(
+          Rect.fromLTWH(
+            wide ? 16 + p.x * (columnWidth + 16) : 16,
+            (wide ? 16 + p.y * 56 : narrowTop) + header,
+            wide ? p.w * (columnWidth + 16) - 16 : c.maxWidth - 32,
+            height - header,
+          ),
+        );
         narrowTop += narrowHeight(p) + 16;
       }
       // Match DashboardOverlay: mobile has no native edge resizing with
@@ -437,7 +442,7 @@ class _BoardCanvasState extends State<BoardCanvas> with WidgetsBindingObserver {
           defaultTargetPlatform != TargetPlatform.android &&
           defaultTargetPlatform != TargetPlatform.iOS;
       controller.setEditMode(editing && wide);
-      final aspectRatio = wide ? ((c.maxWidth - 32 - 11 * 16) / 12) / 40 : 1.0;
+      final aspectRatio = wide ? columnWidth / 40 : 1.0;
       Widget gridCard(BuildContext context, grid.LayoutItem item) =>
           card(widget.panels.firstWhere((p) => p.id == item.id), wide: true);
       return Listener(

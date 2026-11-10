@@ -6,15 +6,27 @@ import 'package:flutter/material.dart';
 /// offscreen, replaced at a breakpoint, or lifted into drag feedback.
 class BoardSurfaceAnchor {
   final link = LayerLink();
-  // The projected body position also lets ensureVisible reach a visited panel
-  // after its sliver slot has been collected, including after width changes.
+  // Project both position and constraints so reveal uses the destination
+  // descendant layout after a visited panel's sliver slot has been collected.
   Offset contentOrigin = Offset.zero;
+  Size? _projectedSize;
   _RenderSurfaceSlot? _slot;
   final size = ValueNotifier<Size?>(null);
   final visible = ValueNotifier(false);
   Size? _pendingSize;
   bool _scheduled = false;
   bool _disposed = false;
+
+  void projectBody(Rect bounds) {
+    contentOrigin = bounds.topLeft;
+    if (_projectedSize != bounds.size && _pendingSize != null) {
+      // Only visited hosts have a pending size. Keep unvisited panels lazy,
+      // and let actual slot layout override this during live grid gestures.
+      _pendingSize = bounds.size;
+      refresh();
+    }
+    _projectedSize = bounds.size;
+  }
 
   void didLayout(Size value) {
     _pendingSize = value;
