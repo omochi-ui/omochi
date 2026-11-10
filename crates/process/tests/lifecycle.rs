@@ -1,5 +1,5 @@
 use omochi_process::{Command, SIGKILL, Stdio};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 
 #[test]
 #[ignore = "subprocess fixture"]
@@ -16,19 +16,21 @@ fn child_fixture() {
         Ok("tree") => {
             let mut child = std::process::Command::new(std::env::current_exe().unwrap())
                 .args(["--ignored", "--exact", "child_fixture", "--nocapture"])
-                .env("OMOCHI_PROCESS_FIXTURE", "heartbeat")
+                .env("OMOCHI_PROCESS_FIXTURE", "descendant")
                 .stdin(std::process::Stdio::null())
-                .stdout(std::process::Stdio::null())
+                .stdout(std::process::Stdio::inherit())
                 .stderr(std::process::Stdio::null())
                 .spawn()
                 .unwrap();
             let _ = child.wait();
         }
-        Ok("heartbeat") => {
-            let path = std::env::var_os("OMOCHI_PROCESS_HEARTBEAT").unwrap();
-            for sequence in 0u64..=u64::MAX {
-                std::fs::write(&path, sequence.to_string()).unwrap();
-                std::thread::sleep(std::time::Duration::from_millis(10));
+        Ok("descendant") => {
+            // Keep the inherited writer open for this process's entire lifetime.
+            let mut stdout = std::io::stdout().lock();
+            std::io::Write::write_all(&mut stdout, b"grandchild ready\n").unwrap();
+            std::io::Write::flush(&mut stdout).unwrap();
+            loop {
+                std::thread::park();
             }
         }
         Ok("wait") => loop {
@@ -87,7 +89,6 @@ async fn pipes_environment_and_exit_status() {
 #[cfg(windows)]
 #[tokio::test]
 async fn console_break_allows_graceful_child_shutdown() {
-    use tokio::io::{AsyncBufReadExt, BufReader};
     use windows_sys::Win32::System::Console::{AllocConsole, GetConsoleCP};
     if unsafe { GetConsoleCP() } == 0 {
         assert_ne!(unsafe { AllocConsole() }, 0);
@@ -139,32 +140,45 @@ async fn cancellation_terminates_an_idle_child() {
 
 #[tokio::test]
 async fn cancellation_stops_grandchildren() {
-    let root = tempfile::tempdir().unwrap();
-    let path = root.path().join("heartbeat");
     let mut child = Command::new(std::env::current_exe().unwrap())
         .args(["--ignored", "--exact", "child_fixture", "--nocapture"])
         .env("OMOCHI_PROCESS_FIXTURE", "tree")
-        .env("OMOCHI_PROCESS_HEARTBEAT", &path)
         .stdin(Stdio::null())
-        .stdout(Stdio::null())
+        .stdout(Stdio::piped())
         .stderr(Stdio::null())
         .spawn()
         .unwrap();
+    let mut stdout = BufReader::new(child.stdout.take().unwrap());
     tokio::time::timeout(std::time::Duration::from_secs(5), async {
-        while !path.exists() {
-            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        let mut line = String::new();
+        loop {
+            assert_ne!(
+                stdout.read_line(&mut line).await.unwrap(),
+                0,
+                "grandchild exited before readiness"
+            );
+            // libtest may prefix the marker with its own progress output.
+            if line.contains("grandchild ready") {
+                break;
+            }
+            line.clear();
         }
     })
     .await
-    .unwrap();
+    .expect("grandchild did not become ready");
     child.group().signal(SIGKILL);
-    child.wait().await.unwrap();
-    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
-    let before = std::fs::read(&path).unwrap();
-    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-    assert_eq!(
-        std::fs::read(&path).unwrap(),
-        before,
-        "grandchild is still running"
-    );
+    let status = tokio::time::timeout(std::time::Duration::from_secs(5), child.wait())
+        .await
+        .expect("child did not terminate")
+        .unwrap();
+    assert!(!status.success());
+    // EOF requires both the parent and descendant to close their inherited writers.
+    // Retain the Child guard so a failed assertion still tears down its process tree.
+    tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        stdout.read_to_end(&mut Vec::new()),
+    )
+    .await
+    .expect("grandchild retained its stdout pipe after cancellation")
+    .unwrap();
 }
