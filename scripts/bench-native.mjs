@@ -87,13 +87,31 @@ function quantile(values, q) {
 }
 async function sample(mode) {
   const directory = mkdtempSync(join(tmpdir(), 'omochi-bench-'));
-  const runtime = join(directory, 'run', 'omochi');
-  const service = join(runtime, 'echo');
+  const runtime = join(directory, 'run', 'omochi', mode === 'rust' ? 'v2' : '');
+  const service = join(runtime, mode === 'rust' ? 'svc-echo~' : 'echo');
   mkdirSync(service, { recursive: true, mode: 0o700 });
   // mkdir's recursive mode also makes the runtime private.
+  if (mode === 'rust')
+    writeFileSync(
+      join(runtime, 'runtime.json'),
+      JSON.stringify({ version: 2 }),
+      {
+        mode: 0o600,
+      },
+    );
   writeFileSync(
     join(service, 'manifest.json'),
-    JSON.stringify({ name: 'Benchmark echo', socket: 'a2ui.sock' }),
+    JSON.stringify(
+      mode === 'rust'
+        ? {
+            version: 2,
+            serviceId: 'echo',
+            name: 'Benchmark echo',
+            endpoint: { kind: 'unix', path: 'a2ui.sock' },
+          }
+        : { name: 'Benchmark echo', socket: 'a2ui.sock' },
+    ),
+    { mode: 0o600 },
   );
   const sockets = new Set();
   const fixture = createServer((socket) => {
