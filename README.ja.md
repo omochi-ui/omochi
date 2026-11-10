@@ -36,7 +36,7 @@ Flutterアプリは内蔵Hubを使うか、外部Hubへ接続できます。
 
 ## 使う
 
-LinuxまたはmacOSとNode.js 22以上で起動します。
+Linux・macOS・Windows 11とNode.js 22以上で起動します。
 
 ```sh
 npx @omochi-ui/cli hub

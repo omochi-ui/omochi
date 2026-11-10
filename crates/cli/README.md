@@ -16,7 +16,7 @@ app running while using their UI.
 The package installs `omochi-ui`, including the `hub` and `gateway` commands.
 It is separate from the `omochi-ui` SDK crate. The dashboard assets are included;
 Bun, Node.js, and a repository checkout are not needed to build the published crate.
-Native services support Linux and macOS.
+Native services support Linux (glibc), macOS and Windows 11 on x64/ARM64.
 
 With Node.js 22+, you can also run `npx @omochi-ui/cli hub` without a global install.
 For apps on another machine, see the [remote connection guide](https://omochi.fyi/en/docs/guides/remote/).
