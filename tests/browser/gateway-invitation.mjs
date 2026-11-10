@@ -16,12 +16,17 @@ async function until(fn) {
 }
 try {
   const tls = await certificate(temp);
-  host = staticHost({ assets: process.cwd() + '/packages/hub-ui/dist-hosted', ...tls });
+  host = staticHost({
+    assets: process.cwd() + '/packages/hub-ui/dist-hosted',
+    ...tls,
+  });
   browser = await chromium(temp + '/profile', [
     `--ignore-certificate-errors-spki-list=${tls.spki}`,
   ]);
   await browser.command('Page.navigate', { url: host.url });
-  await until(() => browser.evaluate('!!document.querySelector("[data-browser-id]")'));
+  await until(() =>
+    browser.evaluate('!!document.querySelector("[data-browser-id]")'),
+  );
   const payload = Buffer.from(
     JSON.stringify({
       version: 4,
@@ -31,9 +36,13 @@ try {
     }),
   ).toString('base64url');
   second = await browser.tab(host.url + '#g:' + payload);
-  await until(() => second.evaluate('document.body.textContent.includes("Invitation sent.")'));
+  await until(() =>
+    second.evaluate('document.body.textContent.includes("Invitation sent.")'),
+  );
   assert.equal(await second.evaluate('location.hash'), '');
-  await until(() => browser.evaluate(`!!document.querySelector('[aria-label="Add gateway"]')`));
+  await until(() =>
+    browser.evaluate(`!!document.querySelector('[aria-label="Add gateway"]')`),
+  );
   assert.equal(
     await browser.evaluate(
       'Array.from(document.querySelectorAll("button")).find(b=>b.textContent==="Add to this hub").disabled',
@@ -41,26 +50,62 @@ try {
     true,
   );
   assert.equal(
-    await browser.evaluate(`document.querySelector('[aria-label="Add gateway"] input').value`),
+    await browser.evaluate(
+      `document.querySelector('[aria-label="Add gateway"] input').value`,
+    ),
     'Gateway aaaaaaaa',
   );
   assert.equal(
-    await browser.evaluate(`Array.from(document.querySelectorAll('a')).find(a => a.textContent === 'Open in Omochi app')?.getAttribute('href')`),
+    await browser.evaluate(
+      `Array.from(document.querySelectorAll('a')).find(a => a.textContent === 'Open in Omochi app')?.getAttribute('href')`,
+    ),
     'omochi://invite/' + payload,
   );
-  const ownerPayload = Buffer.from(JSON.stringify({
-    version: 1, hubId: 'a'.repeat(64), relayUrls: ['https://relay.example/'],
-    grantId: '11111111-1111-4111-8111-111111111111', mode: 'owner', secret: 'c'.repeat(64),
-  })).toString('base64url');
-  await browser.evaluate(`location.hash=${JSON.stringify('#owner:' + ownerPayload)}`);
-  await until(() => browser.evaluate(`location.hash===''&&Array.from(document.querySelectorAll('button')).some(b=>b.textContent==='Accept invitation')`));
-  assert.equal(await browser.evaluate(`!!document.querySelector('[aria-label="Add gateway"]')`), true);
+  const ownerPayload = Buffer.from(
+    JSON.stringify({
+      version: 1,
+      hubId: 'a'.repeat(64),
+      relayUrls: ['https://relay.example/'],
+      grantId: '11111111-1111-4111-8111-111111111111',
+      mode: 'owner',
+      secret: 'c'.repeat(64),
+    }),
+  ).toString('base64url');
+  await browser.evaluate(
+    `location.hash=${JSON.stringify('#owner:' + ownerPayload)}`,
+  );
+  await until(() =>
+    browser.evaluate(
+      `location.hash===''&&Array.from(document.querySelectorAll('button')).some(b=>b.textContent==='Accept invitation')`,
+    ),
+  );
+  assert.equal(
+    await browser.evaluate(
+      `!!document.querySelector('[aria-label="Add gateway"]')`,
+    ),
+    true,
+  );
   await browser.evaluate(`location.hash=${JSON.stringify('#g:' + payload)}`);
   await until(() => browser.evaluate("location.hash===''"));
-  assert.equal(await browser.evaluate(`document.querySelector('[aria-label="Add gateway"] input').value`), 'Gateway aaaaaaaa');
-  assert.equal(await browser.evaluate(`Array.from(document.querySelectorAll('button')).find(b=>b.textContent==='Add to this hub').disabled`), true);
-  const shot = await browser.command('Page.captureScreenshot', { format: 'png' });
-  await writeFile('/tmp/omochi-gateway-confirmation.png', Buffer.from(shot.data, 'base64'));
+  assert.equal(
+    await browser.evaluate(
+      `document.querySelector('[aria-label="Add gateway"] input').value`,
+    ),
+    'Gateway aaaaaaaa',
+  );
+  assert.equal(
+    await browser.evaluate(
+      `Array.from(document.querySelectorAll('button')).find(b=>b.textContent==='Add to this hub').disabled`,
+    ),
+    true,
+  );
+  const shot = await browser.command('Page.captureScreenshot', {
+    format: 'png',
+  });
+  await writeFile(
+    '/tmp/omochi-gateway-confirmation.png',
+    Buffer.from(shot.data, 'base64'),
+  );
   console.log(
     'PASS: real Chromium fragment removal, cross-tab acknowledged transfer, confirmation required, default gateway name, warm owner/gateway navigation preserves pending handoff',
   );

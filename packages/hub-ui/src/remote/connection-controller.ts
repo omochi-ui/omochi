@@ -5,17 +5,40 @@ import { SharedBoardRepository } from './boards.js';
 import { acceptInvitation, recoverShare } from './enrollment.js';
 import { parseShareLink, type SavedShare, type ShareLink } from './link.js';
 import { OwnerBoardRepository } from './owner-boards.js';
-import { openHubProfile, resetHubProfile, readHubProfile, forgetHubRecord, type HubProfile, type ShareRecord } from './profile.js';
+import {
+  openHubProfile,
+  resetHubProfile,
+  readHubProfile,
+  forgetHubRecord,
+  type HubProfile,
+  type ShareRecord,
+} from './profile.js';
 import { RemoteHubSession, type SharedView } from './session.js';
 
-import { readCatalog, changeCatalog, clearCatalog, announceConnections, checkedLink, connectionId, CATALOG_CHANNEL, type ConnectionPreference } from './catalog.js';
+import {
+  readCatalog,
+  changeCatalog,
+  clearCatalog,
+  announceConnections,
+  checkedLink,
+  connectionId,
+  CATALOG_CHANNEL,
+  type ConnectionPreference,
+} from './catalog.js';
 
-export interface ConnectionEntry extends ShareRecord { link?: ShareLink; persistent: boolean }
+export interface ConnectionEntry extends ShareRecord {
+  link?: ShareLink;
+  persistent: boolean;
+}
 
 type AcceptedInvitation = Awaited<ReturnType<typeof acceptInvitation>>;
 export type PendingInvitation =
   | { kind: 'invitation'; link: ShareLink }
-  | { kind: 'savePending'; accepted: AcceptedInvitation; link: ShareLink | null };
+  | {
+      kind: 'savePending';
+      accepted: AcceptedInvitation;
+      link: ShareLink | null;
+    };
 
 export type ActiveConnection = {
   session: RemoteHubSession;
@@ -70,22 +93,35 @@ function cache(key: string, value?: string): string | null {
     if (value === undefined) return sessionStorage.getItem(key);
     if (value) sessionStorage.setItem(key, value);
     else sessionStorage.removeItem(key);
-  } catch { /* Storage denial does not grant network authority. */ }
+  } catch {
+    /* Storage denial does not grant network authority. */
+  }
   return null;
 }
 
 function sameLink(a: ShareLink | null, b: ShareLink) {
-  return a?.hubId === b.hubId && a.grantId === b.grantId && a.mode === b.mode &&
-    a.secret === b.secret && a.relayUrls.join('\n') === b.relayUrls.join('\n');
+  return (
+    a?.hubId === b.hubId &&
+    a.grantId === b.grantId &&
+    a.mode === b.mode &&
+    a.secret === b.secret &&
+    a.relayUrls.join('\n') === b.relayUrls.join('\n')
+  );
 }
 
-export function initialConnectionState(link: ShareLink | null, error: SessionFault | null): ConnectionState {
+export function initialConnectionState(
+  link: ShareLink | null,
+  error: SessionFault | null,
+): ConnectionState {
   return {
     active: null,
     invitation: link?.mode === 'owner' ? { kind: 'invitation', link } : null,
     browserId: null,
     records: [],
-    entries: [], ownsProfile: false, listError: null, feedback: null,
+    entries: [],
+    ownsProfile: false,
+    listError: null,
+    feedback: null,
     busy: true,
     error,
   };
@@ -112,51 +148,109 @@ export class ConnectionController {
 
   private rememberShare(link: ShareLink, name = '') {
     const id = connectionId(link);
-    this.tabShares.set(id, { link, name: name || this.tabShares.get(id)?.name || '' });
-    while (this.tabShares.size > 100) this.tabShares.delete(this.tabShares.keys().next().value!);
-    cache('omochi.connections.tab', JSON.stringify([...this.tabShares.values()]));
+    this.tabShares.set(id, {
+      link,
+      name: name || this.tabShares.get(id)?.name || '',
+    });
+    while (this.tabShares.size > 100)
+      this.tabShares.delete(this.tabShares.keys().next().value!);
+    cache(
+      'omochi.connections.tab',
+      JSON.stringify([...this.tabShares.values()]),
+    );
     this.publishEntries();
   }
 
   private publishEntries() {
-    const entries: ConnectionEntry[] = this.state.records.map(record => ({ ...record, persistent: true }));
-    for (const preference of this.preferences) if (preference.link) {
-      const link = this.tabShares.get(preference.id)?.link ?? preference.link;
-      entries.push({ ...link, id: preference.id, name: preference.name || this.tabShares.get(preference.id)?.name || '', state: 'accepted', persistent: true, link });
-    }
-    for (const [id, value] of this.tabShares) if (!entries.some(entry => entry.id === id)) {
-      entries.push({ ...value.link, id, name: value.name, state: 'accepted', persistent: false, link: value.link });
-    }
+    const entries: ConnectionEntry[] = this.state.records.map((record) => ({
+      ...record,
+      persistent: true,
+    }));
+    for (const preference of this.preferences)
+      if (preference.link) {
+        const link = this.tabShares.get(preference.id)?.link ?? preference.link;
+        entries.push({
+          ...link,
+          id: preference.id,
+          name:
+            preference.name || this.tabShares.get(preference.id)?.name || '',
+          state: 'accepted',
+          persistent: true,
+          link,
+        });
+      }
+    for (const [id, value] of this.tabShares)
+      if (!entries.some((entry) => entry.id === id)) {
+        entries.push({
+          ...value.link,
+          id,
+          name: value.name,
+          state: 'accepted',
+          persistent: false,
+          link: value.link,
+        });
+      }
     const active = this.state.active;
-    if (active?.kind === 'saved' && !entries.some(e => e.id === active.id)) entries.push({ id: active.id, hubId: active.id.split('/')[0]!, grantId: active.id.split('/')[1]!, name: active.name, owner: active.owner ? true : undefined, relayUrls: [], state: 'accepted', persistent: false });
-    this.update({ entries: entries.map(entry => ({ ...entry, name: this.preferences.find(p => p.id === entry.id)?.name || (entry.name === 'Owner hub' || !entry.name && entry.owner ? `Hub ${entry.hubId.slice(0, 8)}` : entry.name) })) });
+    if (active?.kind === 'saved' && !entries.some((e) => e.id === active.id))
+      entries.push({
+        id: active.id,
+        hubId: active.id.split('/')[0]!,
+        grantId: active.id.split('/')[1]!,
+        name: active.name,
+        owner: active.owner ? true : undefined,
+        relayUrls: [],
+        state: 'accepted',
+        persistent: false,
+      });
+    this.update({
+      entries: entries.map((entry) => ({
+        ...entry,
+        name:
+          this.preferences.find((p) => p.id === entry.id)?.name ||
+          (entry.name === 'Owner hub' || (!entry.name && entry.owner)
+            ? `Hub ${entry.hubId.slice(0, 8)}`
+            : entry.name),
+      })),
+    });
   }
 
   private refresh() {
-    return this.refreshQueue = this.refreshQueue.then(() => this.readMetadata());
+    return (this.refreshQueue = this.refreshQueue.then(() =>
+      this.readMetadata(),
+    ));
   }
 
   private async readMetadata() {
     if (this.lifetime.signal.aborted) return;
     try {
-      const [metadata, preferences] = await Promise.all([readHubProfile(), readCatalog()]);
+      const [metadata, preferences] = await Promise.all([
+        readHubProfile(),
+        readCatalog(),
+      ]);
       if (this.lifetime.signal.aborted) return;
       this.preferences = preferences;
       this.update({ ...metadata, listError: null });
       this.publishEntries();
     } catch (error) {
-      this.update({ listError: error instanceof SessionFault ? error : new SessionFault('StorageUnavailable') });
+      this.update({
+        listError:
+          error instanceof SessionFault
+            ? error
+            : new SessionFault('StorageUnavailable'),
+      });
     }
   }
 
   private async releaseProfile() {
-    await this.profile?.close(); this.profile = null;
+    await this.profile?.close();
+    this.profile = null;
     this.update({ ownsProfile: false });
   }
 
   private restoreLocation(id: string) {
-    if (typeof location === 'undefined' || typeof history === 'undefined') return;
-    const saved = this.preferences.find(p => p.id === id)?.location;
+    if (typeof location === 'undefined' || typeof history === 'undefined')
+      return;
+    const saved = this.preferences.find((p) => p.id === id)?.location;
     const url = new URL(location.href);
     const params = new URLSearchParams(saved ?? '');
     for (const key of ['dashboard', 'preset', 'view']) {
@@ -166,18 +260,23 @@ export class ConnectionController {
     history.replaceState(null, '', url);
   }
 
-
   constructor(options: Options) {
     this.options = options;
-    this.state = initialConnectionState(options.initialLink, options.bootstrapError);
-    this.openingShare = options.initialLink?.mode === 'share' ? options.initialLink : null;
+    this.state = initialConnectionState(
+      options.initialLink,
+      options.bootstrapError,
+    );
+    this.openingShare =
+      options.initialLink?.mode === 'share' ? options.initialLink : null;
   }
 
   getSnapshot = (): ConnectionState => this.state;
 
   subscribe(listener: (state: ConnectionState) => void) {
     this.listeners.add(listener);
-    return () => { this.listeners.delete(listener); };
+    return () => {
+      this.listeners.delete(listener);
+    };
   }
 
   private update(change: Partial<ConnectionState>) {
@@ -187,11 +286,19 @@ export class ConnectionController {
   }
 
   private async run(work: () => Promise<void>, clearError = true) {
-    this.update({ busy: true, ...(clearError ? { error: null, feedback: null } : {}) });
+    this.update({
+      busy: true,
+      ...(clearError ? { error: null, feedback: null } : {}),
+    });
     try {
       await work();
     } catch (error) {
-      this.update({ error: error instanceof SessionFault ? error : new SessionFault('StorageUnavailable') });
+      this.update({
+        error:
+          error instanceof SessionFault
+            ? error
+            : new SessionFault('StorageUnavailable'),
+      });
     } finally {
       this.update({ busy: false });
       this.drainIncoming();
@@ -203,13 +310,24 @@ export class ConnectionController {
     this.started = true;
     try {
       const values = JSON.parse(cache('omochi.connections.tab') || '[]');
-      if (Array.isArray(values) && values.length <= 100) for (const value of values) this.rememberShare(checkedLink(value.link), typeof value.name === 'string' ? value.name.slice(0, 200) : '');
-    } catch { /* Invalid tab history does not grant authority. */ }
+      if (Array.isArray(values) && values.length <= 100)
+        for (const value of values)
+          this.rememberShare(
+            checkedLink(value.link),
+            typeof value.name === 'string' ? value.name.slice(0, 200) : '',
+          );
+    } catch {
+      /* Invalid tab history does not grant authority. */
+    }
     if (typeof BroadcastChannel !== 'undefined') {
       try {
         this.channel = new BroadcastChannel(CATALOG_CHANNEL);
-        this.channel.onmessage = () => { void this.refresh(); };
-      } catch { /* The explicit refresh action remains available. */ }
+        this.channel.onmessage = () => {
+          void this.refresh();
+        };
+      } catch {
+        /* The explicit refresh action remains available. */
+      }
     }
     await this.run(() => this.open(), false);
   }
@@ -217,8 +335,11 @@ export class ConnectionController {
   private async loadProfile() {
     if (this.profile) return this.profile;
     this.openingProfile ??= this.acquireProfile();
-    try { return await this.openingProfile; }
-    finally { this.openingProfile = null; }
+    try {
+      return await this.openingProfile;
+    } finally {
+      this.openingProfile = null;
+    }
   }
 
   private async acquireProfile() {
@@ -227,7 +348,11 @@ export class ConnectionController {
       const records = await profile.shares();
       if (!this.lifetime.signal.aborted) {
         this.profile = profile;
-        this.update({ browserId: profile.identity.endpointId, records, ownsProfile: true });
+        this.update({
+          browserId: profile.identity.endpointId,
+          records,
+          ownsProfile: true,
+        });
         this.publishEntries();
         return profile;
       }
@@ -248,15 +373,34 @@ export class ConnectionController {
     cache(PUBLIC_CONTEXT, '');
     await this.refresh();
     if (this.lifetime.signal.aborted) return;
-    if (this.state.invitation) { await this.loadProfile(); return; }
-    const saved = this.state.entries.find(record => record.id === cache(SELECTED));
+    if (this.state.invitation) {
+      await this.loadProfile();
+      return;
+    }
+    const saved = this.state.entries.find(
+      (record) => record.id === cache(SELECTED),
+    );
     if (saved?.link) await this.openShare(saved.link);
     else if (saved) {
       const profile = await this.loadProfile();
       if (profile) {
         if (saved.state === 'pending') {
-          const { id: _id, state: _state, persistent: _persistent, link: _link, ...source } = saved;
-          await this.saveAccepted(await recoverShare(this.options.transport, profile, source, this.lifetime.signal), null);
+          const {
+            id: _id,
+            state: _state,
+            persistent: _persistent,
+            link: _link,
+            ...source
+          } = saved;
+          await this.saveAccepted(
+            await recoverShare(
+              this.options.transport,
+              profile,
+              source,
+              this.lifetime.signal,
+            ),
+            null,
+          );
         } else this.activate(saved, profile.identity.secretHex);
       }
     }
@@ -271,24 +415,40 @@ export class ConnectionController {
     this.activate({ ...link, name: '' }, identity.secretHex, link);
   }
 
-  private activate(source: SavedShare, secretHex: string, link: ShareLink | null = null) {
+  private activate(
+    source: SavedShare,
+    secretHex: string,
+    link: ShareLink | null = null,
+  ) {
     if (this.lifetime.signal.aborted) return;
     const boards = new SharedBoardRepository();
-    const session = new RemoteHubSession({
-      source,
-      secretHex,
-      publicSecret: link?.secret,
-      owner: source.owner,
-      onView: view => {
-        if (this.state.active?.session !== session || this.lifetime.signal.aborted) return;
-        boards.publish(view);
-        if (link) this.rememberShare(link, view.board.name);
-        this.update({ active: { ...this.state.active, view } });
+    const session = new RemoteHubSession(
+      {
+        source,
+        secretHex,
+        publicSecret: link?.secret,
+        owner: source.owner,
+        onView: (view) => {
+          if (
+            this.state.active?.session !== session ||
+            this.lifetime.signal.aborted
+          )
+            return;
+          boards.publish(view);
+          if (link) this.rememberShare(link, view.board.name);
+          this.update({ active: { ...this.state.active, view } });
+        },
       },
-    }, this.options.transport);
-    session.subscribe(event => {
+      this.options.transport,
+    );
+    session.subscribe((event) => {
       if (this.state.active?.session === session && event.kind === 'status') {
-        this.update({ active: { ...this.state.active, status: event.state.replace(/…$/, '') } });
+        this.update({
+          active: {
+            ...this.state.active,
+            status: event.state.replace(/…$/, ''),
+          },
+        });
       }
     });
     boards.bind(session);
@@ -299,7 +459,9 @@ export class ConnectionController {
       id,
       status: 'Connecting',
       view: null,
-      ...(link ? { kind: 'public', link, owner: false } : { kind: 'saved', owner: !!source.owner, name: source.name }),
+      ...(link
+        ? { kind: 'public', link, owner: false }
+        : { kind: 'saved', owner: !!source.owner, name: source.name }),
     };
     cache(PUBLIC_CONTEXT, link ? JSON.stringify(link) : '');
     cache(SELECTED, link ? '' : id);
@@ -309,16 +471,20 @@ export class ConnectionController {
   }
 
   private async leave(release = true): Promise<boolean> {
-    if (!(await this.options.requestLeave()) || this.lifetime.signal.aborted) return false;
+    if (!(await this.options.requestLeave()) || this.lifetime.signal.aborted)
+      return false;
     const active = this.state.active;
     if (active && typeof location !== 'undefined') {
       const params = new URLSearchParams(location.search);
       const saved = new URLSearchParams();
-      for (const key of ['dashboard', 'preset', 'view']) if (params.has(key)) saved.set(key, params.get(key)!);
+      for (const key of ['dashboard', 'preset', 'view'])
+        if (params.has(key)) saved.set(key, params.get(key)!);
       try {
         await changeCatalog(active.id, { location: saved.toString() });
         this.preferences = await readCatalog();
-      } catch { this.update({ listError: new SessionFault('StorageUnavailable') }); }
+      } catch {
+        this.update({ listError: new SessionFault('StorageUnavailable') });
+      }
     }
     await active?.session.stop();
     if (release) await this.releaseProfile();
@@ -334,8 +500,11 @@ export class ConnectionController {
     if (this.lifetime.signal.aborted) return;
     try {
       const link = parseShareLink(fragment);
-      const current = this.state.invitation?.link ??
-        (this.state.active?.kind === 'public' ? this.state.active.link : this.openingShare);
+      const current =
+        this.state.invitation?.link ??
+        (this.state.active?.kind === 'public'
+          ? this.state.active.link
+          : this.openingShare);
       if (sameLink(current, link)) return;
       this.incoming = link;
     } catch {
@@ -345,7 +514,14 @@ export class ConnectionController {
   }
 
   private drainIncoming() {
-    if (!this.started || this.lifetime.signal.aborted || this.state.busy || this.state.invitation?.kind === 'savePending' || !this.incoming) return;
+    if (
+      !this.started ||
+      this.lifetime.signal.aborted ||
+      this.state.busy ||
+      this.state.invitation?.kind === 'savePending' ||
+      !this.incoming
+    )
+      return;
     const incoming = this.incoming;
     this.incoming = null;
     void this.run(async () => {
@@ -361,13 +537,17 @@ export class ConnectionController {
     });
   }
 
-  private async saveAccepted(accepted: AcceptedInvitation, link: ShareLink | null) {
+  private async saveAccepted(
+    accepted: AcceptedInvitation,
+    link: ShareLink | null,
+  ) {
     if (this.lifetime.signal.aborted) return;
     if (!this.profile) throw new SessionFault('InvalidState');
     this.update({ invitation: { kind: 'savePending', accepted, link } });
     await this.profile.save(accepted.source, 'accepted');
     this.update({ records: await this.profile.shares() });
-    announceConnections(); this.publishEntries();
+    announceConnections();
+    this.publishEntries();
     this.restoreLocation(connectionId(accepted.source));
     this.activate(accepted.source, this.profile.identity.secretHex);
     this.update({ invitation: null });
@@ -376,33 +556,60 @@ export class ConnectionController {
   async dispatch(action: ConnectionAction) {
     if (this.lifetime.signal.aborted) return;
     if (action.type === 'rememberLocation') {
-      try { await changeCatalog(action.id, { location: action.location }); }
-      catch { this.update({ listError: new SessionFault('StorageUnavailable') }); }
+      try {
+        await changeCatalog(action.id, { location: action.location });
+      } catch {
+        this.update({ listError: new SessionFault('StorageUnavailable') });
+      }
       return;
     }
     if (this.state.busy) return;
-    if (this.state.invitation?.kind === 'savePending' && action.type !== 'accept') return;
+    if (
+      this.state.invitation?.kind === 'savePending' &&
+      action.type !== 'accept'
+    )
+      return;
     await this.run(async () => {
       switch (action.type) {
         case 'dismiss':
           // Enrollment may have persisted a pending record before its probe failed.
-          if (this.profile) this.update({ records: await this.profile.shares() });
+          if (this.profile)
+            this.update({ records: await this.profile.shares() });
           this.update({ invitation: null });
           if (this.state.active?.kind !== 'saved') await this.releaseProfile();
           this.publishEntries();
           break;
         case 'select': {
-          const record = this.state.entries.find(record => record.id === action.id);
+          const record = this.state.entries.find(
+            (record) => record.id === action.id,
+          );
           if (!record || this.state.active?.id === record.id) return;
           if (!(await this.leave())) return;
           this.restoreLocation(record.id);
-          if (record.link) { await this.openShare(record.link); break; }
+          if (record.link) {
+            await this.openShare(record.link);
+            break;
+          }
           cache(SELECTED, record.id);
           const profile = await this.loadProfile();
           if (!profile) return;
           if (record.state === 'pending') {
-            const { id: _id, state: _state, persistent: _persistent, link: _link, ...source } = record;
-            await this.saveAccepted(await recoverShare(this.options.transport, profile, source, this.lifetime.signal), null);
+            const {
+              id: _id,
+              state: _state,
+              persistent: _persistent,
+              link: _link,
+              ...source
+            } = record;
+            await this.saveAccepted(
+              await recoverShare(
+                this.options.transport,
+                profile,
+                source,
+                this.lifetime.signal,
+              ),
+              null,
+            );
           } else {
             this.activate(record, profile.identity.secretHex);
             this.update({ invitation: null });
@@ -412,9 +619,18 @@ export class ConnectionController {
         case 'accept': {
           const invitation = this.state.invitation;
           if (!invitation || !this.profile) return;
-          if (invitation.kind === 'savePending') await this.saveAccepted(invitation.accepted, invitation.link);
+          if (invitation.kind === 'savePending')
+            await this.saveAccepted(invitation.accepted, invitation.link);
           else if (await this.leave(false)) {
-            await this.saveAccepted(await acceptInvitation(this.options.transport, this.profile, invitation.link, this.lifetime.signal), invitation.link);
+            await this.saveAccepted(
+              await acceptInvitation(
+                this.options.transport,
+                this.profile,
+                invitation.link,
+                this.lifetime.signal,
+              ),
+              invitation.link,
+            );
           }
           break;
         }
@@ -433,33 +649,43 @@ export class ConnectionController {
           break;
         case 'forget': {
           const active = this.state.active;
-          if (active?.kind === 'public' && active.id === action.id) this.rememberShare(active.link, active.view?.board.name);
+          if (active?.kind === 'public' && active.id === action.id)
+            this.rememberShare(active.link, active.view?.board.name);
           else this.tabShares.delete(action.id);
-          cache('omochi.connections.tab', JSON.stringify([...this.tabShares.values()]));
+          cache(
+            'omochi.connections.tab',
+            JSON.stringify([...this.tabShares.values()]),
+          );
           await forgetHubRecord(action.id);
           await changeCatalog(action.id, null);
           if (cache(SELECTED) === action.id) cache(SELECTED, '');
           await this.refresh();
           break;
         }
-        case 'refresh': await this.refresh(); break;
+        case 'refresh':
+          await this.refresh();
+          break;
         case 'rename':
-          if (!action.name.trim() || action.name.length > 200) throw new SessionFault('InvalidState');
+          if (!action.name.trim() || action.name.length > 200)
+            throw new SessionFault('InvalidState');
           await changeCatalog(action.id, { name: action.name.trim() });
-          await this.refresh(); this.update({ feedback: 'nameSaved' });
+          await this.refresh();
+          this.update({ feedback: 'nameSaved' });
           break;
         case 'saveShare': {
-          const entry = this.state.entries.find(e => e.id === action.id);
+          const entry = this.state.entries.find((e) => e.id === action.id);
           if (!entry?.link) throw new SessionFault('InvalidState');
           await changeCatalog(entry.id, { link: entry.link, name: entry.name });
-          await this.refresh(); this.update({ feedback: 'shareSaved' });
+          await this.refresh();
+          this.update({ feedback: 'shareSaved' });
           break;
         }
         case 'loadProfile': {
           await this.refresh();
           if (!this.state.browserId) {
             await this.loadProfile();
-            if (this.state.active?.kind !== 'saved' && !this.state.invitation) await this.releaseProfile();
+            if (this.state.active?.kind !== 'saved' && !this.state.invitation)
+              await this.releaseProfile();
           }
           break;
         }
@@ -470,9 +696,13 @@ export class ConnectionController {
           this.update({ browserId: null, records: [], invitation: null });
           await resetHubProfile();
           await clearCatalog();
-          this.tabShares.clear(); cache('omochi.connections.tab', ''); cache('omochi.connections.owner', '');
-          this.preferences = []; this.publishEntries();
-          await this.loadProfile(); await this.releaseProfile();
+          this.tabShares.clear();
+          cache('omochi.connections.tab', '');
+          cache('omochi.connections.owner', '');
+          this.preferences = [];
+          this.publishEntries();
+          await this.loadProfile();
+          await this.releaseProfile();
           if (!this.lifetime.signal.aborted) await this.open();
           break;
       }
@@ -480,13 +710,13 @@ export class ConnectionController {
   }
 
   dispose(): Promise<void> {
-    return this.closing ??= (async () => {
+    return (this.closing ??= (async () => {
       this.lifetime.abort();
       this.channel?.close();
       this.incoming = null;
       await this.state.active?.session.stop();
       await this.openingProfile?.catch(() => null);
       await this.profile?.close();
-    })();
+    })());
   }
 }

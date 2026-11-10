@@ -27,7 +27,9 @@ class RuntimeShutdownTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaisesRegex(ValueError, "resource registry closed"):
             runtime.resources.bytes(b"", "image/png")
 
-    async def test_shutdown_cancels_idle_custom_read_without_closing_caller_transport(self):
+    async def test_shutdown_cancels_idle_custom_read_without_closing_caller_transport(
+        self,
+    ):
         runtime, state = self.runtime()
         reading, canceled = asyncio.Event(), asyncio.Event()
         queue = asyncio.Queue()
@@ -36,7 +38,8 @@ class RuntimeShutdownTests(unittest.IsolatedAsyncioTestCase):
             capabilities = set()
             closed = False
 
-            async def send(self, message): pass
+            async def send(self, message):
+                pass
 
             async def receive(self):
                 try:
@@ -47,7 +50,8 @@ class RuntimeShutdownTests(unittest.IsolatedAsyncioTestCase):
                     await runtime.shutdown()
                     canceled.set()
 
-            async def close(self): self.closed = True
+            async def close(self):
+                self.closed = True
 
         transport = CustomTransport()
         started = asyncio.create_task(runtime.start(transport))
@@ -74,7 +78,8 @@ class RuntimeShutdownTests(unittest.IsolatedAsyncioTestCase):
             finally:
                 canceled.set()
 
-        async def send(message): sent.append(message)
+        async def send(message):
+            sent.append(message)
 
         started = asyncio.create_task(runtime.start(CallbackTransport(send, receive)))
         await asyncio.wait_for(reading.wait(), 2)
@@ -94,7 +99,8 @@ class RuntimeShutdownTests(unittest.IsolatedAsyncioTestCase):
             await runtime.shutdown()
 
         @app.action("late", schema=schema.literal(None))
-        async def late(_, context): calls.append("late")
+        async def late(_, context):
+            calls.append("late")
 
         runtime = app.build()
 
@@ -102,7 +108,8 @@ class RuntimeShutdownTests(unittest.IsolatedAsyncioTestCase):
             for action in ["stop", "late"]:
                 yield {"type": "invoke", "action": action, "input": None}
 
-        async def send(message): pass
+        async def send(message):
+            pass
 
         await asyncio.wait_for(runtime.start(CallbackTransport(send, receive)), 2)
         self.assertEqual(calls, ["stop"])
@@ -159,7 +166,9 @@ class RuntimeShutdownTests(unittest.IsolatedAsyncioTestCase):
         await asyncio.wait_for(task, 2)
         await runtime.wait_closed()
 
-    async def test_cleanup_error_still_closes_resources_and_preserves_receive_error(self):
+    async def test_cleanup_error_still_closes_resources_and_preserves_receive_error(
+        self,
+    ):
         for fail_receive in [False, True]:
             with self.subTest(fail_receive=fail_receive):
                 runtime, _ = self.runtime()
@@ -170,19 +179,24 @@ class RuntimeShutdownTests(unittest.IsolatedAsyncioTestCase):
                 class CustomTransport:
                     capabilities = set()
 
-                    async def send(self, message): pass
+                    async def send(self, message):
+                        pass
 
                     async def receive(self):
                         reading.set()
-                        if fail_receive: raise primary
+                        if fail_receive:
+                            raise primary
                         await asyncio.Event().wait()
                         yield {}
 
-                    async def stop_receiving(self): raise cleanup
+                    async def stop_receiving(self):
+                        raise cleanup
 
                 async def worker():
-                    try: await asyncio.Event().wait()
-                    finally: cleaned.set()
+                    try:
+                        await asyncio.Event().wait()
+                    finally:
+                        cleaned.set()
 
                 runtime.spawn(worker())
                 started = asyncio.create_task(runtime.start(CustomTransport()))

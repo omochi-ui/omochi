@@ -7,7 +7,11 @@ import ja from './locales/ja.js';
 type Strings<T> = {
   [K in keyof T]: T[K] extends string ? string : Strings<T[K]>;
 } & {
-  [K in keyof T as K extends `${infer Base}_other` ? `${Base}_${Intl.LDMLPluralRule}` : never]?: string;
+  [
+    K in keyof T as K extends `${infer Base}_other`
+      ? `${Base}_${Intl.LDMLPluralRule}`
+      : never
+  ]?: string;
 };
 export type LocaleResource = Strings<typeof en>;
 /** Store message keys so pending feedback also follows a language change. */
@@ -33,20 +37,23 @@ declare module 'i18next' {
 /** Bundled resources keep both local and hosted dashboards usable offline. */
 export function createDashboardI18n(options: InitOptions = {}) {
   const instance = createInstance();
-  void instance.use(LanguageDetector).use(initReactI18next).init({
-    resources: { en: { translation: en }, ja: { translation: ja } },
-    supportedLngs: languages.map(language => language.code),
-    fallbackLng: 'en',
-    load: 'languageOnly',
-    initAsync: false,
-    detection: {
-      order: ['localStorage', 'navigator'],
-      lookupLocalStorage: languageStorageKey,
-      caches: ['localStorage'],
-    },
-    interpolation: { escapeValue: false }, // React escapes interpolated text.
-    ...options,
-  });
+  void instance
+    .use(LanguageDetector)
+    .use(initReactI18next)
+    .init({
+      resources: { en: { translation: en }, ja: { translation: ja } },
+      supportedLngs: languages.map((language) => language.code),
+      fallbackLng: 'en',
+      load: 'languageOnly',
+      initAsync: false,
+      detection: {
+        order: ['localStorage', 'navigator'],
+        lookupLocalStorage: languageStorageKey,
+        caches: ['localStorage'],
+      },
+      interpolation: { escapeValue: false }, // React escapes interpolated text.
+      ...options,
+    });
   return instance;
 }
 

@@ -14,9 +14,19 @@ test('leave decisions come from the active editor, and stale cleanup cannot remo
 test('confirmation settles before a caller can replace its session', async () => {
   const navigation = createDashboardNavigation();
   let answer!: (allowed: boolean) => void;
-  navigation.register(() => new Promise(resolve => { answer = resolve; }));
+  navigation.register(
+    () =>
+      new Promise((resolve) => {
+        answer = resolve;
+      }),
+  );
   let replaced = false;
-  const operation = navigation.requestLeave().then(allowed => { replaced = allowed; });
-  await Promise.resolve(); expect(replaced).toBe(false);
-  answer(true); await operation; expect(replaced).toBe(true);
+  const operation = navigation.requestLeave().then((allowed) => {
+    replaced = allowed;
+  });
+  await Promise.resolve();
+  expect(replaced).toBe(false);
+  answer(true);
+  await operation;
+  expect(replaced).toBe(true);
 });

@@ -3,6 +3,7 @@
 python3 test_driver/android/launch_test.py --device <adb-device> [--sdk <android-sdk>]
 Requires a JDK and Android SDK build-tools/platforms. No Flutter/Rust build needed.
 """
+
 import argparse
 import os
 import pathlib
@@ -18,7 +19,10 @@ import zipfile
 mobile = pathlib.Path(__file__).resolve().parents[2]
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("--device", required=True)
-parser.add_argument("--sdk", default=os.environ.get("ANDROID_HOME") or os.environ.get("ANDROID_SDK_ROOT"))
+parser.add_argument(
+    "--sdk",
+    default=os.environ.get("ANDROID_HOME") or os.environ.get("ANDROID_SDK_ROOT"),
+)
 args = parser.parse_args()
 if not args.sdk:
     properties = (mobile / "android/local.properties").read_text()
@@ -27,7 +31,10 @@ sdk = pathlib.Path(args.sdk)
 
 
 def latest(directory):
-    return max(directory.iterdir(), key=lambda path: tuple(map(int, re.findall(r"\d+", path.name))))
+    return max(
+        directory.iterdir(),
+        key=lambda path: tuple(map(int, re.findall(r"\d+", path.name))),
+    )
 
 
 tools = latest(sdk / "build-tools")
@@ -40,7 +47,9 @@ adb = [str(sdk / "platform-tools/adb"), "-s", args.device]
 
 
 def run(command):
-    return subprocess.run(list(map(str, command)), check=True, capture_output=True, text=True).stdout
+    return subprocess.run(
+        list(map(str, command)), check=True, capture_output=True, text=True
+    ).stdout
 
 
 def logs():
@@ -137,27 +146,105 @@ public class LeaseContender extends android.app.Activity {{
         path = directory / (name + ".java")
         path.write_text(source)
         files.append(path)
-    files.append(mobile / "android/app/src/main/java/fyi/omochi/mobile/IdentityLeases.java")
-    run(["javac", "--release", "8", "-cp", android, "-d", directory / "classes", *files])
-    run([tools / "d8", "--min-api", "24", "--lib", android, "--output", directory / "dex",
-         *sorted((directory / "classes").rglob("*.class"))])
+    files.append(
+        mobile / "android/app/src/main/java/fyi/omochi/mobile/IdentityLeases.java"
+    )
+    run(
+        ["javac", "--release", "8", "-cp", android, "-d", directory / "classes", *files]
+    )
+    run(
+        [
+            tools / "d8",
+            "--min-api",
+            "24",
+            "--lib",
+            android,
+            "--output",
+            directory / "dex",
+            *sorted((directory / "classes").rglob("*.class")),
+        ]
+    )
     unsigned = directory / "unsigned.apk"
-    run([tools / "aapt2", "link", "-I", android, "--manifest", directory / "AndroidManifest.xml", "-o", unsigned])
+    run(
+        [
+            tools / "aapt2",
+            "link",
+            "-I",
+            android,
+            "--manifest",
+            directory / "AndroidManifest.xml",
+            "-o",
+            unsigned,
+        ]
+    )
     with zipfile.ZipFile(unsigned, "a") as archive:
         archive.write(directory / "dex/classes.dex", "classes.dex")
     apk = directory / "fixture.apk"
     run([tools / "zipalign", "4", unsigned, apk])
-    run(["keytool", "-genkeypair", "-keystore", directory / "key.jks", "-storepass", "fixturepass",
-         "-keypass", "fixturepass", "-alias", "fixture", "-keyalg", "RSA", "-dname", "CN=Isolated test", "-validity", "1"])
-    run([tools / "apksigner", "sign", "--ks", directory / "key.jks", "--ks-pass", "pass:fixturepass", apk])
+    run(
+        [
+            "keytool",
+            "-genkeypair",
+            "-keystore",
+            directory / "key.jks",
+            "-storepass",
+            "fixturepass",
+            "-keypass",
+            "fixturepass",
+            "-alias",
+            "fixture",
+            "-keyalg",
+            "RSA",
+            "-dname",
+            "CN=Isolated test",
+            "-validity",
+            "1",
+        ]
+    )
+    run(
+        [
+            tools / "apksigner",
+            "sign",
+            "--ks",
+            directory / "key.jks",
+            "--ks-pass",
+            "pass:fixturepass",
+            apk,
+        ]
+    )
     try:
         run(adb + ["install", str(apk)])
         target = package + "/fyi.omochi.mobile.LeaseTarget"
-        run(adb + ["shell", "am", "start", "-n", target, "-a", "android.intent.action.MAIN", "-c", "android.intent.category.LAUNCHER"])
+        run(
+            adb
+            + [
+                "shell",
+                "am",
+                "start",
+                "-n",
+                target,
+                "-a",
+                "android.intent.action.MAIN",
+                "-c",
+                "android.intent.category.LAUNCHER",
+            ]
+        )
         wait_for("OWNED")
-        run(adb + ["shell", "am", "start", "-n", package + "/fyi.omochi.mobile.LeaseContender"])
+        run(
+            adb
+            + [
+                "shell",
+                "am",
+                "start",
+                "-n",
+                package + "/fyi.omochi.mobile.LeaseContender",
+            ]
+        )
         wait_for("CONTENTION PASS")
-        run(adb + ["shell", "am", "start", "-n", package + "/fyi.omochi.mobile.LeaseCaller"])
+        run(
+            adb
+            + ["shell", "am", "start", "-n", package + "/fyi.omochi.mobile.LeaseCaller"]
+        )
         output = wait_for("INTENT")
         created = re.findall(r"CREATE (\d+ \d+)", output)
         delivered = re.findall(r"INTENT (\d+ \d+)", output)
@@ -168,7 +255,9 @@ public class LeaseContender extends android.app.Activity {{
         while logs().count("OWNED") != 2 and time.monotonic() < deadline:
             time.sleep(0.1)
         assert logs().count("OWNED") == 2, logs()
-        print("PASS: browser no-flags intent reuses launcher Activity; Android engine/process exclusion, namespace isolation, idempotence and crash recovery")
+        print(
+            "PASS: browser no-flags intent reuses launcher Activity; Android engine/process exclusion, namespace isolation, idempotence and crash recovery"
+        )
         print(output)
     finally:
         run(adb + ["uninstall", package])

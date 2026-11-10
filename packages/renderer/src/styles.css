@@ -13,11 +13,14 @@
   --a2ui-color-on-input: #282521;
   --a2ui-border-radius: 0.625rem;
   --a2ui-grid-base: 0.625rem;
-
-
 }
 
-.omochi-surface :where(input:not([type='checkbox']):not([type='radio']):not([type='range']), textarea, select) {
+.omochi-surface
+  :where(
+    input:not([type='checkbox']):not([type='radio']):not([type='range']),
+    textarea,
+    select
+  ) {
   min-height: 40px;
   border-color: #d9d3ca;
   background: #fff;
@@ -55,8 +58,14 @@
   color: var(--a2ui-color-on-surface);
   cursor: pointer;
 }
-.omochi-surface :where(button):disabled { cursor: default; }
+.omochi-surface :where(button):disabled {
+  cursor: default;
+}
 .omochi-surface :where(button, input, textarea, select):focus-visible {
   outline-color: var(--a2ui-color-primary);
 }
-@media (pointer: coarse) { .omochi-surface :where(button) { min-height: 48px; } }
+@media (pointer: coarse) {
+  .omochi-surface :where(button) {
+    min-height: 48px;
+  }
+}

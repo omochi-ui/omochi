@@ -4,7 +4,11 @@ root=$(CDPATH= cd -P "$(dirname "$0")/.." && pwd)
 binary=$1
 shift
 profile=${OMOCHI_NATIVE_PROFILE:-debug}
-case "$profile" in debug|release) ;; *) printf 'OMOCHI_NATIVE_PROFILE must be debug or release\n' >&2; exit 2;; esac
+case "$profile" in debug | release) ;; *)
+  printf 'OMOCHI_NATIVE_PROFILE must be debug or release\n' >&2
+  exit 2
+  ;;
+esac
 target="$root/crates/target/$profile/$binary"
 if [ ! -x "$target" ]; then
   printf 'Native binary missing. Run bun run build:native from the checkout.\n' >&2

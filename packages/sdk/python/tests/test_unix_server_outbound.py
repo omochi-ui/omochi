@@ -40,11 +40,17 @@ async def wait_until(predicate):
 
 
 def create(surface):
-    return {"version": "v0.9", "createSurface": {"surfaceId": surface, "catalogId": "test"}}
+    return {
+        "version": "v0.9",
+        "createSurface": {"surfaceId": surface, "catalogId": "test"},
+    }
 
 
 def update(surface, value):
-    return {"version": "v0.9", "updateDataModel": {"surfaceId": surface, "path": "/", "value": value}}
+    return {
+        "version": "v0.9",
+        "updateDataModel": {"surfaceId": surface, "path": "/", "value": value},
+    }
 
 
 class UnixSocketOutboundTests(unittest.IsolatedAsyncioTestCase):
@@ -134,7 +140,9 @@ class UnixSocketOutboundTests(unittest.IsolatedAsyncioTestCase):
             try:
                 await transport.start()
                 with patch.object(asyncio.StreamWriter, "drain", blocked_drain):
-                    _, writer = await asyncio.open_unix_connection(str(transport.socket_path))
+                    _, writer = await asyncio.open_unix_connection(
+                        str(transport.socket_path)
+                    )
                     await wait_until(lambda: bool(transport._clients))
                     peer = next(iter(transport._clients))
                     await transport.send(create("main"))
@@ -152,7 +160,9 @@ class UnixSocketOutboundTests(unittest.IsolatedAsyncioTestCase):
                     writer.transport.abort()
                 await transport.close()
 
-    async def test_paused_reader_is_evicted_while_healthy_peer_and_reconnect_progress(self):
+    async def test_paused_reader_is_evicted_while_healthy_peer_and_reconnect_progress(
+        self,
+    ):
         with tempfile.TemporaryDirectory() as root:
             transport = UnixSocketServerTransport("demo", runtime_dir=root)
             resources = ResourceRegistry()
@@ -161,32 +171,49 @@ class UnixSocketOutboundTests(unittest.IsolatedAsyncioTestCase):
             try:
                 await transport.send(create("main"))
                 path = str(transport.socket_path)
-                slow_reader, slow_writer = await asyncio.open_unix_connection(path, limit=_MAX_PENDING_BYTES)
+                slow_reader, slow_writer = await asyncio.open_unix_connection(
+                    path, limit=_MAX_PENDING_BYTES
+                )
                 writers.append(slow_writer)
-                self.assertEqual(json.loads(await slow_reader.readline())["kind"], "hello")
+                self.assertEqual(
+                    json.loads(await slow_reader.readline())["kind"], "hello"
+                )
                 await slow_reader.readline()
                 slow_peer = next(iter(transport._clients))
                 slow_writer.transport.pause_reading()
-                reader, writer = await asyncio.open_unix_connection(path, limit=_MAX_PENDING_BYTES)
+                reader, writer = await asyncio.open_unix_connection(
+                    path, limit=_MAX_PENDING_BYTES
+                )
                 writers.append(writer)
                 await reader.readline()
                 await reader.readline()
                 payload = "x" * (1024 * 1024)
                 for index in range(40):
-                    await transport.send(update("main", {"index": index, "payload": payload}))
+                    await transport.send(
+                        update("main", {"index": index, "payload": payload})
+                    )
                     message = json.loads(await asyncio.wait_for(reader.readline(), 10))
-                    self.assertEqual(message["updateDataModel"]["value"]["index"], index)
+                    self.assertEqual(
+                        message["updateDataModel"]["value"]["index"], index
+                    )
                     for peer in transport._clients:
                         if peer.pending_bytes == 0:
-                            self.assertEqual(peer.writer.transport.get_write_buffer_size(), 0)
+                            self.assertEqual(
+                                peer.writer.transport.get_write_buffer_size(), 0
+                            )
                     self.assertLessEqual(slow_peer.pending_bytes, _MAX_PENDING_BYTES)
-                    self.assertLessEqual(slow_peer.writer.transport.get_write_buffer_size(), _MAX_PENDING_BYTES)
+                    self.assertLessEqual(
+                        slow_peer.writer.transport.get_write_buffer_size(),
+                        _MAX_PENDING_BYTES,
+                    )
                 self.assertTrue(slow_peer.closed)
                 await wait_until(lambda: slow_peer not in transport._clients)
                 self.assertEqual(slow_peer.pending_bytes, 0)
                 self.assertFalse(slow_peer._frames)
                 self.assertTrue(slow_peer.task.done())
-                late_reader, late_writer = await asyncio.open_unix_connection(path, limit=_MAX_PENDING_BYTES)
+                late_reader, late_writer = await asyncio.open_unix_connection(
+                    path, limit=_MAX_PENDING_BYTES
+                )
                 writers.append(late_writer)
                 await late_reader.readline()
                 await late_reader.readline()
@@ -199,10 +226,18 @@ class UnixSocketOutboundTests(unittest.IsolatedAsyncioTestCase):
                 try:
                     await successor.start()
                     await transport.close()
-                    successor_reader, successor_writer = await asyncio.open_unix_connection(str(successor.socket_path))
+                    (
+                        successor_reader,
+                        successor_writer,
+                    ) = await asyncio.open_unix_connection(str(successor.socket_path))
                     writers.append(successor_writer)
                     await successor.send(create("successor"))
-                    self.assertEqual(json.loads(await asyncio.wait_for(successor_reader.readline(), 5))["createSurface"]["surfaceId"], "successor")
+                    self.assertEqual(
+                        json.loads(
+                            await asyncio.wait_for(successor_reader.readline(), 5)
+                        )["createSurface"]["surfaceId"],
+                        "successor",
+                    )
                 finally:
                     await successor.close()
             finally:
@@ -211,7 +246,9 @@ class UnixSocketOutboundTests(unittest.IsolatedAsyncioTestCase):
                 await transport.close()
                 resources.close()
 
-    async def test_real_large_bootstrap_keeps_captured_replay_before_updates_and_resources(self):
+    async def test_real_large_bootstrap_keeps_captured_replay_before_updates_and_resources(
+        self,
+    ):
         with tempfile.TemporaryDirectory() as root:
             transport = UnixSocketServerTransport("demo", runtime_dir=root)
             resources = ResourceRegistry()
@@ -233,22 +270,50 @@ class UnixSocketOutboundTests(unittest.IsolatedAsyncioTestCase):
                     await transport.send(create(str(index)))
                     await transport.send(update(str(index), payload))
                 with patch.object(_OutboundPeer, "_write", pause_hello):
-                    reader, writer = await asyncio.open_unix_connection(str(transport.socket_path), limit=_MAX_PENDING_BYTES)
+                    reader, writer = await asyncio.open_unix_connection(
+                        str(transport.socket_path), limit=_MAX_PENDING_BYTES
+                    )
                     await asyncio.wait_for(entered.wait(), 5)
                     peer = next(iter(transport._clients))
                     await transport.send(update("0", "live"))
-                    writer.write(_encode_frame({"omochi": "resources/1", "kind": "request", "id": "stat", "op": "stat", "resource": uri.rsplit("/", 1)[1]}))
+                    writer.write(
+                        _encode_frame(
+                            {
+                                "omochi": "resources/1",
+                                "kind": "request",
+                                "id": "stat",
+                                "op": "stat",
+                                "resource": uri.rsplit("/", 1)[1],
+                            }
+                        )
+                    )
                     await writer.drain()
                     await wait_until(lambda: len(peer._frames) == 2)
                     release.set()
-                    self.assertEqual(json.loads(await asyncio.wait_for(reader.readline(), 5))["kind"], "hello")
+                    self.assertEqual(
+                        json.loads(await asyncio.wait_for(reader.readline(), 5))[
+                            "kind"
+                        ],
+                        "hello",
+                    )
                     for index in range(20):
-                        self.assertEqual(json.loads(await asyncio.wait_for(reader.readline(), 5)), create(str(index)))
-                        self.assertEqual(json.loads(await asyncio.wait_for(reader.readline(), 5)), update(str(index), payload))
+                        self.assertEqual(
+                            json.loads(await asyncio.wait_for(reader.readline(), 5)),
+                            create(str(index)),
+                        )
+                        self.assertEqual(
+                            json.loads(await asyncio.wait_for(reader.readline(), 5)),
+                            update(str(index), payload),
+                        )
                         self.assertLessEqual(peer.pending_bytes, _MAX_PENDING_BYTES)
-                    self.assertEqual(json.loads(await asyncio.wait_for(reader.readline(), 5)), update("0", "live"))
+                    self.assertEqual(
+                        json.loads(await asyncio.wait_for(reader.readline(), 5)),
+                        update("0", "live"),
+                    )
                     response = json.loads(await asyncio.wait_for(reader.readline(), 5))
-                    self.assertEqual((response["id"], response["status"]), ("stat", 200))
+                    self.assertEqual(
+                        (response["id"], response["status"]), ("stat", 200)
+                    )
                     self.assertFalse(peer.closed)
             finally:
                 release.set()

@@ -14,11 +14,16 @@ export class ReceiveQueue<T> {
   private readonly entries: Array<{ value: T; bytes: number }> = [];
   private bytes = 0;
 
-  get length(): number { return this.entries.length; }
+  get length(): number {
+    return this.entries.length;
+  }
 
   push(value: T): void {
     const bytes = Buffer.byteLength(JSON.stringify(value));
-    if (this.entries.length >= MAX_PENDING_MESSAGES || this.bytes + bytes > MAX_PENDING_BYTES) {
+    if (
+      this.entries.length >= MAX_PENDING_MESSAGES ||
+      this.bytes + bytes > MAX_PENDING_BYTES
+    ) {
       throw new ReceiveQueueOverflowError();
     }
     this.entries.push({ value, bytes });

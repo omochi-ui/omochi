@@ -1,61 +1,88 @@
-import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
-import { access, mkdtemp, readFile, rm, mkdir } from "node:fs/promises";
-import { createConnection, Socket, type Server } from "node:net";
-import { tmpdir } from "node:os";
-import path from "node:path";
-import { createInterface } from "node:readline";
-import { fileURLToPath } from "node:url";
-import { test } from "@omochi-ui/core/testing";
+import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
+import { access, mkdtemp, readFile, rm, mkdir } from 'node:fs/promises';
+import { createConnection, Socket, type Server } from 'node:net';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import { createInterface } from 'node:readline';
+import { fileURLToPath } from 'node:url';
+import { test } from '@omochi-ui/core/testing';
 
-import { schema, App } from "../src/index.js";
-import { UnixSocketServerTransport } from "../src/node/index.js";
-import type { JsonObject } from "../src/index.js";
+import { schema, App } from '../src/index.js';
+import { UnixSocketServerTransport } from '../src/node/index.js';
+import type { JsonObject } from '../src/index.js';
 
-for (const runtime of ["node", "bun"]) {
-  test(`bounds Unix frame bytes before parsing in ${runtime}`, { timeout: 20_000 }, () => {
-    const result = spawnSync(runtime, [
-      "--unhandled-rejections=strict",
-      fileURLToPath(new URL("./fixtures/unix-socket-frame-limits.mjs", import.meta.url)),
-    ], { encoding: "utf8", timeout: 15_000 });
-    assert.ifError(result.error);
-    assert.equal(result.status, 0, result.stderr);
-    assert.equal(result.stdout.trim(), "frame limits isolated");
-  });
+for (const runtime of ['node', 'bun']) {
+  test(
+    `bounds Unix frame bytes before parsing in ${runtime}`,
+    { timeout: 20_000 },
+    () => {
+      const result = spawnSync(
+        runtime,
+        [
+          '--unhandled-rejections=strict',
+          fileURLToPath(
+            new URL('./fixtures/unix-socket-frame-limits.mjs', import.meta.url),
+          ),
+        ],
+        { encoding: 'utf8', timeout: 15_000 },
+      );
+      assert.ifError(result.error);
+      assert.equal(result.status, 0, result.stderr);
+      assert.equal(result.stdout.trim(), 'frame limits isolated');
+    },
+  );
   test(`isolates malformed Unix client frames in ${runtime}`, () => {
-    const result = spawnSync(runtime, [
-      "--unhandled-rejections=strict",
-      fileURLToPath(new URL("./fixtures/unix-socket-client-frames.mjs", import.meta.url)),
-    ], { encoding: "utf8", timeout: 10_000 });
+    const result = spawnSync(
+      runtime,
+      [
+        '--unhandled-rejections=strict',
+        fileURLToPath(
+          new URL('./fixtures/unix-socket-client-frames.mjs', import.meta.url),
+        ),
+      ],
+      { encoding: 'utf8', timeout: 10_000 },
+    );
     assert.ifError(result.error);
     assert.equal(result.status, 0, result.stderr);
-    assert.equal(result.stdout.trim(), "client frames isolated");
+    assert.equal(result.stdout.trim(), 'client frames isolated');
   });
   test(`isolates a disconnect during Unix snapshot replay in ${runtime}`, () => {
-    const result = spawnSync(runtime, [
-      "--unhandled-rejections=strict",
-      fileURLToPath(new URL("./fixtures/unix-socket-disconnect.mjs", import.meta.url)),
-    ], { encoding: "utf8", timeout: 10_000 });
+    const result = spawnSync(
+      runtime,
+      [
+        '--unhandled-rejections=strict',
+        fileURLToPath(
+          new URL('./fixtures/unix-socket-disconnect.mjs', import.meta.url),
+        ),
+      ],
+      { encoding: 'utf8', timeout: 10_000 },
+    );
     assert.ifError(result.error);
     assert.equal(result.status, 0, result.stderr);
-    assert.equal(result.stdout.trim(), "disconnect isolated");
+    assert.equal(result.stdout.trim(), 'disconnect isolated');
   });
 }
 
-async function runtimeDir(t: import("@omochi-ui/core/testing").TestContext): Promise<string> {
-  const directory = await mkdtemp(path.join(tmpdir(), "omochi-unix-"));
+async function runtimeDir(
+  t: import('@omochi-ui/core/testing').TestContext,
+): Promise<string> {
+  const directory = await mkdtemp(path.join(tmpdir(), 'omochi-unix-'));
   t.after(() => rm(directory, { recursive: true, force: true }));
   return directory;
 }
 
-function connectClient(socketPath: string): { socket: Socket; next: () => Promise<JsonObject> } {
+function connectClient(socketPath: string): {
+  socket: Socket;
+  next: () => Promise<JsonObject>;
+} {
   const socket = createConnection(socketPath);
   const pending: JsonObject[] = [];
   const waiters: Array<(message: JsonObject) => void> = [];
-  createInterface({ input: socket, crlfDelay: Infinity }).on("line", (line) => {
+  createInterface({ input: socket, crlfDelay: Infinity }).on('line', (line) => {
     if (!line.trim()) return;
     const message = JSON.parse(line) as JsonObject;
-    if (message.omochi === "resources/1") return;
+    if (message.omochi === 'resources/1') return;
     const waiter = waiters.shift();
     if (waiter) waiter(message);
     else pending.push(message);
@@ -64,58 +91,82 @@ function connectClient(socketPath: string): { socket: Socket; next: () => Promis
     socket,
     next: () => {
       const message = pending.shift();
-      return message ? Promise.resolve(message) : new Promise((resolve) => waiters.push(resolve));
+      return message
+        ? Promise.resolve(message)
+        : new Promise((resolve) => waiters.push(resolve));
     },
   };
 }
 
 function counterApp(): { app: App<{ count: number }> } {
   const app = new App({ count: 0 });
-  const increment = app.action("increment", schema.literal(null), async (_input, context) => {
-    await context.update((current) => { current.count += 1; });
-  });
-  app.surface("main", (ui, current) => {
-    ui.text(`Count: ${current.count}`, { key: "count" });
-    ui.button("Increment", increment.call(null), { key: "increment" });
+  const increment = app.action(
+    'increment',
+    schema.literal(null),
+    async (_input, context) => {
+      await context.update((current) => {
+        current.count += 1;
+      });
+    },
+  );
+  app.surface('main', (ui, current) => {
+    ui.text(`Count: ${current.count}`, { key: 'count' });
+    ui.button('Increment', increment.call(null), { key: 'increment' });
   });
   return { app };
 }
 
-test("publishes a discoverable socket and manifest, then removes both on close", async (t) => {
+test('publishes a discoverable socket and manifest, then removes both on close', async (t) => {
   const root = await runtimeDir(t);
-  const transport = new UnixSocketServerTransport({ serviceId: "demo", name: "Demo", icon: "🎤", runtimeDir: root });
+  const transport = new UnixSocketServerTransport({
+    serviceId: 'demo',
+    name: 'Demo',
+    icon: '🎤',
+    runtimeDir: root,
+  });
   const { app } = counterApp();
   const running = app.start(transport);
   await transport.ready;
 
-  const directory = path.join(root, "demo");
+  const directory = path.join(root, 'demo');
   assert.equal(transport.directory, directory);
-  assert.equal(transport.socketPath, path.join(directory, "a2ui.sock"));
-  assert.deepEqual(JSON.parse(await readFile(path.join(directory, "manifest.json"), "utf8")), {
-    name: "Demo",
-    socket: "a2ui.sock",
-    icon: "🎤",
-  });
+  assert.equal(transport.socketPath, path.join(directory, 'a2ui.sock'));
+  assert.deepEqual(
+    JSON.parse(await readFile(path.join(directory, 'manifest.json'), 'utf8')),
+    {
+      name: 'Demo',
+      socket: 'a2ui.sock',
+      icon: '🎤',
+    },
+  );
 
   const client = connectClient(transport.socketPath!);
   t.after(() => client.socket.destroy());
   const first = await client.next();
   assert.deepEqual(first, {
-    version: "v0.9",
-    createSurface: { surfaceId: "main", catalogId: "https://a2ui.org/specification/v0_9/catalogs/basic/catalog.json", sendDataModel: true },
+    version: 'v0.9',
+    createSurface: {
+      surfaceId: 'main',
+      catalogId:
+        'https://a2ui.org/specification/v0_9/catalogs/basic/catalog.json',
+      sendDataModel: true,
+    },
   });
   await client.next();
   await client.next();
 
   await transport.close();
   await running;
-  await assert.rejects(access(path.join(directory, "manifest.json")));
+  await assert.rejects(access(path.join(directory, 'manifest.json')));
   await assert.rejects(access(directory));
 });
 
-test("fans one application out to every client and snapshots for late joiners", async (t) => {
+test('fans one application out to every client and snapshots for late joiners', async (t) => {
   const root = await runtimeDir(t);
-  const transport = new UnixSocketServerTransport({ serviceId: "demo", runtimeDir: root });
+  const transport = new UnixSocketServerTransport({
+    serviceId: 'demo',
+    runtimeDir: root,
+  });
   const { app } = counterApp();
   const running = app.start(transport);
   await transport.ready;
@@ -130,43 +181,65 @@ test("fans one application out to every client and snapshots for late joiners", 
   await first.next();
   await first.next();
 
-  first.socket.write(`${JSON.stringify({
-    version: "v0.9",
-    action: { name: "increment", surfaceId: "main", sourceComponentId: "increment", timestamp: "2026-08-12T00:00:00.000Z", context: {} },
-  })}\n`);
+  first.socket.write(
+    `${JSON.stringify({
+      version: 'v0.9',
+      action: {
+        name: 'increment',
+        surfaceId: 'main',
+        sourceComponentId: 'increment',
+        timestamp: '2026-08-12T00:00:00.000Z',
+        context: {},
+      },
+    })}\n`,
+  );
   await first.next();
 
   const late = connectClient(transport.socketPath!);
   t.after(() => late.socket.destroy());
   const replay = [await late.next(), await late.next(), await late.next()];
-  const components = replay.find((message) => "updateComponents" in message) as
+  const components = replay.find((message) => 'updateComponents' in message) as
     | { updateComponents: { components: Array<{ id: string; text?: string }> } }
     | undefined;
   assert.ok(components);
-  assert.equal(components.updateComponents.components.find((component) => component.id === "count")?.text, "Count: 1");
+  assert.equal(
+    components.updateComponents.components.find(
+      (component) => component.id === 'count',
+    )?.text,
+    'Count: 1',
+  );
 });
 
-test("refuses a service id that would escape the runtime directory", async (t) => {
+test('refuses a service id that would escape the runtime directory', async (t) => {
   const root = await runtimeDir(t);
-  for (const serviceId of [".", "..", "a/b", "", "x".repeat(65)]) {
-    assert.throws(() => new UnixSocketServerTransport({ serviceId, runtimeDir: root }), TypeError);
+  for (const serviceId of ['.', '..', 'a/b', '', 'x'.repeat(65)]) {
+    assert.throws(
+      () => new UnixSocketServerTransport({ serviceId, runtimeDir: root }),
+      TypeError,
+    );
   }
 });
 
-test("recovers a socket left behind by a crash and refuses a live duplicate", async (t) => {
+test('recovers a socket left behind by a crash and refuses a live duplicate', async (t) => {
   const root = await runtimeDir(t);
-  const first = new UnixSocketServerTransport({ serviceId: "demo", runtimeDir: root });
+  const first = new UnixSocketServerTransport({
+    serviceId: 'demo',
+    runtimeDir: root,
+  });
   const { app } = counterApp();
   const running = app.start(first);
   await first.ready;
 
-  const duplicate = new UnixSocketServerTransport({ serviceId: "demo", runtimeDir: root });
+  const duplicate = new UnixSocketServerTransport({
+    serviceId: 'demo',
+    runtimeDir: root,
+  });
   await assert.rejects(duplicate.ready, /already owns/);
   await duplicate.close();
   assert.equal(cleanupState(duplicate).server.listening, false);
   assert.equal(cleanupState(duplicate).clients.size, 0);
   await access(first.socketPath!);
-  await access(path.join(first.directory!, "manifest.json"));
+  await access(path.join(first.directory!, 'manifest.json'));
   const surviving = connectClient(first.socketPath!);
   await surviving.next();
   surviving.socket.destroy();
@@ -175,7 +248,10 @@ test("recovers a socket left behind by a crash and refuses a live duplicate", as
   await running;
 
   // A stale socket file must not block the next start.
-  const restarted = new UnixSocketServerTransport({ serviceId: "demo", runtimeDir: root });
+  const restarted = new UnixSocketServerTransport({
+    serviceId: 'demo',
+    runtimeDir: root,
+  });
   const second = counterApp();
   const secondRunning = second.app.start(restarted);
   await restarted.ready;
@@ -186,62 +262,95 @@ test("recovers a socket left behind by a crash and refuses a live duplicate", as
   assert.ok(restarted.socketPath);
 });
 
-
 function cleanupState(transport: UnixSocketServerTransport) {
-  return transport as unknown as { server: Server; clients: Set<Socket>; exitCleanup: () => void; accept(socket: Socket): void };
+  return transport as unknown as {
+    server: Server;
+    clients: Set<Socket>;
+    exitCleanup: () => void;
+    accept(socket: Socket): void;
+  };
 }
 
-test("close during startup is idempotent and leaves no owned resources", async (t) => {
+test('close during startup is idempotent and leaves no owned resources', async (t) => {
   const root = await runtimeDir(t);
   for (let i = 0; i < 5; i++) {
-    const transport = new UnixSocketServerTransport({ serviceId: "early", runtimeDir: root });
+    const transport = new UnixSocketServerTransport({
+      serviceId: 'early',
+      runtimeDir: root,
+    });
     const state = cleanupState(transport);
     const first = transport.close();
     assert.equal(transport.close(), first);
-    assert.ok(process.listeners("exit").includes(state.exitCleanup), "exit cleanup survives pending startup");
+    assert.ok(
+      process.listeners('exit').includes(state.exitCleanup),
+      'exit cleanup survives pending startup',
+    );
     const late = new Socket();
     state.accept(late);
-    assert.ok(late.destroyed, "shutdown rejects new connections");
+    assert.ok(late.destroyed, 'shutdown rejects new connections');
     await Promise.all([first, transport.close()]);
     await transport.ready;
     assert.equal(state.server.listening, false);
     assert.equal(state.clients.size, 0);
-    assert.ok(!process.listeners("exit").includes(state.exitCleanup));
-    await assert.rejects(access(path.join(root, "early")));
+    assert.ok(!process.listeners('exit').includes(state.exitCleanup));
+    await assert.rejects(access(path.join(root, 'early')));
     assert.equal((await transport[Symbol.asyncIterator]().next()).done, true);
     await transport.close();
   }
 });
 
-test("close after a manifest-write failure cleans up the successfully bound socket", async (t) => {
+test('close after a manifest-write failure cleans up the successfully bound socket', async (t) => {
   const root = await runtimeDir(t);
-  await mkdir(path.join(root, "failed/manifest.json"), { recursive: true });
-  const transport = new UnixSocketServerTransport({ serviceId: "failed", runtimeDir: root });
+  await mkdir(path.join(root, 'failed/manifest.json'), { recursive: true });
+  const transport = new UnixSocketServerTransport({
+    serviceId: 'failed',
+    runtimeDir: root,
+  });
   await assert.rejects(transport.ready);
-  assert.equal(transport.directory, path.join(root, "failed"));
+  assert.equal(transport.directory, path.join(root, 'failed'));
   assert.ok(cleanupState(transport).server.listening);
   await transport.close();
   assert.equal(cleanupState(transport).server.listening, false);
   assert.equal(cleanupState(transport).clients.size, 0);
-  assert.ok(!process.listeners("exit").includes(cleanupState(transport).exitCleanup));
-  await assert.rejects(access(path.join(root, "failed")));
+  assert.ok(
+    !process.listeners('exit').includes(cleanupState(transport).exitCleanup),
+  );
+  await assert.rejects(access(path.join(root, 'failed')));
   await transport.close();
 });
 
-test("ownership excludes contenders before bind and until cleanup finishes", async (t) => {
+test('ownership excludes contenders before bind and until cleanup finishes', async (t) => {
   const root = await runtimeDir(t);
-  const first = new UnixSocketServerTransport({ serviceId: "demo", runtimeDir: root });
-  const state = first as unknown as { listen(directory: string): Promise<void>; server: Server; exitCleanup(): void };
+  const first = new UnixSocketServerTransport({
+    serviceId: 'demo',
+    runtimeDir: root,
+  });
+  const state = first as unknown as {
+    listen(directory: string): Promise<void>;
+    server: Server;
+    exitCleanup(): void;
+  };
   const listen = state.listen.bind(first);
   let arrived!: () => void;
-  const paused = new Promise<void>((resolve) => { arrived = resolve; });
+  const paused = new Promise<void>((resolve) => {
+    arrived = resolve;
+  });
   let resume!: () => void;
-  const barrier = new Promise<void>((resolve) => { resume = resolve; });
-  state.listen = async (directory) => { arrived(); await barrier; await listen(directory); };
+  const barrier = new Promise<void>((resolve) => {
+    resume = resolve;
+  });
+  state.listen = async (directory) => {
+    arrived();
+    await barrier;
+    await listen(directory);
+  };
   t.after(() => first.close());
   await paused;
   const rejectContender = async () => {
-    const contender = new UnixSocketServerTransport({ serviceId: "demo", runtimeDir: root });
+    const contender = new UnixSocketServerTransport({
+      serviceId: 'demo',
+      runtimeDir: root,
+    });
     await assert.rejects(contender.ready, /already owns/);
     await contender.close();
   };
@@ -252,37 +361,57 @@ test("ownership excludes contenders before bind and until cleanup finishes", asy
   const close = state.server.close.bind(state.server);
   let finishClose!: () => void;
   let closing!: () => void;
-  const cleanupPaused = new Promise<void>((resolve) => { closing = resolve; });
+  const cleanupPaused = new Promise<void>((resolve) => {
+    closing = resolve;
+  });
   state.server.close = ((callback: () => void) => {
-    finishClose = () => { close(callback); };
+    finishClose = () => {
+      close(callback);
+    };
     closing();
     return state.server;
-  }) as Server["close"];
+  }) as Server['close'];
   const stopped = first.close();
   await cleanupPaused; // Directory has gone, but listener shutdown still owns the lock.
   await rejectContender();
   finishClose();
   await stopped;
-  const successor = new UnixSocketServerTransport({ serviceId: "demo", runtimeDir: root });
+  const successor = new UnixSocketServerTransport({
+    serviceId: 'demo',
+    runtimeDir: root,
+  });
   t.after(() => successor.close());
   await successor.ready;
   await first.close();
   state.exitCleanup(); // An obsolete cleanup callback cannot retract the successor.
   await access(successor.socketPath!);
   const client = connectClient(successor.socketPath!);
-  await new Promise<void>((resolve, reject) => { client.socket.once("connect", resolve); client.socket.once("error", reject); });
+  await new Promise<void>((resolve, reject) => {
+    client.socket.once('connect', resolve);
+    client.socket.once('error', reject);
+  });
   client.socket.destroy();
 });
 
-for (const runtime of ["node", "bun"]) {
-  test(`bounds unix slow-reader bytes while healthy replay and resources progress in ${runtime}`, { timeout: 35_000 }, () => {
-    const result = spawnSync(runtime, [
-      "--unhandled-rejections=strict",
-      fileURLToPath(new URL("./fixtures/server-slow-reader.mjs", import.meta.url)),
-      "unix",
-    ], { encoding: "utf8", timeout: 30_000 });
-    assert.ifError(result.error);
-    assert.equal(result.status, 0, result.stderr);
-    assert.equal(result.stdout.trim(), "slow reader isolated");
-  });
+for (const runtime of ['node', 'bun']) {
+  test(
+    `bounds unix slow-reader bytes while healthy replay and resources progress in ${runtime}`,
+    { timeout: 35_000 },
+    () => {
+      const result = spawnSync(
+        runtime,
+        [
+          '--unhandled-rejections=strict',
+          fileURLToPath(
+            new URL('./fixtures/server-slow-reader.mjs', import.meta.url),
+          ),
+          'unix',
+        ],
+        { encoding: 'utf8', timeout: 30_000 },
+      );
+      assert.ifError(result.error);
+      assert.equal(result.status, 0, result.stderr);
+      assert.equal(result.stdout.trim(), 'slow reader isolated');
+    },
+  );
 }

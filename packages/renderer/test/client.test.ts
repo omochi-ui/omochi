@@ -1,13 +1,13 @@
-import { jest } from 'bun:test'
-import assert from 'node:assert/strict'
-import { test } from '@omochi-ui/core/testing'
+import { jest } from 'bun:test';
+import assert from 'node:assert/strict';
+import { test } from '@omochi-ui/core/testing';
 
 import {
   createActionMessage,
   isA2uiMessage,
   A2uiWebSocketClient,
   type Processor,
-} from '../src/client.js'
+} from '../src/client.js';
 test('creates a raw A2UI action message with the current client model', () => {
   const action = {
     name: 'run',
@@ -15,20 +15,30 @@ test('creates a raw A2UI action message with the current client model', () => {
     sourceComponentId: 'button',
     context: {},
     timestamp: '2026-08-12T00:00:00.000Z',
-  }
-  assert.deepEqual(createActionMessage(action, { version: 'v0.9', surfaces: { main: { value: 42 } } }), {
-    version: 'v0.9',
-    action,
-    metadata: {
-      a2uiClientDataModel: { version: 'v0.9', surfaces: { main: { value: 42 } } },
+  };
+  assert.deepEqual(
+    createActionMessage(action, {
+      version: 'v0.9',
+      surfaces: { main: { value: 42 } },
+    }),
+    {
+      version: 'v0.9',
+      action,
+      metadata: {
+        a2uiClientDataModel: {
+          version: 'v0.9',
+          surfaces: { main: { value: 42 } },
+        },
+      },
     },
-  })
-})
+  );
+});
 
-
-test('sessions accept surface updates, recover after disconnect, and stop retrying on disposal', t => {
+test('sessions accept surface updates, recover after disconnect, and stop retrying on disposal', (t) => {
   jest.useFakeTimers();
-  t.after(() => { jest.useRealTimers(); });
+  t.after(() => {
+    jest.useRealTimers();
+  });
   const sockets: FakeSocket[] = [];
   class FakeSocket {
     static OPEN = 1;
@@ -38,28 +48,58 @@ test('sessions accept surface updates, recover after disconnect, and stop retryi
     onerror: (() => void) | null = null;
     onclose: ((event: { reason: string }) => void) | null = null;
     closed = false;
-    constructor() { sockets.push(this); }
-    close() { this.closed = true; }
+    constructor() {
+      sockets.push(this);
+    }
+    close() {
+      this.closed = true;
+    }
     send() {}
-    push(value: unknown) { this.onmessage?.({ data: JSON.stringify(value) }); }
+    push(value: unknown) {
+      this.onmessage?.({ data: JSON.stringify(value) });
+    }
   }
   const original = globalThis.WebSocket;
   globalThis.WebSocket = FakeSocket as unknown as typeof WebSocket;
-  t.after(() => { globalThis.WebSocket = original; });
-  const state: { processor: Processor | null; error: string | null; status: string } = { processor: null, error: null, status: '' };
-  const client = new A2uiWebSocketClient('ws://localhost/ws', {
-    onProcessor: processor => { state.processor = processor; },
-    onError: error => { state.error = error; }, onStatus: status => { state.status = status; },
+  t.after(() => {
+    globalThis.WebSocket = original;
   });
-  const create = (id: string) => ({ version: 'v0.9', createSurface: { surfaceId: id, catalogId: 'https://a2ui.org/specification/v0_9/catalogs/basic/catalog.json' } });
-  client.connect(); client.connect();
+  const state: {
+    processor: Processor | null;
+    error: string | null;
+    status: string;
+  } = { processor: null, error: null, status: '' };
+  const client = new A2uiWebSocketClient('ws://localhost/ws', {
+    onProcessor: (processor) => {
+      state.processor = processor;
+    },
+    onError: (error) => {
+      state.error = error;
+    },
+    onStatus: (status) => {
+      state.status = status;
+    },
+  });
+  const create = (id: string) => ({
+    version: 'v0.9',
+    createSurface: {
+      surfaceId: id,
+      catalogId:
+        'https://a2ui.org/specification/v0_9/catalogs/basic/catalog.json',
+    },
+  });
+  client.connect();
+  client.connect();
   assert.equal(sockets.length, 1);
   sockets[0]!.onopen!();
   sockets[0]!.push(create('one'));
   sockets[0]!.push({ invalid: true });
   assert.match(state.error!, /expected one A2UI/);
   sockets[0]!.push(create('two'));
-  assert.deepEqual([...state.processor!.model.surfacesMap.keys()], ['one', 'two']);
+  assert.deepEqual(
+    [...state.processor!.model.surfacesMap.keys()],
+    ['one', 'two'],
+  );
   sockets[0]!.push({ version: 'v0.9', deleteSurface: { surfaceId: 'one' } });
   assert.deepEqual([...state.processor!.model.surfacesMap.keys()], ['two']);
   assert.equal(isA2uiMessage(create('valid')), true);
@@ -77,9 +117,10 @@ test('sessions accept surface updates, recover after disconnect, and stop retryi
   assert.equal(sockets.length, 2);
 });
 
-test('an unresolved action is reported and never sent to the socket', async t => {
+test('an unresolved action is reported and never sent to the socket', async (t) => {
   const { resourceCatalog } = await import('../src/resources.js');
-  const { ComponentContext, GenericBinder, ButtonApi } = await import('@a2ui/web_core/v0_9');
+  const { ComponentContext, GenericBinder, ButtonApi } =
+    await import('@a2ui/web_core/v0_9');
   const errors: (string | null)[] = [];
   const sent: string[] = [];
   let processor: Processor | null = null;
@@ -91,33 +132,81 @@ test('an unresolved action is reported and never sent to the socket', async t =>
     onmessage: ((event: { data: string }) => void) | null = null;
     onerror: (() => void) | null = null;
     onclose: ((event: { reason: string }) => void) | null = null;
-    constructor() { sockets.push(this); }
+    constructor() {
+      sockets.push(this);
+    }
     close() {}
-    send(value: string) { sent.push(value); }
+    send(value: string) {
+      sent.push(value);
+    }
   }
   const old = globalThis.WebSocket;
   globalThis.WebSocket = FakeSocket as unknown as typeof WebSocket;
-  t.after(() => { globalThis.WebSocket = old; });
+  t.after(() => {
+    globalThis.WebSocket = old;
+  });
   const client = new A2uiWebSocketClient('ws://localhost', {
-    onProcessor: value => { processor = value; }, onStatus() {}, onError: value => { errors.push(value); },
+    onProcessor: (value) => {
+      processor = value;
+    },
+    onStatus() {},
+    onError: (value) => {
+      errors.push(value);
+    },
   });
   t.after(() => client.close());
   client.connect();
   sockets[0]!.onopen!();
   for (const message of [
-    { version: 'v0.9', createSurface: { surfaceId: 'main', catalogId: resourceCatalog.id } },
-    { version: 'v0.9', updateComponents: { surfaceId: 'main', components: [
-      { id: 'button', component: 'Button', child: 'label', action: { event: { name: 'run', context: { input: { call: 'omochiMergeObjects', args: { objects: [{ path: '/value' }] }, returnType: 'object' } } } } },
-      { id: 'label', component: 'Text', text: 'Run' },
-    ] } },
-  ]) sockets[0]!.onmessage!({ data: JSON.stringify(message) });
+    {
+      version: 'v0.9',
+      createSurface: { surfaceId: 'main', catalogId: resourceCatalog.id },
+    },
+    {
+      version: 'v0.9',
+      updateComponents: {
+        surfaceId: 'main',
+        components: [
+          {
+            id: 'button',
+            component: 'Button',
+            child: 'label',
+            action: {
+              event: {
+                name: 'run',
+                context: {
+                  input: {
+                    call: 'omochiMergeObjects',
+                    args: { objects: [{ path: '/value' }] },
+                    returnType: 'object',
+                  },
+                },
+              },
+            },
+          },
+          { id: 'label', component: 'Text', text: 'Run' },
+        ],
+      },
+    },
+  ])
+    sockets[0]!.onmessage!({ data: JSON.stringify(message) });
   const surface = processor!.model.surfacesMap.get('main')!;
-  const binder = new GenericBinder<{ action: () => void }>(new ComponentContext(surface, 'button'), ButtonApi.schema);
-  t.after(() => { binder.dispose(); surface.dispose(); });
+  const binder = new GenericBinder<{ action: () => void }>(
+    new ComponentContext(surface, 'button'),
+    ButtonApi.schema,
+  );
+  t.after(() => {
+    binder.dispose();
+    surface.dispose();
+  });
   binder.snapshot.action();
   await Promise.resolve();
   assert.equal(sent.length, 0);
-  assert.ok(errors.some(error => error?.includes('action input could not be resolved')));
+  assert.ok(
+    errors.some((error) =>
+      error?.includes('action input could not be resolved'),
+    ),
+  );
   surface.dataModel.set('/value', { count: 3 });
   binder.snapshot.action();
   await Promise.resolve();

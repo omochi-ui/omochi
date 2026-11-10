@@ -1,4 +1,10 @@
-import type { RawConnection, RawEndpoint, RawStream, RawDownstreamState, WasmModule } from '../src/ffi.js';
+import type {
+  RawConnection,
+  RawEndpoint,
+  RawStream,
+  RawDownstreamState,
+  WasmModule,
+} from '../src/ffi.js';
 
 export class FakeDownstreamState implements RawDownstreamState {
   readonly accepted: string[] = [];
@@ -7,17 +13,32 @@ export class FakeDownstreamState implements RawDownstreamState {
   frees = 0;
   accept(frame: string) {
     this.accepted.push(frame);
-    return JSON.stringify({ sequence: JSON.parse(frame).sequence, surface: null, lease: null, invalidatedLeases: [], snapshotEnd: true });
+    return JSON.stringify({
+      sequence: JSON.parse(frame).sequence,
+      surface: null,
+      lease: null,
+      invalidatedLeases: [],
+      snapshotEnd: true,
+    });
   }
-  acknowledge(sequence: string) { this.acknowledgements.push(sequence); }
-  close() { this.closes++; }
-  free() { this.frees++; }
+  acknowledge(sequence: string) {
+    this.acknowledgements.push(sequence);
+  }
+  close() {
+    this.closes++;
+  }
+  free() {
+    this.frees++;
+  }
 }
 
 export function deferred<T>() {
   let resolve!: (value: T) => void;
   let reject!: (error: unknown) => void;
-  const promise = new Promise<T>((yes, no) => { resolve = yes; reject = no; });
+  const promise = new Promise<T>((yes, no) => {
+    resolve = yes;
+    reject = no;
+  });
   return { promise, resolve, reject };
 }
 export class FakeStream implements RawStream {
@@ -36,17 +57,25 @@ export class FakeStream implements RawStream {
     if (!this.blockWrites) return Promise.resolve();
     this.active++;
     this.write = deferred<void>();
-    return this.write.promise.finally(() => { this.active--; });
+    return this.write.promise.finally(() => {
+      this.active--;
+    });
   }
   receive(): Promise<string | null> {
-    this.reads++; this.active++;
+    this.reads++;
+    this.active++;
     this.read = deferred<string | null>();
-    return this.read.promise.finally(() => { this.active--; });
+    return this.read.promise.finally(() => {
+      this.active--;
+    });
   }
-  async finish() { this.finishes++; }
+  async finish() {
+    this.finishes++;
+  }
   cancel(): Promise<void> {
     this.cancels++;
-    this.read?.reject('Cancelled'); this.write?.reject('Cancelled');
+    this.read?.reject('Cancelled');
+    this.write?.reject('Cancelled');
     return this.cancelGate?.promise ?? Promise.resolve();
   }
   free() {
@@ -62,17 +91,32 @@ export class FakeConnection implements RawConnection {
   readonly cancelled: number[] = [];
   closes = 0;
   frees = 0;
-  remote_id() { return 'a'.repeat(64); }
+  remote_id() {
+    return 'a'.repeat(64);
+  }
   open(header: string) {
     this.headers.push(header);
     if (this.openGate) return this.openGate.promise;
-    const stream = new FakeStream(); this.streams.push(stream);
+    const stream = new FakeStream();
+    this.streams.push(stream);
     return Promise.resolve(stream);
   }
-  cancel_open(id: number) { this.cancelled.push(id); this.openGate?.reject('Cancelled'); }
-  closed() { return this.end.promise; }
-  close() { this.closes++; this.end.resolve(JSON.stringify({ code: '0', reason: 'ignored raw reason' })); }
-  free() { this.frees++; }
+  cancel_open(id: number) {
+    this.cancelled.push(id);
+    this.openGate?.reject('Cancelled');
+  }
+  closed() {
+    return this.end.promise;
+  }
+  close() {
+    this.closes++;
+    this.end.resolve(
+      JSON.stringify({ code: '0', reason: 'ignored raw reason' }),
+    );
+  }
+  free() {
+    this.frees++;
+  }
 }
 export class FakeEndpoint implements RawEndpoint {
   readonly connections: FakeConnection[] = [];
@@ -82,25 +126,49 @@ export class FakeEndpoint implements RawEndpoint {
   frees = 0;
   connect() {
     if (this.connectGate) return this.connectGate.promise;
-    const connection = new FakeConnection(); this.connections.push(connection);
+    const connection = new FakeConnection();
+    this.connections.push(connection);
     return Promise.resolve(connection);
   }
-  cancel_connect(id: number) { this.cancelled.push(id); this.connectGate?.reject('Cancelled'); }
-  async close() { this.closes++; }
-  frame_bytes() { return 0; }
-  free() { this.frees++; }
+  cancel_connect(id: number) {
+    this.cancelled.push(id);
+    this.connectGate?.reject('Cancelled');
+  }
+  async close() {
+    this.closes++;
+  }
+  frame_bytes() {
+    return 0;
+  }
+  free() {
+    this.frees++;
+  }
 }
 export function fixture() {
   const endpoint = new FakeEndpoint();
   let endpointCalls = 0;
   const module: WasmModule = {
     default: async () => {},
-    generate_identity: () => JSON.stringify({ secretHex: '0'.repeat(64), endpointId: 'a'.repeat(64) }),
-    identity_from_secret: secretHex => JSON.stringify({ secretHex, endpointId: 'a'.repeat(64) }),
-    RawEndpoint: { create: async () => { endpointCalls++; return endpoint; } },
+    generate_identity: () =>
+      JSON.stringify({ secretHex: '0'.repeat(64), endpointId: 'a'.repeat(64) }),
+    identity_from_secret: (secretHex) =>
+      JSON.stringify({ secretHex, endpointId: 'a'.repeat(64) }),
+    RawEndpoint: {
+      create: async () => {
+        endpointCalls++;
+        return endpoint;
+      },
+    },
     DownstreamState: FakeDownstreamState,
-    downstream_retryable: code => code === 'NetworkUnavailable' || code === 'Timeout',
+    downstream_retryable: (code) =>
+      code === 'NetworkUnavailable' || code === 'Timeout',
   };
-  return { module, endpoint, get endpointCalls() { return endpointCalls; } };
+  return {
+    module,
+    endpoint,
+    get endpointCalls() {
+      return endpointCalls;
+    },
+  };
 }
 export const signal = () => new AbortController().signal;

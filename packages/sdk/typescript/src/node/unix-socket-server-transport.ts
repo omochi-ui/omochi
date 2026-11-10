@@ -1,15 +1,20 @@
-import { isResourceFrame, resourceHello, serveResources, type ResourceFrame } from "@omochi-ui/core";
-import { ResourceRegistry } from "../resources.js";
-import { chmod, rmdir } from "node:fs/promises";
-import { createServer, type Server, type Socket } from "node:net";
-import path from "node:path";
-import process from "node:process";
+import {
+  isResourceFrame,
+  resourceHello,
+  serveResources,
+  type ResourceFrame,
+} from '@omochi-ui/core';
+import { ResourceRegistry } from '../resources.js';
+import { chmod, rmdir } from 'node:fs/promises';
+import { createServer, type Server, type Socket } from 'node:net';
+import path from 'node:path';
+import process from 'node:process';
 
-import { A2uiClientMessageSchema } from "@a2ui/web_core/v0_9";
+import { A2uiClientMessageSchema } from '@a2ui/web_core/v0_9';
 
-import { ReceiveQueue, ReceiveQueueOverflowError } from "../receive-queue.js";
-import type { Transport } from "../transport.js";
-import type { A2UIMessage, JsonObject } from "../types.js";
+import { ReceiveQueue, ReceiveQueueOverflowError } from '../receive-queue.js';
+import type { Transport } from '../transport.js';
+import type { A2UIMessage, JsonObject } from '../types.js';
 import {
   assertSocketPathFits,
   claimSocketPath,
@@ -21,10 +26,10 @@ import {
   removeServiceDirectorySync,
   validateServiceId,
   writeServiceManifest,
-} from "./service-directory.js";
-import { A2uiSnapshot } from "./snapshot.js";
-import { encodeReplay, OutboundWriter } from "./outbound-writer.js";
-import { JsonlFramer } from "./jsonl-framer.js";
+} from './service-directory.js';
+import { A2uiSnapshot } from './snapshot.js';
+import { encodeReplay, OutboundWriter } from './outbound-writer.js';
+import { JsonlFramer } from './jsonl-framer.js';
 
 export interface UnixSocketServerTransportOptions {
   /** Discovery id and directory name; must match `[A-Za-z0-9._-]{1,64}`. */
@@ -43,7 +48,7 @@ interface PendingReceive {
   reject(error: unknown): void;
 }
 
-const SOCKET_FILE_NAME = "a2ui.sock";
+const SOCKET_FILE_NAME = 'a2ui.sock';
 
 /**
  * Publishes one application on a unix domain socket and advertises it for discovery.
@@ -83,16 +88,18 @@ export class UnixSocketServerTransport implements Transport {
     this.manifestName = options.name ?? this.serviceId;
     this.icon = options.icon;
     this.root = options.runtimeDir ?? omochiRuntimeRoot();
-    this.fallbackRoot = options.runtimeDir === undefined && !process.env.XDG_RUNTIME_DIR;
+    this.fallbackRoot =
+      options.runtimeDir === undefined && !process.env.XDG_RUNTIME_DIR;
     this.capabilities = new Set(options.capabilities ?? []);
-    this.server.on("connection", (socket) => this.accept(socket));
+    this.server.on('connection', (socket) => this.accept(socket));
     this.exitCleanup = () => {
-      if (this.resolvedDirectory) removeServiceDirectorySync(this.resolvedDirectory);
+      if (this.resolvedDirectory)
+        removeServiceDirectorySync(this.resolvedDirectory);
       this.resolvedDirectory = null;
       this.releaseService?.();
       this.releaseService = null;
     };
-    process.once("exit", this.exitCleanup);
+    process.once('exit', this.exitCleanup);
     this.ready = this.publish().catch((error: unknown) => {
       this.receiveError = error;
       this.flushReceivers();
@@ -102,7 +109,9 @@ export class UnixSocketServerTransport implements Transport {
 
   /** The socket path, available once `ready` resolves. */
   get socketPath(): string | null {
-    return this.resolvedDirectory ? path.join(this.resolvedDirectory, SOCKET_FILE_NAME) : null;
+    return this.resolvedDirectory
+      ? path.join(this.resolvedDirectory, SOCKET_FILE_NAME)
+      : null;
   }
 
   get directory(): string | null {
@@ -126,7 +135,9 @@ export class UnixSocketServerTransport implements Transport {
     }
   }
 
-  stopReceiving(): Promise<void> { return this.close(); }
+  stopReceiving(): Promise<void> {
+    return this.close();
+  }
 
   close(): Promise<void> {
     if (this.closePromise) return this.closePromise;
@@ -147,13 +158,15 @@ export class UnixSocketServerTransport implements Transport {
         }
         this.clients.clear();
         if (this.server.listening) {
-          await new Promise<void>((resolve) => this.server.close(() => resolve()));
+          await new Promise<void>((resolve) =>
+            this.server.close(() => resolve()),
+          );
         }
       }
       this.resolvedDirectory = null;
       this.releaseService?.();
       this.releaseService = null;
-      process.off("exit", this.exitCleanup);
+      process.off('exit', this.exitCleanup);
     })();
     return this.closePromise;
   }
@@ -172,7 +185,7 @@ export class UnixSocketServerTransport implements Transport {
       if (!this.resolvedDirectory) {
         this.releaseService?.();
         this.releaseService = null;
-        process.off("exit", this.exitCleanup);
+        process.off('exit', this.exitCleanup);
       }
       throw error;
     }
@@ -184,9 +197,9 @@ export class UnixSocketServerTransport implements Transport {
     await claimSocketPath(socketPath);
     await new Promise<void>((resolve, reject) => {
       const onError = (error: Error) => reject(error);
-      this.server.once("error", onError);
+      this.server.once('error', onError);
       this.server.listen(socketPath, () => {
-        this.server.off("error", onError);
+        this.server.off('error', onError);
         this.resolvedDirectory = directory;
         resolve();
       });
@@ -204,21 +217,26 @@ export class UnixSocketServerTransport implements Transport {
   }
 
   private accept(socket: Socket): void {
-    if (this.closed) { socket.destroy(); return; }
+    if (this.closed) {
+      socket.destroy();
+      return;
+    }
     this.clients.add(socket);
     const lines = new JsonlFramer((line) => receiveLine(line));
     const disconnect = () => {
       this.clients.delete(socket);
       this.outbound.get(socket)?.close();
       lines.close();
-      socket.off("data", receiveChunk);
-      socket.off("end", endInput);
+      socket.off('data', receiveChunk);
+      socket.off('end', endInput);
       socket.destroy();
     };
-    socket.on("error", disconnect);
-    socket.on("close", disconnect);
+    socket.on('error', disconnect);
+    socket.on('close', disconnect);
     socket.setNoDelay(true);
-    const outbound = new OutboundWriter((text, complete) => { socket.write(text, complete); }, disconnect);
+    const outbound = new OutboundWriter((text, complete) => {
+      socket.write(text, complete);
+    }, disconnect);
     this.outbound.set(socket, outbound);
     const receiveLine = (line: string): boolean => {
       if (this.closed || socket.destroyed) return false;
@@ -226,18 +244,27 @@ export class UnixSocketServerTransport implements Transport {
       try {
         const value: unknown = JSON.parse(line);
         if (this.resources && isResourceFrame(value)) {
-          if (value.kind === "request") outbound.send(`${JSON.stringify(this.resources.respond(value))}\n`);
+          if (value.kind === 'request')
+            outbound.send(`${JSON.stringify(this.resources.respond(value))}\n`);
           return true;
         }
         const parsed = A2uiClientMessageSchema.safeParse(value);
-        if (!parsed.success || parsed.data.version !== "v0.9") {
-          throw new Error(parsed.success ? `unsupported version: ${parsed.data.version}` : "expected an A2UI v0.9 client message");
+        if (!parsed.success || parsed.data.version !== 'v0.9') {
+          throw new Error(
+            parsed.success
+              ? `unsupported version: ${parsed.data.version}`
+              : 'expected an A2UI v0.9 client message',
+          );
         }
         const message = value as JsonObject;
-        if ("error" in message) {
+        if ('error' in message) {
           // The schema can omit a missing generic code or strip an extra action.
-          if ("action" in message || !("error" in parsed.data) || !("code" in parsed.data.error)) {
-            throw new Error("invalid client error report");
+          if (
+            'action' in message ||
+            !('error' in parsed.data) ||
+            !('code' in parsed.data.error)
+          ) {
+            throw new Error('invalid client error report');
           }
           // Valid client error reports carry no action; keep the connection open.
           return true;
@@ -254,16 +281,28 @@ export class UnixSocketServerTransport implements Transport {
       }
     };
     const receiveChunk = (chunk: Buffer) => {
-      try { lines.write(chunk); }
-      catch { disconnect(); }
+      try {
+        lines.write(chunk);
+      } catch {
+        disconnect();
+      }
     };
     const endInput = () => {
-      try { lines.end(); }
-      catch { disconnect(); }
+      try {
+        lines.end();
+      } catch {
+        disconnect();
+      }
     };
-    socket.on("data", receiveChunk);
-    socket.on("end", endInput);
-    outbound.start(encodeReplay(this.snapshot.messages(), this.resources ? resourceHello() : undefined, "\n"));
+    socket.on('data', receiveChunk);
+    socket.on('end', endInput);
+    outbound.start(
+      encodeReplay(
+        this.snapshot.messages(),
+        this.resources ? resourceHello() : undefined,
+        '\n',
+      ),
+    );
   }
 
   private enqueue(message: JsonObject): void {
@@ -284,7 +323,9 @@ export class UnixSocketServerTransport implements Transport {
     if (message) return Promise.resolve({ value: message, done: false });
     if (this.receiveError) return Promise.reject(this.receiveError);
     if (this.closed) return Promise.resolve({ value: undefined, done: true });
-    return new Promise((resolve, reject) => this.waiting.push({ resolve, reject }));
+    return new Promise((resolve, reject) =>
+      this.waiting.push({ resolve, reject }),
+    );
   }
 
   private flushReceivers(): void {

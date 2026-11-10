@@ -30,7 +30,10 @@ export interface DashboardFile {
   dashboards: Dashboard[];
 }
 /** Advisory import-preview text; this never configures or grants a gateway connection. */
-export interface SourceLabel { nodeId: string; name?: string }
+export interface SourceLabel {
+  nodeId: string;
+  name?: string;
+}
 /** One configuration-only copy. Local board IDs, revisions, timestamps and live data are excluded. */
 export interface BoardExport {
   format: 'omochi.board';
@@ -41,6 +44,11 @@ export interface BoardExport {
 export function referenceId(reference: SurfaceReference): string {
   return `${reference.nodeId}~${reference.serviceId}/${reference.surfaceId}`;
 }
-export function overlaps(a: Pick<Panel, 'x' | 'y' | 'w' | 'h'>, b: Pick<Panel, 'x' | 'y' | 'w' | 'h'>): boolean {
-  return a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+export function overlaps(
+  a: Pick<Panel, 'x' | 'y' | 'w' | 'h'>,
+  b: Pick<Panel, 'x' | 'y' | 'w' | 'h'>,
+): boolean {
+  return (
+    a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h
+  );
 }

@@ -34,7 +34,9 @@ _MAX_PENDING_BYTES = 16 * 1024 * 1024
 
 
 def _encode_frame(message: dict[str, Any]) -> bytes:
-    return (json.dumps(message, separators=(",", ":"), ensure_ascii=False) + "\n").encode()
+    return (
+        json.dumps(message, separators=(",", ":"), ensure_ascii=False) + "\n"
+    ).encode()
 
 
 class _OutboundPeer:
@@ -119,25 +121,34 @@ def _is_client_message(message: Any) -> bool:
         action = message["action"]
         return (
             isinstance(action, dict)
-            and all(isinstance(action.get(key), str) for key in ("name", "surfaceId", "sourceComponentId", "timestamp"))
+            and all(
+                isinstance(action.get(key), str)
+                for key in ("name", "surfaceId", "sourceComponentId", "timestamp")
+            )
             and isinstance(action.get("context"), dict)
         )
     error = message["error"]
     return (
-        isinstance(error, dict) and "code" in error
+        isinstance(error, dict)
+        and "code" in error
         and isinstance(error.get("surfaceId"), str)
         and isinstance(error.get("message"), str)
-        and (error["code"] != "VALIDATION_FAILED" or (
-            isinstance(error.get("path"), str)
-            and set(error) == {"code", "surfaceId", "path", "message"}
-        ))
+        and (
+            error["code"] != "VALIDATION_FAILED"
+            or (
+                isinstance(error.get("path"), str)
+                and set(error) == {"code", "surfaceId", "path", "message"}
+            )
+        )
     )
 
 
 def validate_service_id(service_id: str) -> str:
     # "." and ".." match the character class but would collapse or escape the service directory.
     if service_id in (".", "..") or not SERVICE_ID_PATTERN.fullmatch(service_id):
-        raise ValueError(f"service_id must match {SERVICE_ID_PATTERN.pattern} and cannot be '.' or '..': {service_id!r}")
+        raise ValueError(
+            f"service_id must match {SERVICE_ID_PATTERN.pattern} and cannot be '.' or '..': {service_id!r}"
+        )
     return service_id
 
 
@@ -163,10 +174,14 @@ def _prepare_fallback_runtime_root(root: Path) -> None:
         except FileExistsError:
             pass
         metadata = directory.lstat()
-        if (not stat.S_ISDIR(metadata.st_mode)
-                or metadata.st_uid != os.geteuid()
-                or metadata.st_mode & 0o022):
-            raise PermissionError(f"fallback runtime directory must be owned, a real directory, and not writable by other users: {directory}")
+        if (
+            not stat.S_ISDIR(metadata.st_mode)
+            or metadata.st_uid != os.geteuid()
+            or metadata.st_mode & 0o022
+        ):
+            raise PermissionError(
+                f"fallback runtime directory must be owned, a real directory, and not writable by other users: {directory}"
+            )
         # Older versions created safe, owned 0755 parents. Tighten those only.
         directory.chmod(0o700)
 
@@ -210,8 +225,12 @@ class UnixSocketServerTransport(Transport):
         self._service_id = validate_service_id(service_id)
         self._name = name or self._service_id
         self._icon = icon
-        self._root = Path(runtime_dir) if runtime_dir is not None else omochi_runtime_root()
-        self._fallback_root = runtime_dir is None and not os.environ.get("XDG_RUNTIME_DIR")
+        self._root = (
+            Path(runtime_dir) if runtime_dir is not None else omochi_runtime_root()
+        )
+        self._fallback_root = runtime_dir is None and not os.environ.get(
+            "XDG_RUNTIME_DIR"
+        )
         self.capabilities = capabilities or set()
         self._snapshot = A2uiSnapshot()
         self._clients: set[_OutboundPeer] = set()
@@ -246,13 +265,19 @@ class UnixSocketServerTransport(Transport):
             self._root.mkdir(parents=True, exist_ok=True, mode=0o700)
             self._root.chmod(0o700)
             # A permanent inode outside the removable service directory. Never unlink it.
-            fd = os.open(self._root / f".{self._service_id}.lock~", os.O_CREAT | os.O_WRONLY, 0o600)
+            fd = os.open(
+                self._root / f".{self._service_id}.lock~",
+                os.O_CREAT | os.O_WRONLY,
+                0o600,
+            )
             try:
                 fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
             except BaseException as error:
                 os.close(fd)
                 if isinstance(error, BlockingIOError):
-                    raise RuntimeError(f"another omochi service already owns {directory}") from error
+                    raise RuntimeError(
+                        f"another omochi service already owns {directory}"
+                    ) from error
                 raise
             self._lock_fd = fd
             try:
@@ -280,7 +305,9 @@ class UnixSocketServerTransport(Transport):
             if _is_socket_in_use(path):
                 raise RuntimeError(f"another omochi service already owns {path}")
             path.unlink()
-        self._server = await asyncio.start_unix_server(self._accept, path=str(path), limit=MAX_FRAME_BYTES)
+        self._server = await asyncio.start_unix_server(
+            self._accept, path=str(path), limit=MAX_FRAME_BYTES
+        )
         self._directory = directory
         # Linux enforces unix socket permissions on connect, and bind applies the umask.
         path.chmod(stat.S_IRUSR | stat.S_IWUSR)
@@ -332,7 +359,9 @@ class UnixSocketServerTransport(Transport):
                 if server is not None:
                     server.close()
                     await server.wait_closed()
-                tasks = self._client_tasks | {client.task for client in clients if client.task is not None}
+                tasks = self._client_tasks | {
+                    client.task for client in clients if client.task is not None
+                }
                 tasks.discard(asyncio.current_task())
                 if tasks:
                     await asyncio.gather(*tasks, return_exceptions=True)
@@ -350,7 +379,9 @@ class UnixSocketServerTransport(Transport):
         temporary.chmod(stat.S_IRUSR | stat.S_IWUSR)
         temporary.replace(directory / "manifest.json")
 
-    async def _accept(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+    async def _accept(
+        self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter
+    ) -> None:
         if self._closed:
             writer.close()
             return
@@ -362,7 +393,11 @@ class UnixSocketServerTransport(Transport):
         self._clients.add(client)
         client.task = asyncio.create_task(client.pump(bootstrap))
         try:
-            while not self._closed and not client.closed and (line := await reader.readline()):
+            while (
+                not self._closed
+                and not client.closed
+                and (line := await reader.readline())
+            ):
                 if client.closed:
                     break
                 text = line.decode().strip()

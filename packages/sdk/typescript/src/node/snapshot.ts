@@ -1,6 +1,6 @@
-import { A2uiMessageSchema } from "@a2ui/web_core/v0_9";
+import { A2uiMessageSchema } from '@a2ui/web_core/v0_9';
 
-import type { A2UIMessage } from "../types.js";
+import type { A2UIMessage } from '../types.js';
 
 interface SurfaceSnapshot {
   create: A2UIMessage;
@@ -14,8 +14,14 @@ function clone<T>(value: T): T {
 }
 
 function pointerParts(path: string): string[] {
-  if (!path.startsWith("/")) throw new Error(`data model path must start with "/": ${JSON.stringify(path)}`);
-  return path.slice(1).split("/").map((part) => part.replaceAll("~1", "/").replaceAll("~0", "~"));
+  if (!path.startsWith('/'))
+    throw new Error(
+      `data model path must start with "/": ${JSON.stringify(path)}`,
+    );
+  return path
+    .slice(1)
+    .split('/')
+    .map((part) => part.replaceAll('~1', '/').replaceAll('~0', '~'));
 }
 
 function isArrayIndex(value: string): boolean {
@@ -23,30 +29,44 @@ function isArrayIndex(value: string): boolean {
 }
 
 function setOwn(target: object, key: string | number, value: unknown): void {
-  Object.defineProperty(target, key, { value, enumerable: true, writable: true, configurable: true });
+  Object.defineProperty(target, key, {
+    value,
+    enumerable: true,
+    writable: true,
+    configurable: true,
+  });
 }
 
-function updateAtPointer(root: unknown, path: string, present: boolean, value: unknown): unknown {
-  if (path === "" || path === "/") return present ? clone(value) : undefined;
+function updateAtPointer(
+  root: unknown,
+  path: string,
+  present: boolean,
+  value: unknown,
+): unknown {
+  if (path === '' || path === '/') return present ? clone(value) : undefined;
 
   const parts = pointerParts(path);
   let result: unknown = clone(root);
-  if (result === null || typeof result !== "object") result = isArrayIndex(parts[0]!) ? [] : {};
+  if (result === null || typeof result !== 'object')
+    result = isArrayIndex(parts[0]!) ? [] : {};
   let current = result as Record<string, unknown> | unknown[];
 
   for (const [index, part] of parts.slice(0, -1).entries()) {
     const nextPart = parts[index + 1]!;
     let child: unknown;
     if (Array.isArray(current)) {
-      if (!isArrayIndex(part)) throw new Error(`array data model path segment must be an index: ${JSON.stringify(part)}`);
+      if (!isArrayIndex(part))
+        throw new Error(
+          `array data model path segment must be an index: ${JSON.stringify(part)}`,
+        );
       child = Object.hasOwn(current, part) ? current[Number(part)] : undefined;
-      if (child === null || typeof child !== "object") {
+      if (child === null || typeof child !== 'object') {
         child = isArrayIndex(nextPart) ? [] : {};
         setOwn(current, part, child);
       }
     } else {
       child = Object.hasOwn(current, part) ? current[part] : undefined;
-      if (child === null || typeof child !== "object") {
+      if (child === null || typeof child !== 'object') {
         child = isArrayIndex(nextPart) ? [] : {};
         setOwn(current, part, child);
       }
@@ -56,13 +76,17 @@ function updateAtPointer(root: unknown, path: string, present: boolean, value: u
 
   const last = parts.at(-1)!;
   if (Array.isArray(current)) {
-    if (!isArrayIndex(last)) throw new Error(`array data model path segment must be an index: ${JSON.stringify(last)}`);
+    if (!isArrayIndex(last))
+      throw new Error(
+        `array data model path segment must be an index: ${JSON.stringify(last)}`,
+      );
     const position = Number(last);
     if (present) setOwn(current, position, clone(value));
     else if (position < current.length) {
       // Shift only own indices: splice() would copy inherited entries into the model.
       for (let index = position; index < current.length - 1; index++) {
-        if (Object.hasOwn(current, index + 1)) setOwn(current, index, current[index + 1]);
+        if (Object.hasOwn(current, index + 1))
+          setOwn(current, index, current[index + 1]);
         else delete current[index];
       }
       delete current[current.length - 1];
@@ -81,30 +105,47 @@ export class A2uiSnapshot {
 
   apply(value: A2UIMessage): void {
     const parsed = A2uiMessageSchema.safeParse(value);
-    if (!parsed.success || parsed.data.version !== "v0.9") {
-      const detail = parsed.success ? `unsupported version: ${parsed.data.version}` : parsed.error.issues[0]?.message;
-      throw new Error(detail ?? "invalid A2UI v0.9 message");
+    if (!parsed.success || parsed.data.version !== 'v0.9') {
+      const detail = parsed.success
+        ? `unsupported version: ${parsed.data.version}`
+        : parsed.error.issues[0]?.message;
+      throw new Error(detail ?? 'invalid A2UI v0.9 message');
     }
     const message = value as A2UIMessage;
 
-    if ("createSurface" in message) {
+    if ('createSurface' in message) {
       const create = message.createSurface as Record<string, unknown>;
       const surfaceId = create.surfaceId as string;
-      if (this.surfaces.has(surfaceId)) throw new Error(`surface already exists: ${JSON.stringify(surfaceId)}`);
-      this.surfaces.set(surfaceId, { create: clone(message), components: new Map(), data: undefined, hasData: false });
-    } else if ("updateComponents" in message) {
+      if (this.surfaces.has(surfaceId))
+        throw new Error(`surface already exists: ${JSON.stringify(surfaceId)}`);
+      this.surfaces.set(surfaceId, {
+        create: clone(message),
+        components: new Map(),
+        data: undefined,
+        hasData: false,
+      });
+    } else if ('updateComponents' in message) {
       const update = message.updateComponents as Record<string, unknown>;
       const surface = this.surface(update.surfaceId as string);
       // Prepare the whole batch before changing the replay retained for new clients.
-      const components = (update.components as Record<string, unknown>[]).map((component) => {
-        if (typeof component.id !== "string") throw new Error("component must contain a string id");
-        return [component.id, clone(component)] as const;
-      });
-      for (const [id, component] of components) surface.components.set(id, component);
-    } else if ("updateDataModel" in message) {
+      const components = (update.components as Record<string, unknown>[]).map(
+        (component) => {
+          if (typeof component.id !== 'string')
+            throw new Error('component must contain a string id');
+          return [component.id, clone(component)] as const;
+        },
+      );
+      for (const [id, component] of components)
+        surface.components.set(id, component);
+    } else if ('updateDataModel' in message) {
       const update = message.updateDataModel as Record<string, unknown>;
       const surface = this.surface(update.surfaceId as string);
-      surface.data = updateAtPointer(surface.data, typeof update.path === "string" ? update.path : "/", "value" in update, update.value);
+      surface.data = updateAtPointer(
+        surface.data,
+        typeof update.path === 'string' ? update.path : '/',
+        'value' in update,
+        update.value,
+      );
       surface.hasData = true;
     } else {
       const deletion = message.deleteSurface as Record<string, unknown>;
@@ -118,7 +159,7 @@ export class A2uiSnapshot {
       messages.push(clone(surface.create));
       if (surface.components.size) {
         messages.push({
-          version: "v0.9",
+          version: 'v0.9',
           updateComponents: {
             surfaceId,
             components: [...surface.components.values()].map(clone),
@@ -126,9 +167,12 @@ export class A2uiSnapshot {
         } as A2UIMessage);
       }
       if (surface.hasData) {
-        const update: Record<string, unknown> = { surfaceId, path: "/" };
+        const update: Record<string, unknown> = { surfaceId, path: '/' };
         if (surface.data !== undefined) update.value = clone(surface.data);
-        messages.push({ version: "v0.9", updateDataModel: update } as A2UIMessage);
+        messages.push({
+          version: 'v0.9',
+          updateDataModel: update,
+        } as A2UIMessage);
       }
     }
     return messages;
@@ -136,7 +180,8 @@ export class A2uiSnapshot {
 
   private surface(surfaceId: string): SurfaceSnapshot {
     const surface = this.surfaces.get(surfaceId);
-    if (!surface) throw new Error(`unknown surface: ${JSON.stringify(surfaceId)}`);
+    if (!surface)
+      throw new Error(`unknown surface: ${JSON.stringify(surfaceId)}`);
     return surface;
   }
 }

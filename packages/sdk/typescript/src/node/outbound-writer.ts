@@ -2,7 +2,11 @@
 export const MAX_OUTBOUND_BYTES = 16 * 1024 * 1024;
 
 /** Keep captured replay state in the iterator, not a connection handler's closure. */
-export function* encodeReplay(messages: Iterable<unknown>, hello: unknown, delimiter: string): Generator<string> {
+export function* encodeReplay(
+  messages: Iterable<unknown>,
+  hello: unknown,
+  delimiter: string,
+): Generator<string> {
   if (hello !== undefined) yield JSON.stringify(hello) + delimiter;
   for (const message of messages) yield JSON.stringify(message) + delimiter;
 }
@@ -16,7 +20,10 @@ export class OutboundWriter {
   private replay: Iterator<string> | undefined;
 
   constructor(
-    private readonly write: (text: string, complete: (error?: Error | null) => void) => void,
+    private readonly write: (
+      text: string,
+      complete: (error?: Error | null) => void,
+    ) => void,
     private readonly disconnect: () => void,
     private readonly limit = MAX_OUTBOUND_BYTES,
   ) {}
@@ -81,7 +88,10 @@ export class OutboundWriter {
       // Also support writers whose completion callback runs synchronously.
       queueMicrotask(() => this.pump());
     };
-    try { this.write(text, complete); }
-    catch (error) { complete(error instanceof Error ? error : new Error(String(error))); }
+    try {
+      this.write(text, complete);
+    } catch (error) {
+      complete(error instanceof Error ? error : new Error(String(error)));
+    }
   }
 }

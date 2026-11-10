@@ -1,9 +1,6 @@
-use omochi_ui::{
-    App, Result, UnixSocketServerOptions,
-    UnixSocketServerTransport,
-};
+use omochi_ui::{ActionInput, Button, ButtonVariant, Input, Slider, Text, TextVariant};
+use omochi_ui::{App, Result, UnixSocketServerOptions, UnixSocketServerTransport};
 use serde::{Deserialize, Serialize};
-use omochi_ui::{ActionInput, Input, Text, TextVariant, Slider, Button, ButtonVariant};
 
 struct State {
     temperature: f64,
@@ -40,11 +37,24 @@ async fn main() -> Result<()> {
     app.surface("main", move |ui, state| {
         let form = ui.local(
             "form",
-            RunInput { temperature: state.temperature },
+            RunInput {
+                temperature: state.temperature,
+            },
         )?;
         ui.add(Text::new("Hello").key("title").variant(TextVariant::H2))?;
-        ui.add(Slider::new("temperature", 0.0, 100.0).bind(form.field(RunInput::field_temperature()).bind()?))?;
-        ui.add(Button::new("Run").on_press(run.call(RunInputInput { temperature: Input::expression(form.field(RunInput::field_temperature()).value()) })?).variant(ButtonVariant::Primary))?;
+        ui.add(
+            Slider::new("temperature", 0.0, 100.0)
+                .bind(form.field(RunInput::field_temperature()).bind()?),
+        )?;
+        ui.add(
+            Button::new("Run")
+                .on_press(run.call(RunInputInput {
+                    temperature: Input::expression(
+                        form.field(RunInput::field_temperature()).value(),
+                    ),
+                })?)
+                .variant(ButtonVariant::Primary),
+        )?;
         if let Some(result) = &state.result {
             ui.add(Text::new(result.clone()).key("result"))?;
         }

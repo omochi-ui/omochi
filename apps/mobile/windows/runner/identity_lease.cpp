@@ -20,15 +20,17 @@ HANDLE CreateIdentityMutex() {
   const BOOL read =
       ::GetTokenInformation(token, TokenUser, buffer.data(), size, &size);
   ::CloseHandle(token);
-  if (!read) return nullptr;
+  if (!read)
+    return nullptr;
 
   LPWSTR sid = nullptr;
   if (!::ConvertSidToStringSidW(
-          reinterpret_cast<TOKEN_USER*>(buffer.data())->User.Sid, &sid)) {
+          reinterpret_cast<TOKEN_USER *>(buffer.data())->User.Sid, &sid)) {
     return nullptr;
   }
-  // Secure storage is user-scoped, not login-session-scoped. Use the account SID
-  // (not the logon SID), both in the global name and in the access descriptor.
+  // Secure storage is user-scoped, not login-session-scoped. Use the account
+  // SID (not the logon SID), both in the global name and in the access
+  // descriptor.
   const std::wstring name = std::wstring(L"Global\\fyi.omochi.mobile.") + sid;
   const std::wstring dacl = std::wstring(L"D:P(A;;GA;;;") + sid + L")";
   ::LocalFree(sid);

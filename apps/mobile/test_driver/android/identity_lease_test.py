@@ -1,4 +1,5 @@
 """Run exact Android lease code on a JVM: python3 test_driver/android/identity_lease_test.py."""
+
 import pathlib
 import subprocess
 import tempfile
@@ -40,18 +41,39 @@ with tempfile.TemporaryDirectory(prefix="omochi-android-lease-") as temporary:
     test = directory / "LeaseTest.java"
     test.write_text(harness)
     subprocess.run(["javac", "-d", str(directory), str(source), str(test)], check=True)
-    command = ["java", "-cp", str(directory), "fyi.omochi.mobile.LeaseTest", str(directory)]
+    command = [
+        "java",
+        "-cp",
+        str(directory),
+        "fyi.omochi.mobile.LeaseTest",
+        str(directory),
+    ]
     for crash in (False, True):
-        with subprocess.Popen(command + ["omochi.test.owner"], stdin=subprocess.PIPE,
-                              stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True) as owner:
+        with subprocess.Popen(
+            command + ["omochi.test.owner"],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        ) as owner:
             assert owner.stdout.readline().strip() == "acquired"
             path = next((directory / "identity-leases").glob("*.lock"))
             inode = path.stat().st_ino
-            blocked = subprocess.run(command + ["omochi.test.owner"], input="\n",
-                                     capture_output=True, text=True, timeout=10)
+            blocked = subprocess.run(
+                command + ["omochi.test.owner"],
+                input="\n",
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
             assert blocked.returncode != 0, "second process acquired identity"
-            separate = subprocess.run(command + ["omochi.test.independent"], input="\n",
-                                      capture_output=True, text=True, timeout=10)
+            separate = subprocess.run(
+                command + ["omochi.test.independent"],
+                input="\n",
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
             assert separate.returncode == 0, separate.stderr
             if crash:
                 owner.kill()
@@ -60,7 +82,14 @@ with tempfile.TemporaryDirectory(prefix="omochi-android-lease-") as temporary:
                 owner.communicate("\n", timeout=10)
                 assert owner.returncode == 0
             assert path.stat().st_ino == inode, "lease file was replaced"
-        retry = subprocess.run(command + ["omochi.test.owner"], input="\n",
-                               capture_output=True, text=True, timeout=10)
+        retry = subprocess.run(
+            command + ["omochi.test.owner"],
+            input="\n",
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
         assert retry.returncode == 0, retry.stderr
-print("PASS: engine/process exclusion, independent namespaces, idempotence, normal/crash reacquire")
+print(
+    "PASS: engine/process exclusion, independent namespaces, idempotence, normal/crash reacquire"
+)

@@ -12,11 +12,19 @@ class OtherForm:
 def main(state: State) -> None:
     other = ui.local("other", OtherForm())
     run.call(other)  # error: different whole-value input
-    ui.button("Run", on_click=run, input=other)  # error: no dynamic fallback for typed Local
-    ui.slider("bad", 0, 100, bind=other.field("temperature", str))  # error: wrong writable type
-    ui.slider("readonly", 0, 100, bind=ui.local("n", 1.0).value())  # error: read-only Ref
+    ui.button(
+        "Run", on_click=run, input=other
+    )  # error: no dynamic fallback for typed Local
+    ui.slider(
+        "bad", 0, 100, bind=other.field("temperature", str)
+    )  # error: wrong writable type
+    ui.slider(
+        "readonly", 0, 100, bind=ui.local("n", 1.0).value()
+    )  # error: read-only Ref
     ui.button("Missing", on_click=run)  # error: required input omitted
-    ui.button("Raw callback", on_click=lambda: None, input=Form())  # error: not registered
+    ui.button(
+        "Raw callback", on_click=lambda: None, input=Form()
+    )  # error: not registered
     ui.button("Concrete", on_click=run, input="wrong")  # error: wrong concrete type
     run.call({"temperature": "wrong"})  # error: structured inputs require compose
 

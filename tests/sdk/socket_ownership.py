@@ -4,6 +4,7 @@ Runs Node, Bun, Python, Rust SDK and native utility publishers against the same
 runtime directory. Every transition uses stdin/stdout barriers, with timeouts
 only to detect hangs.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -23,9 +24,12 @@ sys.path.insert(0, str(ROOT / "packages/sdk/python/src"))
 
 async def python_owner():
     from omochi_ui import UnixSocketServerTransport
+
     print("OWNER WAITING", flush=True)
     input()
-    transport = UnixSocketServerTransport("demo", runtime_dir=os.environ.get("OMOCHI_OWNER_ROOT"))
+    transport = UnixSocketServerTransport(
+        "demo", runtime_dir=os.environ.get("OMOCHI_OWNER_ROOT")
+    )
     try:
         await transport.start()
     except Exception:
@@ -48,8 +52,14 @@ class Owner:
             environment.pop("OMOCHI_OWNER_ROOT", None)
         else:
             environment["OMOCHI_OWNER_ROOT"] = str(root)
-        self.process = subprocess.Popen(command, cwd=ROOT, env=environment,
-                                        stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        self.process = subprocess.Popen(
+            command,
+            cwd=ROOT,
+            env=environment,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
         self.buffer = b""
         assert self.read() == "WAITING"
 
@@ -92,8 +102,17 @@ def connectable(root):
 def fallback_roots(commands):
     # Every child resolves its real default, redirected into a disposable temp dir.
     # Never touch the current user's actual /tmp/omochi-<uid> directory.
-    cases = ("fresh", "empty-xdg", "legacy-0755", "group-writable", "world-writable", "parent-symlink",
-             "parent-file", "root-symlink", "root-writable")
+    cases = (
+        "fresh",
+        "empty-xdg",
+        "legacy-0755",
+        "group-writable",
+        "world-writable",
+        "parent-symlink",
+        "parent-file",
+        "root-symlink",
+        "root-writable",
+    )
     for name, command in commands.items():
         for case in cases:
             with tempfile.TemporaryDirectory(prefix="omochi-fb-") as temporary:
@@ -111,8 +130,13 @@ def fallback_roots(commands):
                 elif case not in ("fresh", "empty-xdg"):
                     parent.mkdir(mode=0o700)
                     if case in ("group-writable", "world-writable", "legacy-0755"):
-                        parent.chmod({"group-writable": 0o770, "world-writable": 0o777,
-                                      "legacy-0755": 0o755}[case])
+                        parent.chmod(
+                            {
+                                "group-writable": 0o770,
+                                "world-writable": 0o777,
+                                "legacy-0755": 0o755,
+                            }[case]
+                        )
                         root.mkdir(mode=0o700)
                         if case == "legacy-0755":
                             root.chmod(0o755)
@@ -125,7 +149,12 @@ def fallback_roots(commands):
                         root.mkdir(mode=0o700)
                         root.chmod(0o777)
                         (root / ".demo.lock~").symlink_to(target / "marker")
-                env = {**os.environ, "TMPDIR": temporary, "TMP": temporary, "TEMP": temporary}
+                env = {
+                    **os.environ,
+                    "TMPDIR": temporary,
+                    "TMP": temporary,
+                    "TEMP": temporary,
+                }
                 env.pop("XDG_RUNTIME_DIR", None)
                 if case == "empty-xdg":
                     env["XDG_RUNTIME_DIR"] = ""
@@ -138,7 +167,11 @@ def fallback_roots(commands):
                         for directory in (parent, root, root / "demo"):
                             metadata = directory.lstat()
                             assert metadata.st_uid == os.geteuid()
-                            assert metadata.st_mode & 0o777 == 0o700, (name, case, directory)
+                            assert metadata.st_mode & 0o777 == 0o700, (
+                                name,
+                                case,
+                                directory,
+                            )
                         connectable(root)
                         owner.command()
                         assert owner.read() == "CLOSED"
@@ -152,7 +185,11 @@ def fallback_roots(commands):
                             assert parent.stat().st_mode & 0o777 == 0o777
                         elif case == "root-writable":
                             assert root.stat().st_mode & 0o777 == 0o777
-                        if case in ("group-writable", "world-writable", "root-writable"):
+                        if case in (
+                            "group-writable",
+                            "world-writable",
+                            "root-writable",
+                        ):
                             assert (root / ".demo.lock~").is_symlink()
                     owner.finish()
                     assert target.stat().st_mode & 0o777 == 0o755
@@ -163,22 +200,68 @@ def fallback_roots(commands):
 
 
 def main():
-    built = subprocess.run(["cargo", "test", "--manifest-path", "packages/sdk/rust/Cargo.toml", "--test", "unix_server",
-                            "--no-run", "--message-format=json"], cwd=ROOT, check=True, text=True, capture_output=True)
-    executable = next(item["executable"] for line in built.stdout.splitlines()
-                      if (item := json.loads(line)).get("executable"))
-    utility_built = subprocess.run(["cargo", "test", "--locked", "--manifest-path", "crates/Cargo.toml",
-                                   "-p", "omochi-utils", "--lib", "--no-run", "--message-format=json"],
-                                  cwd=ROOT, check=True, text=True, capture_output=True)
-    utility_executable = next(item["executable"] for line in utility_built.stdout.splitlines()
-                              if (item := json.loads(line)).get("executable"))
+    built = subprocess.run(
+        [
+            "cargo",
+            "test",
+            "--manifest-path",
+            "packages/sdk/rust/Cargo.toml",
+            "--test",
+            "unix_server",
+            "--no-run",
+            "--message-format=json",
+        ],
+        cwd=ROOT,
+        check=True,
+        text=True,
+        capture_output=True,
+    )
+    executable = next(
+        item["executable"]
+        for line in built.stdout.splitlines()
+        if (item := json.loads(line)).get("executable")
+    )
+    utility_built = subprocess.run(
+        [
+            "cargo",
+            "test",
+            "--locked",
+            "--manifest-path",
+            "crates/Cargo.toml",
+            "-p",
+            "omochi-utils",
+            "--lib",
+            "--no-run",
+            "--message-format=json",
+        ],
+        cwd=ROOT,
+        check=True,
+        text=True,
+        capture_output=True,
+    )
+    utility_executable = next(
+        item["executable"]
+        for line in utility_built.stdout.splitlines()
+        if (item := json.loads(line)).get("executable")
+    )
     commands = {
         "node": ["node", "tests/sdk/socket-owner.mjs"],
         "bun": ["bun", "tests/sdk/socket-owner.mjs"],
         "python": [sys.executable, __file__, "--child"],
-        "rust": [executable, "--exact", "ownership_process_fixture", "--ignored", "--nocapture"],
-        "native-utility": [utility_executable, "--exact", "local::tests::ownership_process_fixture",
-                           "--ignored", "--nocapture"],
+        "rust": [
+            executable,
+            "--exact",
+            "ownership_process_fixture",
+            "--ignored",
+            "--nocapture",
+        ],
+        "native-utility": [
+            utility_executable,
+            "--exact",
+            "local::tests::ownership_process_fixture",
+            "--ignored",
+            "--nocapture",
+        ],
     }
     fallback_roots(commands)
     children = []
@@ -245,7 +328,9 @@ def main():
                 replacement.process.wait(timeout=15)
                 assert (root / "demo/a2ui.sock").exists()
                 assert (root / ".demo.lock~").stat().st_ino == lock_inode
-                print(f"{name}: publisher exclusion, obsolete cleanup and crash recovery passed")
+                print(
+                    f"{name}: publisher exclusion, obsolete cleanup and crash recovery passed"
+                )
             # Recover the final crashed native utility owner as well.
             final = Owner(commands["node"], root)
             children.append(final)

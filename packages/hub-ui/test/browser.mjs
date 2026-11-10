@@ -11,379 +11,1142 @@ const output = process.env.SCREENSHOT_DIR ?? '/tmp/omochi-hub-screenshots';
 await mkdir(output, { recursive: true });
 const children = [];
 let socket;
-const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
+const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 async function until(check, description) {
   const deadline = Date.now() + 15000;
-  while (Date.now() < deadline) { if (await check()) return; await delay(50); }
+  while (Date.now() < deadline) {
+    if (await check()) return;
+    await delay(50);
+  }
   throw new Error(`Timed out: ${description}`);
 }
 async function start(binary, args, pattern) {
-  const child = spawn(path.resolve('crates/target/debug', binary), args, { stdio: ['ignore', 'pipe', 'pipe'] });
+  const child = spawn(path.resolve('crates/target/debug', binary), args, {
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
   children.push(child);
-  let log = '', match;
-  child.stderr.on('data', chunk => { log += chunk; match = log.match(pattern); });
-  child.on('error', error => { log += error.message; });
-  await until(() => { if (child.exitCode !== null) throw new Error(log); return match; }, `${binary}: ${args.join(' ')}`);
+  let log = '',
+    match;
+  child.stderr.on('data', (chunk) => {
+    log += chunk;
+    match = log.match(pattern);
+  });
+  child.on('error', (error) => {
+    log += error.message;
+  });
+  await until(
+    () => {
+      if (child.exitCode !== null) throw new Error(log);
+      return match;
+    },
+    `${binary}: ${args.join(' ')}`,
+  );
   return { child, match };
 }
 try {
   const runtime = path.join(temporary, 'run');
-  const { match } = await start('omochi-ui', ['--config-dir', path.join(temporary, 'config'), '--runtime-dir', runtime, 'hub', '--port', '0', '--assets', path.resolve('packages/hub-ui/dist')], /dashboard (http:\/\/127\.0\.0\.1:\d+\/)/);
+  const { match } = await start(
+    'omochi-ui',
+    [
+      '--config-dir',
+      path.join(temporary, 'config'),
+      '--runtime-dir',
+      runtime,
+      'hub',
+      '--port',
+      '0',
+      '--assets',
+      path.resolve('packages/hub-ui/dist'),
+    ],
+    /dashboard (http:\/\/127\.0\.0\.1:\d+\/)/,
+  );
   const url = match[1];
-  const utility = await start('omochi-utils', ['button', '--service-id', 'tasks', '--runtime-dir', runtime, '--', '/bin/echo', 'dashboard-action-complete'], /Published service/);
-  await until(async () => (await (await fetch(`${url}services`)).json()).some(s => s.status === 'connected'), 'service discovery');
+  const utility = await start(
+    'omochi-utils',
+    [
+      'button',
+      '--service-id',
+      'tasks',
+      '--runtime-dir',
+      runtime,
+      '--',
+      '/bin/echo',
+      'dashboard-action-complete',
+    ],
+    /Published service/,
+  );
+  await until(
+    async () =>
+      (await (await fetch(`${url}services`)).json()).some(
+        (s) => s.status === 'connected',
+      ),
+    'service discovery',
+  );
   const services = await (await fetch(`${url}services`)).json();
-  const service = services.find(s => s.status === 'connected');
-  const reference = { nodeId: service.node.id, serviceId: 'tasks', surfaceId: 'main' };
-  const response = await fetch(`${url}api/dashboards`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: 'Daily overview', panels: [{ id: 'one', title: 'Task runner', reference, x: 0, y: 4, w: 6, h: 6 }] }) });
+  const service = services.find((s) => s.status === 'connected');
+  const reference = {
+    nodeId: service.node.id,
+    serviceId: 'tasks',
+    surfaceId: 'main',
+  };
+  const response = await fetch(`${url}api/dashboards`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      name: 'Daily overview',
+      panels: [
+        { id: 'one', title: 'Task runner', reference, x: 0, y: 4, w: 6, h: 6 },
+      ],
+    }),
+  });
   assert.equal(response.ok, true, await response.clone().text());
   const dashboard = await response.json();
-  const chrome = spawn(process.env.CHROMIUM_BIN ?? 'chromium', ['--headless', '--no-sandbox', '--disable-gpu', '--disable-dev-shm-usage', '--no-first-run', '--no-default-browser-check', '--remote-debugging-port=0', `--user-data-dir=${temporary}/chrome`, 'about:blank'], { stdio: ['ignore', 'ignore', 'pipe'] });
+  const chrome = spawn(
+    process.env.CHROMIUM_BIN ?? 'chromium',
+    [
+      '--headless',
+      '--no-sandbox',
+      '--disable-gpu',
+      '--disable-dev-shm-usage',
+      '--no-first-run',
+      '--no-default-browser-check',
+      '--remote-debugging-port=0',
+      `--user-data-dir=${temporary}/chrome`,
+      'about:blank',
+    ],
+    { stdio: ['ignore', 'ignore', 'pipe'] },
+  );
   children.push(chrome);
   let browserUrl = '';
-  chrome.stderr.on('data', chunk => { const match = chunk.toString().match(/DevTools listening on (ws:\/\/\S+)/); if (match) browserUrl = match[1]; });
+  chrome.stderr.on('data', (chunk) => {
+    const match = chunk.toString().match(/DevTools listening on (ws:\/\/\S+)/);
+    if (match) browserUrl = match[1];
+  });
   await until(() => browserUrl, 'Chromium startup');
   const endpoint = new URL(browserUrl);
-  const targets = await (await fetch(`http://${endpoint.host}/json/list`)).json();
-  socket = new WebSocket(targets.find(t => t.type === 'page').webSocketDebuggerUrl);
-  await new Promise((resolve, reject) => { socket.addEventListener('open', resolve, { once: true }); socket.addEventListener('error', reject, { once: true }); });
+  const targets = await (
+    await fetch(`http://${endpoint.host}/json/list`)
+  ).json();
+  socket = new WebSocket(
+    targets.find((t) => t.type === 'page').webSocketDebuggerUrl,
+  );
+  await new Promise((resolve, reject) => {
+    socket.addEventListener('open', resolve, { once: true });
+    socket.addEventListener('error', reject, { once: true });
+  });
   let sequence = 0;
   const pending = new Map();
   const errors = [];
-  socket.addEventListener('message', event => {
+  socket.addEventListener('message', (event) => {
     const message = JSON.parse(event.data);
     if (message.id) {
-      const task = pending.get(message.id); pending.delete(message.id);
-      if (message.error) task.reject(new Error(JSON.stringify(message.error))); else task.resolve(message.result);
-    } else if (message.method === 'Runtime.exceptionThrown') errors.push(message.params.exceptionDetails);
+      const task = pending.get(message.id);
+      pending.delete(message.id);
+      if (message.error) task.reject(new Error(JSON.stringify(message.error)));
+      else task.resolve(message.result);
+    } else if (message.method === 'Runtime.exceptionThrown')
+      errors.push(message.params.exceptionDetails);
   });
-  const cdp = (method, params = {}) => new Promise((resolve, reject) => {
-    const id = ++sequence; pending.set(id, { resolve, reject }); socket.send(JSON.stringify({ id, method, params }));
-  });
-  const evaluate = async expression => {
-    const result = await cdp('Runtime.evaluate', { expression, returnByValue: true, awaitPromise: true });
-    if (result.exceptionDetails) throw new Error(JSON.stringify(result.exceptionDetails));
+  const cdp = (method, params = {}) =>
+    new Promise((resolve, reject) => {
+      const id = ++sequence;
+      pending.set(id, { resolve, reject });
+      socket.send(JSON.stringify({ id, method, params }));
+    });
+  const evaluate = async (expression) => {
+    const result = await cdp('Runtime.evaluate', {
+      expression,
+      returnByValue: true,
+      awaitPromise: true,
+    });
+    if (result.exceptionDetails)
+      throw new Error(JSON.stringify(result.exceptionDetails));
     return result.result.value;
   };
-  const geometry = () => evaluate(`(() => {
+  const geometry = () =>
+    evaluate(`(() => {
     const grid = document.querySelector('.panel-grid').getBoundingClientRect();
     const panel = document.querySelector('.panel').getBoundingClientRect();
     const column = (grid.width + 16) / 12;
     return { x: Math.round((panel.left-grid.left)/column), y: Math.round((panel.top-grid.top)/56),
       w: Math.round((panel.width+16)/column), h: Math.round((panel.height+16)/56) };
   })()`);
-  const frame = () => evaluate("new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))");
+  const frame = () =>
+    evaluate(
+      'new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))',
+    );
   const text = () => evaluate('document.body?.innerText ?? ""');
-  const click = async label => {
-    await until(() => evaluate(`Array.from(document.querySelectorAll('button')).some(b => b.textContent.replace('▧', '').trim() === ${JSON.stringify(label)} && !b.disabled)`), `button ${label}`);
-    await evaluate(`(() => { const b = Array.from(document.querySelectorAll('button')).find(b => b.textContent.trim() === ${JSON.stringify(label)} && !b.disabled && b.getClientRects().length); b.focus(); b.click(); })()`);
+  const click = async (label) => {
+    await until(
+      () =>
+        evaluate(
+          `Array.from(document.querySelectorAll('button')).some(b => b.textContent.replace('▧', '').trim() === ${JSON.stringify(label)} && !b.disabled)`,
+        ),
+      `button ${label}`,
+    );
+    await evaluate(
+      `(() => { const b = Array.from(document.querySelectorAll('button')).find(b => b.textContent.trim() === ${JSON.stringify(label)} && !b.disabled && b.getClientRects().length); b.focus(); b.click(); })()`,
+    );
   };
   const input = async (selector, value) => {
-    await evaluate(`(() => { const el = document.querySelector(${JSON.stringify(selector)}); Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(el, ${JSON.stringify(value)}); el.dispatchEvent(new Event('input', { bubbles: true })); })()`);
+    await evaluate(
+      `(() => { const el = document.querySelector(${JSON.stringify(selector)}); Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(el, ${JSON.stringify(value)}); el.dispatchEvent(new Event('input', { bubbles: true })); })()`,
+    );
   };
-  const importText = async contents => {
-    await evaluate(`(() => { const files = new DataTransfer(); files.items.add(new File([${JSON.stringify(contents)}], 'board.json', { type: 'application/json' })); const input = document.querySelector('#import-board-file'); input.files = files.files; input.dispatchEvent(new Event('change', { bubbles: true })); })()`);
+  const importText = async (contents) => {
+    await evaluate(
+      `(() => { const files = new DataTransfer(); files.items.add(new File([${JSON.stringify(contents)}], 'board.json', { type: 'application/json' })); const input = document.querySelector('#import-board-file'); input.files = files.files; input.dispatchEvent(new Event('change', { bubbles: true })); })()`,
+    );
   };
-  const language = async value => {
-    await evaluate(`(() => { const select = document.querySelector('.language-switcher select'); select.value = ${JSON.stringify(value)}; select.dispatchEvent(new Event('change', { bubbles: true })); })()`);
-    await until(() => evaluate(`document.documentElement.lang === ${JSON.stringify(value)}`), `language ${value}`);
+  const language = async (value) => {
+    await evaluate(
+      `(() => { const select = document.querySelector('.language-switcher select'); select.value = ${JSON.stringify(value)}; select.dispatchEvent(new Event('change', { bubbles: true })); })()`,
+    );
+    await until(
+      () =>
+        evaluate(`document.documentElement.lang === ${JSON.stringify(value)}`),
+      `language ${value}`,
+    );
   };
-  const screenshot = async name => {
-    const image = await cdp('Page.captureScreenshot', { format: 'png', captureBeyondViewport: true });
+  const screenshot = async (name) => {
+    const image = await cdp('Page.captureScreenshot', {
+      format: 'png',
+      captureBeyondViewport: true,
+    });
     await writeFile(path.join(output, name), Buffer.from(image.data, 'base64'));
   };
-  await cdp('Runtime.enable'); await cdp('Page.enable');
-  await cdp('Emulation.setUserAgentOverride', { userAgent: await evaluate('navigator.userAgent'), acceptLanguage: 'ja-JP,ja,en-US,en' });
-  await cdp('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'reduce' }] });
-  await cdp('Emulation.setDeviceMetricsOverride', { width: 1440, height: 1000, deviceScaleFactor: 1, mobile: false });
+  await cdp('Runtime.enable');
+  await cdp('Page.enable');
+  await cdp('Emulation.setUserAgentOverride', {
+    userAgent: await evaluate('navigator.userAgent'),
+    acceptLanguage: 'ja-JP,ja,en-US,en',
+  });
+  await cdp('Emulation.setEmulatedMedia', {
+    features: [{ name: 'prefers-reduced-motion', value: 'reduce' }],
+  });
+  await cdp('Emulation.setDeviceMetricsOverride', {
+    width: 1440,
+    height: 1000,
+    deviceScaleFactor: 1,
+    mobile: false,
+  });
   await cdp('Page.navigate', { url: `${url}?dashboard=${dashboard.id}` });
-  await until(async () => (await text()).includes('Task runner') && (await text()).includes('Ready'), 'live dashboard');
+  await until(
+    async () =>
+      (await text()).includes('Task runner') &&
+      (await text()).includes('Ready'),
+    'live dashboard',
+  );
   assert.equal(await evaluate('document.documentElement.lang'), 'ja');
   assert.ok((await text()).includes('ダッシュボードを作成'));
   assert.ok((await text()).includes('1個のアプリが利用可能'));
-  assert.equal(await evaluate('document.documentElement.scrollWidth <= innerWidth'), true);
+  assert.equal(
+    await evaluate('document.documentElement.scrollWidth <= innerWidth'),
+    true,
+  );
   await screenshot('dashboard-ja.png');
   await language('en');
   await cdp('Page.reload');
-  await until(async () => (await text()).includes('Task runner') && (await text()).includes('Create dashboard'), 'saved language overrides Japanese browser preference');
+  await until(
+    async () =>
+      (await text()).includes('Task runner') &&
+      (await text()).includes('Create dashboard'),
+    'saved language overrides Japanese browser preference',
+  );
   assert.equal(await evaluate('document.documentElement.lang'), 'en');
   await screenshot('dashboard.png');
   await click('Settings');
-  await until(() => evaluate('!!document.querySelector(".settings-dialog:modal")'), 'local settings');
-  assert.equal(await evaluate('document.querySelector(".settings-dialog select").checkVisibility()'), true);
-  assert.equal(await evaluate('!!document.querySelector(".settings-dialog [data-browser-id], .settings-dialog .danger")'), false, 'local hub has no remote browser identity');
+  await until(
+    () => evaluate('!!document.querySelector(".settings-dialog:modal")'),
+    'local settings',
+  );
+  assert.equal(
+    await evaluate(
+      'document.querySelector(".settings-dialog select").checkVisibility()',
+    ),
+    true,
+  );
+  assert.equal(
+    await evaluate(
+      '!!document.querySelector(".settings-dialog [data-browser-id], .settings-dialog .danger")',
+    ),
+    false,
+    'local hub has no remote browser identity',
+  );
   await screenshot('settings-local.png');
-  await cdp('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 });
-  await cdp('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 });
-  await until(() => evaluate('document.activeElement.matches(".settings-button")'), 'local settings focus restored');
-  if (process.env.CAPTURE_ONLY) { console.log(`Baseline: ${output}`); } else {
+  await cdp('Input.dispatchKeyEvent', {
+    type: 'keyDown',
+    key: 'Escape',
+    code: 'Escape',
+    windowsVirtualKeyCode: 27,
+  });
+  await cdp('Input.dispatchKeyEvent', {
+    type: 'keyUp',
+    key: 'Escape',
+    code: 'Escape',
+    windowsVirtualKeyCode: 27,
+  });
+  await until(
+    () => evaluate('document.activeElement.matches(".settings-button")'),
+    'local settings focus restored',
+  );
+  if (process.env.CAPTURE_ONLY) {
+    console.log(`Baseline: ${output}`);
+  } else {
     // File recovery stays separate from dashboard loading and editing errors.
     await importText('{invalid');
-    await until(() => evaluate("document.querySelector('.import-error')?.textContent.includes('Choose an omochi export file')"), 'invalid import recovery');
-    assert.equal((await text()).includes('Could not load or update dashboards'), false);
-    assert.equal(await evaluate("document.querySelector('.import-error button').textContent"), 'Choose another file');
+    await until(
+      () =>
+        evaluate(
+          "document.querySelector('.import-error')?.textContent.includes('Choose an omochi export file')",
+        ),
+      'invalid import recovery',
+    );
+    assert.equal(
+      (await text()).includes('Could not load or update dashboards'),
+      false,
+    );
+    assert.equal(
+      await evaluate(
+        "document.querySelector('.import-error button').textContent",
+      ),
+      'Choose another file',
+    );
     await language('ja');
-    assert.ok((await text()).includes('omochiで書き出した1 MiB以下のファイルを選んでください。'));
+    assert.ok(
+      (await text()).includes(
+        'omochiで書き出した1 MiB以下のファイルを選んでください。',
+      ),
+    );
     await screenshot('import-error-ja.png');
     await importText(' '.repeat(1024 * 1024 + 1));
-    await until(() => evaluate("document.querySelector('.import-error')?.textContent.includes('1 MiB') && document.querySelector('#import-board-file').value === ''"), 'oversized import recovery');
+    await until(
+      () =>
+        evaluate(
+          "document.querySelector('.import-error')?.textContent.includes('1 MiB') && document.querySelector('#import-board-file').value === ''",
+        ),
+      'oversized import recovery',
+    );
     await language('en');
-    await importText(JSON.stringify({ format: 'omochi.board', version: 1, board: { name: 'Import preview', panels: [] }, sources: [] }));
-    await until(() => evaluate("!!document.querySelector('dialog[open] #import-title') && !document.querySelector('.import-error')"), 'valid file clears import error');
+    await importText(
+      JSON.stringify({
+        format: 'omochi.board',
+        version: 1,
+        board: { name: 'Import preview', panels: [] },
+        sources: [],
+      }),
+    );
+    await until(
+      () =>
+        evaluate(
+          "!!document.querySelector('dialog[open] #import-title') && !document.querySelector('.import-error')",
+        ),
+      'valid file clears import error',
+    );
     await click('Cancel import');
-    assert.equal((await (await fetch(`${url}api/dashboards`)).json()).length, 1, 'preview cancellation does not create a dashboard');
+    assert.equal(
+      (await (await fetch(`${url}api/dashboards`)).json()).length,
+      1,
+      'preview cancellation does not create a dashboard',
+    );
     await click('Board view');
-    assert.equal(await evaluate("getComputedStyle(document.querySelector('.sidebar')).display"), 'none');
-    assert.equal(await evaluate("new URL(location.href).searchParams.get('view')"), 'board');
+    assert.equal(
+      await evaluate(
+        "getComputedStyle(document.querySelector('.sidebar')).display",
+      ),
+      'none',
+    );
+    assert.equal(
+      await evaluate("new URL(location.href).searchParams.get('view')"),
+      'board',
+    );
     // The live surface DOM survives both shell transitions.
-    await evaluate("void (window.savedSurface = document.querySelector('.omochi-surface'))");
+    await evaluate(
+      "void (window.savedSurface = document.querySelector('.omochi-surface'))",
+    );
     await click('Run');
-    await until(async () => (await text()).includes('dashboard-action-complete'), 'action in board mode');
+    await until(
+      async () => (await text()).includes('dashboard-action-complete'),
+      'action in board mode',
+    );
     await screenshot('board.png');
     await click('Exit board view');
-    assert.equal(await evaluate("window.savedSurface === document.querySelector('.omochi-surface')"), true);
-    const colors = await evaluate(`['.workspace', '.connection-count', '.primary', '.dashboard-link.selected'].map(selector => { const e=document.querySelector(selector); const c=getComputedStyle(e); let bg=c.backgroundColor, parent=e.parentElement; while(bg==='rgba(0, 0, 0, 0)' && parent) { bg=getComputedStyle(parent).backgroundColor; parent=parent.parentElement; } return {selector,color:c.color,background:bg}; })`);
-    const luminance = color => color.match(/[\d.]+/g).slice(0,3).map(Number).map(v=>v/255).map(v=>v<=.04045?v/12.92:((v+.055)/1.055)**2.4).reduce((sum,v,i)=>sum+v*[.2126,.7152,.0722][i],0);
-    for(const pair of colors) { const a=luminance(pair.color), b=luminance(pair.background); pair.ratio=(Math.max(a,b)+.05)/(Math.min(a,b)+.05); assert.ok(pair.ratio>=4.5,JSON.stringify(pair)); }
-    await writeFile(path.join(output,'contrast.json'),JSON.stringify(colors,null,2));
+    assert.equal(
+      await evaluate(
+        "window.savedSurface === document.querySelector('.omochi-surface')",
+      ),
+      true,
+    );
+    const colors = await evaluate(
+      `['.workspace', '.connection-count', '.primary', '.dashboard-link.selected'].map(selector => { const e=document.querySelector(selector); const c=getComputedStyle(e); let bg=c.backgroundColor, parent=e.parentElement; while(bg==='rgba(0, 0, 0, 0)' && parent) { bg=getComputedStyle(parent).backgroundColor; parent=parent.parentElement; } return {selector,color:c.color,background:bg}; })`,
+    );
+    const luminance = (color) =>
+      color
+        .match(/[\d.]+/g)
+        .slice(0, 3)
+        .map(Number)
+        .map((v) => v / 255)
+        .map((v) => (v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4))
+        .reduce((sum, v, i) => sum + v * [0.2126, 0.7152, 0.0722][i], 0);
+    for (const pair of colors) {
+      const a = luminance(pair.color),
+        b = luminance(pair.background);
+      pair.ratio = (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+      assert.ok(pair.ratio >= 4.5, JSON.stringify(pair));
+    }
+    await writeFile(
+      path.join(output, 'contrast.json'),
+      JSON.stringify(colors, null, 2),
+    );
     assert.equal((await geometry()).y, 4, 'viewing preserves the saved gap');
     await click('Edit dashboard');
-    await until(async () => (await geometry()).y === 0, 'editing compacts saved gaps');
-    assert.equal((await (await fetch(`${url}api/dashboards/${dashboard.id}`)).json()).panels[0].y, 4, 'editing does not persist automatically');
-    await click('Cancel'); await click('Discard changes');
-    await until(async () => (await geometry()).y === 4, 'cancel restores saved gap');
+    await until(
+      async () => (await geometry()).y === 0,
+      'editing compacts saved gaps',
+    );
+    assert.equal(
+      (await (await fetch(`${url}api/dashboards/${dashboard.id}`)).json())
+        .panels[0].y,
+      4,
+      'editing does not persist automatically',
+    );
+    await click('Cancel');
+    await click('Discard changes');
+    await until(
+      async () => (await geometry()).y === 4,
+      'cancel restores saved gap',
+    );
     await click('Edit dashboard');
-    assert.equal(await evaluate("window.savedSurface === document.querySelector('.omochi-surface')"), true);
+    assert.equal(
+      await evaluate(
+        "window.savedSurface === document.querySelector('.omochi-surface')",
+      ),
+      true,
+    );
     await click('Details');
-    await until(() => evaluate("!!document.querySelector('dialog[open] #details-title')"), 'view details');
-    await cdp('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 });
-    await cdp('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 });
-    await until(() => evaluate("!document.querySelector('dialog[open]') && document.activeElement.classList.contains('details-button')"), 'details escape focus restoration').catch(async error => { console.log(await evaluate("({dialog:!!document.querySelector('dialog[open]'), focus:document.activeElement.outerHTML})")); throw error; });
-    await evaluate("new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))");
-    assert.equal(await evaluate("document.activeElement.classList.contains('details-button')"), true, 'dialog focus stays on its trigger after animation frames');
-    await input('[aria-label="Dashboard name"]', ''); await click('Save dashboard');
-    await until(() => evaluate("document.activeElement.id === 'dashboard-name' && document.activeElement.getAttribute('aria-invalid') === 'true'"), 'name validation');
+    await until(
+      () => evaluate("!!document.querySelector('dialog[open] #details-title')"),
+      'view details',
+    );
+    await cdp('Input.dispatchKeyEvent', {
+      type: 'keyDown',
+      key: 'Escape',
+      code: 'Escape',
+      windowsVirtualKeyCode: 27,
+    });
+    await cdp('Input.dispatchKeyEvent', {
+      type: 'keyUp',
+      key: 'Escape',
+      code: 'Escape',
+      windowsVirtualKeyCode: 27,
+    });
+    await until(
+      () =>
+        evaluate(
+          "!document.querySelector('dialog[open]') && document.activeElement.classList.contains('details-button')",
+        ),
+      'details escape focus restoration',
+    ).catch(async (error) => {
+      console.log(
+        await evaluate(
+          "({dialog:!!document.querySelector('dialog[open]'), focus:document.activeElement.outerHTML})",
+        ),
+      );
+      throw error;
+    });
+    await evaluate(
+      'new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))',
+    );
+    assert.equal(
+      await evaluate(
+        "document.activeElement.classList.contains('details-button')",
+      ),
+      true,
+      'dialog focus stays on its trigger after animation frames',
+    );
+    await input('[aria-label="Dashboard name"]', '');
+    await click('Save dashboard');
+    await until(
+      () =>
+        evaluate(
+          "document.activeElement.id === 'dashboard-name' && document.activeElement.getAttribute('aria-invalid') === 'true'",
+        ),
+      'name validation',
+    );
     await input('[aria-label="Dashboard name"]', 'Daily overview');
     await evaluate(`(() => { const original = window.fetch; window.fetch = (...args) => {
       if (args[1]?.method === 'PUT') { window.fetch = original; return Promise.resolve(new Response('{}', { status: 400 })); }
       return original(...args);
     }; })()`);
     await click('Save dashboard');
-    await until(async () => (await text()).includes('Reload the saved dashboard and try again.'), 'invalid edit recovery');
-    assert.equal((await text()).includes('1 MiB'), false, 'editing errors do not show import instructions');
-    assert.equal(await evaluate("document.querySelector('.dashboard-name').value"), 'Daily overview');
+    await until(
+      async () =>
+        (await text()).includes('Reload the saved dashboard and try again.'),
+      'invalid edit recovery',
+    );
+    assert.equal(
+      (await text()).includes('1 MiB'),
+      false,
+      'editing errors do not show import instructions',
+    );
+    assert.equal(
+      await evaluate("document.querySelector('.dashboard-name').value"),
+      'Daily overview',
+    );
     await input('[aria-label="Dashboard name"]', '未保存の名前');
     await language('ja');
-    assert.equal(await evaluate("document.querySelector('.dashboard-name').value"), '未保存の名前');
+    assert.equal(
+      await evaluate("document.querySelector('.dashboard-name').value"),
+      '未保存の名前',
+    );
     assert.ok((await text()).includes('未保存の変更があります'));
-    assert.equal(await evaluate("window.savedSurface === document.querySelector('.omochi-surface')"), true);
-    assert.equal(await evaluate("document.querySelector('.details-button').getAttribute('aria-label')"), '「Task runner」の詳細');
+    assert.equal(
+      await evaluate(
+        "window.savedSurface === document.querySelector('.omochi-surface')",
+      ),
+      true,
+    );
+    assert.equal(
+      await evaluate(
+        "document.querySelector('.details-button').getAttribute('aria-label')",
+      ),
+      '「Task runner」の詳細',
+    );
     await screenshot('editing-ja.png');
-    await click('ビューを追加'); await input('#search-views', '<missing-view>');
-    await until(async () => (await text()).includes('「<missing-view>」に一致するビューはありません。'), 'Japanese search interpolation');
-    assert.equal(await evaluate("document.querySelector('.picker-empty missing-view') === null"), true, 'search is rendered as text');
-    await evaluate("document.querySelector('[aria-labelledby=\"picker-title\"] .dialog-header button').click()");
+    await click('ビューを追加');
+    await input('#search-views', '<missing-view>');
+    await until(
+      async () =>
+        (await text()).includes(
+          '「<missing-view>」に一致するビューはありません。',
+        ),
+      'Japanese search interpolation',
+    );
+    assert.equal(
+      await evaluate(
+        "document.querySelector('.picker-empty missing-view') === null",
+      ),
+      true,
+      'search is rendered as text',
+    );
+    await evaluate(
+      'document.querySelector(\'[aria-labelledby="picker-title"] .dialog-header button\').click()',
+    );
     await language('en');
     await input('[aria-label="Dashboard name"]', 'Daily overview');
-    assert.equal(await evaluate("document.querySelectorAll('.panel input[type=number]').length"), 0);
-    assert.equal(await evaluate("document.querySelectorAll('.resize-edge').length"), 8);
-    assert.equal(await evaluate("document.querySelectorAll('.adjust-controls, .panel-editor').length"), 0, 'desktop editing uses grid handles');
+    assert.equal(
+      await evaluate(
+        "document.querySelectorAll('.panel input[type=number]').length",
+      ),
+      0,
+    );
+    assert.equal(
+      await evaluate("document.querySelectorAll('.resize-edge').length"),
+      8,
+    );
+    assert.equal(
+      await evaluate(
+        "document.querySelectorAll('.adjust-controls, .panel-editor').length",
+      ),
+      0,
+      'desktop editing uses grid handles',
+    );
     await evaluate("document.querySelector('.drag-handle').focus()");
     for (const [key, dimension, expected] of [
-      ['ArrowRight', 'w', 7], ['ArrowLeft', 'w', 6], ['ArrowRight', 'w', 7],
-      ['ArrowDown', 'h', 7], ['ArrowUp', 'h', 6],
+      ['ArrowRight', 'w', 7],
+      ['ArrowLeft', 'w', 6],
+      ['ArrowRight', 'w', 7],
+      ['ArrowDown', 'h', 7],
+      ['ArrowUp', 'h', 6],
     ]) {
-      await cdp('Input.dispatchKeyEvent', { type: 'keyDown', key, code: key, modifiers: 8 });
+      await cdp('Input.dispatchKeyEvent', {
+        type: 'keyDown',
+        key,
+        code: key,
+        modifiers: 8,
+      });
       await cdp('Input.dispatchKeyEvent', { type: 'keyUp', key, code: key });
-      await until(async () => (await geometry())[dimension] === expected, `keyboard resize ${key}`);
+      await until(
+        async () => (await geometry())[dimension] === expected,
+        `keyboard resize ${key}`,
+      );
     }
     // Pointer moves are previews; escape returns the original rectangle.
     const initialGeometry = await geometry();
-    const columnWidth = await evaluate("(document.querySelector('.panel-grid').clientWidth + 16) / 12");
-    const bounds = await evaluate("(() => { const r = document.querySelector('.drag-handle').getBoundingClientRect(); return {x:r.x+r.width/2,y:r.y+r.height/2}; })()");
+    const columnWidth = await evaluate(
+      "(document.querySelector('.panel-grid').clientWidth + 16) / 12",
+    );
+    const bounds = await evaluate(
+      "(() => { const r = document.querySelector('.drag-handle').getBoundingClientRect(); return {x:r.x+r.width/2,y:r.y+r.height/2}; })()",
+    );
     await screenshot('before-drag.png');
     await cdp('Input.dispatchMouseEvent', { type: 'mouseMoved', ...bounds });
-    await cdp('Input.dispatchMouseEvent', { type: 'mousePressed', ...bounds, button: 'left', buttons: 1, clickCount: 1 });
+    await cdp('Input.dispatchMouseEvent', {
+      type: 'mousePressed',
+      ...bounds,
+      button: 'left',
+      buttons: 1,
+      clickCount: 1,
+    });
     await frame();
-    await cdp('Input.dispatchMouseEvent', { type: 'mouseMoved', x: bounds.x + columnWidth, y: bounds.y, button: 'left', buttons: 1 });
+    await cdp('Input.dispatchMouseEvent', {
+      type: 'mouseMoved',
+      x: bounds.x + columnWidth,
+      y: bounds.y,
+      button: 'left',
+      buttons: 1,
+    });
     await until(async () => (await geometry()).x === 1, 'move preview');
-    await cdp('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape' });
-    await cdp('Input.dispatchMouseEvent', { type: 'mouseReleased', x: bounds.x + columnWidth, y: bounds.y, button: 'left' });
-    await until(async () => JSON.stringify(await geometry()) === JSON.stringify(initialGeometry), 'cancelled drag geometry');
-    const resizeBounds = await evaluate("(() => { const r=document.querySelector('.resize-se').getBoundingClientRect(); return {x:r.x+r.width/2,y:r.y+r.height/2}; })()");
-    await cdp('Input.dispatchMouseEvent', { type: 'mouseMoved', ...resizeBounds });
-    await cdp('Input.dispatchMouseEvent', { type: 'mousePressed', ...resizeBounds, button: 'left', buttons: 1, clickCount: 1 });
+    await cdp('Input.dispatchKeyEvent', {
+      type: 'keyDown',
+      key: 'Escape',
+      code: 'Escape',
+    });
+    await cdp('Input.dispatchMouseEvent', {
+      type: 'mouseReleased',
+      x: bounds.x + columnWidth,
+      y: bounds.y,
+      button: 'left',
+    });
+    await until(
+      async () =>
+        JSON.stringify(await geometry()) === JSON.stringify(initialGeometry),
+      'cancelled drag geometry',
+    );
+    const resizeBounds = await evaluate(
+      "(() => { const r=document.querySelector('.resize-se').getBoundingClientRect(); return {x:r.x+r.width/2,y:r.y+r.height/2}; })()",
+    );
+    await cdp('Input.dispatchMouseEvent', {
+      type: 'mouseMoved',
+      ...resizeBounds,
+    });
+    await cdp('Input.dispatchMouseEvent', {
+      type: 'mousePressed',
+      ...resizeBounds,
+      button: 'left',
+      buttons: 1,
+      clickCount: 1,
+    });
     await frame();
-    await cdp('Input.dispatchMouseEvent', { type: 'mouseMoved', x: resizeBounds.x, y: resizeBounds.y+56, button: 'left', buttons: 1 });
+    await cdp('Input.dispatchMouseEvent', {
+      type: 'mouseMoved',
+      x: resizeBounds.x,
+      y: resizeBounds.y + 56,
+      button: 'left',
+      buttons: 1,
+    });
     await until(async () => (await geometry()).h === 7, 'resize preview');
-    await cdp('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape' });
-    await cdp('Input.dispatchMouseEvent', { type: 'mouseReleased', x: resizeBounds.x, y: resizeBounds.y+56, button: 'left' });
-    await until(async () => JSON.stringify(await geometry()) === JSON.stringify(initialGeometry), 'cancelled resize geometry');
+    await cdp('Input.dispatchKeyEvent', {
+      type: 'keyDown',
+      key: 'Escape',
+      code: 'Escape',
+    });
+    await cdp('Input.dispatchMouseEvent', {
+      type: 'mouseReleased',
+      x: resizeBounds.x,
+      y: resizeBounds.y + 56,
+      button: 'left',
+    });
+    await until(
+      async () =>
+        JSON.stringify(await geometry()) === JSON.stringify(initialGeometry),
+      'cancelled resize geometry',
+    );
     await evaluate("document.querySelector('.drag-handle').focus()");
-    await cdp('Input.dispatchKeyEvent', { type: 'keyDown', key: 'ArrowRight', code: 'ArrowRight' });
+    await cdp('Input.dispatchKeyEvent', {
+      type: 'keyDown',
+      key: 'ArrowRight',
+      code: 'ArrowRight',
+    });
     await until(async () => (await geometry()).x === 1, 'keyboard movement');
-    await cdp('Input.dispatchKeyEvent', { type: 'keyDown', key: 'ArrowDown', code: 'ArrowDown' });
-    assert.equal((await geometry()).y, 0, 'vertical compaction closes empty rows');
+    await cdp('Input.dispatchKeyEvent', {
+      type: 'keyDown',
+      key: 'ArrowDown',
+      code: 'ArrowDown',
+    });
+    assert.equal(
+      (await geometry()).y,
+      0,
+      'vertical compaction closes empty rows',
+    );
     const beforeTouch = await geometry();
-    const touchHandle = await evaluate("(() => { const r=document.querySelector('.drag-handle').getBoundingClientRect(); return {x:r.x+r.width/2,y:r.y+r.height/2}; })()");
-    await cdp('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ ...touchHandle, id: 1 }] });
+    const touchHandle = await evaluate(
+      "(() => { const r=document.querySelector('.drag-handle').getBoundingClientRect(); return {x:r.x+r.width/2,y:r.y+r.height/2}; })()",
+    );
+    await cdp('Input.dispatchTouchEvent', {
+      type: 'touchStart',
+      touchPoints: [{ ...touchHandle, id: 1 }],
+    });
     await frame();
-    await cdp('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: touchHandle.x + columnWidth, y: touchHandle.y, id: 1 }] });
-    await until(async () => (await geometry()).x === beforeTouch.x + 1, 'touch move preview');
-    await cdp('Input.dispatchTouchEvent', { type: 'touchCancel', touchPoints: [] });
-    await until(async () => JSON.stringify(await geometry()) === JSON.stringify(beforeTouch), 'touch cancellation restores geometry');
-    await click('Add view'); await input('#search-views', 'no-such-view');
-    await until(async () => (await text()).includes('No views match'), 'empty search'); await screenshot('search-empty.png');
+    await cdp('Input.dispatchTouchEvent', {
+      type: 'touchMove',
+      touchPoints: [
+        { x: touchHandle.x + columnWidth, y: touchHandle.y, id: 1 },
+      ],
+    });
+    await until(
+      async () => (await geometry()).x === beforeTouch.x + 1,
+      'touch move preview',
+    );
+    await cdp('Input.dispatchTouchEvent', {
+      type: 'touchCancel',
+      touchPoints: [],
+    });
+    await until(
+      async () =>
+        JSON.stringify(await geometry()) === JSON.stringify(beforeTouch),
+      'touch cancellation restores geometry',
+    );
+    await click('Add view');
+    await input('#search-views', 'no-such-view');
+    await until(
+      async () => (await text()).includes('No views match'),
+      'empty search',
+    );
+    await screenshot('search-empty.png');
     await click('Clear search');
-    await evaluate("document.querySelector('[aria-labelledby=\"picker-title\"] .dialog-header button').click()");
-    await until(() => evaluate("document.activeElement.id === 'add-view'"), 'picker focus restoration');
-    await evaluate("document.querySelector('[aria-label=\"Remove Task runner\"]').click()");
-    await until(() => evaluate("document.querySelectorAll('.panel').length === 0"), 'remove view');
+    await evaluate(
+      'document.querySelector(\'[aria-labelledby="picker-title"] .dialog-header button\').click()',
+    );
+    await until(
+      () => evaluate("document.activeElement.id === 'add-view'"),
+      'picker focus restoration',
+    );
+    await evaluate(
+      'document.querySelector(\'[aria-label="Remove Task runner"]\').click()',
+    );
+    await until(
+      () => evaluate("document.querySelectorAll('.panel').length === 0"),
+      'remove view',
+    );
     await click('Undo removal');
-    await until(() => evaluate("document.querySelectorAll('.panel').length === 1"), 'undo view');
+    await until(
+      () => evaluate("document.querySelectorAll('.panel').length === 1"),
+      'undo view',
+    );
     await screenshot('editing.png');
-    await evaluate("document.querySelector('.subtitle').textContent = 'Translated editing status'");
+    await evaluate(
+      "document.querySelector('.subtitle').textContent = 'Translated editing status'",
+    );
     await click('Cancel');
-    await until(() => evaluate("document.querySelector('#confirm-title')?.textContent === 'Discard unsaved changes?'"), 'discard confirmation');
+    await until(
+      () =>
+        evaluate(
+          "document.querySelector('#confirm-title')?.textContent === 'Discard unsaved changes?'",
+        ),
+      'discard confirmation',
+    );
     await evaluate("document.querySelector('dialog .hub-button').click()");
-    assert.equal(await evaluate("!!document.querySelector('.dashboard-name')"), true);
+    assert.equal(
+      await evaluate("!!document.querySelector('.dashboard-name')"),
+      true,
+    );
     await click('Save dashboard');
-    await until(async () => (await text()).includes('Dashboard saved.'), 'save');
+    await until(
+      async () => (await text()).includes('Dashboard saved.'),
+      'save',
+    );
     const ax = await cdp('Accessibility.getFullAXTree');
-    const unnamedButtons=ax.nodes.filter(n=>!n.ignored && n.role?.value==='button' && !n.name?.value);
-    assert.equal(unnamedButtons.length,0);
-    await writeFile(path.join(output,'accessibility.json'), JSON.stringify(ax,null,2));
+    const unnamedButtons = ax.nodes.filter(
+      (n) => !n.ignored && n.role?.value === 'button' && !n.name?.value,
+    );
+    assert.equal(unnamedButtons.length, 0);
+    await writeFile(
+      path.join(output, 'accessibility.json'),
+      JSON.stringify(ax, null, 2),
+    );
     const saved = await (await fetch(`${url}api/dashboards`)).json();
-    assert.equal(saved[0].panels[0].w, 7); assert.equal(saved[0].panels[0].y, 0); assert.equal(saved[0].panels[0].x, 1);
-    await cdp('Page.reload'); await until(async () => (await text()).includes('Task runner'), 'reload saved');
+    assert.equal(saved[0].panels[0].w, 7);
+    assert.equal(saved[0].panels[0].y, 0);
+    assert.equal(saved[0].panels[0].x, 1);
+    await cdp('Page.reload');
+    await until(
+      async () => (await text()).includes('Task runner'),
+      'reload saved',
+    );
     // Conflict retains the draft and offers recovery.
-    await click('Edit dashboard'); await input('[aria-label="Dashboard name"]', 'Local changes');
-    await fetch(`${url}api/dashboards/${dashboard.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...saved[0], name: 'Changed elsewhere' }) });
-    await click('Save dashboard'); await until(async () => (await text()).includes('Your edits are kept'), 'conflict');
+    await click('Edit dashboard');
+    await input('[aria-label="Dashboard name"]', 'Local changes');
+    await fetch(`${url}api/dashboards/${dashboard.id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...saved[0], name: 'Changed elsewhere' }),
+    });
+    await click('Save dashboard');
+    await until(
+      async () => (await text()).includes('Your edits are kept'),
+      'conflict',
+    );
     await language('ja');
-    assert.ok((await text()).includes('別の場所でダッシュボードが変更されました。'));
+    assert.ok(
+      (await text()).includes('別の場所でダッシュボードが変更されました。'),
+    );
     await language('en');
-    assert.equal(await evaluate("document.querySelector('.dashboard-name').value"), 'Local changes');
+    assert.equal(
+      await evaluate("document.querySelector('.dashboard-name').value"),
+      'Local changes',
+    );
     await screenshot('save-error.png');
     await delay(1100); // A background poll must not clear the save-conflict recovery.
-    await click('Discard and reload'); await click('Discard changes');
-    await until(async () => (await text()).includes('Changed elsewhere'), 'reload conflict');
+    await click('Discard and reload');
+    await click('Discard changes');
+    await until(
+      async () => (await text()).includes('Changed elsewhere'),
+      'reload conflict',
+    );
     // A dispatched save owns the draft until it settles; navigation must wait.
-    await click('Edit dashboard'); await input('[aria-label="Dashboard name"]', 'Changed elsewhere');
+    await click('Edit dashboard');
+    await input('[aria-label="Dashboard name"]', 'Changed elsewhere');
     await evaluate(`(() => { const original = window.fetch; window.fetch = async (...args) => {
       if (args[1]?.method === 'PUT') { await new Promise(resolve => { window.finishSave = resolve; }); window.fetch = original; }
       return original(...args);
     }; })()`);
     await click('Save dashboard');
-    await until(() => evaluate("typeof window.finishSave === 'function'"), 'dispatched save');
+    await until(
+      () => evaluate("typeof window.finishSave === 'function'"),
+      'dispatched save',
+    );
     await evaluate("document.querySelector('.brand').click()");
-    assert.equal(await evaluate("!!document.querySelector('.dashboard-name') && !document.querySelector('dialog[open]')"), true);
-    await evaluate("window.finishSave()");
-    await until(() => evaluate("!document.querySelector('.dashboard-name')"), 'save settles before leaving');
+    assert.equal(
+      await evaluate(
+        "!!document.querySelector('.dashboard-name') && !document.querySelector('dialog[open]')",
+      ),
+      true,
+    );
+    await evaluate('window.finishSave()');
+    await until(
+      () => evaluate("!document.querySelector('.dashboard-name')"),
+      'save settles before leaving',
+    );
     await click('Create dashboard');
     await input('.dashboard-name', 'Temporary dashboard');
     await click('Save dashboard');
-    await until(async ()=>(await text()).includes('Dashboard saved.'),'create dashboard');
+    await until(
+      async () => (await text()).includes('Dashboard saved.'),
+      'create dashboard',
+    );
     await click('Delete dashboard');
-    await until(()=>evaluate("document.querySelector('dialog[open] #confirm-title')?.textContent.includes('Temporary dashboard')"),'delete confirmation');
+    await until(
+      () =>
+        evaluate(
+          "document.querySelector('dialog[open] #confirm-title')?.textContent.includes('Temporary dashboard')",
+        ),
+      'delete confirmation',
+    );
     await evaluate("document.querySelector('dialog .danger').focus()");
-    await cdp('Input.dispatchKeyEvent', {type:'keyDown', key:'Enter', code:'Enter', windowsVirtualKeyCode:13, text:'\r', unmodifiedText:'\r'});
-    await cdp('Input.dispatchKeyEvent', {type:'keyUp', key:'Enter', code:'Enter', windowsVirtualKeyCode:13});
-    await until(async ()=>(await text()).includes('Dashboard deleted.'),'delete dashboard').catch(async error=>{ console.log(await text()); throw error; });
-    await start('omochi-utils', ['button', '--service-id', 'second', '--runtime-dir', runtime, '--', '/bin/echo', 'second-action'], /Published service/);
-    await click('Edit dashboard'); await click('Add view');
-    await until(()=>evaluate("Array.from(document.querySelectorAll('.app-options button')).some(b=>!b.disabled)"),'second view');
-    await evaluate("document.querySelector('.app-options button:not(:disabled)').click()");
-    await until(()=>evaluate("document.querySelectorAll('.panel').length===2"),'added second view');
+    await cdp('Input.dispatchKeyEvent', {
+      type: 'keyDown',
+      key: 'Enter',
+      code: 'Enter',
+      windowsVirtualKeyCode: 13,
+      text: '\r',
+      unmodifiedText: '\r',
+    });
+    await cdp('Input.dispatchKeyEvent', {
+      type: 'keyUp',
+      key: 'Enter',
+      code: 'Enter',
+      windowsVirtualKeyCode: 13,
+    });
+    await until(
+      async () => (await text()).includes('Dashboard deleted.'),
+      'delete dashboard',
+    ).catch(async (error) => {
+      console.log(await text());
+      throw error;
+    });
+    await start(
+      'omochi-utils',
+      [
+        'button',
+        '--service-id',
+        'second',
+        '--runtime-dir',
+        runtime,
+        '--',
+        '/bin/echo',
+        'second-action',
+      ],
+      /Published service/,
+    );
+    await click('Edit dashboard');
+    await click('Add view');
+    await until(
+      () =>
+        evaluate(
+          "Array.from(document.querySelectorAll('.app-options button')).some(b=>!b.disabled)",
+        ),
+      'second view',
+    );
+    await evaluate(
+      "document.querySelector('.app-options button:not(:disabled)').click()",
+    );
+    await until(
+      () => evaluate("document.querySelectorAll('.panel').length===2"),
+      'added second view',
+    );
     await click('Save dashboard');
-    await until(async () => (await text()).includes('Dashboard saved.'), 'save second view');
+    await until(
+      async () => (await text()).includes('Dashboard saved.'),
+      'save second view',
+    );
     // Every edge and corner previews with RGL and rolls back without saving.
     await click('Edit dashboard');
     const allEdgesBaseline = await geometry();
     for (const edge of ['n', 's', 'e', 'w', 'ne', 'nw', 'se', 'sw']) {
-      await evaluate(`document.querySelector('.resize-${edge}').scrollIntoView({block:'center'})`);
+      await evaluate(
+        `document.querySelector('.resize-${edge}').scrollIntoView({block:'center'})`,
+      );
       await frame();
-      const handle = await evaluate(`(() => { const r=document.querySelector('.resize-${edge}').getBoundingClientRect(); return {x:r.x+r.width/2,y:r.y+r.height/2}; })()`);
-      const dx = edge.includes('e') || edge.includes('w') ? await evaluate("(document.querySelector('.panel-grid').clientWidth + 16) / 12") : 0;
+      const handle = await evaluate(
+        `(() => { const r=document.querySelector('.resize-${edge}').getBoundingClientRect(); return {x:r.x+r.width/2,y:r.y+r.height/2}; })()`,
+      );
+      const dx =
+        edge.includes('e') || edge.includes('w')
+          ? await evaluate(
+              "(document.querySelector('.panel-grid').clientWidth + 16) / 12",
+            )
+          : 0;
       const dy = edge.includes('n') || edge.includes('s') ? 56 : 0;
       await cdp('Input.dispatchMouseEvent', { type: 'mouseMoved', ...handle });
-      await cdp('Input.dispatchMouseEvent', { type: 'mousePressed', ...handle, button: 'left', buttons: 1, clickCount: 1 });
-      await frame();
-      await cdp('Input.dispatchMouseEvent', { type: 'mouseMoved', x: handle.x + dx / 2, y: handle.y + dy / 2, button: 'left', buttons: 1 });
-      await frame();
-      await cdp('Input.dispatchMouseEvent', { type: 'mouseMoved', x: handle.x + dx, y: handle.y + dy, button: 'left', buttons: 1 });
-      await until(async () => { const next = await geometry(); return next.w !== allEdgesBaseline.w || next.h !== allEdgesBaseline.h; }, `${edge} resize preview`).catch(async error => {
-        console.log({edge, handle, geometry:await geometry(), hit:await evaluate(`document.elementFromPoint(${handle.x},${handle.y})?.outerHTML`)});
-        await screenshot('failed-resize.png'); throw error;
+      await cdp('Input.dispatchMouseEvent', {
+        type: 'mousePressed',
+        ...handle,
+        button: 'left',
+        buttons: 1,
+        clickCount: 1,
       });
-      await cdp('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape' });
-      await cdp('Input.dispatchMouseEvent', { type: 'mouseReleased', x: handle.x + dx, y: handle.y + dy, button: 'left' });
-      await until(async () => JSON.stringify(await geometry()) === JSON.stringify(allEdgesBaseline), `${edge} resize rollback`);
+      await frame();
+      await cdp('Input.dispatchMouseEvent', {
+        type: 'mouseMoved',
+        x: handle.x + dx / 2,
+        y: handle.y + dy / 2,
+        button: 'left',
+        buttons: 1,
+      });
+      await frame();
+      await cdp('Input.dispatchMouseEvent', {
+        type: 'mouseMoved',
+        x: handle.x + dx,
+        y: handle.y + dy,
+        button: 'left',
+        buttons: 1,
+      });
+      await until(async () => {
+        const next = await geometry();
+        return next.w !== allEdgesBaseline.w || next.h !== allEdgesBaseline.h;
+      }, `${edge} resize preview`).catch(async (error) => {
+        console.log({
+          edge,
+          handle,
+          geometry: await geometry(),
+          hit: await evaluate(
+            `document.elementFromPoint(${handle.x},${handle.y})?.outerHTML`,
+          ),
+        });
+        await screenshot('failed-resize.png');
+        throw error;
+      });
+      await cdp('Input.dispatchKeyEvent', {
+        type: 'keyDown',
+        key: 'Escape',
+        code: 'Escape',
+      });
+      await cdp('Input.dispatchMouseEvent', {
+        type: 'mouseReleased',
+        x: handle.x + dx,
+        y: handle.y + dy,
+        button: 'left',
+      });
+      await until(
+        async () =>
+          JSON.stringify(await geometry()) === JSON.stringify(allEdgesBaseline),
+        `${edge} resize rollback`,
+      );
     }
     await click('Cancel');
-    await until(() => evaluate("!document.querySelector('.dashboard-name')"), 'cancelled gestures leave the draft clean');
+    await until(
+      () => evaluate("!document.querySelector('.dashboard-name')"),
+      'cancelled gestures leave the draft clean',
+    );
     await click('Edit dashboard');
     // A completed resize commits to the draft, then the existing Save API.
-    const south = await evaluate("(() => { const r=document.querySelector('.resize-s').getBoundingClientRect(); return {x:r.x+r.width/2,y:r.y+r.height/2}; })()");
-    const resizedId = await evaluate("document.querySelector('.panel').dataset.panelId");
+    const south = await evaluate(
+      "(() => { const r=document.querySelector('.resize-s').getBoundingClientRect(); return {x:r.x+r.width/2,y:r.y+r.height/2}; })()",
+    );
+    const resizedId = await evaluate(
+      "document.querySelector('.panel').dataset.panelId",
+    );
     await cdp('Input.dispatchMouseEvent', { type: 'mouseMoved', ...south });
-    await cdp('Input.dispatchMouseEvent', { type: 'mousePressed', ...south, button: 'left', buttons: 1, clickCount: 1 });
+    await cdp('Input.dispatchMouseEvent', {
+      type: 'mousePressed',
+      ...south,
+      button: 'left',
+      buttons: 1,
+      clickCount: 1,
+    });
     await frame();
-    await cdp('Input.dispatchMouseEvent', { type: 'mouseMoved', x: south.x, y: south.y + 56, button: 'left', buttons: 1 });
-    await cdp('Input.dispatchMouseEvent', { type: 'mouseReleased', x: south.x, y: south.y + 56, button: 'left' });
-    await until(async () => (await geometry()).h === allEdgesBaseline.h + 1, 'completed resize');
+    await cdp('Input.dispatchMouseEvent', {
+      type: 'mouseMoved',
+      x: south.x,
+      y: south.y + 56,
+      button: 'left',
+      buttons: 1,
+    });
+    await cdp('Input.dispatchMouseEvent', {
+      type: 'mouseReleased',
+      x: south.x,
+      y: south.y + 56,
+      button: 'left',
+    });
+    await until(
+      async () => (await geometry()).h === allEdgesBaseline.h + 1,
+      'completed resize',
+    );
     await input('.dashboard-name', 'Daily overview');
-    await evaluate('window.scrollTo(0, 0)'); await screenshot('rgl-editing.png');
+    await evaluate('window.scrollTo(0, 0)');
+    await screenshot('rgl-editing.png');
     await click('Save dashboard');
-    await until(async () => (await text()).includes('Dashboard saved.'), 'saved RGL resize');
-    assert.equal((await (await fetch(`${url}api/dashboards/${dashboard.id}`)).json()).panels.find(p => p.id === resizedId).h, allEdgesBaseline.h + 1);
+    await until(
+      async () => (await text()).includes('Dashboard saved.'),
+      'saved RGL resize',
+    );
+    assert.equal(
+      (
+        await (await fetch(`${url}api/dashboards/${dashboard.id}`)).json()
+      ).panels.find((p) => p.id === resizedId).h,
+      allEdgesBaseline.h + 1,
+    );
 
-    const beforeResize = await (await fetch(`${url}api/dashboards/${dashboard.id}`)).json();
-    await evaluate("window.mobileSurface = document.querySelector('.omochi-surface'); window.surfaceButton = window.mobileSurface.querySelector('button'); window.surfaceButton.focus()");
-    await cdp('Emulation.setDeviceMetricsOverride', { width: 320, height: 844, deviceScaleFactor: 1, mobile: true });
-    await until(() => evaluate("getComputedStyle(document.querySelector('.panel-grid')).display === 'flex'"), 'mobile layout');
-    assert.equal(await evaluate('document.documentElement.scrollWidth <= innerWidth'), true);
-    assert.equal(await evaluate("window.mobileSurface === document.querySelector('.omochi-surface') && document.activeElement === window.surfaceButton"), true, 'mobile breakpoint preserves surface and focus');
-    assert.deepEqual(await (await fetch(`${url}api/dashboards/${dashboard.id}`)).json(), beforeResize, 'resizing never saves geometry');
+    const beforeResize = await (
+      await fetch(`${url}api/dashboards/${dashboard.id}`)
+    ).json();
+    await evaluate(
+      "window.mobileSurface = document.querySelector('.omochi-surface'); window.surfaceButton = window.mobileSurface.querySelector('button'); window.surfaceButton.focus()",
+    );
+    await cdp('Emulation.setDeviceMetricsOverride', {
+      width: 320,
+      height: 844,
+      deviceScaleFactor: 1,
+      mobile: true,
+    });
+    await until(
+      () =>
+        evaluate(
+          "getComputedStyle(document.querySelector('.panel-grid')).display === 'flex'",
+        ),
+      'mobile layout',
+    );
+    assert.equal(
+      await evaluate('document.documentElement.scrollWidth <= innerWidth'),
+      true,
+    );
+    assert.equal(
+      await evaluate(
+        "window.mobileSurface === document.querySelector('.omochi-surface') && document.activeElement === window.surfaceButton",
+      ),
+      true,
+      'mobile breakpoint preserves surface and focus',
+    );
+    assert.deepEqual(
+      await (await fetch(`${url}api/dashboards/${dashboard.id}`)).json(),
+      beforeResize,
+      'resizing never saves geometry',
+    );
     await screenshot('mobile.png');
     await language('ja');
-    assert.equal(await evaluate('document.documentElement.scrollWidth <= innerWidth'), true);
+    assert.equal(
+      await evaluate('document.documentElement.scrollWidth <= innerWidth'),
+      true,
+    );
     await screenshot('mobile-ja.png');
     await click('ボード表示');
-    await until(async () => (await text()).includes('ボード表示を終了'), 'Japanese board view');
-    assert.equal(await evaluate('document.documentElement.scrollWidth <= innerWidth'), true);
+    await until(
+      async () => (await text()).includes('ボード表示を終了'),
+      'Japanese board view',
+    );
+    assert.equal(
+      await evaluate('document.documentElement.scrollWidth <= innerWidth'),
+      true,
+    );
     await screenshot('mobile-board-ja.png');
     await click('ボード表示を終了');
     await language('en');
     await click('Edit dashboard');
-    assert.equal(await evaluate("Array.from(document.querySelectorAll('.resize-edge')).filter(el => el.checkVisibility()).length"), 0);
+    assert.equal(
+      await evaluate(
+        "Array.from(document.querySelectorAll('.resize-edge')).filter(el => el.checkVisibility()).length",
+      ),
+      0,
+    );
     assert.equal((await text()).includes('Move up'), true);
-    const firstId=await evaluate("document.querySelector('.panel').dataset.panelId");
+    const firstId = await evaluate(
+      "document.querySelector('.panel').dataset.panelId",
+    );
     await click('Move down');
-    await until(()=>evaluate("document.querySelector('.panel').dataset.panelId").then(id=>id!==firstId),'mobile reorder');
+    await until(
+      () =>
+        evaluate("document.querySelector('.panel').dataset.panelId").then(
+          (id) => id !== firstId,
+        ),
+      'mobile reorder',
+    );
     await click('Save dashboard');
-    await until(async () => (await text()).includes('Dashboard saved.'), 'save mobile order');
-    await click('Board view'); await cdp('Page.reload');
-    await until(async () => (await text()).includes('Exit board view'), 'direct board mode');
-    assert.equal(await evaluate('document.documentElement.scrollWidth <= innerWidth'), true);
+    await until(
+      async () => (await text()).includes('Dashboard saved.'),
+      'save mobile order',
+    );
+    await click('Board view');
+    await cdp('Page.reload');
+    await until(
+      async () => (await text()).includes('Exit board view'),
+      'direct board mode',
+    );
+    assert.equal(
+      await evaluate('document.documentElement.scrollWidth <= innerWidth'),
+      true,
+    );
     await screenshot('mobile-board.png');
     await click('Exit board view');
-    await cdp('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'reduce' }] });
-    assert.equal(await evaluate("getComputedStyle(document.querySelector('.hub-button')).transitionDuration"), '0s');
-    await cdp('Emulation.setEmulatedMedia', { features: [{ name: 'forced-colors', value: 'active' }] });
+    await cdp('Emulation.setEmulatedMedia', {
+      features: [{ name: 'prefers-reduced-motion', value: 'reduce' }],
+    });
+    assert.equal(
+      await evaluate(
+        "getComputedStyle(document.querySelector('.hub-button')).transitionDuration",
+      ),
+      '0s',
+    );
+    await cdp('Emulation.setEmulatedMedia', {
+      features: [{ name: 'forced-colors', value: 'active' }],
+    });
     await screenshot('forced-colors.png');
     await cdp('Emulation.setEmulatedMedia', { features: [] });
     await evaluate("document.documentElement.dir = 'rtl'");
-    assert.equal(await evaluate('document.documentElement.scrollWidth <= innerWidth'), true);
+    assert.equal(
+      await evaluate('document.documentElement.scrollWidth <= innerWidth'),
+      true,
+    );
     await screenshot('rtl.png');
-    await evaluate("document.documentElement.dir = 'ltr'; document.documentElement.style.fontSize = '200%'");
-    assert.equal(await evaluate('document.documentElement.scrollWidth <= innerWidth'), true);
+    await evaluate(
+      "document.documentElement.dir = 'ltr'; document.documentElement.style.fontSize = '200%'",
+    );
+    assert.equal(
+      await evaluate('document.documentElement.scrollWidth <= innerWidth'),
+      true,
+    );
     await screenshot('text-200.png');
     await click('Board view');
-    assert.equal(await evaluate('document.documentElement.scrollWidth <= innerWidth'), true);
+    assert.equal(
+      await evaluate('document.documentElement.scrollWidth <= innerWidth'),
+      true,
+    );
     await screenshot('board-text-200.png');
     utility.child.kill('SIGTERM');
-    await until(async ()=>(await text()).includes('View unavailable'),'source app disconnected');
+    await until(
+      async () => (await text()).includes('View unavailable'),
+      'source app disconnected',
+    );
     await screenshot('disconnected.png');
     assert.deepEqual(errors, []);
     console.log(`Browser checks passed. Screenshots: ${output}`);
@@ -392,9 +1155,11 @@ try {
   socket?.close();
   for (const child of children.reverse()) {
     if (child.exitCode !== null || child.signalCode !== null) continue;
-    const exited = once(child, 'exit'); child.kill('SIGTERM');
+    const exited = once(child, 'exit');
+    child.kill('SIGTERM');
     await Promise.race([exited, delay(3000)]);
-    if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
+    if (child.exitCode === null && child.signalCode === null)
+      child.kill('SIGKILL');
   }
   await rm(temporary, { recursive: true, force: true });
 }

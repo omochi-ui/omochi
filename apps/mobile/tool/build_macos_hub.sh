@@ -17,9 +17,12 @@ fi
 LIBRARIES=()
 for ARCH in ${ARCHS:-$(uname -m)}; do
   case "$ARCH" in
-    arm64) TARGET=aarch64-apple-darwin ;;
-    x86_64) TARGET=x86_64-apple-darwin ;;
-    *) echo "Unsupported macOS architecture: $ARCH" >&2; exit 1 ;;
+  arm64) TARGET=aarch64-apple-darwin ;;
+  x86_64) TARGET=x86_64-apple-darwin ;;
+  *)
+    echo "Unsupported macOS architecture: $ARCH" >&2
+    exit 1
+    ;;
   esac
   rustup target add "$TARGET"
   SDKROOT="$(xcrun --sdk macosx --show-sdk-path)" \

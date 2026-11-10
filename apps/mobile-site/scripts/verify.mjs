@@ -9,7 +9,11 @@ const dev = await unstable_dev(undefined, {
   port: 0,
   inspectorPort: 0,
   logLevel: 'error',
-  experimental: { disableExperimentalWarning: true, showInteractiveDevSession: false, watch: false },
+  experimental: {
+    disableExperimentalWarning: true,
+    showInteractiveDevSession: false,
+    watch: false,
+  },
 });
 
 try {
@@ -26,7 +30,12 @@ try {
   for (const path of ['/mark.svg', stylesheet[1]]) {
     assert.equal((await fetch(`${origin}${path}`)).status, 200, path);
   }
-  for (const path of ['/open', '/.well-known/apple-app-site-association', '/.well-known/assetlinks.json', '/missing']) {
+  for (const path of [
+    '/open',
+    '/.well-known/apple-app-site-association',
+    '/.well-known/assetlinks.json',
+    '/missing',
+  ]) {
     assert.equal((await fetch(`${origin}${path}`)).status, 404, path);
   }
   console.log('Mobile landing page, built assets and 404 routes verified.');

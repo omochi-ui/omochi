@@ -6,7 +6,8 @@ const value = {
   secret: 'b'.repeat(64),
   expires: Math.floor(Date.now() / 1000) + 180,
 };
-const link = (v: unknown) => '#g:' + Buffer.from(JSON.stringify(v)).toString('base64url');
+const link = (v: unknown) =>
+  '#g:' + Buffer.from(JSON.stringify(v)).toString('base64url');
 test('gateway URL shares the CLI payload without a nested encoding', () => {
   const fragment = link(value),
     decoded = parseGatewayLink(fragment);
@@ -32,6 +33,8 @@ test('shared hosted invitation fixtures', async () => {
   ).json();
   for (const item of fixtures.cases) {
     if (item.input.startsWith('https:'))
-      expect(parseGatewayLink(new URL(item.input).hash).gatewayId).toBe('a'.repeat(64));
+      expect(parseGatewayLink(new URL(item.input).hash).gatewayId).toBe(
+        'a'.repeat(64),
+      );
   }
 });

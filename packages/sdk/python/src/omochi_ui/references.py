@@ -1,4 +1,5 @@
 """Typed and dynamic projections of renderer-owned draft values."""
+
 from __future__ import annotations
 
 from typing import Any, Generic, TypeVar, overload
@@ -29,7 +30,11 @@ def _kind(kind: Any) -> Any:
 
 
 def same_type(left: Schema[Any], right: Schema[Any]) -> bool:
-    return _known_kind(left.kind) and _known_kind(right.kind) and _kind(left.kind) == _kind(right.kind)
+    return (
+        _known_kind(left.kind)
+        and _known_kind(right.kind)
+        and _kind(left.kind) == _kind(right.kind)
+    )
 
 
 def _compatible_kind(left: Any, right: Any) -> bool:
@@ -41,10 +46,15 @@ def _compatible_kind(left: Any, right: Any) -> bool:
         left_variants = left[1] if left_union else (left,)
         right_variants = right[1] if right_union else (right,)
         # Union order is irrelevant, but every known branch must still match.
-        return (all(any(_compatible_kind(a, b) for b in right_variants) for a in left_variants)
-                and all(any(_compatible_kind(a, b) for a in left_variants) for b in right_variants))
+        return all(
+            any(_compatible_kind(a, b) for b in right_variants) for a in left_variants
+        ) and all(
+            any(_compatible_kind(a, b) for a in left_variants) for b in right_variants
+        )
     if isinstance(left, tuple) and isinstance(right, tuple):
-        return len(left) == len(right) and all(_compatible_kind(a, b) for a, b in zip(left, right))
+        return len(left) == len(right) and all(
+            _compatible_kind(a, b) for a, b in zip(left, right)
+        )
     return left == right
 
 
@@ -54,7 +64,13 @@ def compatible_type(left: Schema[Any], right: Schema[Any]) -> bool:
 
 
 class ModelBinding(dict[str, str], Generic[T]):
-    def __init__(self, path: str, *, scope: RenderScope | None = None, schema: Schema[Any] | None = None):
+    def __init__(
+        self,
+        path: str,
+        *,
+        scope: RenderScope | None = None,
+        schema: Schema[Any] | None = None,
+    ):
         dict.__init__(self, path=path)
         self._scope, self._schema = scope, schema
 
@@ -73,7 +89,13 @@ class ModelBinding(dict[str, str], Generic[T]):
 
 
 class Local(Expr[T], Generic[T]):
-    def __init__(self, path: str, scope: RenderScope, schema: Schema[Any] | None, initial: Any = MISSING):
+    def __init__(
+        self,
+        path: str,
+        scope: RenderScope,
+        schema: Schema[Any] | None,
+        initial: Any = MISSING,
+    ):
         super().__init__(path, _schema=schema, _scope=scope)
         object.__setattr__(self, "_initial", initial)
 
@@ -82,12 +104,18 @@ class Local(Expr[T], Generic[T]):
         self._scope.check()
         schema = self._schema
         if schema is None:
-            raise DeclarationError("field projection needs a declared type; pass type= to local()")
+            raise DeclarationError(
+                "field projection needs a declared type; pass type= to local()"
+            )
         if schema.members is not None and isinstance(key, str):
             child = schema.members.get(key)
             if child is None:
                 raise DeclarationError(f"unknown schema field: {key!r}")
-        elif schema.items is not None and isinstance(key, int) and 0 <= key < len(schema.items):
+        elif (
+            schema.items is not None
+            and isinstance(key, int)
+            and 0 <= key < len(schema.items)
+        ):
             child = schema.items[key]
         elif schema.element is not None:
             if schema.kind[0] is dict:
@@ -101,11 +129,17 @@ class Local(Expr[T], Generic[T]):
         initial = self._initial
         if isinstance(initial, dict):
             initial = initial.get(key, MISSING)
-        elif isinstance(initial, (list, tuple)) and isinstance(key, int) and 0 <= key < len(initial):
+        elif (
+            isinstance(initial, (list, tuple))
+            and isinstance(key, int)
+            and 0 <= key < len(initial)
+        ):
             initial = initial[key]
         else:
             initial = MISSING
-        return Local(f"{self.path}/{escape_pointer(str(key))}", self._scope, child, initial)
+        return Local(
+            f"{self.path}/{escape_pointer(str(key))}", self._scope, child, initial
+        )
 
     @overload
     def field(self, field: Field[T, F]) -> Local[F]: ...
@@ -122,7 +156,9 @@ class Local(Expr[T], Generic[T]):
             else:
                 source = self
                 if not same_type(source._schema, field.owner):
-                    raise DeclarationError("field descriptor belongs to a different input type")
+                    raise DeclarationError(
+                        "field descriptor belongs to a different input type"
+                    )
             child = source._project(field.name)
             expected = field.schema
         else:
@@ -145,7 +181,9 @@ class Local(Expr[T], Generic[T]):
         assert self._scope is not None
         self._scope.check()
         if self._initial is MISSING:
-            raise DeclarationError("binding an absent field requires an explicit initial value")
+            raise DeclarationError(
+                "binding an absent field requires an explicit initial value"
+            )
         return ModelBinding(self.path, scope=self._scope, schema=self._schema)
 
     def value(self) -> Expr[T]:
@@ -156,6 +194,7 @@ class Local(Expr[T], Generic[T]):
 
 class DynamicLocal:
     """A checked-at-render reference, deliberately neither Any nor Local[Any]."""
+
     def __init__(self, local: Local[Any]):
         self._local = local
 

@@ -8,7 +8,12 @@ nested: NestedProps = {"label": "label", "parentData": None, "nestedData": [1, "
 only: OnlyProps = {"payload": False}
 for props_type, hints, required, optional in [
     (DirectProps, {"label": str, "metadata": Any}, direct.keys(), set()),
-    (NestedProps, {"label": str, "note": str, "parentData": Any, "nestedData": Any}, nested.keys(), {"note"}),
+    (
+        NestedProps,
+        {"label": str, "note": str, "parentData": Any, "nestedData": Any},
+        nested.keys(),
+        {"note"},
+    ),
     (OnlyProps, {"payload": Any}, only.keys(), set()),
 ]:
     assert get_type_hints(props_type) == hints

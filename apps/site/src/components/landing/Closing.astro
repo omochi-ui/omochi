@@ -9,8 +9,11 @@ interface Props {
 }
 const { copy, locale } = Astro.props;
 ---
+
 <section class="closing wrap">
   <span class="eyebrow">{copy.eyebrow}</span>
   <h2>{copy.title}</h2>
-  <a class="button" href={getRelativeLocaleUrl(locale, 'docs')}>{copy.cta} ↗</a>
+  <a class="button" href={getRelativeLocaleUrl(locale, 'docs')}>
+    {copy.cta} ↗
+  </a>
 </section>

@@ -29,7 +29,10 @@ def _flatten(surface_id: str, root: Node) -> dict[str, dict[str, Any]]:
     result: dict[str, dict[str, Any]] = {}
 
     def set_pointer(target: dict[str, Any], pointer: str, value: Any) -> None:
-        parts = [part.replace("~1", "/").replace("~0", "~") for part in pointer.split("/")[1:]]
+        parts = [
+            part.replace("~1", "/").replace("~0", "~")
+            for part in pointer.split("/")[1:]
+        ]
         if not parts:
             raise ValueError("slot path must be a non-root JSON Pointer")
         current: Any = target
@@ -55,16 +58,24 @@ def _flatten(surface_id: str, root: Node) -> dict[str, dict[str, Any]]:
 
     def visit(node: Node) -> str:
         node_id = _component_id(surface_id, node.key)
-        value: dict[str, Any] = {"id": node_id, "component": node.component, **deepcopy(node.props)}
+        value: dict[str, Any] = {
+            "id": node_id,
+            "component": node.component,
+            **deepcopy(node.props),
+        }
         for slot in node.slots:
             ids = [visit(child) for child in slot.nodes]
             if slot.kind == "single":
                 if len(ids) != 1:
-                    raise ValueError(f"single slot {slot.path} must contain exactly one node")
+                    raise ValueError(
+                        f"single slot {slot.path} must contain exactly one node"
+                    )
                 slot_value: Any = ids[0]
             elif slot.kind == "template":
                 if len(ids) != 1 or slot.data_path is None:
-                    raise ValueError(f"template slot {slot.path} requires one node and data_path")
+                    raise ValueError(
+                        f"template slot {slot.path} requires one node and data_path"
+                    )
                 slot_value = {"componentId": ids[0], "path": slot.data_path}
             else:
                 slot_value = ids
@@ -118,7 +129,9 @@ class Reconciler:
     def render(self, declaration: Declaration) -> list[dict[str, Any]]:
         missing = declaration.required_capabilities - self.capabilities
         if missing:
-            raise CapabilityError(f"renderer lacks required capabilities: {', '.join(sorted(missing))}")
+            raise CapabilityError(
+                f"renderer lacks required capabilities: {', '.join(sorted(missing))}"
+            )
 
         surface_id = declaration.surface_id
         components = _flatten(surface_id, declaration.root)
@@ -126,42 +139,70 @@ class Reconciler:
         messages: list[dict[str, Any]] = []
 
         if previous is not None and previous.catalog_id != declaration.catalog_id:
-            messages.append({"version": PROTOCOL_VERSION, "deleteSurface": {"surfaceId": surface_id}})
+            messages.append(
+                {
+                    "version": PROTOCOL_VERSION,
+                    "deleteSurface": {"surfaceId": surface_id},
+                }
+            )
             previous = None
 
         if previous is None:
             initial_data = deepcopy(declaration.data)
-            initial_data["$local"] = {key: deepcopy(value["initial"]) for key, value in declaration.locals.items()}
-            messages.extend([
-                {
-                    "version": PROTOCOL_VERSION,
-                    "createSurface": {
-                        "surfaceId": surface_id,
-                        "catalogId": declaration.catalog_id,
-                        "sendDataModel": True,
+            initial_data["$local"] = {
+                key: deepcopy(value["initial"])
+                for key, value in declaration.locals.items()
+            }
+            messages.extend(
+                [
+                    {
+                        "version": PROTOCOL_VERSION,
+                        "createSurface": {
+                            "surfaceId": surface_id,
+                            "catalogId": declaration.catalog_id,
+                            "sendDataModel": True,
+                        },
                     },
-                },
-                {
-                    "version": PROTOCOL_VERSION,
-                    "updateComponents": {"surfaceId": surface_id, "components": list(components.values())},
-                },
-                {
-                    "version": PROTOCOL_VERSION,
-                    "updateDataModel": {"surfaceId": surface_id, "path": "/", "value": initial_data},
-                },
-            ])
+                    {
+                        "version": PROTOCOL_VERSION,
+                        "updateComponents": {
+                            "surfaceId": surface_id,
+                            "components": list(components.values()),
+                        },
+                    },
+                    {
+                        "version": PROTOCOL_VERSION,
+                        "updateDataModel": {
+                            "surfaceId": surface_id,
+                            "path": "/",
+                            "value": initial_data,
+                        },
+                    },
+                ]
+            )
         else:
-            changed = [value for key, value in components.items() if not _json_equal(previous.components.get(key), value)]
+            changed = [
+                value
+                for key, value in components.items()
+                if not _json_equal(previous.components.get(key), value)
+            ]
             if changed:
-                messages.append({
-                    "version": PROTOCOL_VERSION,
-                    "updateComponents": {"surfaceId": surface_id, "components": changed},
-                })
+                messages.append(
+                    {
+                        "version": PROTOCOL_VERSION,
+                        "updateComponents": {
+                            "surfaceId": surface_id,
+                            "components": changed,
+                        },
+                    }
+                )
             for path, has_value, value in _data_diff(previous.data, declaration.data):
                 update: dict[str, Any] = {"surfaceId": surface_id, "path": path}
                 if has_value:
                     update["value"] = value
-                messages.append({"version": PROTOCOL_VERSION, "updateDataModel": update})
+                messages.append(
+                    {"version": PROTOCOL_VERSION, "updateDataModel": update}
+                )
             for key in sorted(previous.locals.keys() | declaration.locals.keys()):
                 before = previous.locals.get(key)
                 after = declaration.locals.get(key)
@@ -175,7 +216,9 @@ class Reconciler:
                     update["value"] = deepcopy(after["initial"])
                 elif after is not None:
                     continue
-                messages.append({"version": PROTOCOL_VERSION, "updateDataModel": update})
+                messages.append(
+                    {"version": PROTOCOL_VERSION, "updateDataModel": update}
+                )
 
         self._surfaces[surface_id] = SurfaceSnapshot(
             catalog_id=declaration.catalog_id,
@@ -188,7 +231,9 @@ class Reconciler:
     def close(self, surface_id: str) -> list[dict[str, Any]]:
         if self._surfaces.pop(surface_id, None) is None:
             return []
-        return [{"version": PROTOCOL_VERSION, "deleteSurface": {"surfaceId": surface_id}}]
+        return [
+            {"version": PROTOCOL_VERSION, "deleteSurface": {"surfaceId": surface_id}}
+        ]
 
     def sync_data(self, surface_id: str, data: dict[str, Any]) -> None:
         surface = self._surfaces.get(surface_id)

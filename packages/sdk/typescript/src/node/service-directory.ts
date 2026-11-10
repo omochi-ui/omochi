@@ -1,9 +1,9 @@
-import { chmod, lstat, mkdir, rename, rm, writeFile } from "node:fs/promises";
-import { closeSync, openSync, rmSync, unlinkSync } from "node:fs";
-import { createConnection } from "node:net";
-import { tmpdir } from "node:os";
-import path from "node:path";
-import process from "node:process";
+import { chmod, lstat, mkdir, rename, rm, writeFile } from 'node:fs/promises';
+import { closeSync, openSync, rmSync, unlinkSync } from 'node:fs';
+import { createConnection } from 'node:net';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import process from 'node:process';
 
 /** Mirrors the id constraint the hub applies, so `<serviceId>/<surfaceId>` stays splittable. */
 export const SERVICE_ID_PATTERN = /^[A-Za-z0-9._-]{1,64}$/;
@@ -13,8 +13,14 @@ const MAX_SOCKET_PATH_BYTES = 100;
 
 export function validateServiceId(serviceId: string): string {
   // `.` and `..` match the character class but would collapse or escape the service directory.
-  if (serviceId === "." || serviceId === ".." || !SERVICE_ID_PATTERN.test(serviceId)) {
-    throw new TypeError(`serviceId must match ${SERVICE_ID_PATTERN} and cannot be "." or "..": ${JSON.stringify(serviceId)}`);
+  if (
+    serviceId === '.' ||
+    serviceId === '..' ||
+    !SERVICE_ID_PATTERN.test(serviceId)
+  ) {
+    throw new TypeError(
+      `serviceId must match ${SERVICE_ID_PATTERN} and cannot be "." or "..": ${JSON.stringify(serviceId)}`,
+    );
   }
   return serviceId;
 }
@@ -26,11 +32,13 @@ export function validateServiceId(serviceId: string): string {
  * trust boundary. A world-writable `/tmp/omochi` is never used, because another local
  * user could pre-create a service directory and squat the socket.
  */
-export function omochiRuntimeRoot(env: NodeJS.ProcessEnv = process.env): string {
+export function omochiRuntimeRoot(
+  env: NodeJS.ProcessEnv = process.env,
+): string {
   const configured = env.XDG_RUNTIME_DIR;
-  if (configured) return path.join(configured, "omochi");
-  const uid = typeof process.geteuid === "function" ? process.geteuid() : 0;
-  return path.join(tmpdir(), `omochi-${uid}`, "omochi");
+  if (configured) return path.join(configured, 'omochi');
+  const uid = typeof process.geteuid === 'function' ? process.geteuid() : 0;
+  return path.join(tmpdir(), `omochi-${uid}`, 'omochi');
 }
 
 /** Prepare the predictable fallback before following any paths beneath it.
@@ -42,11 +50,17 @@ export async function prepareFallbackRuntimeRoot(root: string): Promise<void> {
     try {
       await mkdir(directory, { mode: 0o700 });
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
     }
     const metadata = await lstat(directory);
-    if (!metadata.isDirectory() || metadata.uid !== uid || (metadata.mode & 0o022) !== 0) {
-      throw new Error(`fallback runtime directory must be owned, a real directory, and not writable by other users: ${directory}`);
+    if (
+      !metadata.isDirectory() ||
+      metadata.uid !== uid ||
+      (metadata.mode & 0o022) !== 0
+    ) {
+      throw new Error(
+        `fallback runtime directory must be owned, a real directory, and not writable by other users: ${directory}`,
+      );
     }
     // An owned 0755 parent from an older publisher is safe to tighten.
     await chmod(directory, 0o700);
@@ -57,29 +71,45 @@ export async function prepareFallbackRuntimeRoot(root: string): Promise<void> {
  * `~` cannot occur in a service id. Never unlink this file, including after a crash:
  * the kernel releases the lock when its owning descriptor/process dies.
  */
-export async function lockService(root: string, serviceId: string): Promise<() => void> {
+export async function lockService(
+  root: string,
+  serviceId: string,
+): Promise<() => void> {
   validateServiceId(serviceId);
   await mkdir(root, { recursive: true, mode: 0o700 });
   await chmod(root, 0o700);
-  const fd = openSync(path.join(root, `.${serviceId}.lock~`), "a", 0o600);
+  const fd = openSync(path.join(root, `.${serviceId}.lock~`), 'a', 0o600);
   try {
     // Load the native binding only for Unix discovery, not other SDK transports.
-    const { tryLockExclusive } = await import("@deepseek-ai/node-addon-system/flock");
+    const { tryLockExclusive } =
+      await import('@deepseek-ai/node-addon-system/flock');
     await tryLockExclusive(fd);
   } catch (error) {
     closeSync(fd);
-    if (["EAGAIN", "EWOULDBLOCK"].includes((error as NodeJS.ErrnoException).code ?? "")) {
-      throw new Error(`another omochi service already owns ${path.join(root, serviceId)}`);
+    if (
+      ['EAGAIN', 'EWOULDBLOCK'].includes(
+        (error as NodeJS.ErrnoException).code ?? '',
+      )
+    ) {
+      throw new Error(
+        `another omochi service already owns ${path.join(root, serviceId)}`,
+      );
     }
     throw error;
   }
   let held = true;
   return () => {
-    if (held) { held = false; closeSync(fd); }
+    if (held) {
+      held = false;
+      closeSync(fd);
+    }
   };
 }
 
-export async function ensureServiceDirectory(root: string, serviceId: string): Promise<string> {
+export async function ensureServiceDirectory(
+  root: string,
+  serviceId: string,
+): Promise<string> {
   const directory = path.join(root, validateServiceId(serviceId));
   await mkdir(directory, { recursive: true, mode: 0o700 });
   // mkdir's mode is masked by umask and leaves an existing directory untouched.
@@ -90,7 +120,9 @@ export async function ensureServiceDirectory(root: string, serviceId: string): P
 
 export function assertSocketPathFits(socketPath: string): void {
   if (Buffer.byteLength(socketPath) > MAX_SOCKET_PATH_BYTES) {
-    throw new RangeError(`unix socket path is too long for this platform: ${socketPath}`);
+    throw new RangeError(
+      `unix socket path is too long for this platform: ${socketPath}`,
+    );
   }
 }
 
@@ -111,18 +143,20 @@ export async function claimSocketPath(socketPath: string): Promise<void> {
     };
     // A live peer immediately replays its snapshot. Draining it and closing cleanly keeps
     // the probe from resetting the connection, which would surface as an unhandled error.
-    probe.on("data", () => {});
-    probe.on("error", (error: NodeJS.ErrnoException) => {
-      if (error.code === "ENOENT" || error.code === "ECONNREFUSED") settle(false);
+    probe.on('data', () => {});
+    probe.on('error', (error: NodeJS.ErrnoException) => {
+      if (error.code === 'ENOENT' || error.code === 'ECONNREFUSED')
+        settle(false);
       else reject(error);
     });
-    probe.once("close", () => settle(false));
-    probe.once("connect", () => {
+    probe.once('close', () => settle(false));
+    probe.once('connect', () => {
       settle(true);
       probe.end();
     });
   });
-  if (inUse) throw new Error(`another omochi service already owns ${socketPath}`);
+  if (inUse)
+    throw new Error(`another omochi service already owns ${socketPath}`);
   await rm(socketPath, { force: true });
 }
 
@@ -133,22 +167,28 @@ export interface ServiceManifest {
 }
 
 /** Publishes the manifest atomically so a discovery pass never reads a half-written file. */
-export async function writeServiceManifest(directory: string, manifest: ServiceManifest): Promise<void> {
+export async function writeServiceManifest(
+  directory: string,
+  manifest: ServiceManifest,
+): Promise<void> {
   const temporary = path.join(directory, `.manifest.${process.pid}.tmp`);
   await writeFile(temporary, `${JSON.stringify(manifest)}\n`, { mode: 0o600 });
-  await rename(temporary, path.join(directory, "manifest.json"));
+  await rename(temporary, path.join(directory, 'manifest.json'));
 }
 
 /** Retracts the advertisement first, then the socket, then the directory itself. */
 export async function removeServiceDirectory(directory: string): Promise<void> {
-  await rm(path.join(directory, "manifest.json"), { recursive: true, force: true });
+  await rm(path.join(directory, 'manifest.json'), {
+    recursive: true,
+    force: true,
+  });
   await rm(directory, { recursive: true, force: true });
 }
 
 /** Last-resort cleanup: `process.on("exit")` cannot await asynchronous work. */
 export function removeServiceDirectorySync(directory: string): void {
   try {
-    unlinkSync(path.join(directory, "manifest.json"));
+    unlinkSync(path.join(directory, 'manifest.json'));
   } catch {
     // Already gone.
   }

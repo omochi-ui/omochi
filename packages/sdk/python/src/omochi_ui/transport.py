@@ -20,6 +20,7 @@ MAX_FRAME_BYTES = 4 * 1024 * 1024
 async def resource_messages(transport, source):
     queue = ReceiveQueue()
     source = aiter(source)
+
     async def pump():
         try:
             async for message in source:
@@ -35,6 +36,7 @@ async def resource_messages(transport, source):
             close = getattr(source, "aclose", None)
             if close is not None:
                 await close()
+
     task = asyncio.create_task(pump())
     try:
         while (message := await queue.get()) is not None:
@@ -121,7 +123,9 @@ class WebSocketTransport(CallbackTransport):
 
     def __init__(self, socket: Any, *, capabilities: set[str] | None = None):
         async def send(message: dict[str, Any]) -> None:
-            await socket.send(json.dumps(message, separators=(",", ":"), ensure_ascii=False))
+            await socket.send(
+                json.dumps(message, separators=(",", ":"), ensure_ascii=False)
+            )
 
         async def receive() -> AsyncIterator[dict[str, Any]]:
             async for message in socket:

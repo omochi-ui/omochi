@@ -1,4 +1,5 @@
 """Validate unresolved declarations without evaluating browser expressions."""
+
 from __future__ import annotations
 
 from dataclasses import fields, is_dataclass
@@ -18,16 +19,26 @@ def accepts(target: Schema[Any], source: Schema[Any]) -> bool:
     if target.variants:
         return any(accepts(variant, source) for variant in target.variants)
     if isinstance(target.kind, tuple) and target.kind[0] == "nullable":
-        return source.kind == ("literal", type(None), "None") or source.kind == target.kind[1]
+        return (
+            source.kind == ("literal", type(None), "None")
+            or source.kind == target.kind[1]
+        )
     if isinstance(source.kind, tuple) and source.kind[0] == "literal":
         literal_type = source.kind[1]
-        return target.kind is literal_type or target.kind is float and literal_type is int
+        return (
+            target.kind is literal_type or target.kind is float and literal_type is int
+        )
     # Read-only integer expressions can be consumed as finite numbers. Writable
     # Local projections and controls use exact equality instead.
     return target.kind is float and source.kind is int
 
 
-def validate(schema: Schema[Any], value: Any, path: str = "$input", ancestors: set[int] | None = None) -> None:
+def validate(
+    schema: Schema[Any],
+    value: Any,
+    path: str = "$input",
+    ancestors: set[int] | None = None,
+) -> None:
     if isinstance(value, DynamicLocal):
         value = value._local
     if isinstance(value, Expr):
@@ -71,19 +82,29 @@ def validate(schema: Schema[Any], value: Any, path: str = "$input", ancestors: s
                     raise DeclarationError(f"{path}/{key}: unknown input field")
                 if schema.unknown_keys == "allow":
                     encode_input(value[key])
-        elif schema.element is not None and isinstance(value, dict) and schema.kind[0] is dict:
+        elif (
+            schema.element is not None
+            and isinstance(value, dict)
+            and schema.kind[0] is dict
+        ):
             for key, item in value.items():
                 if not isinstance(key, str):
                     raise DeclarationError(f"{path}: expected string map keys")
                 validate(schema.element, item, f"{path}/{key}", ancestors)
-        elif isinstance(value, (list, tuple)) and (schema.element is not None or schema.items is not None):
+        elif isinstance(value, (list, tuple)) and (
+            schema.element is not None or schema.items is not None
+        ):
             if schema.items is not None and len(value) != len(schema.items):
                 raise DeclarationError(f"{path}: incorrect tuple length")
             for index, item in enumerate(value):
-                member = schema.items[index] if schema.items is not None else schema.element
+                member = (
+                    schema.items[index] if schema.items is not None else schema.element
+                )
                 validate(member, item, f"{path}/{index}", ancestors)
         else:
-            raise DeclarationError(f"{path}: expressions do not match the declared input structure")
+            raise DeclarationError(
+                f"{path}: expressions do not match the declared input structure"
+            )
     finally:
         ancestors.remove(identity)
 
@@ -103,14 +124,23 @@ def _normalize(schema: Schema[Any], value: Any) -> Any:
         value = {f.name: getattr(value, f.name) for f in fields(value) if f.init}
     if schema.members is not None and isinstance(value, dict):
         return {
-            key: _normalize(schema.members[key], item) if key in schema.members else item
+            key: _normalize(schema.members[key], item)
+            if key in schema.members
+            else item
             for key, item in value.items()
             if key in schema.members or schema.unknown_keys != "strip"
         }
     if schema.element is not None and isinstance(value, dict):
         return {key: _normalize(schema.element, item) for key, item in value.items()}
-    if isinstance(value, (list, tuple)) and (schema.element is not None or schema.items is not None):
-        return [_normalize(schema.items[i] if schema.items is not None else schema.element, item) for i, item in enumerate(value)]
+    if isinstance(value, (list, tuple)) and (
+        schema.element is not None or schema.items is not None
+    ):
+        return [
+            _normalize(
+                schema.items[i] if schema.items is not None else schema.element, item
+            )
+            for i, item in enumerate(value)
+        ]
     return value
 
 

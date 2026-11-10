@@ -5,7 +5,10 @@ REPO_ROOT="$(cd "$APP_ROOT/../.." && pwd)"
 export PATH="$HOME/.cargo/bin:$PATH"
 PROFILE=debug
 CARGO_PROFILE=dev
-if [[ "${CONFIGURATION:-Debug}" != Debug ]]; then PROFILE=release; CARGO_PROFILE=release; fi
+if [[ "${CONFIGURATION:-Debug}" != Debug ]]; then
+  PROFILE=release
+  CARGO_PROFILE=release
+fi
 export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$REPO_ROOT/crates/target}"
 OUT="$APP_ROOT/build/shared-hub/ios"
 mkdir -p "$OUT/device" "$OUT/simulator"

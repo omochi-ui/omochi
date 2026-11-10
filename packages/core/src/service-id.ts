@@ -11,33 +11,34 @@
  * outside `SERVICE_ID_PATTERN`, so it unambiguously separates the two halves of a route
  * id, and it is RFC 3986 unreserved, so `encodeURIComponent` leaves it alone.
  */
-export const SERVICE_ID_PATTERN = /^[A-Za-z0-9._-]{1,64}$/
+export const SERVICE_ID_PATTERN = /^[A-Za-z0-9._-]{1,64}$/;
 
-export const NODE_ID_PATTERN = /^[0-9a-f]{64}$/
+export const NODE_ID_PATTERN = /^[0-9a-f]{64}$/;
 
 /** A bare service, or a v4 EndpointId (64), `~`, and a service (64). */
-export const CHANNEL_ID_PATTERN = /^(?:[A-Za-z0-9._-]{1,64}|[0-9a-f]{64}~[A-Za-z0-9._-]{1,64})$/
+export const CHANNEL_ID_PATTERN =
+  /^(?:[A-Za-z0-9._-]{1,64}|[0-9a-f]{64}~[A-Za-z0-9._-]{1,64})$/;
 
 export function isValidServiceId(serviceId: string): boolean {
   // `.` and `..` match the character class but would escape or collapse the service directory.
-  if (serviceId === '.' || serviceId === '..') return false
-  return SERVICE_ID_PATTERN.test(serviceId)
+  if (serviceId === '.' || serviceId === '..') return false;
+  return SERVICE_ID_PATTERN.test(serviceId);
 }
 
 export function isValidNodeId(nodeId: string): boolean {
-  return NODE_ID_PATTERN.test(nodeId)
+  return NODE_ID_PATTERN.test(nodeId);
 }
 
 export function isValidSurfaceId(surfaceId: string): boolean {
-  return surfaceId.length <= 4096 && surfaceId.trim().length > 0
+  return surfaceId.length <= 4096 && surfaceId.trim().length > 0;
 }
 
 export function isValidChannelId(channelId: string): boolean {
-  return isValidServiceId(channelId) || splitRouteId(channelId) !== null
+  return isValidServiceId(channelId) || splitRouteId(channelId) !== null;
 }
 
 export function joinRouteId(nodeId: string, serviceId: string): string {
-  return `${nodeId}~${serviceId}`
+  return `${nodeId}~${serviceId}`;
 }
 
 /**
@@ -46,11 +47,13 @@ export function joinRouteId(nodeId: string, serviceId: string): string {
  * Returns null for a bare service id, which is how a caller tells a gateway-level
  * channel from a hub-level one.
  */
-export function splitRouteId(channelId: string): { nodeId: string; serviceId: string } | null {
-  const separator = channelId.indexOf('~')
-  if (separator < 0) return null
-  const nodeId = channelId.slice(0, separator)
-  const serviceId = channelId.slice(separator + 1)
-  if (!isValidNodeId(nodeId) || !isValidServiceId(serviceId)) return null
-  return { nodeId, serviceId }
+export function splitRouteId(
+  channelId: string,
+): { nodeId: string; serviceId: string } | null {
+  const separator = channelId.indexOf('~');
+  if (separator < 0) return null;
+  const nodeId = channelId.slice(0, separator);
+  const serviceId = channelId.slice(separator + 1);
+  if (!isValidNodeId(nodeId) || !isValidServiceId(serviceId)) return null;
+  return { nodeId, serviceId };
 }
