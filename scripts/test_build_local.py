@@ -5,12 +5,15 @@ import importlib.util
 import io
 import json
 import os
+import runpy
 import shutil
+import struct
 import subprocess
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 spec = importlib.util.spec_from_file_location(
@@ -18,6 +21,146 @@ spec = importlib.util.spec_from_file_location(
 )
 build_local = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(build_local)
+
+
+class PythonWheelBuildTests(unittest.TestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory(prefix="omochi-python-wheel-")
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name)
+        # Only the hook's initialize method is under test; the existing packaging
+        # smoke test covers integration with the real Hatchling build backend.
+        with patch.dict(
+            sys.modules,
+            {
+                "hatchling.builders.hooks.plugin.interface": SimpleNamespace(
+                    BuildHookInterface=object
+                )
+            },
+        ):
+            self.hook = runpy.run_path(
+                str(build_local.ROOT / "packages/sdk/python/hatch_build.py")
+            )["CustomBuildHook"]
+        self.artifact = self.root / "target/release/libomochi_local_ffi.dylib"
+        self.artifact.parent.mkdir(parents=True)
+
+    def macho(self, version, *, legacy=False, architecture=0x1000007):
+        encoded = (version[0] << 16) | (version[1] << 8) | version[2]
+        command = (
+            struct.pack("<4I", 0x24, 16, encoded, encoded)
+            if legacy
+            else struct.pack("<6I", 0x32, 24, 1, encoded, encoded, 0)
+        )
+        # Include an unrelated command so the parser must walk load commands.
+        commands = struct.pack("<2I", 0x1B, 24) + bytes(16) + command
+        return (
+            struct.pack("<8I", 0xFEEDFACF, architecture, 0, 6, 2, len(commands), 0, 0)
+            + commands
+        )
+
+    def build(self, deployment_target=None, architecture="x86_64"):
+        output = json.dumps(
+            {
+                "reason": "compiler-artifact",
+                "target": {"name": "omochi_local_ffi", "crate_types": ["cdylib"]},
+                "filenames": [str(self.artifact)],
+            }
+        )
+        environment = (
+            {}
+            if deployment_target is None
+            else {"MACOSX_DEPLOYMENT_TARGET": deployment_target}
+        )
+        data = {"force_include": {}}
+        with (
+            patch.dict(os.environ, environment, clear=True),
+            patch.object(sys, "platform", "darwin"),
+            patch.object(
+                self.hook.initialize.__globals__["platform"],
+                "machine",
+                return_value=architecture,
+            ),
+            patch.dict(
+                self.hook.initialize.__globals__,
+                {"native_build_environment": lambda *args, **kwargs: dict(os.environ)},
+            ),
+            patch.object(
+                subprocess,
+                "run",
+                return_value=subprocess.CompletedProcess([], 0, stdout=output),
+            ) as run,
+            patch.object(
+                subprocess,
+                "check_output",
+                side_effect=lambda command, **kwargs: (
+                    f"host: {'aarch64' if architecture == 'arm64' else 'x86_64'}-apple-darwin\n"
+                    if command[0] == "rustc"
+                    else json.dumps({"target_directory": str(self.root / "target")})
+                ),
+            ),
+        ):
+            try:
+                self.hook.initialize(
+                    SimpleNamespace(root=str(self.root), target_name="wheel"),
+                    "standard",
+                    data,
+                )
+            finally:
+                self.assertEqual(
+                    os.environ["MACOSX_DEPLOYMENT_TARGET"], deployment_target or "11.0"
+                )
+                self.assertEqual(
+                    run.call_args.kwargs["env"]["MACOSX_DEPLOYMENT_TARGET"],
+                    deployment_target or "11.0",
+                )
+        return data
+
+    def test_macos_wheel_tag_follows_artifact_deployment_target(self):
+        for version, target, legacy, architecture, cpu, tag in (
+            ((11, 0, 0), None, False, "x86_64", 0x1000007, "11_0_x86_64"),
+            ((11, 0, 0), None, False, "arm64", 0x100000C, "11_0_arm64"),
+            ((14, 0, 0), "14.0", False, "x86_64", 0x1000007, "14_0_x86_64"),
+            ((14, 0, 0), "14.0", False, "arm64", 0x100000C, "14_0_arm64"),
+            ((14, 0, 0), None, False, "x86_64", 0x1000007, "14_0_x86_64"),
+            ((10, 13, 0), "10.13", True, "x86_64", 0x1000007, "10_13_x86_64"),
+        ):
+            with self.subTest(
+                version=version, target=target, architecture=architecture
+            ):
+                self.artifact.write_bytes(
+                    self.macho(version, legacy=legacy, architecture=cpu)
+                )
+                data = self.build(target, architecture)
+                self.assertEqual(data["tag"], f"py3-none-macosx_{tag}")
+                self.assertFalse(data["pure_python"])
+                self.assertIn(str(self.artifact), data["force_include"])
+
+    def test_macos_rejects_unrepresentable_or_missing_deployment_versions(self):
+        for version in ((14, 4, 0), (14, 0, 1), (10, 13, 1)):
+            with self.subTest(version=version):
+                self.artifact.write_bytes(self.macho(version))
+                with self.assertRaisesRegex(ValueError, "cannot be represented"):
+                    self.build(".".join(map(str, version)))
+        self.artifact.write_bytes(
+            struct.pack("<8I", 0xFEEDFACF, 0x1000007, 0, 6, 0, 0, 0, 0)
+        )
+        with self.assertRaisesRegex(ValueError, "deployment target"):
+            self.build()
+
+    def test_macos_still_rejects_foreign_architectures(self):
+        self.artifact.write_bytes(self.macho((14, 0, 0), architecture=0x100000C))
+        with self.assertRaisesRegex(ValueError, "does not match wheel platform"):
+            self.build("14.0")
+
+    def test_macos_rejects_truncated_or_foreign_deployment_metadata(self):
+        self.artifact.write_bytes(self.macho((14, 0, 0))[:-1])
+        with self.assertRaisesRegex(ValueError, "Truncated Mach-O load commands"):
+            self.build("14.0")
+        foreign = bytearray(self.macho((14, 0, 0)))
+        foreign[64:68] = (2).to_bytes(4, "little")  # PLATFORM_IOS
+        self.artifact.write_bytes(foreign)
+        with self.assertRaisesRegex(ValueError, "does not target macOS"):
+            self.build("14.0")
 
 
 class LocalBuildTests(unittest.TestCase):

@@ -52,9 +52,57 @@ def validate_native_target(artifact, manifest):
         )
 
 
+def macos_deployment_version(library, header):
+    """Read the minimum macOS release from a thin, little-endian Mach-O file."""
+    if len(header) < 32:
+        raise ValueError("Truncated Mach-O header")
+    commands, size = struct.unpack_from("<2I", header, 16)
+    end = 32 + size
+    if library.seek(0, os.SEEK_END) < end:
+        raise ValueError("Truncated Mach-O load commands")
+    offset, minimum = 32, None
+    for _ in range(commands):
+        if offset + 8 > end:
+            raise ValueError("Invalid Mach-O load command")
+        library.seek(offset)
+        command, size = struct.unpack("<2I", library.read(8))
+        if size < 8 or offset + size > end:
+            raise ValueError("Invalid Mach-O load command size")
+        version = None
+        if command == 0x32:  # LC_BUILD_VERSION
+            if size < 24:
+                raise ValueError("Invalid Mach-O build version")
+            target_platform, version = struct.unpack("<2I", library.read(8))
+            if target_platform != 1:  # PLATFORM_MACOS
+                raise ValueError("Native library does not target macOS")
+        elif command == 0x24:  # LC_VERSION_MIN_MACOSX
+            if size < 16:
+                raise ValueError("Invalid Mach-O minimum version")
+            version = struct.unpack("<I", library.read(4))[0]
+        if version is not None:
+            minimum = max(minimum or 0, version)
+        offset += size
+    if not minimum:
+        raise ValueError("Native library has no macOS deployment target")
+    major, minor, patch = minimum >> 16, (minimum >> 8) & 0xFF, minimum & 0xFF
+    # Installers only recognize major_0 for macOS 11+. Rounding down would
+    # advertise support for systems older than the library's deployment target.
+    if patch or (major >= 11 and minor):
+        raise ValueError(
+            f"Native macOS deployment target {major}.{minor}.{patch} cannot be represented "
+            "by a wheel platform tag; rebuild with MACOSX_DEPLOYMENT_TARGET set to "
+            "a release version (10.x or 11.0 and later major.0 versions)"
+        )
+    return f"{major}_{minor}"
+
+
 def validate_native_platform(artifact, tag):
-    """Check the actual Cargo-selected binary, including targets from config files."""
+    """Validate the binary's OS/CPU and return its deployment-aware wheel tag.
+
+    The expected macOS platform is macosx_<cpu>; its version comes from the file.
+    """
     actual = None
+    macos_version = None
     with Path(artifact).open("rb") as library:
         header = library.read(64)
         if header[:6] == b"\x7fELF\x02\x01":  # ELF64, little endian
@@ -68,7 +116,8 @@ def validate_native_platform(artifact, tag):
                 int.from_bytes(header[4:8], "little")
             )
             if architecture:
-                actual = f"macosx_11_0_{architecture}"
+                actual = f"macosx_{architecture}"
+                macos_version = macos_deployment_version(library, header)
         elif header[:2] == b"MZ":
             library.seek(int.from_bytes(header[60:64], "little"))
             pe = library.read(6)
@@ -83,6 +132,7 @@ def validate_native_platform(artifact, tag):
             f"Native library platform {actual or 'unknown'} does not match wheel platform {tag}; "
             "build with Cargo configured for this Python platform (cross-platform wheels are unsupported)"
         )
+    return f"macosx_{macos_version}_{architecture}" if macos_version else tag
 
 
 class CustomBuildHook(BuildHookInterface):
@@ -162,10 +212,8 @@ class CustomBuildHook(BuildHookInterface):
         validate_native_target(artifacts[0], native / "Cargo.toml")
         tag = sysconfig.get_platform().replace("-", "_").replace(".", "_")
         if apple:
-            tag = "macosx_11_0_" + (
-                "arm64" if platform.machine() == "arm64" else "x86_64"
-            )
-        validate_native_platform(artifacts[0], tag)
+            tag = "macosx_" + ("arm64" if platform.machine() == "arm64" else "x86_64")
+        tag = validate_native_platform(artifacts[0], tag)
         build_data["force_include"][artifacts[0]] = f"omochi_ui/_native/{name}"
         build_data["pure_python"] = False
         build_data["tag"] = "py3-none-" + tag
