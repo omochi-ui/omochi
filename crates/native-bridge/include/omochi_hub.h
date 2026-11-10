@@ -32,14 +32,14 @@ uint64_t omochi_hub_submit(uint64_t hub, const uint8_t *json, size_t length);
 char *omochi_hub_poll(uint64_t hub);
 void omochi_hub_string_free(char *value);
 bool omochi_hub_storage_reply(uint64_t hub, uint64_t request,
-                             const uint8_t *json, size_t length);
+                              const uint8_t *json, size_t length);
 void omochi_hub_cancel(uint64_t hub, uint64_t request);
 /* Image results contain a blob ID; bytes never pass through JSON/base64.
  * Reads copy <= 64 KiB and recheck handle lifetime. -1 = invalid/expired.
  * Two blobs maximum; free even if decoding/copying is cancelled or fails.
  */
 intptr_t omochi_hub_blob_read(uint64_t hub, uint64_t blob, size_t offset,
-                            uint8_t *destination, size_t length);
+                              uint8_t *destination, size_t length);
 void omochi_hub_blob_free(uint64_t hub, uint64_t blob);
 /* Call only after successful close. False means work/callbacks still settling;
  * keep polling and retry release. Never interpret false as shutdown success.

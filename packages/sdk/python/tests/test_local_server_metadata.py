@@ -17,7 +17,9 @@ class LocalServerMetadataTests(unittest.TestCase):
                 # Valid UTF-8 metadata exceeds the native command limit if ASCII-escaped.
                 name = "団子 Demo"
                 icon = "🍡" * 12000
-                transport = LocalServerTransport("unicode", name=name, icon=icon, runtime_dir=root)
+                transport = LocalServerTransport(
+                    "unicode", name=name, icon=icon, runtime_dir=root
+                )
                 directory = root / "svc-unicode~"
                 try:
                     await transport.start()

@@ -7,4 +7,4 @@
 // login session. Returns nullptr on failure; callers must not start unlocked.
 HANDLE CreateIdentityMutex();
 
-#endif  // RUNNER_IDENTITY_LEASE_H_
+#endif // RUNNER_IDENTITY_LEASE_H_

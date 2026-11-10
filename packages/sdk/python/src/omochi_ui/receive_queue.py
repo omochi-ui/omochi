@@ -28,8 +28,13 @@ class ReceiveQueue:
     def put_nowait(self, message: dict[str, Any]) -> None:
         if self._done:
             return
-        size = len(json.dumps(message, separators=(",", ":"), ensure_ascii=False).encode())
-        if len(self._entries) >= MAX_PENDING_MESSAGES or self._bytes + size > MAX_PENDING_BYTES:
+        size = len(
+            json.dumps(message, separators=(",", ":"), ensure_ascii=False).encode()
+        )
+        if (
+            len(self._entries) >= MAX_PENDING_MESSAGES
+            or self._bytes + size > MAX_PENDING_BYTES
+        ):
             raise ReceiveQueueOverflowError()
         self._entries.append((message, size))
         self._bytes += size

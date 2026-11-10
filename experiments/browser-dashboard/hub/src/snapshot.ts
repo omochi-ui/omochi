@@ -1,9 +1,21 @@
 import {
-  SessionFault, MAX_JSON_DEPTH, jsonBytes, jsonStringBytes, measureJson,
-  materializeJson, planDataPatch, splitRouteId,
-  type A2uiMessage, type CreateSurfaceMessage,
+  SessionFault,
+  MAX_JSON_DEPTH,
+  jsonBytes,
+  jsonStringBytes,
+  measureJson,
+  materializeJson,
+  planDataPatch,
+  splitRouteId,
+  type A2uiMessage,
+  type CreateSurfaceMessage,
 } from '@omochi-ui/core/browser';
-import { LIMITS, type DeliveryPool, type Reservation, type SnapshotPool } from './budget.js';
+import {
+  LIMITS,
+  type DeliveryPool,
+  type Reservation,
+  type SnapshotPool,
+} from './budget.js';
 
 export type { DeliveryPool, Reservation, SnapshotPool } from './budget.js';
 
@@ -22,28 +34,54 @@ function freezeTree<T>(value: T): T {
   }
   return value;
 }
-function owned<T>(value: T): T { return freezeTree(materializeJson(value) as T); }
+function owned<T>(value: T): T {
+  return freezeTree(materializeJson(value) as T);
+}
 const rootMessage = (surfaceId: string, data?: unknown): A2uiMessage => ({
-  version: 'v0.9', updateDataModel: { surfaceId, path: '/', ...(data === undefined ? {} : { value: data }) },
+  version: 'v0.9',
+  updateDataModel: {
+    surfaceId,
+    path: '/',
+    ...(data === undefined ? {} : { value: data }),
+  },
 });
-function componentBytes(id: string, values: Iterable<Record<string, unknown>>): number {
+function componentBytes(
+  id: string,
+  values: Iterable<Record<string, unknown>>,
+): number {
   let count = 0;
   let bytes = 0;
   for (const component of values) {
     const measured = measureJson(component);
-    if (measured.maxDepth + 3 > MAX_JSON_DEPTH) throw new SessionFault('ProtocolError');
+    if (measured.maxDepth + 3 > MAX_JSON_DEPTH)
+      throw new SessionFault('ProtocolError');
     bytes += measured.byteSize + (count++ ? 1 : 0);
   }
-  return count ? jsonBytes({ version: 'v0.9', updateComponents: { surfaceId: id, components: [] } }) + bytes : 0;
+  return count
+    ? jsonBytes({
+        version: 'v0.9',
+        updateComponents: { surfaceId: id, components: [] },
+      }) + bytes
+    : 0;
 }
-function dataBytes(id: string, present: boolean, bytes: number, depth: number): number {
+function dataBytes(
+  id: string,
+  present: boolean,
+  bytes: number,
+  depth: number,
+): number {
   if (depth + 2 > MAX_JSON_DEPTH) throw new SessionFault('ProtocolError');
   return jsonBytes(rootMessage(id)) + (present ? 9 + bytes : 0);
 }
 function surfaceBytes(id: string, surface: Omit<Surface, 'byteSize'>): number {
   const data = measureJson(surface.data);
-  return jsonBytes(surface.create) + componentBytes(id, surface.components.values()) +
-    (surface.hasData ? dataBytes(id, surface.data !== undefined, data.byteSize, data.maxDepth) : 0);
+  return (
+    jsonBytes(surface.create) +
+    componentBytes(id, surface.components.values()) +
+    (surface.hasData
+      ? dataBytes(id, surface.data !== undefined, data.byteSize, data.maxDepth)
+      : 0)
+  );
 }
 
 /** Browser-only retained-state admission. All candidate copies follow reservation. */
@@ -52,8 +90,12 @@ export class BoundedSnapshot {
   private reservation: Reservation | null = null;
   private bytes = 0;
   private disposed = false;
-  constructor(private readonly pools: { snapshots: SnapshotPool; delivery: DeliveryPool }) {}
-  get byteSize(): number { return this.bytes; }
+  constructor(
+    private readonly pools: { snapshots: SnapshotPool; delivery: DeliveryPool },
+  ) {}
+  get byteSize(): number {
+    return this.bytes;
+  }
 
   apply(message: A2uiMessage): void {
     this.assertLive();
@@ -66,25 +108,40 @@ export class BoundedSnapshot {
       id = message.createSurface.surfaceId;
       if (this.surfaces.has(id)) throw new SessionFault('ProtocolError');
       candidateBytes = jsonBytes(message);
-      build = () => ({ create: owned(message), components: new Map(), data: undefined, hasData: false, byteSize: candidateBytes });
+      build = () => ({
+        create: owned(message),
+        components: new Map(),
+        data: undefined,
+        hasData: false,
+        byteSize: candidateBytes,
+      });
     } else if ('deleteSurface' in message) {
       id = message.deleteSurface.surfaceId;
       if (!this.surfaces.has(id)) return;
       candidateBytes = 0;
       build = () => null;
     } else {
-      id = 'updateComponents' in message ? message.updateComponents.surfaceId : message.updateDataModel.surfaceId;
+      id =
+        'updateComponents' in message
+          ? message.updateComponents.surfaceId
+          : message.updateDataModel.surfaceId;
       const old = this.surfaces.get(id);
       if (!old) throw new SessionFault('ProtocolError');
       if ('updateComponents' in message) {
         // Only this bounded input overlay is allocated before admission, not the merged map/list.
         const overlay = new Map<string, Record<string, unknown>>();
-        for (const component of message.updateComponents.components) overlay.set(component.id, component);
+        for (const component of message.updateComponents.components)
+          overlay.set(component.id, component);
         function* components() {
-          for (const [key, value] of old!.components) yield overlay.get(key) ?? value;
-          for (const [key, value] of overlay) if (!old!.components.has(key)) yield value;
+          for (const [key, value] of old!.components)
+            yield overlay.get(key) ?? value;
+          for (const [key, value] of overlay)
+            if (!old!.components.has(key)) yield value;
         }
-        candidateBytes = old.byteSize - componentBytes(id, old.components.values()) + componentBytes(id, components());
+        candidateBytes =
+          old.byteSize -
+          componentBytes(id, old.components.values()) +
+          componentBytes(id, components());
         build = () => {
           const merged = new Map(old.components);
           for (const [key, value] of overlay) merged.set(key, owned(value));
@@ -92,20 +149,43 @@ export class BoundedSnapshot {
         };
       } else {
         const update = message.updateDataModel;
-        const plan = planDataPatch(old.data, update.path ?? '/', Object.hasOwn(update, 'value'), update.value);
+        const plan = planDataPatch(
+          old.data,
+          update.path ?? '/',
+          Object.hasOwn(update, 'value'),
+          update.value,
+        );
         const previous = measureJson(old.data);
-        const oldBytes = old.hasData ? dataBytes(id, old.data !== undefined, previous.byteSize, previous.maxDepth) : 0;
+        const oldBytes = old.hasData
+          ? dataBytes(
+              id,
+              old.data !== undefined,
+              previous.byteSize,
+              previous.maxDepth,
+            )
+          : 0;
         // Undefined root is the only zero-sized JSON value.
-        candidateBytes = old.byteSize - oldBytes + dataBytes(id, plan.byteSize !== 0, plan.byteSize, plan.maxDepth);
-        build = () => ({ ...old, data: freezeTree(plan.materialize()), hasData: true, byteSize: candidateBytes });
+        candidateBytes =
+          old.byteSize -
+          oldBytes +
+          dataBytes(id, plan.byteSize !== 0, plan.byteSize, plan.maxDepth);
+        build = () => ({
+          ...old,
+          data: freezeTree(plan.materialize()),
+          hasData: true,
+          byteSize: candidateBytes,
+        });
       }
     }
-    const total = this.bytes - (this.surfaces.get(id)?.byteSize ?? 0) + candidateBytes;
-    if (total > LIMITS.snapshot || total > this.pools.snapshots.availableBytes) throw new SessionFault('CapacityExceeded');
+    const total =
+      this.bytes - (this.surfaces.get(id)?.byteSize ?? 0) + candidateBytes;
+    if (total > LIMITS.snapshot || total > this.pools.snapshots.availableBytes)
+      throw new SessionFault('CapacityExceeded');
     const reservation = this.pools.snapshots.reserve(total);
     try {
       const candidate = build();
-      if (candidate && surfaceBytes(id, candidate) !== candidateBytes) throw new SessionFault('ProtocolError');
+      if (candidate && surfaceBytes(id, candidate) !== candidateBytes)
+        throw new SessionFault('ProtocolError');
       const surfaces = new Map(this.surfaces);
       if (candidate) surfaces.set(id, candidate);
       else surfaces.delete(id);
@@ -120,14 +200,20 @@ export class BoundedSnapshot {
     }
   }
 
-  renderPayload(routePrefix: string): { messages: A2uiMessage[]; release(): void } {
+  renderPayload(routePrefix: string): {
+    messages: A2uiMessage[];
+    release(): void;
+  } {
     this.assertLive();
-    if (!routePrefix.endsWith('/') || !splitRouteId(routePrefix.slice(0, -1))) throw new SessionFault('ProtocolError');
+    if (!routePrefix.endsWith('/') || !splitRouteId(routePrefix.slice(0, -1)))
+      throw new SessionFault('ProtocolError');
     let bytes = this.bytes;
     for (const [id, surface] of this.surfaces) {
       const routed = routePrefix + id;
       const difference = jsonStringBytes(routed) - jsonStringBytes(id);
-      bytes += difference * (1 + Number(surface.components.size > 0) + Number(surface.hasData));
+      bytes +=
+        difference *
+        (1 + Number(surface.components.size > 0) + Number(surface.hasData));
       bytes += jsonBytes(rootMessage(routed));
       if (bytes > LIMITS.delivery) throw new SessionFault('CapacityExceeded');
     }
@@ -139,14 +225,37 @@ export class BoundedSnapshot {
         const create = materializeJson(surface.create) as CreateSurfaceMessage;
         create.createSurface.surfaceId = surfaceId;
         messages.push(create, rootMessage(surfaceId));
-        if (surface.components.size) messages.push({ version: 'v0.9', updateComponents: {
-          surfaceId, components: [...surface.components.values()].map(value => materializeJson(value) as Record<string, unknown> & { id: string }),
-        } });
-        if (surface.hasData) messages.push(rootMessage(surfaceId, materializeJson(surface.data)));
+        if (surface.components.size)
+          messages.push({
+            version: 'v0.9',
+            updateComponents: {
+              surfaceId,
+              components: [...surface.components.values()].map(
+                (value) =>
+                  materializeJson(value) as Record<string, unknown> & {
+                    id: string;
+                  },
+              ),
+            },
+          });
+        if (surface.hasData)
+          messages.push(rootMessage(surfaceId, materializeJson(surface.data)));
       }
-      if (messages.reduce((sum, message) => sum + jsonBytes(message), 0) !== bytes) throw new SessionFault('ProtocolError');
-      return { messages, release: () => { messages.length = 0; reservation.release(); } };
-    } catch (error) { reservation.release(); throw error; }
+      if (
+        messages.reduce((sum, message) => sum + jsonBytes(message), 0) !== bytes
+      )
+        throw new SessionFault('ProtocolError');
+      return {
+        messages,
+        release: () => {
+          messages.length = 0;
+          reservation.release();
+        },
+      };
+    } catch (error) {
+      reservation.release();
+      throw error;
+    }
   }
 
   dispose(): void {
@@ -157,5 +266,7 @@ export class BoundedSnapshot {
     this.reservation = null;
     this.bytes = 0;
   }
-  private assertLive(): void { if (this.disposed) throw new SessionFault('InvalidState'); }
+  private assertLive(): void {
+    if (this.disposed) throw new SessionFault('InvalidState');
+  }
 }

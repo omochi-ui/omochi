@@ -144,6 +144,7 @@ vite.config.ts.timestamp-*
 
 
 .venv/
+.ruff_cache/
 
 # TypeScript test compilation
 dist-test/

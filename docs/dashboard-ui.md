@@ -1,7 +1,8 @@
 # Dashboard UI and board view
 
 The dashboard follows [the design system](design-system.md). It uses the existing
-React renderer and CSS; dashboard API and persisted panel geometry are unchanged.
+React renderer and React Grid Layout v2; dashboard API and the persisted
+`x,y,w,h` format are unchanged.
 
 ## Screenshots
 
@@ -12,6 +13,9 @@ Same seeded dashboard before and after the change:
 
 [Editing](assets/dashboard-ui/editing.png) · [Board view](assets/dashboard-ui/board.png) ·
 [Mobile board after reordering](assets/dashboard-ui/mobile-board.png)
+
+React Grid Layout: [Desktop editing](assets/dashboard-ui/rgl-editing.png) ·
+[Mobile layout](assets/dashboard-ui/rgl-mobile.png).
 
 ## Operations
 
@@ -25,16 +29,22 @@ Same seeded dashboard before and after the change:
   and their views are not deleted.
 - Removing a view offers **Undo removal**, with no timer. The next layout edit,
   add/remove, save or cancel ends that undo operation.
-- Drag the grip to move a panel; drag any edge or corner to resize it. Preview
-  geometry is derived from the starting layout, not the previous pointer event.
-  Escape or pointer cancellation restores the starting geometry. The grid opts
-  out of scroll anchoring, and movement accounts for document scrolling.
-- **Adjust layout** provides buttons for moving and changing width/height without
-  dragging. Arrow keys on the grip move one cell. Changes use the existing
-  collision rule: the edited panel takes priority and overlapping panels move down.
+- The desktop grid has 12 columns, 40px rows and 16px gaps. Viewing reproduces
+  saved geometry. Starting an edit packs panels upward using RGL's standard
+  vertical compactor; only **Save dashboard** persists that result. **Cancel**
+  restores the saved layout, including intentional gaps.
+- Drag the grip to move a panel; drag any edge or corner to resize it. RGL owns
+  pointer geometry, collision handling and scroll-aware movement. Escape, pointer
+  cancellation, window blur or resizing the browser cancels the current gesture.
+  Cancelling a gesture preserves all earlier draft edits.
+- Arrow keys on the grip move one cell. Hold **Shift** and press an arrow key to
+  change width or height. Pointer edits, keyboard edits, additions and removals
+  all use vertical packing. A downward move into empty space may return to its
+  previous row because gaps automatically close.
 - At 760px and below, **Move up / Move down** changes order and repacks the common
   desktop grid left to right, preserving panel sizes. Resizing the browser alone
-  never changes saved geometry.
+  never changes draft or saved geometry. The same mounted grid and SurfaceView
+  children survive viewport and board-view changes, preserving app state.
 - **Details** exposes full view and source names without relying on hover titles.
 
 ## Invitations and connection controls

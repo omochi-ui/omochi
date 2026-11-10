@@ -4,7 +4,9 @@
   "type": "module",
   "scripts": {
     "dev": "vite --host 127.0.0.1",
-    "check": "bun check -p tsconfig.json",
+    "check": "bun run typecheck",
+    "typecheck": "bun --check --tsconfig-override tsconfig.json",
+    "lint": "oxlint",
     "verify": "node scripts/verify.mjs",
     "build": "vite build",
     "preview": "vite preview --host 127.0.0.1",

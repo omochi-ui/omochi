@@ -77,6 +77,35 @@ RemoteBoard board() => RemoteBoard.fromJson({
   ],
 });
 void main() {
+  test('atomic layout updates validate geometry and preserve metadata', () {
+    final original = board();
+    final controller = BoardEditorController(
+      RemoteBoardsRepository(BoardClient('owner')),
+      original,
+    );
+    addTearDown(controller.dispose);
+    final p = original.panels.single;
+    controller.applyLayout(original.panels);
+    expect(controller.dirty, false);
+    BoardPanel changed(int x) => BoardPanel(
+      id: p.id,
+      title: 'Injected',
+      reference: const SurfaceReference('bad', 'bad', 'bad'),
+      x: x,
+      y: 0,
+      w: 6,
+      h: 4,
+    );
+    controller.applyLayout([changed(11)]);
+    expect(controller.invalidLayout, true);
+    expect(controller.panels.single.w, 12);
+    controller.applyLayout([changed(0)]);
+    expect(controller.dirty, true);
+    expect(controller.panels.single.w, 6);
+    expect(controller.panels.single.title, p.title);
+    expect(controller.panels.single.reference, p.reference);
+  });
+
   test(
     'draft remains independent and only structured conflict enables reload',
     () async {
@@ -299,7 +328,7 @@ void main() {
         final fields = tester.widgetList<TextFormField>(
           find.byType(TextFormField),
         );
-        expect(fields, hasLength(6));
+        expect(fields, hasLength(2));
         for (final field in fields) {
           expect(field.enabled, false);
         }
@@ -337,7 +366,7 @@ void main() {
           )) {
             expect(field.enabled, true);
           }
-          for (final label in ['Save', 'Add panel', 'Remove panel']) {
+          for (final label in ['Save']) {
             expect(
               tester
                   .widget<TextButton>(find.widgetWithText(TextButton, label))
@@ -386,6 +415,42 @@ void main() {
     expect(find.text('保存'), findsOneWidget);
     expect(find.text('Add panel'), findsNothing);
     expect(find.text('パネルを追加'), findsOneWidget);
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('editor footer fits above a landscape keyboard', (tester) async {
+    tester.view.physicalSize = const Size(800, 400);
+    tester.view.devicePixelRatio = 1;
+    tester.view.viewInsets = const FakeViewPadding(bottom: 180);
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetViewInsets);
+    final hub = HubSession();
+    addTearDown(hub.dispose);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: BoardEditor(
+          repository: RemoteBoardsRepository(BoardClient('owner')),
+          session: hub,
+          board: board(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+    await tester.scrollUntilVisible(
+      find.text('Add panel'),
+      100,
+      scrollable: find
+          .descendant(
+            of: find.byType(ListView),
+            matching: find.byType(Scrollable),
+          )
+          .first,
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Add panel').hitTestable(), findsOneWidget);
+    expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox());
   });
 

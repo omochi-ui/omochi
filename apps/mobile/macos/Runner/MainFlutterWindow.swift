@@ -1,7 +1,7 @@
 import Cocoa
-import FlutterMacOS
 import CryptoKit
 import Darwin
+import FlutterMacOS
 
 class MainFlutterWindow: NSWindow {
   override func awakeFromNib() {
@@ -17,7 +17,8 @@ class MainFlutterWindow: NSWindow {
     ).setMethodCallHandler { call, result in
       do {
         guard let value = call.arguments as? String else {
-          result(FlutterError(code: "identity-lease", message: "Invalid lease argument", details: nil))
+          result(
+            FlutterError(code: "identity-lease", message: "Invalid lease argument", details: nil))
           return
         }
         switch call.method {
@@ -30,7 +31,8 @@ class MainFlutterWindow: NSWindow {
           result(FlutterMethodNotImplemented)
         }
       } catch {
-        result(FlutterError(code: "identity-lease", message: error.localizedDescription, details: nil))
+        result(
+          FlutterError(code: "identity-lease", message: error.localizedDescription, details: nil))
       }
     }
 
@@ -60,8 +62,9 @@ private enum IdentityLeases {
       let code = errno
       close(fd)
       if code == EWOULDBLOCK {
-        throw NSError(domain: "OmochiIdentityLease", code: Int(code),
-                      userInfo: [NSLocalizedDescriptionKey: "This Hub is already running"])
+        throw NSError(
+          domain: "OmochiIdentityLease", code: Int(code),
+          userInfo: [NSLocalizedDescriptionKey: "This Hub is already running"])
       }
       throw NSError(domain: NSPOSIXErrorDomain, code: Int(code))
     }

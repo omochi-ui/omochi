@@ -1,7 +1,7 @@
-import { type ResourceFrame } from "@omochi-ui/core";
-import { ResourceRegistry, resourceMessages } from "./resources.js";
-import { JsonlFramer } from "./node/jsonl-framer.js";
-import type { A2UIMessage, JsonObject } from "./types.js";
+import { type ResourceFrame } from '@omochi-ui/core';
+import { ResourceRegistry, resourceMessages } from './resources.js';
+import { JsonlFramer } from './node/jsonl-framer.js';
+import type { A2UIMessage, JsonObject } from './types.js';
 
 export interface Transport extends AsyncIterable<JsonObject> {
   resources?: ResourceRegistry;
@@ -22,7 +22,9 @@ export class StdioTransport implements Transport {
 
   async send(message: A2UIMessage | ResourceFrame): Promise<void> {
     await new Promise<void>((resolve, reject) => {
-      process.stdout.write(`${JSON.stringify(message)}\n`, (error) => error ? reject(error) : resolve());
+      process.stdout.write(`${JSON.stringify(message)}\n`, (error) =>
+        error ? reject(error) : resolve(),
+      );
     });
   }
 
@@ -33,25 +35,40 @@ export class StdioTransport implements Transport {
     let failure: unknown;
     let wake: (() => void) | undefined;
     let line: string | undefined;
-    const framer = new JsonlFramer(value => { line = value; return true; });
-    const takeLine = (): string | undefined => { const value = line; line = undefined; return value; };
-    const readable = () => { wake?.(); };
-    const end = () => { ended = true; wake?.(); };
-    const error = (value: Error) => { failure = value; end(); };
+    const framer = new JsonlFramer((value) => {
+      line = value;
+      return true;
+    });
+    const takeLine = (): string | undefined => {
+      const value = line;
+      line = undefined;
+      return value;
+    };
+    const readable = () => {
+      wake?.();
+    };
+    const end = () => {
+      ended = true;
+      wake?.();
+    };
+    const error = (value: Error) => {
+      failure = value;
+      end();
+    };
     const close = () => {
       closed = true;
-      stdin.off("readable", readable);
-      stdin.off("end", end);
-      stdin.off("error", error);
+      stdin.off('readable', readable);
+      stdin.off('end', end);
+      stdin.off('error', error);
       stdin.pause();
       framer.close();
       end();
     };
-    this.stop.signal.addEventListener("abort", close, { once: true });
+    this.stop.signal.addEventListener('abort', close, { once: true });
     if (!closed) {
-      stdin.on("end", end);
-      stdin.on("error", error);
-      stdin.on("readable", readable);
+      stdin.on('end', end);
+      stdin.on('error', error);
+      stdin.on('readable', readable);
     }
     const input = (async function* () {
       try {
@@ -61,10 +78,13 @@ export class StdioTransport implements Transport {
           const bytes = stdin.read() as Buffer | string | null;
           if (bytes === null) {
             if (ended) break;
-            await new Promise<void>(resolve => { wake = resolve; });
+            await new Promise<void>((resolve) => {
+              wake = resolve;
+            });
             continue;
           }
-          const current = typeof bytes === "string" ? Buffer.from(bytes) : bytes;
+          const current =
+            typeof bytes === 'string' ? Buffer.from(bytes) : bytes;
           for (let offset = 0; offset < current.length;) {
             const newline = current.indexOf(0x0a, offset);
             const next = newline === -1 ? current.length : newline + 1;
@@ -79,12 +99,25 @@ export class StdioTransport implements Transport {
         framer.end();
         const value = takeLine();
         if (value?.trim()) yield JSON.parse(value) as JsonObject;
-      } finally { close(); }
+      } finally {
+        close();
+      }
     })();
-    try { yield* resourceMessages(input, frame => this.send(frame), this.resources, this.stop.signal); }
-    finally { this.stop.signal.removeEventListener("abort", close); close(); }
+    try {
+      yield* resourceMessages(
+        input,
+        (frame) => this.send(frame),
+        this.resources,
+        this.stop.signal,
+      );
+    } finally {
+      this.stop.signal.removeEventListener('abort', close);
+      close();
+    }
   }
-  stopReceiving(): void { this.stop.abort(); }
+  stopReceiving(): void {
+    this.stop.abort();
+  }
 }
 
 export interface WebSocketLike extends AsyncIterable<string | Uint8Array> {
@@ -96,7 +129,10 @@ export class WebSocketTransport implements Transport {
   resources?: ResourceRegistry;
   readonly capabilities: ReadonlySet<string>;
 
-  constructor(private readonly socket: WebSocketLike, capabilities: Iterable<string> = []) {
+  constructor(
+    private readonly socket: WebSocketLike,
+    capabilities: Iterable<string> = [],
+  ) {
     this.capabilities = new Set(capabilities);
   }
 
@@ -106,13 +142,25 @@ export class WebSocketTransport implements Transport {
 
   async *[Symbol.asyncIterator](): AsyncIterator<JsonObject> {
     const socket = this.socket;
-    const input = (async function* () { for await (const message of socket) {
-      const text = typeof message === "string" ? message : new TextDecoder().decode(message);
-      yield JSON.parse(text) as JsonObject;
-    } })();
-    yield* resourceMessages(input, frame => this.send(frame), this.resources, this.stop.signal);
+    const input = (async function* () {
+      for await (const message of socket) {
+        const text =
+          typeof message === 'string'
+            ? message
+            : new TextDecoder().decode(message);
+        yield JSON.parse(text) as JsonObject;
+      }
+    })();
+    yield* resourceMessages(
+      input,
+      (frame) => this.send(frame),
+      this.resources,
+      this.stop.signal,
+    );
   }
-  stopReceiving(): void { this.stop.abort(); }
+  stopReceiving(): void {
+    this.stop.abort();
+  }
 }
 
 export class CallbackTransport implements Transport {
@@ -121,7 +169,9 @@ export class CallbackTransport implements Transport {
   readonly capabilities: ReadonlySet<string>;
 
   constructor(
-    private readonly sender: (message: A2UIMessage | ResourceFrame) => Promise<void>,
+    private readonly sender: (
+      message: A2UIMessage | ResourceFrame,
+    ) => Promise<void>,
     private readonly receiver: () => AsyncIterable<JsonObject>,
     capabilities: Iterable<string> = [],
   ) {
@@ -133,7 +183,14 @@ export class CallbackTransport implements Transport {
   }
 
   [Symbol.asyncIterator](): AsyncIterator<JsonObject> {
-    return resourceMessages(this.receiver(), frame => this.send(frame), this.resources, this.stop.signal)[Symbol.asyncIterator]();
+    return resourceMessages(
+      this.receiver(),
+      (frame) => this.send(frame),
+      this.resources,
+      this.stop.signal,
+    )[Symbol.asyncIterator]();
   }
-  stopReceiving(): void { this.stop.abort(); }
+  stopReceiving(): void {
+    this.stop.abort();
+  }
 }

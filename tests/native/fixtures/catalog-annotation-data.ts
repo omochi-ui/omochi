@@ -1,7 +1,9 @@
-import type { AnnotationProps } from "./catalog.js";
+import type { AnnotationProps } from './catalog.js';
 
 const props: AnnotationProps = {
-  value: { $ref: "literal.json" }, default: "label", examples: ["example"],
+  value: { $ref: 'literal.json' },
+  default: 'label',
+  examples: ['example'],
 };
 // @ts-expect-error Properties named default still resolve their string schema.
 const wrongDefault: AnnotationProps = { ...props, default: 42 };

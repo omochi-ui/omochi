@@ -13,10 +13,16 @@ from omochi_ui.receive_queue import MAX_PENDING_MESSAGES
 
 
 def action_frame() -> bytes:
-    message = {"version": "v0.9", "action": {
-        "name": "click", "surfaceId": "main", "sourceComponentId": "button",
-        "timestamp": "2026-11-11T00:00:00.000Z", "context": {},
-    }}
+    message = {
+        "version": "v0.9",
+        "action": {
+            "name": "click",
+            "surfaceId": "main",
+            "sourceComponentId": "button",
+            "timestamp": "2026-11-11T00:00:00.000Z",
+            "context": {},
+        },
+    }
     return (json.dumps(message) + "\n").encode()
 
 
@@ -76,8 +82,12 @@ class LocalServerLifecycleTests(unittest.IsolatedAsyncioTestCase):
 
             writer = Mock()
             closing = None
-            with patch.object(reader, "readline", controlled_readline), patch(
-                "omochi_ui._native_local.request", controlled_request,
+            with (
+                patch.object(reader, "readline", controlled_readline),
+                patch(
+                    "omochi_ui._native_local.request",
+                    controlled_request,
+                ),
             ):
                 accepting = asyncio.create_task(transport._accept(reader, writer))
                 try:
@@ -90,7 +100,9 @@ class LocalServerLifecycleTests(unittest.IsolatedAsyncioTestCase):
                         reader.feed_eof()
                         await delivered.wait()
                         native_can_close.set()
-                        await asyncio.gather(asyncio.shield(closing), asyncio.shield(accepting))
+                        await asyncio.gather(
+                            asyncio.shield(closing), asyncio.shield(accepting)
+                        )
                     self.assertFalse(transport._client_tasks)
                     self.assertIsNone(await transport._queue.get())
                     self.assertIsNotNone(directory)
@@ -133,7 +145,9 @@ class LocalServerLifecycleTests(unittest.IsolatedAsyncioTestCase):
                         await close_entered.wait()
                         self.assertFalse(closing.done())
                         publishing_can_return.set()
-                        await asyncio.gather(asyncio.shield(starting), asyncio.shield(closing))
+                        await asyncio.gather(
+                            asyncio.shield(starting), asyncio.shield(closing)
+                        )
                     self.assertFalse(directory.exists())
                     self.assertIsNone(transport.directory)
                     successor = LocalServerTransport("closing", runtime_dir=root)

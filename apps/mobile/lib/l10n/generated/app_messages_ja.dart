@@ -305,4 +305,40 @@ class AppMessagesJa extends AppMessages {
 
   @override
   String get remoteHubPublic => '共有リンク';
+
+  @override
+  String get boardSize => 'サイズ調整';
+
+  @override
+  String get boardCompact => 'コンパクト';
+
+  @override
+  String get boardStandard => '標準';
+
+  @override
+  String get boardWide => 'ワイド';
+
+  @override
+  String get boardFull => '全幅';
+
+  @override
+  String get boardShorter => '低く';
+
+  @override
+  String get boardTaller => '高く';
+
+  @override
+  String get boardPreview => '広い画面の配置';
+
+  @override
+  String get boardApply => '適用';
+
+  @override
+  String get boardMove => 'パネルを移動';
+
+  @override
+  String get boardUp => '上へ移動';
+
+  @override
+  String get boardDown => '下へ移動';
 }

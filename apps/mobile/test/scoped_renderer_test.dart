@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -243,12 +242,8 @@ void main() {
         await tester.pump();
         expect(NativeImageBudget.shared.loading, 0);
         expect(NativeImageBudget.shared.decodedBytes, 0);
-        final fixture = File('tool/sdk_fixture.ts').readAsStringSync();
-        final imageBytes = base64Decode(
-          RegExp(r"Buffer.from\('([^']+)', 'base64'\)")
-              .firstMatch(fixture)!
-              .group(1)!,
-        );
+        final imageBytes = File('test/fixtures/resource-image.png')
+            .readAsBytesSync();
         final before = PaintingBinding.instance.imageCache.currentSizeBytes;
         final failure = Completer<Uint8List>();
         final second = TestScope('image:2')..imageFuture = failure.future;

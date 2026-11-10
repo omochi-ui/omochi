@@ -19,7 +19,8 @@
   },
   "scripts": {
     "build": "bun check -p tsconfig.app.json && vite build && tsc -p tsconfig.contracts.json",
-    "typecheck": "bun check -p tsconfig.app.json",
+    "build:types": "tsc -p tsconfig.contracts.json --emitDeclarationOnly",
+    "typecheck": "bun check -p tsconfig.app.json && bun check -p tsconfig.hosted.json && bun check -p tsconfig.contracts.json && bun check -p tsconfig.test.json",
     "dev": "vite",
     "lint": "oxlint",
     "test": "bun check -p tsconfig.test.json && bun test ./test",
@@ -31,6 +32,7 @@
     "i18next-browser-languagedetector": "^8.3.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
+    "react-grid-layout": "2.3.0",
     "react-i18next": "^17.1.12"
   },
   "devDependencies": {

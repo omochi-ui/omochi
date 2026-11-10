@@ -2,9 +2,11 @@
 import '../styles/landing.css';
 
 const title = '発表リンク | Omochi';
-const description = 'ご覧いただきありがとうございました。発表スライドとデモはこちらから。';
+const description =
+  'ご覧いただきありがとうございました。発表スライドとデモはこちらから。';
 const canonical = new URL('/talk/', Astro.site);
 ---
+
 <!doctype html>
 <html lang="ja">
   <head>
@@ -30,13 +32,26 @@ const canonical = new URL('/talk/', Astro.site);
       </h1>
       <p class="thanks">ご覧いただきありがとうございました。</p>
       <div class="talk-links">
-        <a class="button slides" href="https://speakerdeck.com/kkozika/omochi-talk">
+        <a
+          class="button slides"
+          href="https://speakerdeck.com/kkozika/omochi-talk"
+        >
           スライドを見る<span aria-hidden="true">→</span>
         </a>
-        <a class="button demo" href="https://demo.omochi.fyi/" aria-describedby="demo-note">デモを見る</a>
+        <a
+          class="button demo"
+          href="https://demo.omochi.fyi/"
+          aria-describedby="demo-note"
+        >
+          デモを見る
+        </a>
       </div>
-      <p id="demo-note" class="demo-note">発表会のデモは2026年11月末までオンラインです</p>
-      <a class="home" href="/">ホームへ</a>
+      <p id="demo-note" class="demo-note">
+        発表会のデモは2026年11月末までオンラインです
+      </p>
+      <a class="home" href="/">
+        ホームへ
+      </a>
     </main>
   </body>
 </html>

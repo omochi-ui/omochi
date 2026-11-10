@@ -23,9 +23,11 @@ class State:
     temperature: float = 50
     result: str | None = None
 
+
 @dataclass
 class RunInput:
     temperature: float
+
 
 app = App(State())
 

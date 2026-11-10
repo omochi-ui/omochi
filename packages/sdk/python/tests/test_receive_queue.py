@@ -2,13 +2,16 @@ from __future__ import annotations
 
 import asyncio
 import json
-from itertools import product
 import tempfile
 import unittest
+from itertools import product
 
 from omochi_ui import App, LocalServerTransport, schema
 from omochi_ui.receive_queue import (
-    MAX_PENDING_BYTES, MAX_PENDING_MESSAGES, ReceiveQueue, ReceiveQueueOverflowError,
+    MAX_PENDING_BYTES,
+    MAX_PENDING_MESSAGES,
+    ReceiveQueue,
+    ReceiveQueueOverflowError,
 )
 from omochi_ui.transport import CallbackTransport
 
@@ -17,12 +20,18 @@ def action_message(payload=""):
     return {
         "version": "v0.9",
         "action": {
-            "name": "block", "surfaceId": "main", "sourceComponentId": "block",
-            "timestamp": "2026-08-12T00:00:00.000Z", "context": {},
+            "name": "block",
+            "surfaceId": "main",
+            "sourceComponentId": "block",
+            "timestamp": "2026-08-12T00:00:00.000Z",
+            "context": {},
         },
-        "metadata": {"a2uiClientDataModel": {
-            "version": "v0.9", "surfaces": {"main": {"inputs": {"payload": payload}}},
-        }},
+        "metadata": {
+            "a2uiClientDataModel": {
+                "version": "v0.9",
+                "surfaces": {"main": {"inputs": {"payload": payload}}},
+            }
+        },
     }
 
 
@@ -47,20 +56,34 @@ class ReceiveQueueTests(unittest.IsolatedAsyncioTestCase):
             ui.button("Block", block.call(None), key="block")
 
         uri = app.resources.bytes(b"media", "video/mp4")
-        stat = {"omochi": "resources/1", "kind": "request", "id": "barrier",
-                "op": "stat", "resource": uri.rsplit("/", 1)[1]}
+        stat = {
+            "omochi": "resources/1",
+            "kind": "request",
+            "id": "barrier",
+            "op": "stat",
+            "resource": uri.rsplit("/", 1)[1],
+        }
         return app, entered, release, calls, stat
 
     async def test_unix_overflow_serves_resources_then_disconnects_and_fails(self):
         for budget, ending in product(("count", "bytes"), ("overflow", "shutdown")):
-            with self.subTest(budget=budget, ending=ending), tempfile.TemporaryDirectory() as root:
-                message = action_message("é" * (512 * 1024) if budget == "bytes" else "")
-                capacity = min(MAX_PENDING_MESSAGES, MAX_PENDING_BYTES // len(encoded(message)))
+            with (
+                self.subTest(budget=budget, ending=ending),
+                tempfile.TemporaryDirectory() as root,
+            ):
+                message = action_message(
+                    "é" * (512 * 1024) if budget == "bytes" else ""
+                )
+                capacity = min(
+                    MAX_PENDING_MESSAGES, MAX_PENDING_BYTES // len(encoded(message))
+                )
                 app, entered, release, calls, stat = self.blocked_app()
                 transport = LocalServerTransport("queue", runtime_dir=root)
                 await transport.start()
                 running = asyncio.create_task(app.start(transport))
-                reader, writer = await asyncio.open_unix_connection(str(transport.endpoint["path"]))
+                reader, writer = await asyncio.open_unix_connection(
+                    str(transport.endpoint["path"])
+                )
                 try:
                     writer.write(encoded(action_message()) + b"\n")
                     await writer.drain()
@@ -71,7 +94,9 @@ class ReceiveQueueTests(unittest.IsolatedAsyncioTestCase):
                     await writer.drain()
                     while True:
                         line = await asyncio.wait_for(reader.readline(), 5)
-                        self.assertTrue(line, "disconnected before the queue reached capacity")
+                        self.assertTrue(
+                            line, "disconnected before the queue reached capacity"
+                        )
                         response = json.loads(line)
                         if response.get("id") == "barrier":
                             self.assertEqual(response["status"], 200)
@@ -101,12 +126,20 @@ class ReceiveQueueTests(unittest.IsolatedAsyncioTestCase):
                     await asyncio.gather(running, return_exceptions=True)
 
     async def test_resource_pump_overflow_closes_source_and_fails(self):
-        for budget in ("count", "bytes"):
+        async def check_case(budget):
             with self.subTest(budget=budget):
-                message = action_message("é" * (512 * 1024) if budget == "bytes" else "")
-                capacity = min(MAX_PENDING_MESSAGES, MAX_PENDING_BYTES // len(encoded(message)))
+                message = action_message(
+                    "é" * (512 * 1024) if budget == "bytes" else ""
+                )
+                capacity = min(
+                    MAX_PENDING_MESSAGES, MAX_PENDING_BYTES // len(encoded(message))
+                )
                 app, entered, release, calls, stat = self.blocked_app()
-                responded, overflow, source_closed = asyncio.Event(), asyncio.Event(), asyncio.Event()
+                responded, overflow, source_closed = (
+                    asyncio.Event(),
+                    asyncio.Event(),
+                    asyncio.Event(),
+                )
 
                 async def send(frame):
                     if frame.get("id") == "barrier":
@@ -126,7 +159,9 @@ class ReceiveQueueTests(unittest.IsolatedAsyncioTestCase):
                     finally:
                         source_closed.set()
 
-                running = asyncio.create_task(app.start(CallbackTransport(send, source)))
+                running = asyncio.create_task(
+                    app.start(CallbackTransport(send, source))
+                )
                 try:
                     await asyncio.wait_for(responded.wait(), 5)
                     self.assertEqual(calls, [None])
@@ -141,9 +176,14 @@ class ReceiveQueueTests(unittest.IsolatedAsyncioTestCase):
                     release.set()
                     await asyncio.gather(running, return_exceptions=True)
 
+        for budget in ("count", "bytes"):
+            await check_case(budget)
+
     async def test_dequeue_and_close_release_capacity_without_a_sentinel_slot(self):
         queue = ReceiveQueue()
-        value = {"value": "é" * ((MAX_PENDING_BYTES - len(encoded({"value": ""}))) // 2)}
+        value = {
+            "value": "é" * ((MAX_PENDING_BYTES - len(encoded({"value": ""}))) // 2)
+        }
         queue.put_nowait(value)
         with self.assertRaises(ReceiveQueueOverflowError):
             queue.put_nowait({})

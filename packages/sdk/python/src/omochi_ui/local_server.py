@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from .receive_queue import ReceiveQueue, ReceiveQueueOverflowError
-from .resources import is_resource, hello
+from .resources import hello, is_resource
 from .snapshot import A2uiSnapshot
 from .transport import MAX_FRAME_BYTES, Transport
 
@@ -22,7 +22,9 @@ _MAX_PENDING_BYTES = 16 * 1024 * 1024
 
 
 def _encode_frame(message: dict[str, Any]) -> bytes:
-    return (json.dumps(message, separators=(",", ":"), ensure_ascii=False) + "\n").encode()
+    return (
+        json.dumps(message, separators=(",", ":"), ensure_ascii=False) + "\n"
+    ).encode()
 
 
 class _OutboundPeer:
@@ -107,31 +109,42 @@ def _is_client_message(message: Any) -> bool:
         action = message["action"]
         return (
             isinstance(action, dict)
-            and all(isinstance(action.get(key), str) for key in ("name", "surfaceId", "sourceComponentId", "timestamp"))
+            and all(
+                isinstance(action.get(key), str)
+                for key in ("name", "surfaceId", "sourceComponentId", "timestamp")
+            )
             and isinstance(action.get("context"), dict)
         )
     error = message["error"]
     return (
-        isinstance(error, dict) and "code" in error
+        isinstance(error, dict)
+        and "code" in error
         and isinstance(error.get("surfaceId"), str)
         and isinstance(error.get("message"), str)
-        and (error["code"] != "VALIDATION_FAILED" or (
-            isinstance(error.get("path"), str)
-            and set(error) == {"code", "surfaceId", "path", "message"}
-        ))
+        and (
+            error["code"] != "VALIDATION_FAILED"
+            or (
+                isinstance(error.get("path"), str)
+                and set(error) == {"code", "surfaceId", "path", "message"}
+            )
+        )
     )
 
 
 def validate_service_id(service_id: str) -> str:
     # "." and ".." match the character class but would collapse or escape the service directory.
     if service_id in (".", "..") or not SERVICE_ID_PATTERN.fullmatch(service_id):
-        raise ValueError(f"service_id must match {SERVICE_ID_PATTERN.pattern} and cannot be '.' or '..': {service_id!r}")
+        raise ValueError(
+            f"service_id must match {SERVICE_ID_PATTERN.pattern} and cannot be '.' or '..': {service_id!r}"
+        )
     return service_id
 
 
 def omochi_runtime_root() -> Path:
     from ._native_local import default_root
+
     return default_root()
+
 
 class LocalServerTransport(Transport):
     """Publishes one application through user-private local IPC for discovery.
@@ -180,10 +193,15 @@ class LocalServerTransport(Transport):
 
     async def start(self) -> None:
         from ._native_local import request
+
         async with self._start_lock:
             if self._native_id is not None or self._closed:
                 return
-            options: dict[str, Any] = {"serviceId": self._service_id, "name": self._name, "icon": self._icon}
+            options: dict[str, Any] = {
+                "serviceId": self._service_id,
+                "name": self._name,
+                "icon": self._icon,
+            }
             if self._root is not None:
                 options["runtimeDir"] = str(self._root)
             # Shield startup so cancellation cannot orphan a successful publication.
@@ -191,6 +209,7 @@ class LocalServerTransport(Transport):
             try:
                 result = json.loads(await asyncio.shield(starting))
             except asyncio.CancelledError:
+
                 async def cleanup() -> None:
                     result = json.loads(await starting)
                     await request("close", result["id"])
@@ -211,12 +230,15 @@ class LocalServerTransport(Transport):
             self._accept_task = asyncio.create_task(self._accept_native())
 
     async def _accept_native(self) -> None:
-        from ._native_local import request, Reader, Writer
+        from ._native_local import Reader, Writer, request
+
         assert self._native_id is not None
         try:
             while not self._closed:
                 handle = json.loads(await request("accept", self._native_id))
-                task = asyncio.create_task(self._accept(Reader(handle, MAX_FRAME_BYTES), Writer(handle)))
+                task = asyncio.create_task(
+                    self._accept(Reader(handle, MAX_FRAME_BYTES), Writer(handle))
+                )
                 self._client_tasks.add(task)
                 task.add_done_callback(self._client_tasks.discard)
         except OSError:
@@ -251,11 +273,14 @@ class LocalServerTransport(Transport):
 
     async def _close(self, origin: asyncio.Task[Any] | None) -> None:
         from ._native_local import request
+
         async with self._start_lock:
             if self._native_id is not None:
                 handle, self._native_id = self._native_id, None
                 await asyncio.shield(request("close", handle))
-            tasks = self._client_tasks | ({self._accept_task} if self._accept_task else set())
+            tasks = self._client_tasks | (
+                {self._accept_task} if self._accept_task else set()
+            )
             tasks.discard(asyncio.current_task())
             tasks.discard(origin)
             if tasks:
@@ -264,7 +289,9 @@ class LocalServerTransport(Transport):
             self._endpoint = None
             self._queue.finish(discard=True)
 
-    async def _accept(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+    async def _accept(
+        self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter
+    ) -> None:
         if self._closed:
             writer.close()
             return
@@ -276,7 +303,11 @@ class LocalServerTransport(Transport):
         self._clients.add(client)
         client.task = asyncio.create_task(client.pump(bootstrap))
         try:
-            while not self._closed and not client.closed and (line := await reader.readline()):
+            while (
+                not self._closed
+                and not client.closed
+                and (line := await reader.readline())
+            ):
                 if self._closed or client.closed:
                     break
                 text = line.decode().strip()

@@ -9,12 +9,34 @@ const paths = {
 } as const;
 
 export function Icon({ name }: { name: keyof typeof paths | 'view' }) {
-  return <svg className="hub-icon" viewBox={name === 'view' ? '0 0 24 24' : '0 0 16 16'} fill="none" stroke="currentColor" strokeWidth="2"
-    strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false">
-    {name === 'view' ? <>
-      <rect x="2.5" y="4" width="19" height="16" rx="3.5" vectorEffect="non-scaling-stroke" />
-      <path d="M2.5 9h19" vectorEffect="non-scaling-stroke" />
-      <circle cx="6.3" cy="6.5" r=".6" fill="currentColor" stroke="none" />
-    </> : <path d={paths[name]} vectorEffect="non-scaling-stroke" />}
-  </svg>;
+  return (
+    <svg
+      className="hub-icon"
+      viewBox={name === 'view' ? '0 0 24 24' : '0 0 16 16'}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      focusable="false"
+    >
+      {name === 'view' ? (
+        <>
+          <rect
+            x="2.5"
+            y="4"
+            width="19"
+            height="16"
+            rx="3.5"
+            vectorEffect="non-scaling-stroke"
+          />
+          <path d="M2.5 9h19" vectorEffect="non-scaling-stroke" />
+          <circle cx="6.3" cy="6.5" r=".6" fill="currentColor" stroke="none" />
+        </>
+      ) : (
+        <path d={paths[name]} vectorEffect="non-scaling-stroke" />
+      )}
+    </svg>
+  );
 }

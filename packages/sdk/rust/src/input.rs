@@ -3,6 +3,8 @@ use serde::{Serialize, Serializer};
 use serde_json::Value;
 use std::marker::PhantomData;
 
+type InvariantProjection<T, F, P> = PhantomData<fn(T, F, P) -> (T, F, P)>;
+
 /// A browser expression. The result type is never part of the wire representation.
 #[derive(Clone, Debug)]
 pub struct Expr<T> {
@@ -131,7 +133,7 @@ pub trait ActionInput: Serialize {
 /// ```
 pub struct Field<T, F, P = WholeValue> {
     pub(crate) path: String,
-    marker: PhantomData<fn(T, F, P) -> (T, F, P)>,
+    marker: InvariantProjection<T, F, P>,
 }
 impl<T, F, P> Field<T, F, P> {
     #[doc(hidden)]

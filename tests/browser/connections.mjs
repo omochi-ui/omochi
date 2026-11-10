@@ -3,144 +3,374 @@ import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
 import { chromium } from './cdp.mjs';
 const temp = await mkdtemp('/tmp/omochi-connections-');
-const screenshots = process.env.SCREENSHOT_DIR ?? '/tmp/omochi-connections-screenshots';
+const screenshots =
+  process.env.SCREENSHOT_DIR ?? '/tmp/omochi-connections-screenshots';
 let browser, server;
 try {
-  const built = await Bun.build({ entrypoints: ['packages/hub-ui/test/browser/gateway-reconnect.jsx'], outdir: temp, target: 'browser' });
+  const built = await Bun.build({
+    entrypoints: ['packages/hub-ui/test/browser/gateway-reconnect.jsx'],
+    outdir: temp,
+    target: 'browser',
+  });
   assert.equal(built.success, true, String(built.logs));
-  await writeFile(temp + '/index.html', '<!doctype html><html><head><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="stylesheet" href="/gateway-reconnect.css"></head><body><div id="root"></div><script type="module" src="/gateway-reconnect.js"></script></body></html>');
-  server = Bun.serve({ hostname: '127.0.0.1', port: 0, async fetch(request) { const path = new URL(request.url).pathname; const file = Bun.file(temp + (path === '/' ? '/index.html' : path)); return await file.exists() ? new Response(file) : new Response('Not found', {status:404}); } });
+  await writeFile(
+    temp + '/index.html',
+    '<!doctype html><html><head><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="stylesheet" href="/gateway-reconnect.css"></head><body><div id="root"></div><script type="module" src="/gateway-reconnect.js"></script></body></html>',
+  );
+  server = Bun.serve({
+    hostname: '127.0.0.1',
+    port: 0,
+    async fetch(request) {
+      const path = new URL(request.url).pathname;
+      const file = Bun.file(temp + (path === '/' ? '/index.html' : path));
+      return (await file.exists())
+        ? new Response(file)
+        : new Response('Not found', { status: 404 });
+    },
+  });
   browser = await chromium(temp + '/chrome');
   const url = `http://127.0.0.1:${server.port}/?connections`;
-  const evaluate = expression => browser.evaluate(expression);
-  const until = async expression => {
+  const evaluate = (expression) => browser.evaluate(expression);
+  const until = async (expression) => {
     const end = Date.now() + 10000;
-    while (Date.now() < end) { if (await evaluate(expression)) return; await Bun.sleep(25); }
+    while (Date.now() < end) {
+      if (await evaluate(expression)) return;
+      await Bun.sleep(25);
+    }
     throw Error('Timed out: ' + expression);
   };
-  const click = async selector => {
-    await until(`document.querySelector(${JSON.stringify(selector)})?.checkVisibility() && !document.querySelector(${JSON.stringify(selector)}).disabled`);
-    await evaluate(`document.querySelector(${JSON.stringify(selector)}).click()`);
+  const click = async (selector) => {
+    await until(
+      `document.querySelector(${JSON.stringify(selector)})?.checkVisibility() && !document.querySelector(${JSON.stringify(selector)}).disabled`,
+    );
+    await evaluate(
+      `document.querySelector(${JSON.stringify(selector)}).click()`,
+    );
   };
-  const heading = name => until(`document.querySelector('h1')?.textContent === ${JSON.stringify(name)}`);
+  const heading = (name) =>
+    until(
+      `document.querySelector('h1')?.textContent === ${JSON.stringify(name)}`,
+    );
   const ownerId = 'a'.repeat(64) + '/11111111-1111-4111-8111-111111111111';
   const otherId = 'b'.repeat(64) + '/22222222-2222-4222-8222-222222222222';
   const shareId = 'a'.repeat(64) + '/44444444-4444-4444-8444-444444444444';
-  const row = id => `[data-connection-id="${id}"]`;
-  const select = async id => {
+  const row = (id) => `[data-connection-id="${id}"]`;
+  const select = async (id) => {
     await click(row(id) + ' .connection-select');
-    await until(`document.querySelector('.workspace-status .current-connection-actions')?.dataset.currentConnectionId === ${JSON.stringify(id)}`);
+    await until(
+      `document.querySelector('.workspace-status .current-connection-actions')?.dataset.currentConnectionId === ${JSON.stringify(id)}`,
+    );
   };
-  const share = { version: 2, hubId: 'a'.repeat(64), grantId: shareId.split('/')[1], relayUrls: ['https://relay.example/'], mode: 'share', secret: '2'.repeat(64) };
+  const share = {
+    version: 2,
+    hubId: 'a'.repeat(64),
+    grantId: shareId.split('/')[1],
+    relayUrls: ['https://relay.example/'],
+    mode: 'share',
+    secret: '2'.repeat(64),
+  };
   const openShare = async (link = share) => {
-    await evaluate(`location.hash = ${JSON.stringify('#share:' + Buffer.from(JSON.stringify(link)).toString('base64url'))}`);
+    await evaluate(
+      `location.hash = ${JSON.stringify('#share:' + Buffer.from(JSON.stringify(link)).toString('base64url'))}`,
+    );
     await heading('Public dashboard');
-    await until(`document.querySelector('.workspace-status .current-connection-actions')?.dataset.currentConnectionId === ${JSON.stringify(link.hubId + '/' + link.grantId)}`);
+    await until(
+      `document.querySelector('.workspace-status .current-connection-actions')?.dataset.currentConnectionId === ${JSON.stringify(link.hubId + '/' + link.grantId)}`,
+    );
   };
-  const shot = async name => {
+  const shot = async (name) => {
     await mkdir(screenshots, { recursive: true });
-    await evaluate('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))');
-    const image = await browser.command('Page.captureScreenshot', { format: 'png', captureBeyondViewport: true });
-    await writeFile(`${screenshots}/${name}.png`, Buffer.from(image.data, 'base64'));
+    await evaluate(
+      'new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))',
+    );
+    const image = await browser.command('Page.captureScreenshot', {
+      format: 'png',
+      captureBeyondViewport: true,
+    });
+    await writeFile(
+      `${screenshots}/${name}.png`,
+      Buffer.from(image.data, 'base64'),
+    );
   };
-  await browser.command('Emulation.setDeviceMetricsOverride', { width: 1440, height: 1000, deviceScaleFactor: 1, mobile: false });
+  await browser.command('Emulation.setDeviceMetricsOverride', {
+    width: 1440,
+    height: 1000,
+    deviceScaleFactor: 1,
+    mobile: false,
+  });
   await browser.command('Page.navigate', { url: url + '&seed' });
   await until('document.querySelectorAll(".connection-record").length === 3');
-  assert.equal(await evaluate('!!document.querySelector(".sidebar")'), false, 'idle connections are centered');
-  assert.ok(await evaluate('!!document.querySelector(".connections-page .connection-details")'));
-  assert.ok((await evaluate('document.body.innerText')).includes('Hub aaaaaaaa'));
-  assert.ok((await evaluate('document.body.innerText')).includes('Hub bbbbbbbb'));
-  await select(ownerId); await heading('Home dashboard 1');
-  await click('.sidebar nav button:nth-child(2)'); await heading('Home dashboard 2');
-  await select(otherId); await heading('Work dashboard 1');
-  await select(ownerId); await heading('Home dashboard 2');
-  assert.equal(await evaluate('!!document.querySelector(".sidebar .connection-details, .sidebar .connection-disconnect")'), false, 'sidebar keeps connection navigation separate from management');
+  assert.equal(
+    await evaluate('!!document.querySelector(".sidebar")'),
+    false,
+    'idle connections are centered',
+  );
+  assert.ok(
+    await evaluate(
+      '!!document.querySelector(".connections-page .connection-details")',
+    ),
+  );
+  assert.ok(
+    (await evaluate('document.body.innerText')).includes('Hub aaaaaaaa'),
+  );
+  assert.ok(
+    (await evaluate('document.body.innerText')).includes('Hub bbbbbbbb'),
+  );
+  await select(ownerId);
+  await heading('Home dashboard 1');
+  await click('.sidebar nav button:nth-child(2)');
+  await heading('Home dashboard 2');
+  await select(otherId);
+  await heading('Work dashboard 1');
+  await select(ownerId);
+  await heading('Home dashboard 2');
+  assert.equal(
+    await evaluate(
+      '!!document.querySelector(".sidebar .connection-details, .sidebar .connection-disconnect")',
+    ),
+    false,
+    'sidebar keeps connection navigation separate from management',
+  );
   await shot('owner-desktop');
   await openShare();
-  await browser.command('Page.reload'); await heading('Public dashboard');
+  await browser.command('Page.reload');
+  await heading('Public dashboard');
   await until('document.querySelectorAll(".connection-record").length === 4');
   await shot('share-desktop');
-  await select(ownerId); await heading('Home dashboard 2');
-  await select(shareId); await heading('Public dashboard');
-  assert.ok(await evaluate('!!document.querySelector(".workspace-status .connection-open-app")'), 'shared handoff is available beside the current connection');
+  await select(ownerId);
+  await heading('Home dashboard 2');
+  await select(shareId);
+  await heading('Public dashboard');
+  assert.ok(
+    await evaluate(
+      '!!document.querySelector(".workspace-status .connection-open-app")',
+    ),
+    'shared handoff is available beside the current connection',
+  );
   await click(row(shareId) + ' .connection-manage');
   await until('!!document.querySelector(".picker:modal")');
-  assert.equal(await evaluate('!!document.querySelector(".connection-dialog .connection-open-app, .connection-dialog .connection-remember, .connection-dialog .connection-disconnect")'), false, 'record management does not contain current-connection actions');
-  await evaluate(`(() => {const input=document.querySelector('#connection-name'); Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,'Team report'); input.dispatchEvent(new Event('input',{bubbles:true}));})()`);
+  assert.equal(
+    await evaluate(
+      '!!document.querySelector(".connection-dialog .connection-open-app, .connection-dialog .connection-remember, .connection-dialog .connection-disconnect")',
+    ),
+    false,
+    'record management does not contain current-connection actions',
+  );
+  await evaluate(
+    `(() => {const input=document.querySelector('#connection-name'); Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,'Team report'); input.dispatchEvent(new Event('input',{bubbles:true}));})()`,
+  );
   await click('.picker:modal form button');
-  await until('document.querySelector(".picker:modal [role=status]")?.textContent === "Connection name saved."');
+  await until(
+    'document.querySelector(".picker:modal [role=status]")?.textContent === "Connection name saved."',
+  );
   await click('.picker:modal .dialog-header button');
-  await evaluate('document.querySelector(".workspace-status .connection-remember").focus()');
+  await evaluate(
+    'document.querySelector(".workspace-status .connection-remember").focus()',
+  );
   await click('.workspace-status .connection-remember');
-  await until('document.querySelector(".workspace-status .current-connection-actions [role=status]")?.textContent === "Connection remembered in this browser."');
+  await until(
+    'document.querySelector(".workspace-status .current-connection-actions [role=status]")?.textContent === "Connection remembered in this browser."',
+  );
   await until('document.activeElement.matches(".connection-open-app")');
-  assert.ok(await evaluate('!!document.querySelector(".workspace-status .connection-remembered")'), 'remembering shows a temporary confirmation');
-  assert.equal(await evaluate('!!document.querySelector(".workspace-status .connection-remember")'), false, 'a saved connection cannot be saved again');
-  assert.equal(await evaluate(`document.querySelector(${JSON.stringify(row(shareId))}).dataset.persistent`), 'true');
+  assert.ok(
+    await evaluate(
+      '!!document.querySelector(".workspace-status .connection-remembered")',
+    ),
+    'remembering shows a temporary confirmation',
+  );
+  assert.equal(
+    await evaluate(
+      '!!document.querySelector(".workspace-status .connection-remember")',
+    ),
+    false,
+    'a saved connection cannot be saved again',
+  );
+  assert.equal(
+    await evaluate(
+      `document.querySelector(${JSON.stringify(row(shareId))}).dataset.persistent`,
+    ),
+    'true',
+  );
   await shot('share-remembered');
-  await until('!document.querySelector(".workspace-status .connection-remembered")');
-  assert.equal(await evaluate('document.querySelector(".workspace-status .current-connection-actions [role=status]").textContent'), '');
-  assert.equal(await evaluate('document.activeElement.matches(".connection-open-app")'), true, 'expiry does not remove keyboard focus');
-  assert.equal(await evaluate(`document.querySelector(${JSON.stringify(row(shareId))}).dataset.persistent`), 'true', 'expiry does not forget the connection');
-  assert.equal(await evaluate('!!document.querySelector(".workspace-status .connection-remember")'), false);
+  await until(
+    '!document.querySelector(".workspace-status .connection-remembered")',
+  );
+  assert.equal(
+    await evaluate(
+      'document.querySelector(".workspace-status .current-connection-actions [role=status]").textContent',
+    ),
+    '',
+  );
+  assert.equal(
+    await evaluate('document.activeElement.matches(".connection-open-app")'),
+    true,
+    'expiry does not remove keyboard focus',
+  );
+  assert.equal(
+    await evaluate(
+      `document.querySelector(${JSON.stringify(row(shareId))}).dataset.persistent`,
+    ),
+    'true',
+    'expiry does not forget the connection',
+  );
+  assert.equal(
+    await evaluate(
+      '!!document.querySelector(".workspace-status .connection-remember")',
+    ),
+    false,
+  );
   await shot('share-remembered-expired');
 
-  const secondShare = { ...share, hubId: 'b'.repeat(64), grantId: '55555555-5555-4555-8555-555555555555' };
+  const secondShare = {
+    ...share,
+    hubId: 'b'.repeat(64),
+    grantId: '55555555-5555-4555-8555-555555555555',
+  };
   const secondShareId = secondShare.hubId + '/' + secondShare.grantId;
   await openShare(secondShare);
   await click('.workspace-status .connection-remember');
-  await until('!!document.querySelector(".workspace-status .connection-remembered")');
-  await select(ownerId); await heading('Home dashboard 2');
-  assert.equal(await evaluate('!!document.querySelector(".workspace-status .connection-remembered")'), false, 'switching Hubs dismisses the confirmation');
-  await select(secondShareId); await heading('Public dashboard');
-  assert.equal(await evaluate('!!document.querySelector(".workspace-status .connection-remembered, .workspace-status .connection-remember")'), false, 'returning to a saved connection does not replay the confirmation or offer saving');
-  await select(shareId); await heading('Public dashboard');
+  await until(
+    '!!document.querySelector(".workspace-status .connection-remembered")',
+  );
+  await select(ownerId);
+  await heading('Home dashboard 2');
+  assert.equal(
+    await evaluate(
+      '!!document.querySelector(".workspace-status .connection-remembered")',
+    ),
+    false,
+    'switching Hubs dismisses the confirmation',
+  );
+  await select(secondShareId);
+  await heading('Public dashboard');
+  assert.equal(
+    await evaluate(
+      '!!document.querySelector(".workspace-status .connection-remembered, .workspace-status .connection-remember")',
+    ),
+    false,
+    'returning to a saved connection does not replay the confirmation or offer saving',
+  );
+  await select(shareId);
+  await heading('Public dashboard');
   const beforeReload = await evaluate('performance.timeOrigin');
   await browser.command('Page.reload');
   await until(`performance.timeOrigin > ${beforeReload}`);
   await heading('Public dashboard');
-  await until(`document.querySelector(${JSON.stringify(row(shareId))})?.dataset.persistent === 'true'`);
-  assert.equal(await evaluate('!!document.querySelector(".workspace-status .connection-remembered, .workspace-status .connection-remember")'), false, 'a reload restores storage without replaying confirmation');
+  await until(
+    `document.querySelector(${JSON.stringify(row(shareId))})?.dataset.persistent === 'true'`,
+  );
+  assert.equal(
+    await evaluate(
+      '!!document.querySelector(".workspace-status .connection-remembered, .workspace-status .connection-remember")',
+    ),
+    false,
+    'a reload restores storage without replaying confirmation',
+  );
   // The new tab reads a saved bearer and connection metadata without an endpoint lease.
   const tab = await browser.tab(url);
   const deadline = Date.now() + 10000;
-  while (Date.now() < deadline && !(await tab.evaluate(`!!document.querySelector(${JSON.stringify(row(shareId))})`))) await Bun.sleep(25);
-  assert.equal(await tab.evaluate(`document.querySelector(${JSON.stringify(row(shareId))})?.textContent.includes('Team report')`), true);
-  await select(ownerId); await heading('Home dashboard 2');
+  while (
+    Date.now() < deadline &&
+    !(await tab.evaluate(
+      `!!document.querySelector(${JSON.stringify(row(shareId))})`,
+    ))
+  )
+    await Bun.sleep(25);
+  assert.equal(
+    await tab.evaluate(
+      `document.querySelector(${JSON.stringify(row(shareId))})?.textContent.includes('Team report')`,
+    ),
+    true,
+  );
+  await select(ownerId);
+  await heading('Home dashboard 2');
   await click(row(shareId) + ' .connection-manage');
   await until('!!document.querySelector(".connection-dialog:modal")');
-  assert.equal(await evaluate('!!document.querySelector(".connection-dialog .connection-disconnect")'), false, 'an inactive connection cannot disconnect the current Hub');
-  assert.equal(await evaluate('document.querySelector(".workspace-status .current-connection-actions").dataset.currentConnectionId'), ownerId, 'opening another record does not retarget current actions');
+  assert.equal(
+    await evaluate(
+      '!!document.querySelector(".connection-dialog .connection-disconnect")',
+    ),
+    false,
+    'an inactive connection cannot disconnect the current Hub',
+  );
+  assert.equal(
+    await evaluate(
+      'document.querySelector(".workspace-status .current-connection-actions").dataset.currentConnectionId',
+    ),
+    ownerId,
+    'opening another record does not retarget current actions',
+  );
   await click('.connection-dialog .dialog-header button');
   await click('.workspace-status .connection-disconnect');
   await until('!!document.querySelector(".connections-page")');
-  await tab.evaluate(`document.querySelector(${JSON.stringify(row(ownerId) + ' .connection-select')}).click()`);
+  await tab.evaluate(
+    `document.querySelector(${JSON.stringify(row(ownerId) + ' .connection-select')}).click()`,
+  );
   const connected = Date.now() + 10000;
-  while (Date.now() < connected && !(await tab.evaluate('!!document.querySelector(".connection-switch")'))) await Bun.sleep(25);
-  assert.equal(await tab.evaluate('!!document.querySelector(".connection-switch")'), true, 'disconnect releases the endpoint for another tab');
+  while (
+    Date.now() < connected &&
+    !(await tab.evaluate('!!document.querySelector(".connection-switch")'))
+  )
+    await Bun.sleep(25);
+  assert.equal(
+    await tab.evaluate('!!document.querySelector(".connection-switch")'),
+    true,
+    'disconnect releases the endpoint for another tab',
+  );
   await tab.close();
-  await select(shareId); await heading('Public dashboard');
+  await select(shareId);
+  await heading('Public dashboard');
   await click('.settings-button');
   await until('!!document.querySelector(".settings-dialog:modal")');
-  await evaluate('(() => {const select=document.querySelector(".settings-dialog select"); select.value="ja"; select.dispatchEvent(new Event("change",{bubbles:true}));})()');
+  await evaluate(
+    '(() => {const select=document.querySelector(".settings-dialog select"); select.value="ja"; select.dispatchEvent(new Event("change",{bubbles:true}));})()',
+  );
   await until('document.documentElement.lang === "ja"');
   await click('.settings-dialog .dialog-header button');
-  await browser.command('Emulation.setDeviceMetricsOverride', { width: 320, height: 740, deviceScaleFactor: 1, mobile: false });
+  await browser.command('Emulation.setDeviceMetricsOverride', {
+    width: 320,
+    height: 740,
+    deviceScaleFactor: 1,
+    mobile: false,
+  });
   await click('.board-actions summary');
-  assert.ok(await evaluate('document.documentElement.scrollWidth <= innerWidth'));
+  assert.ok(
+    await evaluate('document.documentElement.scrollWidth <= innerWidth'),
+  );
   await click('.board-actions summary');
   await click('.connection-switch');
   await until('document.querySelector(".sidebar").checkVisibility()');
-  assert.ok(await evaluate('document.documentElement.scrollWidth <= innerWidth'));
+  assert.ok(
+    await evaluate('document.documentElement.scrollWidth <= innerWidth'),
+  );
   await shot('share-320');
   await evaluate('document.documentElement.style.fontSize="200%"');
-  assert.ok(await evaluate('document.documentElement.scrollWidth <= innerWidth'));
+  assert.ok(
+    await evaluate('document.documentElement.scrollWidth <= innerWidth'),
+  );
   await shot('share-320-text200');
   await evaluate('document.documentElement.style.fontSize=""');
   await click(row(shareId) + ' .connection-manage');
-  await browser.command('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 });
-  await browser.command('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 });
+  await browser.command('Input.dispatchKeyEvent', {
+    type: 'keyDown',
+    key: 'Escape',
+    code: 'Escape',
+    windowsVirtualKeyCode: 27,
+  });
+  await browser.command('Input.dispatchKeyEvent', {
+    type: 'keyUp',
+    key: 'Escape',
+    code: 'Escape',
+    windowsVirtualKeyCode: 27,
+  });
   await until('!document.querySelector("dialog:modal")');
   await until('document.activeElement.matches(".connection-manage")');
-  console.log('PASS: cold share navigation, per-Hub board restoration, explicit share save, confirmation expiry and dismissal, new-tab restore, disconnect lease release, 320px/200% text, and focus recovery. Screenshots: ' + screenshots);
-} finally { await browser?.close(); server?.stop(true); await rm(temp, { recursive: true, force: true }); }
+  console.log(
+    'PASS: cold share navigation, per-Hub board restoration, explicit share save, confirmation expiry and dismissal, new-tab restore, disconnect lease release, 320px/200% text, and focus recovery. Screenshots: ' +
+      screenshots,
+  );
+} finally {
+  await browser?.close();
+  server?.stop(true);
+  await rm(temp, { recursive: true, force: true });
+}

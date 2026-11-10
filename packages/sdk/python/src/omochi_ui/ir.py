@@ -8,7 +8,7 @@ from typing import Any
 class Slot:
     path: str
     kind: str
-    nodes: list["Node"] = field(default_factory=list)
+    nodes: list[Node] = field(default_factory=list)
     data_path: str | None = None
 
     def to_dict(self) -> dict[str, Any]:

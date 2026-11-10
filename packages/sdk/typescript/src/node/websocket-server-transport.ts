@@ -1,15 +1,22 @@
-import { isResourceFrame, ResourceError, resourceHello, resourceOriginAllowed, serveResources, type ResourceFrame } from "@omochi-ui/core";
-import { ResourceRegistry } from "../resources.js";
-import { createServer, type Server } from "node:http";
+import {
+  isResourceFrame,
+  ResourceError,
+  resourceHello,
+  resourceOriginAllowed,
+  serveResources,
+  type ResourceFrame,
+} from '@omochi-ui/core';
+import { ResourceRegistry } from '../resources.js';
+import { createServer, type Server } from 'node:http';
 
-import { A2uiClientMessageSchema } from "@a2ui/web_core/v0_9";
-import { WebSocket, WebSocketServer } from "ws";
+import { A2uiClientMessageSchema } from '@a2ui/web_core/v0_9';
+import { WebSocket, WebSocketServer } from 'ws';
 
-import { ReceiveQueue, ReceiveQueueOverflowError } from "../receive-queue.js";
-import type { Transport } from "../transport.js";
-import type { A2UIMessage, JsonObject } from "../types.js";
-import { A2uiSnapshot } from "./snapshot.js";
-import { encodeReplay, OutboundWriter } from "./outbound-writer.js";
+import { ReceiveQueue, ReceiveQueueOverflowError } from '../receive-queue.js';
+import type { Transport } from '../transport.js';
+import type { A2UIMessage, JsonObject } from '../types.js';
+import { A2uiSnapshot } from './snapshot.js';
+import { encodeReplay, OutboundWriter } from './outbound-writer.js';
 
 export interface WebSocketServerTransportOptions {
   port: number;
@@ -24,8 +31,12 @@ interface PendingReceive {
 }
 
 function closeSocket(socket: WebSocket, code: number, reason: string): void {
-  if (socket.readyState !== WebSocket.OPEN && socket.readyState !== WebSocket.CONNECTING) return;
-  let safeReason = "";
+  if (
+    socket.readyState !== WebSocket.OPEN &&
+    socket.readyState !== WebSocket.CONNECTING
+  )
+    return;
+  let safeReason = '';
   for (const character of reason) {
     if (Buffer.byteLength(safeReason + character) > 123) break;
     safeReason += character;
@@ -34,7 +45,7 @@ function closeSocket(socket: WebSocket, code: number, reason: string): void {
 }
 
 function displayHost(host: string): string {
-  return host.includes(":") && !host.startsWith("[") ? `[${host}]` : host;
+  return host.includes(':') && !host.startsWith('[') ? `[${host}]` : host;
 }
 
 export class WebSocketServerTransport implements Transport {
@@ -57,29 +68,49 @@ export class WebSocketServerTransport implements Transport {
   private resolvedUrl: string | null = null;
 
   constructor(options: WebSocketServerTransportOptions) {
-    if (!Number.isInteger(options.port) || options.port < 0 || options.port > 65535) {
-      throw new RangeError("port must be an integer between 0 and 65535");
+    if (
+      !Number.isInteger(options.port) ||
+      options.port < 0 ||
+      options.port > 65535
+    ) {
+      throw new RangeError('port must be an integer between 0 and 65535');
     }
-    this.host = options.host ?? "127.0.0.1";
-    this.path = options.path ?? "/ws";
-    if (!this.path.startsWith("/")) throw new TypeError("path must start with /");
+    this.host = options.host ?? '127.0.0.1';
+    this.path = options.path ?? '/ws';
+    if (!this.path.startsWith('/'))
+      throw new TypeError('path must start with /');
     this.capabilities = new Set(options.capabilities ?? []);
     this.httpServer = createServer((request, response) => {
-      if (serveResources(request, response, async (route, query) => {
-        if (route !== "_") throw new ResourceError(404, "unknown resource route");
-        const result = this.resources?.respond({ omochi: "resources/1", kind: "request", id: "http", ...query });
-        if (!result || result.status !== 200) throw new ResourceError(Number(result?.status ?? 503), "resource unavailable");
-        return result;
-      })) return;
-      response.writeHead(404).end("Not found");
+      if (
+        serveResources(request, response, async (route, query) => {
+          if (route !== '_')
+            throw new ResourceError(404, 'unknown resource route');
+          const result = this.resources?.respond({
+            omochi: 'resources/1',
+            kind: 'request',
+            id: 'http',
+            ...query,
+          });
+          if (!result || result.status !== 200)
+            throw new ResourceError(
+              Number(result?.status ?? 503),
+              'resource unavailable',
+            );
+          return result;
+        })
+      )
+        return;
+      response.writeHead(404).end('Not found');
     });
 
-    this.httpServer.on("upgrade", (request, socket, head) => {
+    this.httpServer.on('upgrade', (request, socket, head) => {
       let pathname: string;
       try {
-        pathname = new URL(request.url ?? "/", "http://localhost").pathname;
+        pathname = new URL(request.url ?? '/', 'http://localhost').pathname;
       } catch {
-        socket.end("HTTP/1.1 400 Bad Request\r\nConnection: close\r\nContent-Length: 0\r\n\r\n");
+        socket.end(
+          'HTTP/1.1 400 Bad Request\r\nConnection: close\r\nContent-Length: 0\r\n\r\n',
+        );
         return;
       }
       if (this.closed || pathname !== this.path) {
@@ -88,14 +119,16 @@ export class WebSocketServerTransport implements Transport {
       }
       // WebSocket upgrades bypass CORS; enforce the HTTP resource policy here too.
       if (!resourceOriginAllowed(request)) {
-        socket.end("HTTP/1.1 403 Forbidden\r\nConnection: close\r\nContent-Length: 0\r\n\r\n");
+        socket.end(
+          'HTTP/1.1 403 Forbidden\r\nConnection: close\r\nContent-Length: 0\r\n\r\n',
+        );
         return;
       }
       this.webSocketServer.handleUpgrade(request, socket, head, (webSocket) => {
-        this.webSocketServer.emit("connection", webSocket, request);
+        this.webSocketServer.emit('connection', webSocket, request);
       });
     });
-    this.webSocketServer.on("connection", (socket) => this.accept(socket));
+    this.webSocketServer.on('connection', (socket) => this.accept(socket));
 
     this.ready = new Promise<void>((resolve, reject) => {
       const onError = (error: Error) => {
@@ -103,12 +136,12 @@ export class WebSocketServerTransport implements Transport {
         this.flushReceivers();
         reject(error);
       };
-      this.httpServer.once("error", onError);
+      this.httpServer.once('error', onError);
       this.httpServer.listen(options.port, this.host, () => {
-        this.httpServer.off("error", onError);
+        this.httpServer.off('error', onError);
         const address = this.httpServer.address();
-        if (!address || typeof address === "string") {
-          const error = new Error("failed to resolve WebSocket server address");
+        if (!address || typeof address === 'string') {
+          const error = new Error('failed to resolve WebSocket server address');
           this.receiveError = error;
           this.flushReceivers();
           reject(error);
@@ -128,7 +161,8 @@ export class WebSocketServerTransport implements Transport {
     if (!isResourceFrame(message)) this.snapshot.apply(message);
     const encoded = JSON.stringify(message);
     for (const client of this.clients) {
-      if (client.readyState === WebSocket.OPEN) this.outbound.get(client)?.send(encoded);
+      if (client.readyState === WebSocket.OPEN)
+        this.outbound.get(client)?.send(encoded);
     }
   }
 
@@ -141,7 +175,9 @@ export class WebSocketServerTransport implements Transport {
     }
   }
 
-  stopReceiving(): Promise<void> { return this.close(); }
+  stopReceiving(): Promise<void> {
+    return this.close();
+  }
 
   close(): Promise<void> {
     if (this.closePromise) return this.closePromise;
@@ -153,10 +189,12 @@ export class WebSocketServerTransport implements Transport {
       await this.ready.catch(() => {});
       for (const client of this.clients) {
         this.outbound.get(client)?.close();
-        closeSocket(client, 1001, "server shutting down");
+        closeSocket(client, 1001, 'server shutting down');
       }
       await Promise.all([
-        new Promise<void>((resolve) => this.webSocketServer.close(() => resolve())),
+        new Promise<void>((resolve) =>
+          this.webSocketServer.close(() => resolve()),
+        ),
         new Promise<void>((resolve) => {
           if (!this.httpServer.listening) {
             resolve();
@@ -170,42 +208,62 @@ export class WebSocketServerTransport implements Transport {
   }
 
   private accept(socket: WebSocket): void {
-    if (this.closed) { socket.terminate(); return; }
+    if (this.closed) {
+      socket.terminate();
+      return;
+    }
     this.clients.add(socket);
     const disconnect = () => {
       this.clients.delete(socket);
       this.outbound.get(socket)?.close();
       socket.terminate();
     };
-    socket.on("close", () => {
+    socket.on('close', () => {
       this.clients.delete(socket);
       this.outbound.get(socket)?.close();
     });
-    socket.on("error", disconnect);
-    const outbound = new OutboundWriter((text, complete) => { socket.send(text, complete); }, disconnect);
+    socket.on('error', disconnect);
+    const outbound = new OutboundWriter((text, complete) => {
+      socket.send(text, complete);
+    }, disconnect);
     this.outbound.set(socket, outbound);
-    outbound.start(encodeReplay(this.snapshot.messages(), this.resources ? resourceHello() : undefined, ""));
-    socket.on("message", (data, isBinary) => {
+    outbound.start(
+      encodeReplay(
+        this.snapshot.messages(),
+        this.resources ? resourceHello() : undefined,
+        '',
+      ),
+    );
+    socket.on('message', (data, isBinary) => {
       if (this.closed || !this.clients.has(socket)) return;
       if (isBinary) {
-        closeSocket(socket, 1003, "expected a text JSON message");
+        closeSocket(socket, 1003, 'expected a text JSON message');
         return;
       }
       try {
         const value: unknown = JSON.parse(data.toString());
         if (this.resources && isResourceFrame(value)) {
-          if (value.kind === "request") outbound.send(JSON.stringify(this.resources.respond(value)));
+          if (value.kind === 'request')
+            outbound.send(JSON.stringify(this.resources.respond(value)));
           return;
         }
         const parsed = A2uiClientMessageSchema.safeParse(value);
-        if (!parsed.success || parsed.data.version !== "v0.9") {
-          throw new Error(parsed.success ? `unsupported version: ${parsed.data.version}` : "expected an A2UI v0.9 client message");
+        if (!parsed.success || parsed.data.version !== 'v0.9') {
+          throw new Error(
+            parsed.success
+              ? `unsupported version: ${parsed.data.version}`
+              : 'expected an A2UI v0.9 client message',
+          );
         }
         const message = value as JsonObject;
-        if ("error" in message) {
+        if ('error' in message) {
           // The schema can omit a missing generic code or strip an extra action.
-          if ("action" in message || !("error" in parsed.data) || !("code" in parsed.data.error)) {
-            throw new Error("invalid client error report");
+          if (
+            'action' in message ||
+            !('error' in parsed.data) ||
+            !('code' in parsed.data.error)
+          ) {
+            throw new Error('invalid client error report');
           }
           // Valid client error reports carry no action; keep the connection open.
           return;
@@ -242,7 +300,9 @@ export class WebSocketServerTransport implements Transport {
     if (message) return Promise.resolve({ value: message, done: false });
     if (this.receiveError) return Promise.reject(this.receiveError);
     if (this.closed) return Promise.resolve({ value: undefined, done: true });
-    return new Promise((resolve, reject) => this.waiting.push({ resolve, reject }));
+    return new Promise((resolve, reject) =>
+      this.waiting.push({ resolve, reject }),
+    );
   }
 
   private flushReceivers(): void {

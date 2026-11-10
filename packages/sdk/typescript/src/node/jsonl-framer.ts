@@ -3,8 +3,8 @@ export const MAX_FRAME_BYTES = 4 * 1024 * 1024;
 
 export class JsonlFrameTooLargeError extends Error {
   constructor() {
-    super("JSONL frame exceeded 4 MiB");
-    this.name = "JsonlFrameTooLargeError";
+    super('JSONL frame exceeded 4 MiB');
+    this.name = 'JsonlFrameTooLargeError';
   }
 }
 
@@ -30,12 +30,16 @@ export class JsonlFramer {
       }
       if (newline !== -1 && this.length === 0) {
         // Complete frames can be decoded directly without retaining the input chunk.
-        const line = Buffer.from(chunk.buffer, chunk.byteOffset + offset, size).toString("utf8");
+        const line = Buffer.from(
+          chunk.buffer,
+          chunk.byteOffset + offset,
+          size,
+        ).toString('utf8');
         if (!this.deliver(line)) return false;
       } else {
         this.append(chunk.subarray(offset, end));
         if (newline !== -1) {
-          const line = this.buffer.toString("utf8", 0, this.length);
+          const line = this.buffer.toString('utf8', 0, this.length);
           this.length = 0;
           if (!this.deliver(line)) return false;
         }
@@ -48,7 +52,9 @@ export class JsonlFramer {
   /** EOF terminates a final line without requiring an LF. */
   end(): boolean {
     if (this.closed) return false;
-    const accepted = this.length === 0 || this.deliver(this.buffer.toString("utf8", 0, this.length));
+    const accepted =
+      this.length === 0 ||
+      this.deliver(this.buffer.toString('utf8', 0, this.length));
     this.close();
     return accepted;
   }
@@ -68,7 +74,12 @@ export class JsonlFramer {
     const needed = this.length + bytes.length;
     if (needed > this.buffer.length) {
       // Geometric growth keeps one-byte writes linear, with at most 4 MiB retained.
-      const buffer = Buffer.allocUnsafe(Math.min(MAX_FRAME_BYTES, Math.max(needed, this.buffer.length * 2, 1024)));
+      const buffer = Buffer.allocUnsafe(
+        Math.min(
+          MAX_FRAME_BYTES,
+          Math.max(needed, this.buffer.length * 2, 1024),
+        ),
+      );
       this.buffer.copy(buffer, 0, 0, this.length);
       this.buffer = buffer;
     }

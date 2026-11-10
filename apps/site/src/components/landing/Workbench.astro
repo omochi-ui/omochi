@@ -22,6 +22,7 @@ def main(ui, state):
 
 asyncio.run(app.start())`;
 ---
+
 <section class="workbench wrap" aria-label={copy.label}>
   <div class="workbench-bar">
     <span>● ● ●</span>
@@ -30,15 +31,21 @@ asyncio.run(app.start())`;
   </div>
   <div class="bench-grid">
     <div class="code-pane">
-      <div class="pane-label">counter.py <span>PYTHON</span></div>
+      <div class="pane-label">
+        counter.py <span>PYTHON</span>
+      </div>
       <Code code={code} lang="python" theme="github-dark" />
     </div>
     <div class="preview-pane">
-      <div class="pane-label">{copy.preview} <span>A2UI</span></div>
+      <div class="pane-label">
+        {copy.preview} <span>A2UI</span>
+      </div>
       <div class="counter">
         <span class="small-label">{copy.example}</span>
         <h2>{copy.counter}</h2>
-        <span class="sample-button">{copy.button} <span>+</span></span>
+        <span class="sample-button">
+          {copy.button} <span>+</span>
+        </span>
         <p>{copy.description}</p>
       </div>
       <div class="connection">{copy.connection}</div>

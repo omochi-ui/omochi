@@ -1,53 +1,107 @@
-import { Schema } from "./schema.js";
-import { A2uiClientErrorSchema } from "@a2ui/web_core/v0_9";
-import { encodeInput, type InputExpr } from "./expression.js";
-import { resourceHello } from "@omochi-ui/core";
-import { ResourceRegistry } from "./resources.js";
-import { UI } from "./builder.js";
-import { BASIC_CATALOG, type BasicComponentMap, type CatalogDefinition, type ComponentMap } from "./catalog.js";
-import { DeclarationError, ProtocolError } from "./errors.js";
-import { Reconciler } from "./reconcile.js";
-import { StdioTransport, type Transport } from "./transport.js";
-import type { A2UIMessage, ActionCall, ActionContext, ActionHandler, Declaration, JsonObject, JsonValue } from "./types.js";
+import { Schema } from './schema.js';
+import { A2uiClientErrorSchema } from '@a2ui/web_core/v0_9';
+import { encodeInput, type InputExpr } from './expression.js';
+import { resourceHello } from '@omochi-ui/core';
+import { ResourceRegistry } from './resources.js';
+import { UI } from './builder.js';
+import {
+  BASIC_CATALOG,
+  type BasicComponentMap,
+  type CatalogDefinition,
+  type ComponentMap,
+} from './catalog.js';
+import { DeclarationError, ProtocolError } from './errors.js';
+import { Reconciler } from './reconcile.js';
+import { StdioTransport, type Transport } from './transport.js';
+import type {
+  A2UIMessage,
+  ActionCall,
+  ActionContext,
+  ActionHandler,
+  Declaration,
+  JsonObject,
+  JsonValue,
+} from './types.js';
 
 class InputValidationError extends ProtocolError {}
 
-type RegisteredAction<State> = (input: JsonValue, context: ActionContext<State>) => unknown | Promise<unknown>;
-type View<State, Components extends ComponentMap> = (ui: UI<Components>, state: State) => void;
+type RegisteredAction<State> = (
+  input: JsonValue,
+  context: ActionContext<State>,
+) => unknown | Promise<unknown>;
+type View<State, Components extends ComponentMap> = (
+  ui: UI<Components>,
+  state: State,
+) => void;
 
 export class Action<Input = JsonValue> {
   constructor(readonly name: string) {}
-  call(input: InputExpr<Input>): ActionCall { return Object.freeze({ action: this.name, input: encodeInput(input) }); }
+  call(input: InputExpr<Input>): ActionCall {
+    return Object.freeze({ action: this.name, input: encodeInput(input) });
+  }
 }
 
 export class App<State, Components extends ComponentMap = BasicComponentMap> {
   private readonly views = new Map<string, View<State, Components>>();
   private readonly actions = new Map<string, RegisteredAction<State>>();
   private built = false;
-  constructor(readonly state: State, readonly catalog: CatalogDefinition<Components> = BASIC_CATALOG as CatalogDefinition<Components>, readonly resources = new ResourceRegistry()) {}
+  constructor(
+    readonly state: State,
+    readonly catalog: CatalogDefinition<Components> = BASIC_CATALOG as CatalogDefinition<Components>,
+    readonly resources = new ResourceRegistry(),
+  ) {}
   surface(surfaceId: string, view: View<State, Components>): this {
-    if (this.built) throw new DeclarationError("app is already built");
-    if (this.views.has(surfaceId)) throw new DeclarationError(`surface already registered: ${JSON.stringify(surfaceId)}`);
-    this.views.set(surfaceId, view); return this;
+    if (this.built) throw new DeclarationError('app is already built');
+    if (this.views.has(surfaceId))
+      throw new DeclarationError(
+        `surface already registered: ${JSON.stringify(surfaceId)}`,
+      );
+    this.views.set(surfaceId, view);
+    return this;
   }
-  action<Input>(name: string, schema: Schema<Input>, handler: ActionHandler<Input, State>): Action<Input> {
-    if (this.built) throw new DeclarationError("app is already built");
-    if (this.actions.has(name)) throw new DeclarationError(`action already registered: ${JSON.stringify(name)}`);
+  action<Input>(
+    name: string,
+    schema: Schema<Input>,
+    handler: ActionHandler<Input, State>,
+  ): Action<Input> {
+    if (this.built) throw new DeclarationError('app is already built');
+    if (this.actions.has(name))
+      throw new DeclarationError(
+        `action already registered: ${JSON.stringify(name)}`,
+      );
     this.actions.set(name, (input, context) => {
       let parsed: Input;
-      try { parsed = schema.parse(input); }
-      catch (error) { if (error instanceof ProtocolError) throw new InputValidationError(error.message); throw error; }
+      try {
+        parsed = schema.parse(input);
+      } catch (error) {
+        if (error instanceof ProtocolError)
+          throw new InputValidationError(error.message);
+        throw error;
+      }
       return handler(parsed, context);
-    }); return new Action<Input>(name);
+    });
+    return new Action<Input>(name);
   }
   build(): Runtime<State, Components> {
-    if (this.built) throw new DeclarationError("app is already built");
-    this.built = true; return new Runtime(this.state, this.catalog, this.views, this.actions, this.resources);
+    if (this.built) throw new DeclarationError('app is already built');
+    this.built = true;
+    return new Runtime(
+      this.state,
+      this.catalog,
+      this.views,
+      this.actions,
+      this.resources,
+    );
   }
-  async start(transport: Transport = new StdioTransport()): Promise<void> { await this.build().start(transport); }
+  async start(transport: Transport = new StdioTransport()): Promise<void> {
+    await this.build().start(transport);
+  }
 }
 
-export class Runtime<State, Components extends ComponentMap = BasicComponentMap> {
+export class Runtime<
+  State,
+  Components extends ComponentMap = BasicComponentMap,
+> {
   private reconciler = new Reconciler();
   private transport: Transport | null = null;
   private queue: Promise<unknown> = Promise.resolve();
@@ -58,30 +112,69 @@ export class Runtime<State, Components extends ComponentMap = BasicComponentMap>
   private readonly stop = new AbortController();
   private readyResolve!: () => void;
   private closedResolve!: () => void;
-  private readonly readyPromise = new Promise<void>((resolve) => { this.readyResolve = resolve; });
-  private readonly closedPromise = new Promise<void>((resolve) => { this.closedResolve = resolve; });
+  private readonly readyPromise = new Promise<void>((resolve) => {
+    this.readyResolve = resolve;
+  });
+  private readonly closedPromise = new Promise<void>((resolve) => {
+    this.closedResolve = resolve;
+  });
   private readonly tasks = new Set<Promise<unknown>>();
   private readonly taskControllers = new Set<AbortController>();
-  private pendingUpdates: Array<{ mutator: (state: State) => void | Promise<void>; resolve: (messages: A2UIMessage[]) => void; reject: (error: unknown) => void }> = [];
+  private pendingUpdates: Array<{
+    mutator: (state: State) => void | Promise<void>;
+    resolve: (messages: A2UIMessage[]) => void;
+    reject: (error: unknown) => void;
+  }> = [];
   private updateScheduled = false;
-  constructor(private readonly state: State, private readonly catalog: CatalogDefinition<Components>, private readonly views: Map<string, View<State, Components>>, private readonly actions: Map<string, RegisteredAction<State>>, readonly resources = new ResourceRegistry()) {}
-  get appRevision(): number { return this.revision; }
+  constructor(
+    private readonly state: State,
+    private readonly catalog: CatalogDefinition<Components>,
+    private readonly views: Map<string, View<State, Components>>,
+    private readonly actions: Map<string, RegisteredAction<State>>,
+    readonly resources = new ResourceRegistry(),
+  ) {}
+  get appRevision(): number {
+    return this.revision;
+  }
   declaration(surfaceId: string): Declaration {
     const view = this.views.get(surfaceId);
-    if (!view) throw new DeclarationError(`unknown surface: ${JSON.stringify(surfaceId)}`);
-    const ui = new UI(surfaceId, this.catalog); view(ui, this.state); return ui.build();
+    if (!view)
+      throw new DeclarationError(
+        `unknown surface: ${JSON.stringify(surfaceId)}`,
+      );
+    const ui = new UI(surfaceId, this.catalog);
+    view(ui, this.state);
+    return ui.build();
   }
-  render(surfaceId = "main"): A2UIMessage[] { return this.reconciler.render(this.declaration(surfaceId)); }
-  surface(surfaceId = "main"): A2UIMessage[] { return new Reconciler(this.reconciler.capabilities).render(this.declaration(surfaceId)); }
+  render(surfaceId = 'main'): A2UIMessage[] {
+    return this.reconciler.render(this.declaration(surfaceId));
+  }
+  surface(surfaceId = 'main'): A2UIMessage[] {
+    return new Reconciler(this.reconciler.capabilities).render(
+      this.declaration(surfaceId),
+    );
+  }
   private enqueue<T>(work: () => Promise<T>): Promise<T> {
-    const current = this.queue.then(work, work); this.queue = current.then(() => undefined, () => undefined); return current;
+    const current = this.queue.then(work, work);
+    this.queue = current.then(
+      () => undefined,
+      () => undefined,
+    );
+    return current;
   }
   private async renderAllAndSend(): Promise<A2UIMessage[]> {
     const all: A2UIMessage[] = [];
-    for (const surfaceId of this.views.keys()) { const messages = this.render(surfaceId); all.push(...messages); if (this.transport) for (const message of messages) await this.transport.send(message); }
+    for (const surfaceId of this.views.keys()) {
+      const messages = this.render(surfaceId);
+      all.push(...messages);
+      if (this.transport)
+        for (const message of messages) await this.transport.send(message);
+    }
     return all;
   }
-  async update(mutator: (state: State) => void | Promise<void>): Promise<A2UIMessage[]> {
+  async update(
+    mutator: (state: State) => void | Promise<void>,
+  ): Promise<A2UIMessage[]> {
     return new Promise<A2UIMessage[]>((resolve, reject) => {
       this.pendingUpdates.push({ mutator, resolve, reject });
       if (this.updateScheduled) return;
@@ -91,7 +184,10 @@ export class Runtime<State, Components extends ComponentMap = BasicComponentMap>
           const batch = this.pendingUpdates.splice(0);
           this.updateScheduled = false;
           try {
-            for (const item of batch) { await item.mutator(this.state); this.revision++; }
+            for (const item of batch) {
+              await item.mutator(this.state);
+              this.revision++;
+            }
             const messages = await this.renderAllAndSend();
             for (const item of batch) item.resolve(messages);
           } catch (error) {
@@ -102,21 +198,29 @@ export class Runtime<State, Components extends ComponentMap = BasicComponentMap>
     });
   }
   async invoke(name: string, input: JsonValue): Promise<A2UIMessage[]> {
-    const action = this.actions.get(name); if (!action) throw new ProtocolError(`unknown action: ${JSON.stringify(name)}`);
+    const action = this.actions.get(name);
+    if (!action)
+      throw new ProtocolError(`unknown action: ${JSON.stringify(name)}`);
     return this.enqueue(async () => {
       const messages: A2UIMessage[] = [];
       let updates: Promise<void> = Promise.resolve();
       let active = true;
       const context: ActionContext<State> = {
         update: (mutator) => {
-          if (!active) return Promise.reject(new DeclarationError("action has already completed"));
+          if (!active)
+            return Promise.reject(
+              new DeclarationError('action has already completed'),
+            );
           // Use an action-local queue: entering the Runtime queue again would deadlock.
           const current = updates.then(async () => {
             await mutator(this.state);
             this.revision++;
-            messages.push(...await this.renderAllAndSend());
+            messages.push(...(await this.renderAllAndSend()));
           });
-          updates = current.then(() => undefined, () => undefined);
+          updates = current.then(
+            () => undefined,
+            () => undefined,
+          );
           return current;
         },
       };
@@ -130,29 +234,63 @@ export class Runtime<State, Components extends ComponentMap = BasicComponentMap>
     });
   }
   async handle(message: JsonObject): Promise<A2UIMessage[]> {
-    if (message.type === "getSurface") { if (typeof message.surface !== "string") throw new ProtocolError("getSurface must contain string surface"); return this.surface(message.surface); }
-    if (message.type === "invoke") { if (typeof message.action !== "string") throw new ProtocolError("invoke must contain string action"); return this.invoke(message.action, message.input ?? null); }
-    if ("error" in message) {
+    if (message.type === 'getSurface') {
+      if (typeof message.surface !== 'string')
+        throw new ProtocolError('getSurface must contain string surface');
+      return this.surface(message.surface);
+    }
+    if (message.type === 'invoke') {
+      if (typeof message.action !== 'string')
+        throw new ProtocolError('invoke must contain string action');
+      return this.invoke(message.action, message.input ?? null);
+    }
+    if ('error' in message) {
       const error = objectValue(message.error);
-      if (message.version !== "v0.9" || "action" in message || !error || !("code" in error) || !A2uiClientErrorSchema.safeParse(error).success) throw new ProtocolError("invalid client error report");
+      if (
+        message.version !== 'v0.9' ||
+        'action' in message ||
+        !error ||
+        !('code' in error) ||
+        !A2uiClientErrorSchema.safeParse(error).success
+      )
+        throw new ProtocolError('invalid client error report');
       // Client reports describe renderer failures; they do not invoke an action.
       return [];
     }
     const payload = objectValue(message.action) ?? message;
-    if (typeof payload.name !== "string") throw new ProtocolError("action must contain string name");
+    if (typeof payload.name !== 'string')
+      throw new ProtocolError('action must contain string name');
     const context = objectValue(payload.context) ?? {};
-    return this.invoke(payload.name, Object.hasOwn(context, "input") ? context.input ?? null : payload.input ?? null);
+    return this.invoke(
+      payload.name,
+      Object.hasOwn(context, 'input')
+        ? (context.input ?? null)
+        : (payload.input ?? null),
+    );
   }
-  dispatch(message: JsonObject): Promise<A2UIMessage[]> { return this.handle(message); }
-  ready(): Promise<void> { return this.readyPromise; }
-  spawn(task: Promise<unknown> | ((signal: AbortSignal) => Promise<unknown>)): void {
+  dispatch(message: JsonObject): Promise<A2UIMessage[]> {
+    return this.handle(message);
+  }
+  ready(): Promise<void> {
+    return this.readyPromise;
+  }
+  spawn(
+    task: Promise<unknown> | ((signal: AbortSignal) => Promise<unknown>),
+  ): void {
     const controller = new AbortController();
     this.taskControllers.add(controller);
     let running: Promise<unknown>;
-    try { running = typeof task === "function" ? task(controller.signal) : task; }
-    catch (error) { this.taskControllers.delete(controller); throw error; }
+    try {
+      running = typeof task === 'function' ? task(controller.signal) : task;
+    } catch (error) {
+      this.taskControllers.delete(controller);
+      throw error;
+    }
     this.tasks.add(running);
-    const cleanup = () => { this.tasks.delete(running); this.taskControllers.delete(controller); };
+    const cleanup = () => {
+      this.tasks.delete(running);
+      this.taskControllers.delete(controller);
+    };
     void running.then(cleanup, cleanup);
   }
   /** Request shutdown without waiting for cleanup, including on the first call.
@@ -164,8 +302,9 @@ export class Runtime<State, Components extends ComponentMap = BasicComponentMap>
     this.stop.abort();
     for (const controller of this.taskControllers) controller.abort();
     this.shutdownPromise = (async () => {
-      try { await this.transport?.stopReceiving?.(); }
-      finally {
+      try {
+        await this.transport?.stopReceiving?.();
+      } finally {
         await Promise.allSettled(this.tasks);
         this.resources.close();
       }
@@ -182,14 +321,19 @@ export class Runtime<State, Components extends ComponentMap = BasicComponentMap>
     await this.shutdownPromise;
   }
   async start(transport: Transport = new StdioTransport()): Promise<void> {
-    if (this.started) throw new DeclarationError("runtime has already been started");
-    if (this.closed) throw new DeclarationError("runtime has already been shut down");
-    this.started = true; this.transport = transport; this.reconciler = new Reconciler(transport.capabilities);
+    if (this.started)
+      throw new DeclarationError('runtime has already been started');
+    if (this.closed)
+      throw new DeclarationError('runtime has already been shut down');
+    this.started = true;
+    this.transport = transport;
+    this.reconciler = new Reconciler(transport.capabilities);
     transport.resources = this.resources;
     let failed = false;
     try {
       await transport.send(resourceHello());
-      await this.renderAllAndSend(); this.readyResolve();
+      await this.renderAllAndSend();
+      this.readyResolve();
       const source = transport[Symbol.asyncIterator]();
       let exhausted = false;
       try {
@@ -198,20 +342,33 @@ export class Runtime<State, Components extends ComponentMap = BasicComponentMap>
           // stops admission without taking ownership of the caller's connection.
           const result = await nextUntilStopped(source, this.stop.signal);
           if (this.closed || !result) break;
-          if (result.done) { exhausted = true; break; }
+          if (result.done) {
+            exhausted = true;
+            break;
+          }
           const message = result.value;
           let responses: A2UIMessage[];
-          try { responses = await this.handle(message); }
-          catch (error) { if (error instanceof InputValidationError) continue; throw error; }
-          if (message.type === "getSurface") for (const response of responses) await transport.send(response);
+          try {
+            responses = await this.handle(message);
+          } catch (error) {
+            if (error instanceof InputValidationError) continue;
+            throw error;
+          }
+          if (message.type === 'getSurface')
+            for (const response of responses) await transport.send(response);
         }
       } finally {
         // Async generators can queue return() behind a blocked next(). Request
         // cleanup, but do not make start depend on caller-owned I/O settling.
-        if (!exhausted) void Promise.resolve().then(() => source.return?.()).catch(() => {});
+        if (!exhausted)
+          void Promise.resolve()
+            .then(() => source.return?.())
+            .catch(() => {});
       }
-    } catch (error) { failed = true; throw error; }
-    finally {
+    } catch (error) {
+      failed = true;
+      throw error;
+    } finally {
       void this.shutdown();
       const closing = this.waitClosed();
       if (failed) await closing.catch(() => {});
@@ -220,17 +377,35 @@ export class Runtime<State, Components extends ComponentMap = BasicComponentMap>
   }
 }
 
-function objectValue(value: JsonValue | undefined): JsonObject | null { return value !== null && typeof value === "object" && !Array.isArray(value) ? value : null; }
+function objectValue(value: JsonValue | undefined): JsonObject | null {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+    ? value
+    : null;
+}
 
-function nextUntilStopped<T>(source: AsyncIterator<T>, signal: AbortSignal): Promise<IteratorResult<T> | null> {
+function nextUntilStopped<T>(
+  source: AsyncIterator<T>,
+  signal: AbortSignal,
+): Promise<IteratorResult<T> | null> {
   return new Promise((resolve, reject) => {
-    if (signal.aborted) { resolve(null); return; }
+    if (signal.aborted) {
+      resolve(null);
+      return;
+    }
     const stop = () => resolve(null);
-    signal.addEventListener("abort", stop, { once: true });
-    const cleanup = () => signal.removeEventListener("abort", stop);
-    Promise.resolve().then(() => source.next()).then(
-      result => { cleanup(); resolve(result); },
-      error => { cleanup(); reject(error); },
-    );
+    signal.addEventListener('abort', stop, { once: true });
+    const cleanup = () => signal.removeEventListener('abort', stop);
+    Promise.resolve()
+      .then(() => source.next())
+      .then(
+        (result) => {
+          cleanup();
+          resolve(result);
+        },
+        (error) => {
+          cleanup();
+          reject(error);
+        },
+      );
   });
 }

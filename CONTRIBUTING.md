@@ -8,10 +8,11 @@ repository root unless stated otherwise.
 
 Use Bun 1.4.3 or newer, with the version pinned in `.bun-version` and
 `package.json`. npm packaging smoke tests need Node.js 22+. The default test suite and Python changes need Python 3.11+; Rust changes need
-current stable Rust and Cargo. The Python example uses uv. Discovery tests use Unix domain sockets and a Unix-like environment.
+current stable Rust and Cargo. Python checks and examples use uv. Discovery tests use Unix domain sockets and a Unix-like environment.
 
 ```sh
 bun install
+uv sync --locked
 bun run build
 ```
 
@@ -48,6 +49,38 @@ and opens the preset in `examples/quickstart/omochi.toml`; start Vite from its
 **Preview server** panel. Choose **Save as dashboard** to keep an editable layout.
 Ctrl+C stops the processes started by the composition.
 
+## Formatting
+
+Run `bun run format` to format sources or `bun run format:check` to check them.
+Select languages with `--only python --only web`; use `--list` to preview files.
+
+| Language (`--only`) | Formatter | Setup |
+| --- | --- | --- |
+| Rust (`rust`) | `cargo fmt` | `rustup component add rustfmt` |
+| Python (`python`) | Ruff | `uv sync --locked` |
+| Shell (`shell`) | shfmt | `shfmt` on `PATH` |
+| JS/TS, CSS, HTML, Astro (`web`) | Prettier | `bun install` |
+| Kotlin, Gradle Kotlin (`kotlin`) | ktfmt | `ktfmt` on `PATH` or `KTFMT_JAR` |
+| Java (`java`) | google-java-format | `google-java-format` on `PATH` or `GOOGLE_JAVA_FORMAT_JAR` |
+| Dart (`dart`) | `dart format` | Dart SDK bundled with Flutter |
+| Swift (`swift`) | swift-format | `swift-format` on `PATH` or `swift format` |
+| C/C++/Objective-C (`c`) | clang-format | `clang-format` on `PATH` |
+
+JAR variables point to executable JARs and require a compatible JDK. Git ignores
+and `.formatignore` exclude vendored code, generated files and build output.
+
+## Lint and type checks
+
+```sh
+bun run lint       # Linters
+bun run typecheck  # Type checks
+bun run check      # Formatting, lint and type checks
+```
+
+Use `lint:<scope>` or `typecheck:<scope>` for `web`, `python`, `rust`, or `mobile`.
+Checks stop at the first failure. Run tests separately with `bun run test`.
+Python type checks use the SDK contract suite with mypy and Pyright.
+
 ## Verification
 
 | Change | Verification |
@@ -65,7 +98,6 @@ Ctrl+C stops the processes started by the composition.
 | Hosted owner/share clients | `bun run test:dashboard-sharing` (requires the WASM toolchain and Chromium; see [setup](apps/dashboard/README.md)) |
 | Documentation site | `bun run check:site`, `bun run build:site`, `bun run --filter @omochi-ui/site verify` |
 | Flutter/native bridge | Follow the [mobile verification guide](apps/mobile/README.md#verification) and [external-Hub checks](apps/mobile/docs/remote-connections-validation.md) |
-| Rust formatting | `cargo fmt --manifest-path packages/sdk/rust/Cargo.toml --check` |
 | Cargo/npm packaging (also included in `bun run test`) | `bun run test:packaging` |
 | Release versions and dependency graph | `bun run release:check` |
 | npm distributions after building | `bun run release:pack && bun run release:smoke` (requires Node/npm) |

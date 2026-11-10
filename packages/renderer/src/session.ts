@@ -1,11 +1,29 @@
 import { assertResolvedInput } from './expressions.js';
 import { MessageProcessor, type A2uiMessage } from '@a2ui/web_core/v0_9';
 import type { ReactCatalogComponent } from '@a2ui/react/v0_9';
-import { SessionFault, type ApplyResult, type SessionErrorCode, type LiveEvent, type LiveSession, type RenderEvent, type ServiceView, type SurfaceLease, type Unsubscribe } from '@omochi-ui/core/browser';
+import {
+  SessionFault,
+  type ApplyResult,
+  type SessionErrorCode,
+  type LiveEvent,
+  type LiveSession,
+  type RenderEvent,
+  type ServiceView,
+  type SurfaceLease,
+  type Unsubscribe,
+} from '@omochi-ui/core/browser';
 import { BrowserImages } from './images.js';
 import { createResourceCatalog } from './resources.js';
-import { createActionMessage, messageSurfaceId, prepareRendererMessage } from './messages.js';
-import { applyDirectCreate, applyDirectDataPatch, preserveDirectRoot } from './data-patch.js';
+import {
+  createActionMessage,
+  messageSurfaceId,
+  prepareRendererMessage,
+} from './messages.js';
+import {
+  applyDirectCreate,
+  applyDirectDataPatch,
+  preserveDirectRoot,
+} from './data-patch.js';
 
 export type Processor = MessageProcessor<ReactCatalogComponent>;
 export interface A2uiSession {
@@ -38,36 +56,74 @@ export function createA2uiSession(source: LiveSession): RendererSession {
   let closing: Promise<void> | null = null;
   let roster: readonly ServiceView[] = [];
   let endpoint = source.imagePolicy === 'sdk-png' ? 'browser:gateway' : '';
-  let status = source.imagePolicy === 'sdk-png' ? 'Disconnected' : 'Connecting…';
+  let status =
+    source.imagePolicy === 'sdk-png' ? 'Disconnected' : 'Connecting…';
   let error: string | null = null;
   let errorCode: SessionErrorCode | null = null;
   const catalog = createResourceCatalog(source.imagePolicy);
-  const processor: Processor = new MessageProcessor([catalog], action => {
+  const processor: Processor = new MessageProcessor([catalog], (action) => {
     if (applying || stopping || closed) return;
-    try { assertResolvedInput(action.context); }
-    catch (failure) { error = failure instanceof Error ? failure.message : String(failure); publish(); return; }
+    try {
+      assertResolvedInput(action.context);
+    } catch (failure) {
+      error = failure instanceof Error ? failure.message : String(failure);
+      publish();
+      return;
+    }
     const lease = leases.get(action.surfaceId);
     if (!lease || lease.signal.aborted) return;
-    void source.action(lease.id, createActionMessage(action, processor.getClientDataModel())).catch(() => {
-      if (!closed && !lease.signal.aborted) { error = new SessionFault('SourceUnavailable').message; publish(); }
-    });
+    void source
+      .action(
+        lease.id,
+        createActionMessage(action, processor.getClientDataModel()),
+      )
+      .catch(() => {
+        if (!closed && !lease.signal.aborted) {
+          error = new SessionFault('SourceUnavailable').message;
+          publish();
+        }
+      });
   });
   let snapshot: Readonly<A2uiSession> = {
-    processor, surfaceIds: [], services: roster, status, error, errorCode, images, endpoint,
+    processor,
+    surfaceIds: [],
+    services: roster,
+    status,
+    error,
+    errorCode,
+    images,
+    endpoint,
   };
   function publish(): void {
     if (applying) return;
-    snapshot = { processor: closed ? null : processor, surfaceIds: [...processor.model.surfacesMap.keys()],
-      services: roster, status, error, errorCode, images, endpoint };
-    for (const listener of listeners) { try { listener(); } catch { /* Independent React/legacy observer. */ } }
+    snapshot = {
+      processor: closed ? null : processor,
+      surfaceIds: [...processor.model.surfacesMap.keys()],
+      services: roster,
+      status,
+      error,
+      errorCode,
+      images,
+      endpoint,
+    };
+    for (const listener of listeners) {
+      try {
+        listener();
+      } catch {
+        /* Independent React/legacy observer. */
+      }
+    }
   }
   function forgetSurface(id: string): void {
     leases.delete(id);
     images?.update(id, null);
     // The model removes its entry before disposal callbacks, even when one throws.
     if (processor.model.surfacesMap.has(id)) {
-      try { processor.model.deleteSurface(id); }
-      catch { error = new SessionFault('RenderError').message; }
+      try {
+        processor.model.deleteSurface(id);
+      } catch {
+        error = new SessionFault('RenderError').message;
+      }
     }
   }
   function retract(service: string): void {
@@ -79,9 +135,11 @@ export function createA2uiSession(source: LiveSession): RendererSession {
     images?.update(lease.surfaceId, lease.id);
   }
   function checkCatalog(message: A2uiMessage): void {
-    if (source.imagePolicy !== 'sdk-png' || !('updateComponents' in message)) return;
+    if (source.imagePolicy !== 'sdk-png' || !('updateComponents' in message))
+      return;
     for (const component of message.updateComponents.components) {
-      if (!catalog.components.has(component.component)) throw new SessionFault('RenderError');
+      if (!catalog.components.has(component.component))
+        throw new SessionFault('RenderError');
     }
   }
   function apply(event: RenderEvent): ApplyResult {
@@ -91,7 +149,14 @@ export function createA2uiSession(source: LiveSession): RendererSession {
       if (event.kind === 'remove') retract(event.service);
       else if (event.kind === 'commit') {
         const previous = services.get(event.service) ?? new Set<string>();
-        const attempted = event.messages.filter((message): message is A2uiMessage & { createSurface: { surfaceId: string } } => 'createSurface' in message)
+        const attempted = event.messages
+          .filter(
+            (
+              message,
+            ): message is A2uiMessage & {
+              createSurface: { surfaceId: string };
+            } => 'createSurface' in message,
+          )
           .map(messageSurfaceId);
         // Keep the union before applying: a later remove can clean a partial commit.
         services.set(event.service, new Set([...previous, ...attempted]));
@@ -102,55 +167,96 @@ export function createA2uiSession(source: LiveSession): RendererSession {
         services.set(event.service, new Set(attempted));
       } else {
         const message = event.message;
-        if (source.imagePolicy === 'sdk-png' && !event.budget) throw new SessionFault('RenderError');
+        if (source.imagePolicy === 'sdk-png' && !event.budget)
+          throw new SessionFault('RenderError');
         checkCatalog(message);
         const id = messageSurfaceId(message);
         let ids = services.get(event.service);
-        if (!ids) services.set(event.service, ids = new Set());
+        if (!ids) services.set(event.service, (ids = new Set()));
         if ('createSurface' in message) ids.add(id);
-        if ('deleteSurface' in message) { images?.update(id, null); leases.delete(id); }
-        else if (event.lease) bind(event.lease);
-        if (source.imagePolicy === 'sdk-png' && event.budget && 'updateDataModel' in message) applyDirectDataPatch(processor, message, event.budget);
-        else if (source.imagePolicy === 'sdk-png' && event.budget && 'createSurface' in message) applyDirectCreate(processor, message, event.budget);
+        if ('deleteSurface' in message) {
+          images?.update(id, null);
+          leases.delete(id);
+        } else if (event.lease) bind(event.lease);
+        if (
+          source.imagePolicy === 'sdk-png' &&
+          event.budget &&
+          'updateDataModel' in message
+        )
+          applyDirectDataPatch(processor, message, event.budget);
+        else if (
+          source.imagePolicy === 'sdk-png' &&
+          event.budget &&
+          'createSurface' in message
+        )
+          applyDirectCreate(processor, message, event.budget);
         else processor.processMessages([prepareRendererMessage(message)]);
         if ('deleteSurface' in message) ids.delete(id);
       }
     } catch (failure) {
-      return { ok: false, code: failure instanceof SessionFault && failure.code === 'CapacityExceeded' ? 'CapacityExceeded' : 'RenderError' };
-    } finally { applying = false; }
+      return {
+        ok: false,
+        code:
+          failure instanceof SessionFault && failure.code === 'CapacityExceeded'
+            ? 'CapacityExceeded'
+            : 'RenderError',
+      };
+    } finally {
+      applying = false;
+    }
     publish();
     return { ok: true };
   }
-  const created = processor.onSurfaceCreated(surface => {
+  const created = processor.onSurfaceCreated((surface) => {
     // Commit replay already reserves its root initialization; preserve it before
     // the processor applies those messages without adding incremental scratch.
     if (source.imagePolicy === 'sdk-png') preserveDirectRoot(surface.dataModel);
-    surface.onError.subscribe(failure => { error = String(failure.message); publish(); });
+    surface.onError.subscribe((failure) => {
+      error = String(failure.message);
+      publish();
+    });
     if (!applying) publish();
   });
-  const deleted = processor.onSurfaceDeleted(() => { if (!applying) publish(); });
+  const deleted = processor.onSurfaceDeleted(() => {
+    if (!applying) publish();
+  });
   let unsubscribe: Unsubscribe;
   try {
     source.attachRenderer(apply);
-    unsubscribe = source.subscribe(event => {
+    unsubscribe = source.subscribe((event) => {
       if (closed) return;
       if (event.kind === 'images') {
-        if (!event.enabled) { images?.close(); images = null; }
-        else if (!images) {
-          images = new BrowserImages((lease, uri, signal) => source.image(lease, uri, signal));
-          for (const lease of leases.values()) images.update(lease.surfaceId, lease.id);
+        if (!event.enabled) {
+          images?.close();
+          images = null;
+        } else if (!images) {
+          images = new BrowserImages((lease, uri, signal) =>
+            source.image(lease, uri, signal),
+          );
+          for (const lease of leases.values())
+            images.update(lease.surfaceId, lease.id);
         }
       } else if (event.kind === 'services') roster = event.services;
       else {
         states.set(event.sourceId, event);
-        if (source.imagePolicy !== 'sdk-png') { endpoint = event.sourceId; status = event.state; }
-        else {
+        if (source.imagePolicy !== 'sdk-png') {
+          endpoint = event.sourceId;
+          status = event.state;
+        } else {
           const values = [...states.values()];
-          status = values.some(value => value.state === 'online') ? 'Connected' :
-            values.some(value => ['connecting', 'control', 'backoff'].includes(value.state)) ? 'Connecting…' : 'Disconnected';
+          status = values.some((value) => value.state === 'online')
+            ? 'Connected'
+            : values.some((value) =>
+                  ['connecting', 'control', 'backoff'].includes(value.state),
+                )
+              ? 'Connecting…'
+              : 'Disconnected';
         }
-        const failure = [...states.values()].find(value => value.error)?.error;
-        error = failure?.message ?? null; errorCode = failure?.code ?? null;
+        const failure = [...states.values()].find(
+          (value) => value.error,
+        )?.error;
+        error = failure?.message ?? null;
+        errorCode = failure?.code ?? null;
       }
       publish();
     });
@@ -158,32 +264,47 @@ export function createA2uiSession(source: LiveSession): RendererSession {
     processor.model.dispose();
     throw failure;
   }
-  void source.start().catch(failure => {
+  void source.start().catch((failure) => {
     if (!closed) {
-      error = failure instanceof SessionFault ? failure.message : new SessionFault('InvalidState').message;
-      errorCode = failure instanceof SessionFault ? failure.code : 'InvalidState';
-      status = 'Disconnected'; publish();
+      error =
+        failure instanceof SessionFault
+          ? failure.message
+          : new SessionFault('InvalidState').message;
+      errorCode =
+        failure instanceof SessionFault ? failure.code : 'InvalidState';
+      status = 'Disconnected';
+      publish();
     }
   });
   return {
     getSnapshot: () => snapshot,
-    subscribe(changed) { listeners.add(changed); return () => listeners.delete(changed); },
+    subscribe(changed) {
+      listeners.add(changed);
+      return () => listeners.delete(changed);
+    },
     close() {
       if (closing) return closing;
       stopping = true;
       closing = (async () => {
-        try { await source.stop(); }
-        finally {
+        try {
+          await source.stop();
+        } finally {
           // The sink remains attached through stop's final remove callbacks.
           unsubscribe();
           applying = true;
           for (const service of services.keys()) retract(service);
-          for (const id of processor.model.surfacesMap.keys()) forgetSurface(id);
-          images?.close(); images = null;
-          created.unsubscribe(); deleted.unsubscribe();
+          for (const id of processor.model.surfacesMap.keys())
+            forgetSurface(id);
+          images?.close();
+          images = null;
+          created.unsubscribe();
+          deleted.unsubscribe();
           processor.model.dispose();
-          closed = true; applying = false; status = 'Disconnected';
-          publish(); listeners.clear();
+          closed = true;
+          applying = false;
+          status = 'Disconnected';
+          publish();
+          listeners.clear();
         }
       })();
       return closing;

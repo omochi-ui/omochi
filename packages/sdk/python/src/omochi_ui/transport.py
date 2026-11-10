@@ -5,13 +5,11 @@ import json
 import sys
 from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator, Awaitable, Callable
-from typing import Any
 from contextlib import aclosing
-
+from typing import Any
 
 from .receive_queue import ReceiveQueue, ReceiveQueueOverflowError
 from .resources import is_resource
-
 
 # Matches the native stdio LinesCodec limit: UTF-8 bytes before the LF delimiter.
 MAX_FRAME_BYTES = 4 * 1024 * 1024
@@ -20,6 +18,7 @@ MAX_FRAME_BYTES = 4 * 1024 * 1024
 async def resource_messages(transport, source):
     queue = ReceiveQueue()
     source = aiter(source)
+
     async def pump():
         try:
             async for message in source:
@@ -28,13 +27,14 @@ async def resource_messages(transport, source):
                         await transport.send(transport.resources.respond(message))
                 else:
                     queue.put_nowait(message)
-        except Exception as error:
+        except Exception as error:  # noqa: BLE001 - forward source failures to the consumer.
             queue.finish(error, discard=isinstance(error, ReceiveQueueOverflowError))
         finally:
             queue.finish()
             close = getattr(source, "aclose", None)
             if close is not None:
                 await close()
+
     task = asyncio.create_task(pump())
     try:
         while (message := await queue.get()) is not None:
@@ -47,7 +47,9 @@ async def resource_messages(transport, source):
 
 class Transport(ABC):
     resources = None
-    capabilities: set[str] = set()
+
+    def __init__(self):
+        self.capabilities: set[str] = set()
 
     @abstractmethod
     async def send(self, message: dict[str, Any]) -> None: ...
@@ -121,7 +123,9 @@ class WebSocketTransport(CallbackTransport):
 
     def __init__(self, socket: Any, *, capabilities: set[str] | None = None):
         async def send(message: dict[str, Any]) -> None:
-            await socket.send(json.dumps(message, separators=(",", ":"), ensure_ascii=False))
+            await socket.send(
+                json.dumps(message, separators=(",", ":"), ensure_ascii=False)
+            )
 
         async def receive() -> AsyncIterator[dict[str, Any]]:
             async for message in socket:

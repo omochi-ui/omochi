@@ -9,16 +9,15 @@ import argparse
 import base64
 import ipaddress
 import json
-from pathlib import Path
 import queue
 import subprocess
 import sys
 import tempfile
 import threading
-
+from pathlib import Path
 
 # Run via stdin to python3 on the Mac. PTYs make dns-sd flush its callbacks.
-MAC_PROBE = r'''
+MAC_PROBE = r"""
 import errno, ipaddress, json, os, pty, re, select, signal, subprocess, time
 settings = SETTINGS
 children = {}
@@ -100,7 +99,7 @@ finally:
             os.killpg(process.pid, signal.SIGKILL)
             process.wait()
         os.close(fd)
-'''
+"""
 
 
 def endpoint_name(value):
@@ -121,14 +120,25 @@ def main():
         parser.error("--port must be between 1 and 65535")
     root = Path(__file__).resolve().parents[3]
     command = [
-        "cargo", "run", "--locked", "--quiet", "--manifest-path",
-        str(root / "crates/Cargo.toml"), "-p", "omochi-transport",
-        "--example", "bonjour_probe",
+        "cargo",
+        "run",
+        "--locked",
+        "--quiet",
+        "--manifest-path",
+        str(root / "crates/Cargo.toml"),
+        "-p",
+        "omochi-transport",
+        "--example",
+        "bonjour_probe",
     ]
     with tempfile.TemporaryFile(mode="w+") as log:
         process = subprocess.Popen(
-            command, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-            stderr=log, text=True, cwd=root,
+            command,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=log,
+            text=True,
+            cwd=root,
         )
         events = queue.Queue(maxsize=16)
 
@@ -137,7 +147,7 @@ def main():
                 for line in process.stdout:
                     events.put(json.loads(line), timeout=1)
                 events.put({"event": "eof"}, timeout=1)
-            except Exception as error:
+            except (OSError, ValueError, queue.Full) as error:
                 events.put({"event": "error", "message": str(error)}, timeout=1)
 
         reader = threading.Thread(target=read_events, daemon=True)
@@ -148,41 +158,71 @@ def main():
                 raise RuntimeError("Linux endpoint did not start: " + repr(ready))
             settings = {
                 "linux": endpoint_name(ready["linux"]),
-                "mac": endpoint_name(ready["mac"]), "port": args.port,
+                "mac": endpoint_name(ready["mac"]),
+                "port": args.port,
             }
             script = MAC_PROBE.replace("SETTINGS", repr(settings), 1)
             remote = subprocess.run(
-                ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10",
-                 "--", args.ssh_host, "python3 -"],
-                input=script, capture_output=True, text=True, timeout=30,
+                [
+                    "ssh",
+                    "-o",
+                    "BatchMode=yes",
+                    "-o",
+                    "ConnectTimeout=10",
+                    "--",
+                    args.ssh_host,
+                    "python3 -",
+                ],
+                check=False,
+                input=script,
+                capture_output=True,
+                text=True,
+                timeout=30,
             )
             if remote.returncode:
                 raise RuntimeError("Mac probe failed: " + remote.stderr + remote.stdout)
             mac = json.loads(remote.stdout)
             resolved = events.get(timeout=12)
-            if resolved.get("event") != "resolved" or resolved["endpoint"] != ready["mac"]:
-                raise RuntimeError("Linux did not resolve the Mac's EndpointId: " + repr(resolved))
+            if (
+                resolved.get("event") != "resolved"
+                or resolved["endpoint"] != ready["mac"]
+            ):
+                raise RuntimeError(
+                    "Linux did not resolve the Mac's EndpointId: " + repr(resolved)
+                )
             expected = {socket_address(value) for value in ready["addresses"]}
             observed = {
                 (address, record["port"])
-                for record in mac["srv"] for address in record["addresses"]
+                for record in mac["srv"]
+                for address in record["addresses"]
             }
             if not expected or expected - observed:
-                raise RuntimeError("Bonjour missed Linux addresses: " + repr(sorted(expected - observed)))
+                raise RuntimeError(
+                    "Bonjour missed Linux addresses: "
+                    + repr(sorted(expected - observed))
+                )
             reverse = [socket_address(value) for value in resolved["addresses"]]
-            if not any(port == args.port and not ipaddress.ip_address(ip).is_loopback
-                       for ip, port in reverse):
+            if not any(
+                port == args.port and not ipaddress.ip_address(ip).is_loopback
+                for ip, port in reverse
+            ):
                 raise RuntimeError("Linux missed the registered Bonjour address/port")
             process.stdin.write("stop\n")
             process.stdin.flush()
             process.wait(timeout=5)
             if process.returncode:
                 raise RuntimeError("Linux probe failed")
-            print(json.dumps({
-                "result": "passed", "linux_to_bonjour": mac,
-                "bonjour_to_linux": {"addresses": resolved["addresses"]},
-                "scope": "macOS/Linux address resolution; no QUIC or iOS device",
-            }, indent=2))
+            print(
+                json.dumps(
+                    {
+                        "result": "passed",
+                        "linux_to_bonjour": mac,
+                        "bonjour_to_linux": {"addresses": resolved["addresses"]},
+                        "scope": "macOS/Linux address resolution; no QUIC or iOS device",
+                    },
+                    indent=2,
+                )
+            )
         except Exception:
             log.seek(0)
             print(log.read(), end="", file=sys.stderr)

@@ -1,16 +1,24 @@
-import { isResourceFrame, resourceHello, serveResources, type ResourceFrame } from "@omochi-ui/core";
-import { ResourceRegistry } from "../resources.js";
+import {
+  isResourceFrame,
+  resourceHello,
+  type ResourceFrame,
+} from '@omochi-ui/core';
+import { ResourceRegistry } from '../resources.js';
 
-import { A2uiClientMessageSchema } from "@a2ui/web_core/v0_9";
+import { A2uiClientMessageSchema } from '@a2ui/web_core/v0_9';
 
-import { ReceiveQueue, ReceiveQueueOverflowError } from "../receive-queue.js";
-import type { Transport } from "../transport.js";
-import type { A2UIMessage, JsonObject } from "../types.js";
-import { nativeRequest, NativeDuplex, type LocalEndpoint } from "./native-local.js";
-export type { LocalEndpoint } from "./native-local.js";
-import { A2uiSnapshot } from "./snapshot.js";
-import { encodeReplay, OutboundWriter } from "./outbound-writer.js";
-import { JsonlFramer } from "./jsonl-framer.js";
+import { ReceiveQueue, ReceiveQueueOverflowError } from '../receive-queue.js';
+import type { Transport } from '../transport.js';
+import type { A2UIMessage, JsonObject } from '../types.js';
+import {
+  nativeRequest,
+  NativeDuplex,
+  type LocalEndpoint,
+} from './native-local.js';
+export type { LocalEndpoint } from './native-local.js';
+import { A2uiSnapshot } from './snapshot.js';
+import { encodeReplay, OutboundWriter } from './outbound-writer.js';
+import { JsonlFramer } from './jsonl-framer.js';
 
 export interface LocalServerTransportOptions {
   /** Discovery id and directory name; must match `[a-z0-9._-]{1,64}`. */
@@ -28,8 +36,6 @@ interface PendingReceive {
   resolve(result: IteratorResult<JsonObject>): void;
   reject(error: unknown): void;
 }
-
-
 
 /**
  * Publishes one application through user-private local IPC for discovery.
@@ -64,7 +70,13 @@ export class LocalServerTransport implements Transport {
   private closePromise: Promise<void> | null = null;
 
   constructor(options: LocalServerTransportOptions) {
-    if (!/^[a-z0-9._-]{1,64}$/.test(options.serviceId) || [".", ".."].includes(options.serviceId)) throw new TypeError("serviceId must match [a-z0-9._-]{1,64} and cannot be . or ..");
+    if (
+      !/^[a-z0-9._-]{1,64}$/.test(options.serviceId) ||
+      ['.', '..'].includes(options.serviceId)
+    )
+      throw new TypeError(
+        'serviceId must match [a-z0-9._-]{1,64} and cannot be . or ..',
+      );
     this.serviceId = options.serviceId;
     this.manifestName = options.name ?? this.serviceId;
     this.icon = options.icon;
@@ -77,7 +89,9 @@ export class LocalServerTransport implements Transport {
     });
   }
 
-  get endpoint(): LocalEndpoint | null { return this.resolvedEndpoint; }
+  get endpoint(): LocalEndpoint | null {
+    return this.resolvedEndpoint;
+  }
 
   get directory(): string | null {
     return this.resolvedDirectory;
@@ -100,7 +114,9 @@ export class LocalServerTransport implements Transport {
     }
   }
 
-  stopReceiving(): Promise<void> { return this.close(); }
+  stopReceiving(): Promise<void> {
+    return this.close();
+  }
 
   close(): Promise<void> {
     if (this.closePromise) return this.closePromise;
@@ -110,9 +126,12 @@ export class LocalServerTransport implements Transport {
     this.closePromise = (async () => {
       // Startup may still be binding or writing its manifest when close is called.
       await this.ready.catch(() => {});
-      for (const client of this.clients) { this.outbound.get(client)?.close(); client.destroy(); }
+      for (const client of this.clients) {
+        this.outbound.get(client)?.close();
+        client.destroy();
+      }
       this.clients.clear();
-      if (this.nativeId !== null) await nativeRequest("close", this.nativeId);
+      if (this.nativeId !== null) await nativeRequest('close', this.nativeId);
       if (this.accepting) await this.accepting;
       this.nativeId = null;
       this.resolvedDirectory = null;
@@ -122,9 +141,16 @@ export class LocalServerTransport implements Transport {
   }
 
   private async publish(): Promise<void> {
-    const result = JSON.parse((await nativeRequest("publish", 0, Buffer.alloc(0), {
-      serviceId: this.serviceId, name: this.manifestName, icon: this.icon, runtimeDir: this.root,
-    })).toString()) as { id: number; endpoint: LocalEndpoint; directory: string };
+    const result = JSON.parse(
+      (
+        await nativeRequest('publish', 0, Buffer.alloc(0), {
+          serviceId: this.serviceId,
+          name: this.manifestName,
+          icon: this.icon,
+          runtimeDir: this.root,
+        })
+      ).toString(),
+    ) as { id: number; endpoint: LocalEndpoint; directory: string };
     this.nativeId = result.id;
     this.resolvedDirectory = result.directory;
     this.resolvedEndpoint = result.endpoint;
@@ -134,29 +160,40 @@ export class LocalServerTransport implements Transport {
   private async acceptNative(): Promise<void> {
     try {
       while (!this.closed && this.nativeId !== null) {
-        const handle = JSON.parse((await nativeRequest("accept", this.nativeId)).toString()) as number;
+        const handle = JSON.parse(
+          (await nativeRequest('accept', this.nativeId)).toString(),
+        ) as number;
         this.accept(new NativeDuplex(handle));
       }
     } catch (error) {
-      if (!this.closed) { this.receiveError = error; this.flushReceivers(); void this.close(); }
+      if (!this.closed) {
+        this.receiveError = error;
+        this.flushReceivers();
+        void this.close();
+      }
     }
   }
 
   private accept(socket: NativeDuplex): void {
-    if (this.closed) { socket.destroy(); return; }
+    if (this.closed) {
+      socket.destroy();
+      return;
+    }
     this.clients.add(socket);
     const lines = new JsonlFramer((line) => receiveLine(line));
     const disconnect = () => {
       this.clients.delete(socket);
       this.outbound.get(socket)?.close();
       lines.close();
-      socket.off("data", receiveChunk);
-      socket.off("end", endInput);
+      socket.off('data', receiveChunk);
+      socket.off('end', endInput);
       socket.destroy();
     };
-    socket.on("error", disconnect);
-    socket.on("close", disconnect);
-    const outbound = new OutboundWriter((text, complete) => { socket.write(text, complete); }, disconnect);
+    socket.on('error', disconnect);
+    socket.on('close', disconnect);
+    const outbound = new OutboundWriter((text, complete) => {
+      socket.write(text, complete);
+    }, disconnect);
     this.outbound.set(socket, outbound);
     const receiveLine = (line: string): boolean => {
       if (this.closed || socket.destroyed) return false;
@@ -164,18 +201,27 @@ export class LocalServerTransport implements Transport {
       try {
         const value: unknown = JSON.parse(line);
         if (this.resources && isResourceFrame(value)) {
-          if (value.kind === "request") outbound.send(`${JSON.stringify(this.resources.respond(value))}\n`);
+          if (value.kind === 'request')
+            outbound.send(`${JSON.stringify(this.resources.respond(value))}\n`);
           return true;
         }
         const parsed = A2uiClientMessageSchema.safeParse(value);
-        if (!parsed.success || parsed.data.version !== "v0.9") {
-          throw new Error(parsed.success ? `unsupported version: ${parsed.data.version}` : "expected an A2UI v0.9 client message");
+        if (!parsed.success || parsed.data.version !== 'v0.9') {
+          throw new Error(
+            parsed.success
+              ? `unsupported version: ${parsed.data.version}`
+              : 'expected an A2UI v0.9 client message',
+          );
         }
         const message = value as JsonObject;
-        if ("error" in message) {
+        if ('error' in message) {
           // The schema can omit a missing generic code or strip an extra action.
-          if ("action" in message || !("error" in parsed.data) || !("code" in parsed.data.error)) {
-            throw new Error("invalid client error report");
+          if (
+            'action' in message ||
+            !('error' in parsed.data) ||
+            !('code' in parsed.data.error)
+          ) {
+            throw new Error('invalid client error report');
           }
           // Valid client error reports carry no action; keep the connection open.
           return true;
@@ -192,16 +238,28 @@ export class LocalServerTransport implements Transport {
       }
     };
     const receiveChunk = (chunk: Buffer) => {
-      try { lines.write(chunk); }
-      catch { disconnect(); }
+      try {
+        lines.write(chunk);
+      } catch {
+        disconnect();
+      }
     };
     const endInput = () => {
-      try { lines.end(); }
-      catch { disconnect(); }
+      try {
+        lines.end();
+      } catch {
+        disconnect();
+      }
     };
-    socket.on("data", receiveChunk);
-    socket.on("end", endInput);
-    outbound.start(encodeReplay(this.snapshot.messages(), this.resources ? resourceHello() : undefined, "\n"));
+    socket.on('data', receiveChunk);
+    socket.on('end', endInput);
+    outbound.start(
+      encodeReplay(
+        this.snapshot.messages(),
+        this.resources ? resourceHello() : undefined,
+        '\n',
+      ),
+    );
   }
 
   private enqueue(message: JsonObject): void {
@@ -222,7 +280,9 @@ export class LocalServerTransport implements Transport {
     if (message) return Promise.resolve({ value: message, done: false });
     if (this.receiveError) return Promise.reject(this.receiveError);
     if (this.closed) return Promise.resolve({ value: undefined, done: true });
-    return new Promise((resolve, reject) => this.waiting.push({ resolve, reject }));
+    return new Promise((resolve, reject) =>
+      this.waiting.push({ resolve, reject }),
+    );
   }
 
   private flushReceivers(): void {

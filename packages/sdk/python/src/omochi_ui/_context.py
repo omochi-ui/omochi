@@ -1,4 +1,5 @@
 """Render lifetime and context; independent of the public UI facade."""
+
 from __future__ import annotations
 
 import asyncio

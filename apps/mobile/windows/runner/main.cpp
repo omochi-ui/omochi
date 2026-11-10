@@ -12,7 +12,8 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
   // Protect the shared identity even when two launches race before a window
   // exists. Keep the mutex until process exit; Windows releases it on crashes.
   HANDLE instance_mutex = CreateIdentityMutex();
-  if (instance_mutex == nullptr) return EXIT_FAILURE;
+  if (instance_mutex == nullptr)
+    return EXIT_FAILURE;
   DWORD ownership = ::WaitForSingleObject(instance_mutex, 0);
   if (ownership == WAIT_FAILED) {
     ::CloseHandle(instance_mutex);
@@ -43,8 +44,7 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
 
   flutter::DartProject project(L"data");
 
-  std::vector<std::string> command_line_arguments =
-      GetCommandLineArguments();
+  std::vector<std::string> command_line_arguments = GetCommandLineArguments();
 
   project.set_dart_entrypoint_arguments(std::move(command_line_arguments));
 

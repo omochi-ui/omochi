@@ -1,6 +1,10 @@
 /** Handwritten declarations: ordinary builds never require generated WASM assets. */
 export interface RawEndpoint {
-  connect(address: string, alpn: string, operation: number): Promise<RawConnection>;
+  connect(
+    address: string,
+    alpn: string,
+    operation: number,
+  ): Promise<RawConnection>;
   cancel_connect(operation: number): void;
   close(): Promise<void>;
   frame_bytes(): number;

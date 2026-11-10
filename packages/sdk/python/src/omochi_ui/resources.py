@@ -1,4 +1,5 @@
 """Immutable, application-owned media served over the resources/1 protocol."""
+
 from __future__ import annotations
 
 import base64
@@ -14,7 +15,22 @@ from threading import RLock
 
 PROTOCOL = "resources/1"
 CHUNK = 24 * 1024
-MIME = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif", ".webp": "image/webp", ".svg": "image/svg+xml", ".avif": "image/avif", ".mp3": "audio/mpeg", ".wav": "audio/wav", ".ogg": "audio/ogg", ".m4a": "audio/mp4", ".mp4": "video/mp4", ".webm": "video/webm", ".mov": "video/quicktime"}
+MIME = {
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".gif": "image/gif",
+    ".webp": "image/webp",
+    ".svg": "image/svg+xml",
+    ".avif": "image/avif",
+    ".mp3": "audio/mpeg",
+    ".wav": "audio/wav",
+    ".ogg": "audio/ogg",
+    ".m4a": "audio/mp4",
+    ".mp4": "video/mp4",
+    ".webm": "video/webm",
+    ".mov": "video/quicktime",
+}
 
 
 def is_resource(message):
@@ -36,7 +52,9 @@ class ResourceRegistry:
 
     def file(self, path, mime_type=None):
         with open(path, "rb") as source:
-            return self._register(source, mime_type or MIME.get(Path(path).suffix.lower()))
+            return self._register(
+                source, mime_type or MIME.get(Path(path).suffix.lower())
+            )
 
     def bytes(self, data, mime_type):
         return self._register(io.BytesIO(data), mime_type)
@@ -45,7 +63,9 @@ class ResourceRegistry:
         with self._lock:
             if self._closed:
                 raise ValueError("resource registry closed")
-            if not isinstance(mime, str) or not re.fullmatch(r"(image|audio|video)/[a-zA-Z0-9.+-]+", mime):
+            if not isinstance(mime, str) or not re.fullmatch(
+                r"(image|audio|video)/[a-zA-Z0-9.+-]+", mime
+            ):
                 raise ValueError("explicit media MIME type required")
             if self._directory is None:
                 self._directory = _PrivateDirectory()
@@ -57,7 +77,10 @@ class ResourceRegistry:
                     os.chmod(path, 0o600)
                     while chunk := source.read(65536):
                         size += len(chunk)
-                        if size > self.max_file_bytes or self._total + size > self.max_total_bytes:
+                        if (
+                            size > self.max_file_bytes
+                            or self._total + size > self.max_total_bytes
+                        ):
                             raise ValueError("resource storage limit exceeded")
                         target.write(chunk)
             except BaseException:
@@ -85,16 +108,39 @@ class ResourceRegistry:
                 self._directory = None
 
     def respond(self, message):
-        result = {"omochi": PROTOCOL, "kind": "response", "id": message.get("id"), "status": 200}
+        result = {
+            "omochi": PROTOCOL,
+            "kind": "response",
+            "id": message.get("id"),
+            "status": 200,
+        }
+
         def error(status):
             return {**result, "status": status}
+
         with self._lock:
             resource = message.get("resource", "")
-            if message.get("kind") != "request" or not isinstance(message.get("id"), str) or not re.fullmatch(r"[\w-]{1,80}", message["id"], re.ASCII) or not isinstance(resource, str) or not re.fullmatch(r"[a-f0-9]{32}", resource):
+            if (
+                message.get("kind") != "request"
+                or not isinstance(message.get("id"), str)
+                or not re.fullmatch(r"[\w-]{1,80}", message["id"], re.ASCII)
+                or not isinstance(resource, str)
+                or not re.fullmatch(r"[a-f0-9]{32}", resource)
+            ):
                 return error(400)
             op = message.get("op")
             offset, length = message.get("offset"), message.get("length")
-            if op not in ("stat", "read") or op == "read" and (type(offset) is not int or type(length) is not int or offset < 0 or offset > 2**53-1 or not 0 < length <= CHUNK):
+            if (
+                op not in ("stat", "read")
+                or op == "read"
+                and (
+                    type(offset) is not int
+                    or type(length) is not int
+                    or offset < 0
+                    or offset > 2**53 - 1
+                    or not 0 < length <= CHUNK
+                )
+            ):
                 return error(400)
             entry = self._entries.get(resource)
             if not entry:
@@ -107,18 +153,27 @@ class ResourceRegistry:
             try:
                 with open(path, "rb") as source:
                     source.seek(offset)
-                    return {**result, "data": base64.b64encode(source.read(length)).decode("ascii")}
+                    return {
+                        **result,
+                        "data": base64.b64encode(source.read(length)).decode("ascii"),
+                    }
             except OSError:
                 return error(500)
+
 
 class _PrivateDirectory:
     def __init__(self):
         from ._native_local import create_private_directory
-        self.name = str(Path(tempfile.gettempdir()) / f"omochi-resources-{secrets.token_hex(16)}")
+
+        self.name = str(
+            Path(tempfile.gettempdir()) / f"omochi-resources-{secrets.token_hex(16)}"
+        )
         create_private_directory(Path(self.name))
         self._finalizer = weakref.finalize(self, _remove_private_directory, self.name)
+
     def cleanup(self):
         self._finalizer()
+
 
 def _remove_private_directory(path: str) -> None:
     try:

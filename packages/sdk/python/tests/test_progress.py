@@ -3,12 +3,12 @@ import json
 import unittest
 from pathlib import Path
 
-from omochi_ui import schema, Expr, InputSchema, ActionContext, UI, App
+from omochi_ui import App, schema
 from omochi_ui.builder import Tab
 
 
 class MemoryTransport:
-    capabilities = set()
+    capabilities = frozenset()
 
     def __init__(self):
         self.sent = []
@@ -26,28 +26,47 @@ class MemoryTransport:
 
 class ProgressTests(unittest.IsolatedAsyncioTestCase):
     async def test_tabs_fixture(self):
-        fixture = json.loads((Path(__file__).parents[4] / "spec/fixtures/tabs.json").read_text())
+        fixture = json.loads(
+            (Path(__file__).parents[4] / "spec/fixtures/tabs.json").read_text()
+        )
         app = App({"title": "Second"})
 
         @app.surface("main")
         def view(ui, state):
-            ui.tabs([
-                Tab("First", lambda ui: ui.text("A", key="first")),
-                Tab(state["title"], lambda ui: ui.text("B", key="second")),
-            ], key="tabs")
+            ui.tabs(
+                [
+                    Tab("First", lambda ui: ui.text("A", key="first")),
+                    Tab(state["title"], lambda ui: ui.text("B", key="second")),
+                ],
+                key="tabs",
+            )
 
         runtime = app.build()
-        self.assertEqual(runtime.render()[1]["updateComponents"]["components"], fixture["initialComponents"])
+        self.assertEqual(
+            runtime.render()[1]["updateComponents"]["components"],
+            fixture["initialComponents"],
+        )
         messages = await runtime.update(lambda s: s.update(title="Renamed"))
-        self.assertEqual(messages, [{"version": "v0.9", "updateComponents": {
-            "surfaceId": "main", "components": fixture["afterUpdateComponents"],
-        }}])
+        self.assertEqual(
+            messages,
+            [
+                {
+                    "version": "v0.9",
+                    "updateComponents": {
+                        "surfaceId": "main",
+                        "components": fixture["afterUpdateComponents"],
+                    },
+                }
+            ],
+        )
 
     async def test_progress_before_completion(self):
         entered, release = asyncio.Event(), asyncio.Event()
         app = App({"status": "idle"})
         for surface_id in ["one", "two"]:
-            app.surface(surface_id)(lambda ui, state: ui.text(state["status"], key="status"))
+            app.surface(surface_id)(
+                lambda ui, state: ui.text(state["status"], key="status")
+            )
 
         @app.action("work", schema=schema.literal(None))
         async def work(_, ctx):
@@ -65,7 +84,10 @@ class ProgressTests(unittest.IsolatedAsyncioTestCase):
         try:
             await asyncio.wait_for(entered.wait(), 3)
             self.assertEqual(len(transport.sent), 2)
-            self.assertEqual(transport.sent[0]["updateComponents"]["components"][0]["text"], "working")
+            self.assertEqual(
+                transport.sent[0]["updateComponents"]["components"][0]["text"],
+                "working",
+            )
         finally:
             release.set()
         messages = await task
@@ -81,12 +103,18 @@ class ProgressTests(unittest.IsolatedAsyncioTestCase):
             async def first(state):
                 await asyncio.sleep(0)
                 state["value"] = 1
-            await asyncio.gather(ctx.update(first), ctx.update(lambda s: s.update(value=2)))
+
+            await asyncio.gather(
+                ctx.update(first), ctx.update(lambda s: s.update(value=2))
+            )
 
         runtime = app.build()
         runtime.render()
         messages = await runtime.invoke("work", None)
-        self.assertEqual([m["updateComponents"]["components"][0]["text"] for m in messages], ["1", "2"])
+        self.assertEqual(
+            [m["updateComponents"]["components"][0]["text"] for m in messages],
+            ["1", "2"],
+        )
 
     async def test_errors_do_not_rollback_or_hold_lock(self):
         state = {"value": 0}

@@ -2,15 +2,18 @@ from __future__ import annotations
 
 import asyncio
 import json
-import os
-import tempfile
 import subprocess
 import sys
+import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
 
-from omochi_ui import schema, Expr, InputSchema, ActionContext, UI, App, ResourceRegistry, LocalServerTransport
+from omochi_ui import (
+    App,
+    LocalServerTransport,
+    ResourceRegistry,
+    schema,
+)
 from omochi_ui.local_server import validate_service_id
 
 
@@ -43,7 +46,6 @@ async def read_messages(reader: asyncio.StreamReader, count: int) -> list[dict]:
 
 
 class LocalServerTransportTests(unittest.TestCase):
-
     def test_isolates_malformed_client_frames(self) -> None:
         fixtures = Path(__file__).parents[4] / "spec/fixtures"
         actions = json.loads((fixtures / "client-actions.json").read_text())
@@ -58,9 +60,13 @@ class LocalServerTransportTests(unittest.TestCase):
                 writers = []
 
                 async def connect():
-                    reader, writer = await asyncio.open_unix_connection(str(transport.endpoint["path"]))
+                    reader, writer = await asyncio.open_unix_connection(
+                        str(transport.endpoint["path"])
+                    )
                     writers.append(writer)
-                    self.assertEqual(json.loads(await reader.readline())["kind"], "hello")
+                    self.assertEqual(
+                        json.loads(await reader.readline())["kind"], "hello"
+                    )
                     return reader, writer
 
                 def send(writer, message):
@@ -73,16 +79,48 @@ class LocalServerTransportTests(unittest.TestCase):
 
                     async def verify(action):
                         send(writer, action)
-                        expected = {key: value for key, value in action.items() if key != "type"}
-                        self.assertEqual(await asyncio.wait_for(anext(received), 5), expected)
-                        send(writer, {"omochi": "resources/1", "kind": "request", "id": "read", "op": "stat", "resource": uri.rsplit("/", 1)[1]})
-                        self.assertEqual(json.loads(await asyncio.wait_for(reader.readline(), 5))["status"], 200)
+                        expected = {
+                            key: value for key, value in action.items() if key != "type"
+                        }
+                        self.assertEqual(
+                            await asyncio.wait_for(anext(received), 5), expected
+                        )
+                        send(
+                            writer,
+                            {
+                                "omochi": "resources/1",
+                                "kind": "request",
+                                "id": "read",
+                                "op": "stat",
+                                "resource": uri.rsplit("/", 1)[1],
+                            },
+                        )
+                        self.assertEqual(
+                            json.loads(await asyncio.wait_for(reader.readline(), 5))[
+                                "status"
+                            ],
+                            200,
+                        )
 
                     for message in actions["invalid"] + errors["invalid"]:
                         bad_reader, bad_writer = await connect()
-                        tail = {**actions["actions"][0], "action": {**actions["actions"][0]["action"], "name": "disconnected-peer"}}
-                        bad_writer.write((json.dumps(message) + "\n" + json.dumps(tail) + "\n").encode())
-                        self.assertEqual(await asyncio.wait_for(bad_reader.readline(), 5), b"", message)
+                        tail = {
+                            **actions["actions"][0],
+                            "action": {
+                                **actions["actions"][0]["action"],
+                                "name": "disconnected-peer",
+                            },
+                        }
+                        bad_writer.write(
+                            (
+                                json.dumps(message) + "\n" + json.dumps(tail) + "\n"
+                            ).encode()
+                        )
+                        self.assertEqual(
+                            await asyncio.wait_for(bad_reader.readline(), 5),
+                            b"",
+                            message,
+                        )
                         await verify(actions["actions"][0])
                     for report in errors["reports"]:
                         send(writer, report)
@@ -98,14 +136,12 @@ class LocalServerTransportTests(unittest.TestCase):
 
         asyncio.run(scenario())
 
-
-
-
-
     def test_publishes_and_cleans_up_a_discoverable_service(self) -> None:
         async def scenario() -> None:
             with tempfile.TemporaryDirectory() as root:
-                transport = LocalServerTransport("demo", name="Demo", icon="🎤", runtime_dir=root)
+                transport = LocalServerTransport(
+                    "demo", name="Demo", icon="🎤", runtime_dir=root
+                )
                 running = asyncio.create_task(counter_app().start(transport))
                 await transport.start()
 
@@ -113,11 +149,19 @@ class LocalServerTransportTests(unittest.TestCase):
                 self.assertEqual(transport.directory, directory)
                 self.assertEqual(
                     json.loads((directory / "manifest.json").read_text()),
-                    {"version": 2, "serviceId": "demo", "name": "Demo", "endpoint": {"kind": "unix", "path": "a2ui.sock"}, "icon": "🎤"},
+                    {
+                        "version": 2,
+                        "serviceId": "demo",
+                        "name": "Demo",
+                        "endpoint": {"kind": "unix", "path": "a2ui.sock"},
+                        "icon": "🎤",
+                    },
                 )
                 self.assertEqual(directory.stat().st_mode & 0o777, 0o700)
 
-                reader, writer = await asyncio.open_unix_connection(str(transport.endpoint["path"]))
+                reader, writer = await asyncio.open_unix_connection(
+                    str(transport.endpoint["path"])
+                )
                 initial = await read_messages(reader, 3)
                 self.assertEqual(initial[0]["createSurface"]["surfaceId"], "main")
                 writer.close()
@@ -138,23 +182,33 @@ class LocalServerTransportTests(unittest.TestCase):
 
                 reader, writer = await asyncio.open_unix_connection(path)
                 await read_messages(reader, 3)
-                writer.write((json.dumps({
-                    "version": "v0.9",
-                    "action": {
-                        "name": "increment",
-                        "surfaceId": "main",
-                        "sourceComponentId": "increment",
-                        "timestamp": "2026-08-12T00:00:00.000Z",
-                        "context": {},
-                    },
-                }) + "\n").encode())
+                writer.write(
+                    (
+                        json.dumps(
+                            {
+                                "version": "v0.9",
+                                "action": {
+                                    "name": "increment",
+                                    "surfaceId": "main",
+                                    "sourceComponentId": "increment",
+                                    "timestamp": "2026-08-12T00:00:00.000Z",
+                                    "context": {},
+                                },
+                            }
+                        )
+                        + "\n"
+                    ).encode()
+                )
                 await writer.drain()
                 await read_messages(reader, 1)
 
                 late_reader, late_writer = await asyncio.open_unix_connection(path)
                 replay = await read_messages(late_reader, 3)
                 components = next(m for m in replay if "updateComponents" in m)
-                labels = {c["id"]: c.get("text") for c in components["updateComponents"]["components"]}
+                labels = {
+                    c["id"]: c.get("text")
+                    for c in components["updateComponents"]["components"]
+                }
                 self.assertEqual(labels["count"], "Count: 1")
 
                 writer.close()
@@ -169,19 +223,23 @@ class LocalServerTransportTests(unittest.TestCase):
             with self.subTest(service_id=service_id):
                 self.assertEqual(validate_service_id(service_id), service_id)
         for service_id in ("Demo", "demo\n", "demo\r\n", "x" * 65):
-            with self.subTest(service_id=service_id):
-                with self.assertRaises(ValueError):
-                    validate_service_id(service_id)
+            with self.subTest(service_id=service_id), self.assertRaises(ValueError):
+                validate_service_id(service_id)
 
     def test_rejects_invalid_service_ids_before_publication(self) -> None:
         async def scenario() -> None:
             for service_id in (".", "..", "a/b", "", "x" * 65, "demo\n", "demo\r\n"):
-                with self.subTest(service_id=service_id), tempfile.TemporaryDirectory() as root:
+                with (
+                    self.subTest(service_id=service_id),
+                    tempfile.TemporaryDirectory() as root,
+                ):
                     runtime_dir = Path(root) / "runtime"
                     transport = None
                     try:
                         with self.assertRaises(ValueError):
-                            transport = LocalServerTransport(service_id, runtime_dir=runtime_dir)
+                            transport = LocalServerTransport(
+                                service_id, runtime_dir=runtime_dir
+                            )
                             await transport.start()
                         self.assertFalse(runtime_dir.exists())
                     finally:
@@ -191,7 +249,11 @@ class LocalServerTransportTests(unittest.TestCase):
         asyncio.run(scenario())
 
     def test_sdk_import_does_not_require_unix_fcntl(self) -> None:
-        subprocess.run([sys.executable, "-c", """
+        subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                """
 import builtins
 original = builtins.__import__
 def without_fcntl(name, *args, **kwargs):
@@ -200,8 +262,10 @@ def without_fcntl(name, *args, **kwargs):
     return original(name, *args, **kwargs)
 builtins.__import__ = without_fcntl
 import omochi_ui
-"""], check=True)
-
+""",
+            ],
+            check=True,
+        )
 
     def test_refuses_a_second_instance_and_recovers_a_stale_socket(self) -> None:
         async def scenario() -> None:
@@ -221,6 +285,7 @@ import omochi_ui
                 # A socket file left behind by a crash must not block the next start.
                 (Path(root) / "svc-demo~").mkdir(exist_ok=True)
                 import socket
+
                 stale = socket.socket(socket.AF_UNIX)
                 stale.bind(str(Path(root) / "svc-demo~" / "a2ui.sock"))
                 stale.close()

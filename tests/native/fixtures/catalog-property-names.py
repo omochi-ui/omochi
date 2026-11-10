@@ -1,11 +1,17 @@
 import json
 from typing import get_type_hints
 
-from catalog import NamedProps, PROPERTYNAMESCATALOG, PropertyNamesCatalogUI
+from catalog import PROPERTYNAMESCATALOG, NamedProps, PropertyNamesCatalogUI
 
 props: NamedProps = {
-    "sourceURL": "source", "data_key": "data", "type": "type", "match": "match",
-    "self": "self", "crate": "crate", "super": "super", "gen": "gen",
+    "sourceURL": "source",
+    "data_key": "data",
+    "type": "type",
+    "match": "match",
+    "self": "self",
+    "crate": "crate",
+    "super": "super",
+    "gen": "gen",
 }
 optional: NamedProps = {**props, "optionalURL": "optional"}
 assert NamedProps.__required_keys__ == props.keys()

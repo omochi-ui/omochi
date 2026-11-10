@@ -1,0 +1,155 @@
+# Switch CodeQL from default setup to advanced setup when enabling this workflow.
+# Default setup rejects uploads from workflow-based CodeQL analyses:
+# https://docs.github.com/en/code-security/reference/code-scanning/sarif-files/troubleshoot-sarif-uploads/default-setup-enabled
+name: CodeQL
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: '23 18 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: codeql-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  analyze:
+    name: Analyze (${{ matrix.language }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      actions: read
+      security-events: write
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [actions, c-cpp, javascript-typescript, python, rust]
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - if: matrix.language == 'rust'
+        uses: dtolnay/rust-toolchain@stable
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v4
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: none
+      - name: Perform CodeQL analysis
+        uses: github/codeql-action/analyze@v4
+        with:
+          category: /language:${{ matrix.language }}
+
+  mobile:
+    name: Analyze (${{ matrix.language }}, ${{ matrix.platform }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      actions: read
+      security-events: write
+    env:
+      FLUTTER_VERSION: '3.47.9'
+      CARGO_INCREMENTAL: '0'
+      CARGO_BUILD_JOBS: '2'
+    defaults:
+      run:
+        working-directory: apps/mobile
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - language: java-kotlin
+            platform: android
+            os: ubuntu-latest
+            rust-targets: aarch64-linux-android
+          - language: swift
+            platform: macos
+            os: macos-latest
+            rust-targets: aarch64-apple-darwin,x86_64-apple-darwin
+            xcode-sdk: macosx
+            xcode-destination: platform=macOS
+          - language: swift
+            platform: ios
+            os: macos-latest
+            rust-targets: aarch64-apple-ios,aarch64-apple-ios-sim,x86_64-apple-ios
+            xcode-sdk: iphonesimulator
+            xcode-destination: generic/platform=iOS Simulator
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - if: matrix.platform == 'android'
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust-targets }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: crates -> target
+          key: codeql-${{ matrix.platform }}
+      - if: matrix.platform == 'android'
+        name: Install Android NDK
+        run: '"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "ndk;30.0.16248370"'
+      # Flutter generates the plugin packages and platform configuration needed
+      # by Xcode and Gradle; CodeQL autobuild cannot prepare a Flutter project.
+      - run: flutter pub get --enforce-lockfile
+      # Generate Flutter's Xcode configuration without compiling Swift. The
+      # actual build must run directly under CodeQL's compiler tracing below.
+      - if: matrix.platform == 'macos'
+        name: Prepare macOS project
+        run: flutter build macos --debug --no-pub --config-only
+      - if: matrix.platform == 'ios'
+        name: Prepare iOS project
+        run: flutter build ios --debug --no-pub --simulator --no-codesign --config-only
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v4
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: manual
+      # Build after init so CodeQL traces Swift/Kotlin compilation. Keep app
+      # build output uncached so compilation is captured on every run.
+      - if: matrix.platform == 'android'
+        name: Build Android for Kotlin analysis
+        run: flutter build apk --debug --no-pub --target-platform android-arm64
+        env:
+          GRADLE_OPTS: -Dorg.gradle.daemon=false -Dorg.gradle.caching=false
+      - if: matrix.language == 'swift'
+        name: Build Xcode project for Swift analysis
+        # Flutter's build launcher succeeded without any Swift being captured.
+        # Invoke xcodebuild directly and pass the tracing settings explicitly.
+        run: |
+          xcodebuild build \
+            -workspace "${{ matrix.platform }}/Runner.xcworkspace" \
+            -scheme Runner \
+            -configuration Debug \
+            -sdk "${{ matrix.xcode-sdk }}" \
+            -destination "${{ matrix.xcode-destination }}" \
+            -derivedDataPath "$RUNNER_TEMP/codeql-xcode-${{ matrix.platform }}" \
+            ARCHS="$(uname -m)" \
+            ONLY_ACTIVE_ARCH=YES \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            COMPILATION_CACHE_ENABLE_CACHING=NO \
+            SWIFT_ENABLE_COMPILE_CACHE=NO \
+            SWIFT_USE_INTEGRATED_DRIVER=NO
+      - name: Perform CodeQL analysis
+        uses: github/codeql-action/analyze@v4
+        with:
+          category: /language:${{ matrix.language }}/platform:${{ matrix.platform }}

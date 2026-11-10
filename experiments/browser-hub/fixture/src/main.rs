@@ -4,9 +4,7 @@ use omochi_transport::{
     pairing::Invite,
     store::{Role, Store},
 };
-use omochi_ui::{
-    App, ButtonOptions, ImageOptions, LocalServerOptions, LocalServerTransport,
-};
+use omochi_ui::{App, ButtonOptions, ImageOptions, LocalServerOptions, LocalServerTransport};
 use serde_json::json;
 use std::{
     io::{self, BufRead, Write},

@@ -14,6 +14,7 @@ test('web and native invitation fixtures agree', () => {
   for (const entry of fixture.cases) {
     if (entry.valid) expect(() => parseShareLink(entry.fragment)).not.toThrow();
     else expect(() => parseShareLink(entry.fragment)).toThrow();
-    if (entry.valid) expect(nativeInvitationLink(entry.fragment)).toStartWith('omochi://');
+    if (entry.valid)
+      expect(nativeInvitationLink(entry.fragment)).toStartWith('omochi://');
   }
 });

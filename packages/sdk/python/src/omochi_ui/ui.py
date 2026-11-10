@@ -3,16 +3,18 @@
 Use ordinary functions for components. The facade resolves the Builder for
 every call, including custom Catalog UI subclasses; it never stores one globally.
 """
+
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import is_dataclass
 from functools import wraps
-from typing import Any, Callable, Concatenate, ParamSpec, TypeVar, overload
+from typing import Any, Concatenate, ParamSpec, TypeVar, overload
 
 from ._context import get_ui
 from .builder import UI
 from .errors import DeclarationError
-from .references import Local, MISSING
+from .references import MISSING, Local
 
 P = ParamSpec("P")
 R = TypeVar("R")
@@ -24,20 +26,32 @@ def _method(method: Callable[Concatenate[UI, P], R]) -> Callable[P, R]:
     @wraps(method)
     def call(*args: P.args, **kwargs: P.kwargs) -> R:
         return getattr(get_ui(), method.__name__)(*args, **kwargs)
+
     return call
 
 
 @overload
-def local(key: str, initial: T, *, type: type[T], reset_key: Any = MISSING) -> Local[T]: ...
+def local(
+    key: str, initial: T, *, type: type[T], reset_key: Any = MISSING
+) -> Local[T]: ...
 @overload
 def local(key: str, initial: T, *, reset_key: Any = MISSING) -> Local[T]: ...
-def local(key: str, initial: T, *, type: Any = MISSING, reset_key: Any = MISSING) -> Local[T]:
+def local(
+    key: str, initial: T, *, type: Any = MISSING, reset_key: Any = MISSING
+) -> Local[T]:
     import builtins
+
     builder = get_ui()
     options: dict[str, Any] = {}
     if type is not MISSING:
         options["type"] = type
-    elif not is_dataclass(initial) and builtins.type(initial) not in (str, bool, int, float, builtins.type(None)):
+    elif not is_dataclass(initial) and builtins.type(initial) not in (
+        str,
+        bool,
+        int,
+        float,
+        builtins.type(None),
+    ):
         raise DeclarationError("local() needs type= for dictionaries and containers")
     if reset_key is not MISSING:
         options["reset_key"] = reset_key
@@ -79,8 +93,26 @@ def catalog(type: Any = UI) -> UI:
 
 
 __all__ = [
-    "audio_player", "button", "card", "catalog", "check_box", "choice_picker",
-    "column", "component", "date_time_input", "divider", "icon", "image",
-    "list", "local", "modal", "row", "scope", "slider", "tabs", "text",
-    "text_field", "video",
+    "audio_player",
+    "button",
+    "card",
+    "catalog",
+    "check_box",
+    "choice_picker",
+    "column",
+    "component",
+    "date_time_input",
+    "divider",
+    "icon",
+    "image",
+    "list",
+    "local",
+    "modal",
+    "row",
+    "scope",
+    "slider",
+    "tabs",
+    "text",
+    "text_field",
+    "video",
 ]

@@ -45,7 +45,9 @@ def _update_at_pointer(root: Any, path: str, present: bool, value: Any) -> Any:
         next_part = parts[index + 1]
         if isinstance(current, list):
             if not _is_array_index(part):
-                raise ValueError(f"array data model path segment must be an index: {part!r}")
+                raise ValueError(
+                    f"array data model path segment must be an index: {part!r}"
+                )
             position = int(part)
             child = current[position] if position < len(current) else None
             if not _is_container(child):
@@ -61,7 +63,9 @@ def _update_at_pointer(root: Any, path: str, present: bool, value: Any) -> Any:
     last = parts[-1]
     if isinstance(current, list):
         if not _is_array_index(last):
-            raise ValueError(f"array data model path segment must be an index: {last!r}")
+            raise ValueError(
+                f"array data model path segment must be an index: {last!r}"
+            )
         position = int(last)
         if present:
             _set_index(current, position, copy.deepcopy(value))
@@ -75,7 +79,7 @@ def _update_at_pointer(root: Any, path: str, present: bool, value: Any) -> Any:
 
 
 class _SurfaceSnapshot:
-    __slots__ = ("create", "components", "data", "has_data")
+    __slots__ = ("components", "create", "data", "has_data")
 
     def __init__(self, create: dict[str, Any]):
         self.create = create
@@ -111,7 +115,8 @@ class A2uiSnapshot:
             for component in update["components"]:
                 component_id = component.get("id")
                 if not isinstance(component_id, str):
-                    raise ValueError("component must contain a string id")
+                    # Malformed wire messages consistently raise ValueError.
+                    raise ValueError("component must contain a string id")  # noqa: TRY004
                 components[component_id] = copy.deepcopy(component)
             surface.components.update(components)
         elif "updateDataModel" in message:
@@ -134,13 +139,18 @@ class A2uiSnapshot:
         for surface_id, surface in self._surfaces.items():
             messages.append(copy.deepcopy(surface.create))
             if surface.components:
-                messages.append({
-                    "version": "v0.9",
-                    "updateComponents": {
-                        "surfaceId": surface_id,
-                        "components": [copy.deepcopy(component) for component in surface.components.values()],
-                    },
-                })
+                messages.append(
+                    {
+                        "version": "v0.9",
+                        "updateComponents": {
+                            "surfaceId": surface_id,
+                            "components": [
+                                copy.deepcopy(component)
+                                for component in surface.components.values()
+                            ],
+                        },
+                    }
+                )
             if surface.has_data:
                 update: dict[str, Any] = {"surfaceId": surface_id, "path": "/"}
                 if surface.data is not _MISSING:

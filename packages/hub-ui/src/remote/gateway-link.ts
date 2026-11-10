@@ -8,11 +8,13 @@ export function parseGatewayLink(fragment: string): GatewayInvitation {
   if (!fragment.startsWith('#g:') || fragment.length > 16384)
     throw new Error('Invalid gateway invitation');
   const payload = fragment.slice(3);
-  if (!/^[A-Za-z0-9_-]+$/.test(payload)) throw new Error('Invalid gateway invitation');
+  if (!/^[A-Za-z0-9_-]+$/.test(payload))
+    throw new Error('Invalid gateway invitation');
   const value = JSON.parse(
     new TextDecoder('utf-8', { fatal: true }).decode(
-      Uint8Array.from(atob(payload.replaceAll('-', '+').replaceAll('_', '/')), (c) =>
-        c.charCodeAt(0),
+      Uint8Array.from(
+        atob(payload.replaceAll('-', '+').replaceAll('_', '/')),
+        (c) => c.charCodeAt(0),
       ),
     ),
   );

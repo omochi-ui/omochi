@@ -9,7 +9,6 @@ import unittest
 
 from omochi_ui import LocalServerTransport
 
-
 MAX_FRAME_BYTES = 4 * 1024 * 1024
 
 
@@ -72,7 +71,9 @@ asyncio.run(main())
 class JsonlLimitTests(unittest.IsolatedAsyncioTestCase):
     async def start_stdio(self):
         process = await asyncio.create_subprocess_exec(
-            sys.executable, "-c", STDIO_RECEIVER,
+            sys.executable,
+            "-c",
+            STDIO_RECEIVER,
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
@@ -91,9 +92,12 @@ class JsonlLimitTests(unittest.IsolatedAsyncioTestCase):
             with self.subTest(name=name):
                 process = await self.start_stdio()
                 stdout, stderr = await asyncio.wait_for(
-                    process.communicate(encode(message) + ending), timeout=10,
+                    process.communicate(encode(message) + ending),
+                    timeout=10,
                 )
-                expected = hashlib.sha256(message["action"]["context"]["input"].encode()).hexdigest()
+                expected = hashlib.sha256(
+                    message["action"]["context"]["input"].encode()
+                ).hexdigest()
                 self.assertEqual(stdout.decode().splitlines(), [expected])
                 self.assertEqual(process.returncode, 0, stderr.decode())
                 self.assertEqual(stderr, b"")
@@ -105,7 +109,10 @@ class JsonlLimitTests(unittest.IsolatedAsyncioTestCase):
                 process.stdin.write(frame)
                 await asyncio.wait_for(process.stdin.drain(), timeout=10)
                 # Keep stdin open: rejection must happen even without a delimiter or EOF.
-                self.assertEqual(await asyncio.wait_for(process.stdout.readline(), timeout=10), b"REJECTED\n")
+                self.assertEqual(
+                    await asyncio.wait_for(process.stdout.readline(), timeout=10),
+                    b"REJECTED\n",
+                )
                 await asyncio.wait_for(process.wait(), timeout=10)
                 self.assertEqual(await process.stdout.read(), b"")
                 self.assertEqual(await process.stderr.read(), b"")
@@ -118,14 +125,19 @@ class JsonlLimitTests(unittest.IsolatedAsyncioTestCase):
                 await transport.start()
                 for name, message, ending in accepted_frames():
                     with self.subTest(name=name):
-                        reader, writer = await asyncio.open_unix_connection(str(transport.endpoint["path"]))
+                        _reader, writer = await asyncio.open_unix_connection(
+                            str(transport.endpoint["path"])
+                        )
                         try:
                             writer.write(encode(message) + ending)
                             await asyncio.wait_for(writer.drain(), timeout=10)
                             if not ending:
                                 writer.write_eof()
                             self.assertEqual(
-                                await asyncio.wait_for(anext(transport.receive()), timeout=10), message,
+                                await asyncio.wait_for(
+                                    anext(transport.receive()), timeout=10
+                                ),
+                                message,
                             )
                         finally:
                             writer.close()
@@ -134,7 +146,7 @@ class JsonlLimitTests(unittest.IsolatedAsyncioTestCase):
                 await transport.close()
 
     async def test_unix_rejects_only_the_oversized_connection(self):
-        for name, frame in rejected_frames():
+        async def check_case(name, frame):
             with self.subTest(name=name), tempfile.TemporaryDirectory() as root:
                 transport = LocalServerTransport("demo", runtime_dir=root)
                 disconnected = asyncio.Event()
@@ -144,7 +156,7 @@ class JsonlLimitTests(unittest.IsolatedAsyncioTestCase):
                 async def observe_accept(reader, writer):
                     try:
                         await accept(reader, writer)
-                    except Exception as error:
+                    except Exception as error:  # noqa: BLE001 - assert every callback failure below.
                         errors.append(error)
                     finally:
                         disconnected.set()
@@ -152,12 +164,16 @@ class JsonlLimitTests(unittest.IsolatedAsyncioTestCase):
                 transport._accept = observe_accept
                 try:
                     await transport.start()
-                    reader, writer = await asyncio.open_unix_connection(str(transport.endpoint["path"]))
+                    reader, writer = await asyncio.open_unix_connection(
+                        str(transport.endpoint["path"])
+                    )
                     try:
                         writer.write(frame)
                         await asyncio.wait_for(writer.drain(), timeout=10)
                         await asyncio.wait_for(disconnected.wait(), timeout=10)
-                        self.assertEqual(await asyncio.wait_for(reader.read(), timeout=10), b"")
+                        self.assertEqual(
+                            await asyncio.wait_for(reader.read(), timeout=10), b""
+                        )
                         self.assertEqual(errors, [])
                         self.assertTrue(transport._queue.empty())
                     finally:
@@ -165,14 +181,24 @@ class JsonlLimitTests(unittest.IsolatedAsyncioTestCase):
                         await writer.wait_closed()
 
                     # A real message received on another connection is the liveness barrier.
-                    reader, writer = await asyncio.open_unix_connection(str(transport.endpoint["path"]))
+                    _reader, writer = await asyncio.open_unix_connection(
+                        str(transport.endpoint["path"])
+                    )
                     try:
                         message = action("still alive")
                         writer.write(encode(message) + b"\n")
                         await writer.drain()
-                        self.assertEqual(await asyncio.wait_for(anext(transport.receive()), timeout=10), message)
+                        self.assertEqual(
+                            await asyncio.wait_for(
+                                anext(transport.receive()), timeout=10
+                            ),
+                            message,
+                        )
                     finally:
                         writer.close()
                         await writer.wait_closed()
                 finally:
                     await transport.close()
+
+        for name, frame in rejected_frames():
+            await check_case(name, frame)

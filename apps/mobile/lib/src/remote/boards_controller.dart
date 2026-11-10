@@ -1,5 +1,7 @@
 import 'dart:async';
 
+import 'board_layout.dart';
+
 import 'package:flutter/foundation.dart';
 
 import '../native/bridge.dart';
@@ -162,6 +164,9 @@ class BoardEditorController extends ChangeNotifier {
   int? get revision => _base.revision;
   bool dirty = false, busy = false, _disposed = false;
   Object? error;
+  bool get invalidLayout =>
+      error is BridgeException &&
+      (error as BridgeException).code == 'InvalidBoard';
   bool get conflict =>
       error is BridgeException && (error as BridgeException).code == 'Conflict';
   void _replace(RemoteBoard board) {
@@ -226,6 +231,33 @@ class BoardEditorController extends ChangeNotifier {
     _changed();
   }
 
+  void applyLayout(List<BoardPanel> next) {
+    if (busy || _disposed || !repository.editLayout) return;
+    final current = _panels.map((p) => p.snapshot()).toList();
+    final ids = next.map((p) => p.id).toSet();
+    if (!validLayout(next) ||
+        ids.length != current.length ||
+        !current.every((p) => ids.contains(p.id))) {
+      error = BridgeException('InvalidBoard', 'Invalid layout');
+      notifyListeners();
+      return;
+    }
+    final byId = {for (final p in next) p.id: p};
+    var changed = false;
+    for (final p in _panels) {
+      final n = byId[p.id]!;
+      changed |= p.x != n.x || p.y != n.y || p.w != n.w || p.h != n.h;
+      p.x = n.x;
+      p.y = n.y;
+      p.w = n.w;
+      p.h = n.h;
+    }
+    if (changed) {
+      error = null;
+      _changed();
+    }
+  }
+
   Future<bool> save({bool delete = false}) async {
     if (busy || _disposed) return false;
     busy = true;
@@ -235,6 +267,9 @@ class BoardEditorController extends ChangeNotifier {
       if (delete) {
         await repository.delete(_base);
       } else {
+        if (!validLayout(_panels.map((p) => p.snapshot()).toList())) {
+          throw BridgeException('InvalidBoard', 'Invalid layout');
+        }
         await repository.save(
           RemoteBoard(
             id: _base.id,

@@ -11,6 +11,7 @@ import Closing from './landing/Closing.astro';
 const locale = getLocale(Astro.currentLocale);
 const copy = getMessages(locale);
 ---
+
 <Site locale={locale} copy={copy}>
   <Hero copy={copy.landing.hero} locale={locale} />
   <Workbench copy={copy.landing.workbench} />

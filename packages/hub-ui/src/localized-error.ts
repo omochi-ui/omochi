@@ -8,5 +8,7 @@ export function localizedError(error: unknown, t: TFunction): string {
   if (error instanceof BoardFault) return t(`boardError.${error.code}`);
   if (error instanceof SessionFault) return t(`sessionError.${error.code}`);
   if (error instanceof SharingFault) return t(`share.${error.code}`);
-  return error instanceof Error ? error.message : t('boardError.StorageUnavailable');
+  return error instanceof Error
+    ? error.message
+    : t('boardError.StorageUnavailable');
 }
