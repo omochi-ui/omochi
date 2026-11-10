@@ -6,6 +6,10 @@ import 'package:flutter/material.dart';
 /// offscreen, replaced at a breakpoint, or lifted into drag feedback.
 class BoardSurfaceAnchor {
   final link = LayerLink();
+  // The projected body position also lets ensureVisible reach a visited panel
+  // after its sliver slot has been collected, including after width changes.
+  Offset contentOrigin = Offset.zero;
+  _RenderSurfaceSlot? _slot;
   final size = ValueNotifier<Size?>(null);
   final visible = ValueNotifier(false);
   Size? _pendingSize;
@@ -53,6 +57,18 @@ class _RenderSurfaceSlot extends RenderLeaderLayer {
   final BoardSurfaceAnchor anchor;
 
   @override
+  void attach(PipelineOwner owner) {
+    super.attach(owner);
+    anchor._slot = this;
+  }
+
+  @override
+  void detach() {
+    if (identical(anchor._slot, this)) anchor._slot = null;
+    super.detach();
+  }
+
+  @override
   void performLayout() {
     super.performLayout();
     anchor.didLayout(size);
@@ -95,6 +111,7 @@ class BoardSurfaceHost extends StatelessWidget {
                   child: SizedBox.fromSize(
                     size: size,
                     child: _SurfaceBody(
+                      anchor: anchor,
                       resizeEdges: resizeEdges,
                       child: ClipRRect(
                         borderRadius: const BorderRadius.vertical(
@@ -118,12 +135,17 @@ class BoardSurfaceHost extends StatelessWidget {
 // When native resizing is active, pass its 20px edge targets through to the
 // card under the surface. Android/iOS app content keeps its entire hit area.
 class _SurfaceBody extends SingleChildRenderObjectWidget {
-  const _SurfaceBody({required this.resizeEdges, required super.child});
+  const _SurfaceBody({
+    required this.anchor,
+    required this.resizeEdges,
+    required super.child,
+  });
+  final BoardSurfaceAnchor anchor;
   final bool resizeEdges;
 
   @override
   RenderObject createRenderObject(BuildContext context) =>
-      _RenderSurfaceBody(resizeEdges);
+      _RenderSurfaceBody(anchor, resizeEdges);
 
   @override
   void updateRenderObject(
@@ -135,7 +157,8 @@ class _SurfaceBody extends SingleChildRenderObjectWidget {
 }
 
 class _RenderSurfaceBody extends RenderProxyBox {
-  _RenderSurfaceBody(this.resizeEdges);
+  _RenderSurfaceBody(this.anchor, this.resizeEdges);
+  final BoardSurfaceAnchor anchor;
   bool resizeEdges;
 
   @override
@@ -167,13 +190,103 @@ class BoardScrollView extends CustomScrollView {
     ViewportOffset offset,
     AxisDirection axisDirection,
     List<Widget> slivers,
-  ) => ClipRect(
-    child: Stack(
-      fit: StackFit.expand,
-      children: [
-        super.buildViewport(context, offset, axisDirection, slivers),
-        ...surfaces,
-      ],
+  ) => _SurfaceViewport(
+    offset: offset,
+    child: ClipRect(
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          super.buildViewport(context, offset, axisDirection, slivers),
+          ...surfaces,
+        ],
+      ),
     ),
   );
+}
+
+// The stable hosts are siblings of RenderViewport. Give their descendants the
+// same reveal contract as normal sliver children for caret and ensureVisible.
+class _SurfaceViewport extends SingleChildRenderObjectWidget {
+  const _SurfaceViewport({required this.offset, required super.child});
+  final ViewportOffset offset;
+
+  @override
+  RenderObject createRenderObject(BuildContext context) =>
+      _RenderSurfaceViewport(offset);
+
+  @override
+  void updateRenderObject(
+    BuildContext context,
+    _RenderSurfaceViewport renderObject,
+  ) {
+    renderObject.offset = offset;
+  }
+}
+
+class _RenderSurfaceViewport extends RenderProxyBox
+    implements RenderAbstractViewport {
+  _RenderSurfaceViewport(this.offset);
+  ViewportOffset offset;
+
+  @override
+  RevealedOffset getOffsetToReveal(
+    RenderObject target,
+    double alignment, {
+    Rect? rect,
+    Axis? axis,
+  }) {
+    // Follower transforms reflect the last composition and are unavailable
+    // when unlinked. Use the live slot, or its current layout projection.
+    RenderObject? body = target;
+    while (body != null && body != this && body is! _RenderSurfaceBody) {
+      body = body.parent;
+    }
+    final Rect bounds;
+    if (body is _RenderSurfaceBody) {
+      final slot = body.anchor._slot;
+      final origin = slot != null && slot.attached
+          ? MatrixUtils.transformPoint(slot.getTransformTo(this), Offset.zero)
+          : body.anchor.contentOrigin - Offset(0, offset.pixels);
+      bounds = MatrixUtils.transformRect(
+        target.getTransformTo(body),
+        rect ?? target.paintBounds,
+      ).shift(origin);
+    } else {
+      bounds = MatrixUtils.transformRect(
+        target.getTransformTo(this),
+        rect ?? target.paintBounds,
+      );
+    }
+    final delta = bounds.top - (size.height - bounds.height) * alignment;
+    return RevealedOffset(
+      offset: offset.pixels + delta,
+      rect: bounds.shift(Offset(0, -delta)),
+    );
+  }
+
+  @override
+  void showOnScreen({
+    RenderObject? descendant,
+    Rect? rect,
+    Duration duration = Duration.zero,
+    Curve curve = Curves.ease,
+  }) {
+    if (!offset.allowImplicitScrolling) {
+      return super.showOnScreen(
+        descendant: descendant,
+        rect: rect,
+        duration: duration,
+        curve: curve,
+      );
+    }
+    final revealed = RenderViewportBase.showInViewport(
+      descendant: descendant,
+      viewport: this,
+      offset: offset,
+      rect: rect,
+      duration: duration,
+      curve: curve,
+    );
+    super.showOnScreen(rect: revealed, duration: duration, curve: curve);
+  }
 }

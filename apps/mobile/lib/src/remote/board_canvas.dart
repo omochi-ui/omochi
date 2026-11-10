@@ -1,4 +1,5 @@
 import 'package:flutter/foundation.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:genui/genui.dart';
@@ -32,6 +33,10 @@ class _BoardCanvasState extends State<BoardCanvas> with WidgetsBindingObserver {
   String? dragItemId;
   final scrollController = ScrollController();
   final sliverKey = GlobalKey();
+  final reorderKey = GlobalKey<SliverReorderableListState>();
+  final gridPointers = <int>{};
+  bool gridInteraction = false;
+  bool reordering = false;
   final redraw = ValueNotifier(0);
   bool importing = false;
   double? previousWidth;
@@ -54,6 +59,7 @@ class _BoardCanvasState extends State<BoardCanvas> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    HardwareKeyboard.instance.addHandler(handleKey);
     scrollController.addListener(refreshSurfaces);
     controller = grid.DashboardController(
       initialSlotCount: 12,
@@ -92,7 +98,7 @@ class _BoardCanvasState extends State<BoardCanvas> with WidgetsBindingObserver {
 
   void sync() {
     importing = true;
-    controller.cancelInteraction();
+    cancelInteraction();
     dragItemId = null;
     controller.setCompactionType(grid.CompactType.none);
     controller.importLayout([for (final i in layout) i.toMap()]);
@@ -122,6 +128,7 @@ class _BoardCanvasState extends State<BoardCanvas> with WidgetsBindingObserver {
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    HardwareKeyboard.instance.removeHandler(handleKey);
     redraw.dispose();
     scrollController.dispose();
     for (final anchor in surfaces.values) {
@@ -133,7 +140,38 @@ class _BoardCanvasState extends State<BoardCanvas> with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state != AppLifecycleState.resumed) controller.cancelInteraction();
+    if (state != AppLifecycleState.resumed) cancelInteraction();
+  }
+
+  void cancelInteraction() {
+    // Restore the draft before the overlay receives pointer-cancel: its up
+    // handler can then clear its session without committing a partial resize.
+    controller.cancelInteraction();
+    dragItemId = null;
+    for (final pointer in gridPointers) {
+      // GestureBinding guarantees cancellation precedes the next pointer event.
+      GestureBinding.instance.cancelPointer(pointer);
+    }
+    gridPointers.clear();
+    gridInteraction = false;
+    if (reordering) {
+      reordering = false;
+      reorderKey.currentState?.cancelReorder();
+    }
+  }
+
+  bool handleKey(KeyEvent event) {
+    if (event is KeyDownEvent &&
+        event.logicalKey == LogicalKeyboardKey.escape &&
+        (gridPointers.isNotEmpty ||
+            controller.isDragging.value ||
+            reordering)) {
+      // Package item shortcuts consume Escape before ancestor shortcuts and
+      // only recognize dragging. Also tear down native resize pointer sessions.
+      cancelInteraction();
+      return true;
+    }
+    return false;
   }
 
   Widget narrowHandle({required int index, required Widget child}) =>
@@ -268,6 +306,11 @@ class _BoardCanvasState extends State<BoardCanvas> with WidgetsBindingObserver {
   BoardSurfaceAnchor anchor(String id) =>
       surfaces.putIfAbsent(id, BoardSurfaceAnchor.new);
 
+  double headerHeight(double height) => height < 96 ? height / 2 : 48;
+
+  double narrowHeight(BoardPanel panel) =>
+      (panel.h * 56 - 16).clamp(320, 600).toDouble();
+
   Widget handle(BoardPanel panel, int index, {required bool wide}) {
     final grip = Semantics(
       label: messagesFor(context).boardMove,
@@ -308,7 +351,7 @@ class _BoardCanvasState extends State<BoardCanvas> with WidgetsBindingObserver {
           builder: (context, bounds) => Column(
             children: [
               SizedBox(
-                height: bounds.maxHeight < 96 ? bounds.maxHeight / 2 : 48,
+                height: headerHeight(bounds.maxHeight),
                 child: ClipRect(
                   child: SingleChildScrollView(
                     scrollDirection: Axis.horizontal,
@@ -369,13 +412,23 @@ class _BoardCanvasState extends State<BoardCanvas> with WidgetsBindingObserver {
   Widget build(BuildContext context) => LayoutBuilder(
     builder: (context, c) {
       if (previousWidth != c.maxWidth) {
-        controller.cancelInteraction();
+        cancelInteraction();
         previousWidth = c.maxWidth;
       }
       controller.isDragging.watch(context);
       refreshSurfaces();
       final ordered = readingOrder(widget.panels);
       final wide = c.maxWidth > 760;
+      var narrowTop = 16.0;
+      for (final p in ordered) {
+        anchor(p.id).contentOrigin = wide
+            ? Offset(
+                16 + p.x * ((c.maxWidth - 32 - 11 * 16) / 12 + 16),
+                16 + p.y * 56 + headerHeight(p.h * 56 - 16),
+              )
+            : Offset(16, narrowTop + headerHeight(narrowHeight(p)));
+        narrowTop += narrowHeight(p) + 16;
+      }
       // Match DashboardOverlay: mobile has no native edge resizing with
       // DragStartGesture.none, so its app content keeps the whole body.
       final resizeEdges =
@@ -387,106 +440,121 @@ class _BoardCanvasState extends State<BoardCanvas> with WidgetsBindingObserver {
       final aspectRatio = wide ? ((c.maxWidth - 32 - 11 * 16) / 12) / 40 : 1.0;
       Widget gridCard(BuildContext context, grid.LayoutItem item) =>
           card(widget.panels.firstWhere((p) => p.id == item.id), wide: true);
-      return CallbackShortcuts(
-        bindings: {
-          const SingleActivator(LogicalKeyboardKey.escape):
-              controller.cancelInteraction,
+      return Listener(
+        onPointerDown: (event) {
+          if (gridInteraction) gridPointers.add(event.pointer);
         },
-        child: grid.DashboardOverlay(
-          controller: controller,
-          scrollController: scrollController,
-          sliverKey: sliverKey,
-          gridStyle: wide ? const grid.GridStyle() : null,
-          fillViewport: wide,
-          padding: const EdgeInsets.all(16),
-          slotAspectRatio: aspectRatio,
-          mainAxisSpacing: 16,
-          crossAxisSpacing: 16,
-          dragStartGesture: grid.DragStartGesture.none,
-          onWillDelete: (_) async => false,
-          itemBuilder: gridCard,
-          itemFeedbackBuilder: (context, item, child) => Material(
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Text(
-                widget.panels.firstWhere((p) => p.id == item.id).title,
+        onPointerUp: (event) => gridPointers.remove(event.pointer),
+        onPointerCancel: (event) => gridPointers.remove(event.pointer),
+        child: CallbackShortcuts(
+          bindings: {
+            const SingleActivator(LogicalKeyboardKey.escape): cancelInteraction,
+          },
+          child: grid.DashboardOverlay(
+            controller: controller,
+            scrollController: scrollController,
+            sliverKey: sliverKey,
+            gridStyle: wide ? const grid.GridStyle() : null,
+            fillViewport: wide,
+            padding: const EdgeInsets.all(16),
+            slotAspectRatio: aspectRatio,
+            mainAxisSpacing: 16,
+            crossAxisSpacing: 16,
+            dragStartGesture: grid.DragStartGesture.none,
+            onWillDelete: (_) async => false,
+            onItemDragStart: (_) => gridInteraction = true,
+            onItemResizeStart: (_) => gridInteraction = true,
+            onItemDragEnd: (_) => gridInteraction = false,
+            onItemResizeEnd: (_) => gridInteraction = false,
+            itemBuilder: gridCard,
+            itemFeedbackBuilder: (context, item, child) => Material(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Text(
+                  widget.panels.firstWhere((p) => p.id == item.id).title,
+                ),
               ),
             ),
-          ),
-          child: BoardScrollView(
-            controller: scrollController,
-            slivers: [
-              SliverPadding(
-                padding: const EdgeInsets.all(16),
-                sliver: wide
-                    ? grid.SliverDashboard(
-                        key: sliverKey,
-                        controller: controller,
-                        slotAspectRatio: aspectRatio,
-                        mainAxisSpacing: 16,
-                        crossAxisSpacing: 16,
-                        itemBuilder: gridCard,
-                      )
-                    : SliverReorderableList(
-                        itemCount: ordered.length,
-                        onReorderItem: reorder,
-                        onReorderStart: (_) => refreshSurfaces(),
-                        onReorderEnd: (_) => refreshSurfaces(),
-                        // The app stays in its stable host during the drag.
-                        proxyDecorator: (child, index, animation) => Material(
-                          child: Center(child: Text(ordered[index].title)),
+            child: BoardScrollView(
+              controller: scrollController,
+              slivers: [
+                SliverPadding(
+                  padding: const EdgeInsets.all(16),
+                  sliver: wide
+                      ? grid.SliverDashboard(
+                          key: sliverKey,
+                          controller: controller,
+                          slotAspectRatio: aspectRatio,
+                          mainAxisSpacing: 16,
+                          crossAxisSpacing: 16,
+                          itemBuilder: gridCard,
+                        )
+                      : SliverReorderableList(
+                          key: reorderKey,
+                          itemCount: ordered.length,
+                          onReorderItem: reorder,
+                          onReorderStart: (_) {
+                            reordering = true;
+                            refreshSurfaces();
+                          },
+                          onReorderEnd: (_) {
+                            reordering = false;
+                            refreshSurfaces();
+                          },
+                          // The app stays in its stable host during the drag.
+                          proxyDecorator: (child, index, animation) => Material(
+                            child: Center(child: Text(ordered[index].title)),
+                          ),
+                          itemBuilder: (context, index) {
+                            final p = ordered[index];
+                            return Padding(
+                              key: ValueKey(p.id),
+                              padding: const EdgeInsets.only(bottom: 16),
+                              child: SizedBox(
+                                height: narrowHeight(p),
+                                child: card(p, wide: false),
+                              ),
+                            );
+                          },
                         ),
-                        itemBuilder: (context, index) {
-                          final p = ordered[index];
-                          return Padding(
-                            key: ValueKey(p.id),
-                            padding: const EdgeInsets.only(bottom: 16),
-                            child: SizedBox(
-                              height: (p.h * 56 - 16)
-                                  .clamp(320, 600)
-                                  .toDouble(),
-                              child: card(p, wide: false),
+                ),
+              ],
+              surfaces: [
+                for (final p in widget.panels)
+                  Positioned.fill(
+                    key: ValueKey(p.id),
+                    child: BoardSurfaceHost(
+                      anchor: anchor(p.id),
+                      resizeEdges: resizeEdges,
+                      child: ListenableBuilder(
+                        listenable: widget.session,
+                        builder: (context, _) {
+                          if (!widget.session.surfaceIds.contains(
+                            p.reference.id,
+                          )) {
+                            return const Center(
+                              child: Icon(Icons.cloud_off_outlined),
+                            );
+                          }
+                          final surface = widget.session.contextForSurface(
+                            p.reference.id,
+                          );
+                          return ExcludeFocus(
+                            excluding: !widget.interact,
+                            child: IgnorePointer(
+                              ignoring: !widget.interact,
+                              child: Surface(
+                                key: ValueKey(surface.surfaceId),
+                                surfaceContext: surface,
+                              ),
                             ),
                           );
                         },
                       ),
-              ),
-            ],
-            surfaces: [
-              for (final p in widget.panels)
-                Positioned.fill(
-                  key: ValueKey(p.id),
-                  child: BoardSurfaceHost(
-                    anchor: anchor(p.id),
-                    resizeEdges: resizeEdges,
-                    child: ListenableBuilder(
-                      listenable: widget.session,
-                      builder: (context, _) {
-                        if (!widget.session.surfaceIds.contains(
-                          p.reference.id,
-                        )) {
-                          return const Center(
-                            child: Icon(Icons.cloud_off_outlined),
-                          );
-                        }
-                        final surface = widget.session.contextForSurface(
-                          p.reference.id,
-                        );
-                        return ExcludeFocus(
-                          excluding: !widget.interact,
-                          child: IgnorePointer(
-                            ignoring: !widget.interact,
-                            child: Surface(
-                              key: ValueKey(surface.surfaceId),
-                              surfaceContext: surface,
-                            ),
-                          ),
-                        );
-                      },
                     ),
                   ),
-                ),
-            ],
+              ],
+            ),
           ),
         ),
       );

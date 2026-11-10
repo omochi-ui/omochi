@@ -20,11 +20,17 @@ GenUI widgets are retained across width changes and when scrolled offscreen.
 Each visited panel owns a stable Surface host outside the replaceable slivers.
 Composited body slots position those hosts; hidden hosts pause tickers and leave
 focus and semantics traversal. A shared Scrollable keeps wheel and touch scrolling
-working over application content. Header grips authorize grid drags. Desktop edge
+working over application content. A render viewport bridge reveals focused inputs
+when the keyboard opens and supports `Scrollable.ensureVisible`, including for
+visited panels whose sliver slots are offscreen. Header grips authorize grid drags. Desktop edge
 hit regions preserve native resizing; Android and iOS use Size and keep app input
 active across the entire panel body. Delete and Backspace never remove panels;
 owner membership controls remain the only removal path. The editor footer shrinks
 with the available body height when the keyboard opens.
+
+Escape, window width changes, refreshed board props and lifecycle interruptions
+cancel both the layout controller and the active grid pointer session. Partial
+drags and resizes revert without writing the draft; narrow reorders also cancel.
 
 The runtime and image budgets still belong to HubSession. Retained card state is
 released when the panel is removed or its owning viewport is disposed; a new
@@ -38,6 +44,7 @@ and offscreen scrolling in both breakpoint directions, state release after panel
 viewport or renderer replacement, desktop app input preserving saved gaps, native
 resize, Android/iOS edge input and header drag, deletion-key vetoes, restored touch
 grips after a failed save, a landscape keyboard, no layout writes on width changes,
+native resize cancellation and recovery, keyboard and explicit viewport reveal,
 touch-handle reorder, staged size application, geometry validation, metadata
 preservation, pending writes and conflict handling. Screenshots below are widget-test fixtures using real fonts,
 not captures of a running device app. Physical Android and desktop app interaction
