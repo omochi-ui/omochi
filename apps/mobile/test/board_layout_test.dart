@@ -227,6 +227,80 @@ void main() {
     await tester.pumpWidget(const SizedBox());
   }, variant: TargetPlatformVariant({TargetPlatform.linux}));
 
+  testWidgets(
+    'wide mobile edge input works during layout editing',
+    (tester) async {
+      tester.view.physicalSize = const Size(1100, 900);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final hub = HubSession();
+      addTearDown(hub.dispose);
+      for (final message in surfaceMessages(
+        formId,
+        [
+          {
+            'id': 'root',
+            'component': 'TextField',
+            'label': 'Input',
+            'value': {'path': '/value'},
+          },
+        ],
+        {'value': ''},
+      )) {
+        hub.receive(message);
+      }
+      final changes = <List<BoardPanel>>[];
+      await tester.pumpWidget(
+        MaterialApp(
+          // Resize support follows the runtime platform, even with another theme.
+          theme: ThemeData(platform: TargetPlatform.linux),
+          home: Scaffold(
+            body: BoardCanvas(
+              panels: [panel('Form', 0, 2, 12, 8)],
+              session: hub,
+              interact: true,
+              onChange: changes.add,
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final input = find.byType(TextField);
+      final state = tester.state(input);
+      final focus = tester
+          .widget<EditableText>(find.byType(EditableText))
+          .focusNode;
+      final rect = tester.getRect(input);
+      for (final point in [
+        Offset(rect.left + 10, rect.center.dy),
+        Offset(rect.right - 10, rect.center.dy),
+        Offset(rect.center.dx, rect.bottom - 10),
+      ]) {
+        await tester.tapAt(point);
+        await tester.pumpAndSettle();
+        expect(focus.hasFocus, true, reason: 'App input at $point must focus');
+        focus.unfocus();
+        await tester.pumpAndSettle();
+      }
+      final controller = tester
+          .widget<grid.DashboardOverlay>(find.byType(grid.DashboardOverlay))
+          .controller;
+      expect(controller.layout.value.single.y, 2);
+      expect(changes, isEmpty);
+      await tester.drag(find.byIcon(Icons.drag_handle), const Offset(0, 112));
+      await tester.pumpAndSettle();
+      expect(changes, isNotEmpty);
+      expect(tester.state(input), same(state));
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox());
+    },
+    variant: TargetPlatformVariant({
+      TargetPlatform.android,
+      TargetPlatform.iOS,
+    }),
+  );
+
   testWidgets('dashboard deletion keys cannot remove shared panels', (
     tester,
   ) async {

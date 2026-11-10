@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:genui/genui.dart';
@@ -375,6 +376,13 @@ class _BoardCanvasState extends State<BoardCanvas> with WidgetsBindingObserver {
       refreshSurfaces();
       final ordered = readingOrder(widget.panels);
       final wide = c.maxWidth > 760;
+      // Match DashboardOverlay: mobile has no native edge resizing with
+      // DragStartGesture.none, so its app content keeps the whole body.
+      final resizeEdges =
+          editing &&
+          wide &&
+          defaultTargetPlatform != TargetPlatform.android &&
+          defaultTargetPlatform != TargetPlatform.iOS;
       controller.setEditMode(editing && wide);
       final aspectRatio = wide ? ((c.maxWidth - 32 - 11 * 16) / 12) / 40 : 1.0;
       Widget gridCard(BuildContext context, grid.LayoutItem item) =>
@@ -450,7 +458,7 @@ class _BoardCanvasState extends State<BoardCanvas> with WidgetsBindingObserver {
                   key: ValueKey(p.id),
                   child: BoardSurfaceHost(
                     anchor: anchor(p.id),
-                    resizeEdges: editing && wide,
+                    resizeEdges: resizeEdges,
                     child: ListenableBuilder(
                       listenable: widget.session,
                       builder: (context, _) {

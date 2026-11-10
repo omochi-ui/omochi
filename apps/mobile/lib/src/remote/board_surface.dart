@@ -115,7 +115,8 @@ class BoardSurfaceHost extends StatelessWidget {
 }
 
 // The dashboard package resolves resize gestures by hit testing its sliver.
-// Pass the native 20px edge targets through to the card under the surface.
+// When native resizing is active, pass its 20px edge targets through to the
+// card under the surface. Android/iOS app content keeps its entire hit area.
 class _SurfaceBody extends SingleChildRenderObjectWidget {
   const _SurfaceBody({required this.resizeEdges, required super.child});
   final bool resizeEdges;
