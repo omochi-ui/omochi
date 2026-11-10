@@ -1700,7 +1700,7 @@ async fn default_runtime_secures_fallback_before_native_startup() {
                 0o700
             );
             assert_eq!(
-                std::fs::metadata(parent.join("omochi"))
+                std::fs::metadata(parent.join("v2"))
                     .unwrap()
                     .permissions()
                     .mode()
@@ -1709,7 +1709,7 @@ async fn default_runtime_secures_fallback_before_native_startup() {
             );
         } else {
             assert!(error.contains("fallback runtime directory"), "{error}");
-            assert!(!parent.join("omochi").exists());
+            assert!(!parent.join("v2").exists());
             assert_eq!(
                 std::fs::metadata(&parent).unwrap().permissions().mode() & 0o777,
                 mode

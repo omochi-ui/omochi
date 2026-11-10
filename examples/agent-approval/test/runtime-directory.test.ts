@@ -75,7 +75,7 @@ test("default approval runtime rejects a symlink fallback parent without touchin
 test("default approval runtime creates a private fallback and both sockets", async (t) => {
   const sandbox = await sandboxFor(t);
   const parent = path.join(sandbox, `omochi-${process.geteuid!()}`);
-  const root = path.join(parent, "omochi", "v2");
+  const root = path.join(parent, "v2");
   const result = await startInChild(t, sandbox);
   expect(result.stderr).toBe("");
   expect(result.exitCode).toBe(0);
