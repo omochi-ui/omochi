@@ -18,7 +18,8 @@ async def main():
     from websockets.asyncio.client import connect
     if os.name == 'nt':
         import ctypes
-        if not ctypes.windll.kernel32.GetConsoleWindow():
+        # Headless CI can have a console without a window handle.
+        if not ctypes.windll.kernel32.GetConsoleCP():
             if not ctypes.windll.kernel32.AllocConsole(): raise OSError('Cannot allocate console for CTRL_BREAK tests')
     suffix = '.exe' if os.name == 'nt' else ''
     binary = ROOT / 'crates/target' / os.environ.get('OMOCHI_NATIVE_PROFILE', 'debug') / ('omochi-ui' + suffix)

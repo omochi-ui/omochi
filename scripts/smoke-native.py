@@ -29,7 +29,8 @@ def main():
         prefix = root / "installed with spaces"
         if os.name == 'nt':
             import ctypes
-            if not ctypes.windll.kernel32.GetConsoleWindow():
+            # Headless CI can have a console without a window handle.
+            if not ctypes.windll.kernel32.GetConsoleCP():
                 assert ctypes.windll.kernel32.AllocConsole(), 'console required for graceful shutdown test'
             subprocess.run([shutil.which('pwsh') or 'powershell.exe', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', str(root / installer), '-Prefix', str(prefix)], check=True)
         else:

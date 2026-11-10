@@ -94,7 +94,8 @@ async def simultaneous(root):
 async def main():
     if os.name == 'nt':
         import ctypes
-        if not ctypes.windll.kernel32.GetConsoleWindow():
+        # Headless CI can have a console without a window handle.
+        if not ctypes.windll.kernel32.GetConsoleCP():
             if not ctypes.windll.kernel32.AllocConsole(): raise OSError('Cannot allocate console for CTRL_BREAK tests')
     for first, second in itertools.product([*COMMANDS, 'utility'], repeat=2):
         with tempfile.TemporaryDirectory(prefix='om-') as root:
