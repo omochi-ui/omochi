@@ -10,6 +10,27 @@ import sysconfig
 from hatchling.builders.hooks.plugin.interface import BuildHookInterface
 
 
+def validate_native_target(artifact, manifest):
+    """Reject cross targets selected by Cargo flags, environment or configuration."""
+    metadata = json.loads(subprocess.check_output(
+        ['cargo', 'metadata', '--manifest-path', str(manifest), '--format-version', '1', '--no-deps'],
+        text=True))
+    host = next(line.split(': ', 1)[1] for line in subprocess.check_output(
+        ['rustc', '-vV'], text=True).splitlines() if line.startswith('host: '))
+    build = Path(artifact).parent
+    layout = build.relative_to(Path(metadata['target_directory'])).parts
+    if layout == ('release',):
+        target = host
+    elif len(layout) == 2 and layout[1] == 'release':
+        target = layout[0]
+    else:
+        raise ValueError(f'Unexpected Cargo artifact directory: {build}')
+    if target != host:
+        raise ValueError(
+            f'Cargo target {target} does not match rustc host {host}; cross-platform wheels are unsupported'
+        )
+
+
 def validate_native_platform(artifact, tag):
     """Check the actual Cargo-selected binary, including targets from config files."""
     actual = None
@@ -80,6 +101,7 @@ class CustomBuildHook(BuildHookInterface):
             artifacts.extend(filename for filename in message['filenames'] if Path(filename).name == name)
         if len(artifacts) != 1:
             raise ValueError(f'Cargo must report exactly one {name} artifact; build one target at a time')
+        validate_native_target(artifacts[0], native / 'Cargo.toml')
         tag = sysconfig.get_platform().replace('-', '_').replace('.', '_')
         if apple: tag = 'macosx_11_0_' + ('arm64' if platform.machine() == 'arm64' else 'x86_64')
         validate_native_platform(artifacts[0], tag)

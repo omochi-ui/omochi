@@ -1,4 +1,5 @@
 """Build and use the Python distribution outside the checkout, at a shallow path."""
+import json
 import os
 from pathlib import Path
 import shutil
@@ -91,6 +92,36 @@ crate-type = ["cdylib"]
             assert not list((project / f'rejected-{selection}').glob('*.whl'))
     finally:
         artifact.write_bytes(original)
+    # A same-CPU foreign ABI can have a header indistinguishable from Linux.
+    # Keep real Cargo metadata/config parsing, but supply the compiler-artifact
+    # result so this regression needs no Android linker or target toolchain.
+    foreign_target = host.split('-', 1)[0] + '-linux-android'
+    foreign_artifact = project / 'configured target' / foreign_target / 'release' / name
+    foreign_artifact.parent.mkdir(parents=True)
+    foreign_artifact.write_bytes(original)
+    output = json.dumps({'reason': 'compiler-artifact',
+                         'target': {'name': 'omochi_local_ffi', 'crate_types': ['cdylib']},
+                         'filenames': [str(foreign_artifact)]})
+    hook = project / 'hatch_build.py'
+    hook.write_text(hook.read_text() + f'''
+_fixture_run = subprocess.run
+def fixture_run(command, **kwargs):
+    if command[:2] == ['cargo', 'build']:
+        return subprocess.CompletedProcess(command, 0, stdout={output!r})
+    return _fixture_run(command, **kwargs)
+subprocess.run = fixture_run
+''')
+    for selection in ('config', 'environment'):
+        (project / '.cargo/config.toml').write_text(
+            '[build]\ntarget-dir = "configured target"\n' +
+            f'target = "{foreign_target if selection == "config" else host}"\n')
+        selected_env = env | ({'CARGO_BUILD_TARGET': foreign_target} if selection == 'environment' else {})
+        result = subprocess.run([sys.executable, '-m', 'build', '--wheel', '--outdir',
+                                 str(project / f'rejected-abi-{selection}')], cwd=project,
+                                env=selected_env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+        assert result.returncode != 0, f'{selection}: a foreign Cargo target received a host wheel tag'
+        assert f'Cargo target {foreign_target} does not match rustc host {host}' in result.stdout, result.stdout
+        assert not list((project / f'rejected-abi-{selection}').glob('*.whl'))
 
 
 def main():
