@@ -235,7 +235,7 @@ version = "0.4"
 version = "0.18"
 
 [lints.clippy]
-unused-async = "warn"
+unused_async = "warn"
 
 [lints.rust]
 missing_debug_implementations = "warn"

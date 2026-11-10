@@ -344,7 +344,9 @@ impl UdpSocket {
             };
             let (socket, state) = guard.try_get_connected()?;
 
-            let res = socket.try_io(Interest::WRITABLE, || state.send(socket.into(), transmit));
+            let res = socket.try_io(Interest::WRITABLE, || {
+                state.try_send(socket.into(), transmit)
+            });
 
             match res {
                 Ok(()) => return Ok(()),
@@ -374,8 +376,9 @@ impl UdpSocket {
                     return Poll::Pending;
                 }
                 Poll::Ready(Ok(())) => {
-                    let res =
-                        socket.try_io(Interest::WRITABLE, || state.send(socket.into(), transmit));
+                    let res = socket.try_io(Interest::WRITABLE, || {
+                        state.try_send(socket.into(), transmit)
+                    });
                     if let Err(err) = res {
                         if err.kind() == io::ErrorKind::WouldBlock {
                             continue;
@@ -983,7 +986,9 @@ impl UdpSender {
             result?;
 
             let (socket, state) = guard.try_get_connected()?;
-            let result = socket.try_io(Interest::WRITABLE, || state.send(socket.into(), transmit));
+            let result = socket.try_io(Interest::WRITABLE, || {
+                state.try_send(socket.into(), transmit)
+            });
 
             match result {
                 // We thought the socket was writable, but it wasn't, then retry so that either another
@@ -1004,7 +1009,9 @@ impl UdpSender {
         match self.socket.socket.try_read() {
             Ok(guard) => {
                 let (socket, state) = guard.try_get_connected()?;
-                socket.try_io(Interest::WRITABLE, || state.send(socket.into(), transmit))
+                socket.try_io(Interest::WRITABLE, || {
+                    state.try_send(socket.into(), transmit)
+                })
             }
             Err(TryLockError::Poisoned(e)) => panic!("socket lock poisoned: {e}"),
             Err(TryLockError::WouldBlock) => {
@@ -1041,7 +1048,7 @@ impl Future for SendFutNoq<'_, '_> {
                 }
                 Poll::Ready(Ok(())) => {
                     let res = socket.try_io(Interest::WRITABLE, || {
-                        state.send(socket.into(), self.transmit)
+                        state.try_send(socket.into(), self.transmit)
                     });
 
                     if let Err(err) = res {
@@ -1068,9 +1075,49 @@ impl Future for SendFutNoq<'_, '_> {
 
 #[cfg(test)]
 mod tests {
+    use n0_future::future::poll_fn;
     use testresult::TestResult;
 
     use super::*;
+
+    #[tokio::test]
+    async fn test_noq_send_reports_oversized_datagrams() -> TestResult {
+        let socket = Arc::new(UdpSocket::bind_local_v4(0)?);
+        let receiver = UdpSocket::bind_local_v4(0)?;
+        let contents = vec![0; 65536];
+        let transmit = Transmit {
+            destination: receiver.local_addr()?,
+            ecn: None,
+            contents: &contents,
+            segment_size: None,
+            src_ip: None,
+        };
+
+        // All noq send paths must report EMSGSIZE rather than silently drop the datagram.
+        poll_fn(|cx| socket.poll_writable(cx)).await?;
+        let error = socket.try_send_noq(&transmit).unwrap_err();
+        assert!(noq_udp::is_msg_size_err(&error), "{error}");
+
+        let error = poll_fn(|cx| socket.poll_send_noq(cx, &transmit))
+            .await
+            .unwrap_err();
+        assert!(noq_udp::is_msg_size_err(&error), "{error}");
+
+        let mut sender = Box::pin(socket.clone().create_sender());
+        poll_fn(|cx| socket.poll_writable(cx)).await?;
+        let error = sender.try_send(&transmit).unwrap_err();
+        assert!(noq_udp::is_msg_size_err(&error), "{error}");
+
+        let error = poll_fn(|cx| sender.as_mut().poll_send(&transmit, cx))
+            .await
+            .unwrap_err();
+        assert!(noq_udp::is_msg_size_err(&error), "{error}");
+
+        let error = sender.send(&transmit).await.unwrap_err();
+        assert!(noq_udp::is_msg_size_err(&error), "{error}");
+
+        Ok(())
+    }
 
     #[tokio::test]
     async fn test_reconnect() -> TestResult {

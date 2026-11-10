@@ -21,10 +21,12 @@ function load(): Binding {
   const libc =
     process.platform === 'linux'
       ? (
-          process.report?.getReport() as {
-            header?: { glibcVersionRuntime?: string };
-          }
-        ).header?.glibcVersionRuntime
+          process.report?.getReport() as
+            | {
+                header?: { glibcVersionRuntime?: string };
+              }
+            | undefined
+        )?.header?.glibcVersionRuntime
         ? '-gnu'
         : '-musl'
       : '';

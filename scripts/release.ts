@@ -29,6 +29,9 @@ export interface Manifest {
   private?: boolean;
   omochiNative?: { crate: string; binary: string };
   omochiLocal?: boolean;
+  os?: string[];
+  cpu?: string[];
+  libc?: string[];
   files?: string[];
   main?: string;
   types?: string;
@@ -301,11 +304,9 @@ export async function loadRelease(
         omochiLocal: true,
         main: 'omochi_local.node',
         files: ['omochi_local.node'],
-        ...{
-          os: [target.os],
-          cpu: [target.cpu],
-          ...(target.libc ? { libc: [target.libc] } : {}),
-        },
+        os: [target.os],
+        cpu: [target.cpu],
+        ...(target.libc ? { libc: [target.libc] } : {}),
       },
     });
   }

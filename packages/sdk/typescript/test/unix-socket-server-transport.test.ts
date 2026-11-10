@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { access, mkdtemp, readFile, rm, mkdir } from 'node:fs/promises';
-import { createConnection, Socket, type Server } from 'node:net';
+import { access, mkdtemp, readFile, rm } from 'node:fs/promises';
+import { createConnection, Socket } from 'node:net';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { createInterface } from 'node:readline';
