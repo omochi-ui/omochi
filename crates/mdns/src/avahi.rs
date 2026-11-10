@@ -14,14 +14,13 @@ use tokio::{
     task::JoinSet,
 };
 use tokio_util::sync::CancellationToken;
-use zbus::{Connection, Proxy, zvariant::OwnedObjectPath};
+use zbus::{Connection, OwnedObjectPath, Proxy};
 
 const DEST: &str = "org.freedesktop.Avahi";
 
 pub(super) async fn connect() -> Option<Connection> {
     tokio::time::timeout(Duration::from_millis(750), async {
         let connection = zbus::connection::Builder::system()
-            .ok()?
             .method_timeout(Duration::from_secs(2))
             .build()
             .await
@@ -316,7 +315,6 @@ mod tests {
             0u8, 0, 0, 0, 0x12, 0x34, 4, b'h', b'o', b's', b't', 5, b'l', b'o', b'c', b'a', b'l', 0,
         ];
         zbus::Message::signal("/record", "org.freedesktop.Avahi.RecordBrowser", "ItemNew")
-            .unwrap()
             .build(&(
                 1i32,
                 0i32,
