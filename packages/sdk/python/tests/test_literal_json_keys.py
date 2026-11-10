@@ -10,7 +10,6 @@ from omochi_ui.errors import DeclarationError
 from omochi_ui.ir import Declaration, Node, Slot
 from omochi_ui.reconcile import Reconciler
 
-
 FIXTURE = json.loads(
     (Path(__file__).parents[4] / "spec/fixtures/literal-json-keys.json").read_text()
 )
@@ -37,8 +36,8 @@ def declaration(root, state):
 class LiteralJsonKeyTests(unittest.TestCase):
     def test_component_preserves_self_property(self):
         ui = UI("main", BASIC_CATALOG, lambda *args: "unused")
-        ui.component("Named", key="positional", **{"self": "positional"})
-        ui.component(component="Named", key="keyword", **{"self": "keyword"})
+        ui.component("Named", key="positional", self="positional")
+        ui.component(component="Named", key="keyword", self="keyword")
         result = ui.build()
         self.assertEqual(
             Reconciler().render(result)[1]["updateComponents"]["components"],

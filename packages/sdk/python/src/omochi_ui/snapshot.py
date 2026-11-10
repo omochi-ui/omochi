@@ -79,7 +79,7 @@ def _update_at_pointer(root: Any, path: str, present: bool, value: Any) -> Any:
 
 
 class _SurfaceSnapshot:
-    __slots__ = ("create", "components", "data", "has_data")
+    __slots__ = ("components", "create", "data", "has_data")
 
     def __init__(self, create: dict[str, Any]):
         self.create = create
@@ -115,7 +115,8 @@ class A2uiSnapshot:
             for component in update["components"]:
                 component_id = component.get("id")
                 if not isinstance(component_id, str):
-                    raise ValueError("component must contain a string id")
+                    # Malformed wire messages consistently raise ValueError.
+                    raise ValueError("component must contain a string id")  # noqa: TRY004
                 components[component_id] = copy.deepcopy(component)
             surface.components.update(components)
         elif "updateDataModel" in message:

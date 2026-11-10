@@ -395,19 +395,17 @@ test(
         name: 'Nested',
         schema: {
           type: 'object',
-          properties: {
-            ...Object.fromEntries(
-              symbols.map(([name]) => [
-                name,
-                {
-                  type: 'array',
-                  items: {
-                    anyOf: [reference(name), { enum: ['DynamicString'] }],
-                  },
+          properties: Object.fromEntries(
+            symbols.map(([name]) => [
+              name,
+              {
+                type: 'array',
+                items: {
+                  anyOf: [reference(name), { enum: ['DynamicString'] }],
                 },
-              ]),
-            ),
-          },
+              },
+            ]),
+          ),
         },
         imports: literalNames,
       },
@@ -572,6 +570,8 @@ test(
             properties: {
               empty: { allOf: [] },
               conditional: {
+                // JSON Schema uses then for the conditional branch.
+                // oxlint-disable-next-line unicorn/no-thenable
                 allOf: [{ if: { type: 'string' }, then: { minLength: 1 } }],
               },
               array: { type: 'array', items: { allOf: [] } },

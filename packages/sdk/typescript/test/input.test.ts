@@ -79,10 +79,10 @@ function typing() {
     // @ts-expect-error writable binding has wrong type
     ui.slider('n', 0, 1, { bind: local.field('name').bind() });
     // @ts-expect-error expression result has wrong type
-    const expr: Expr<number> = local.field('name').value();
-    // @ts-expect-error default and binding are exclusive
+    const _expr: Expr<number> = local.field('name').value();
     ui.slider('n', 0, 1, {
       default: 1,
+      // @ts-expect-error default and binding are exclusive
       bind: local.field('temperature').bind(),
     });
   });
@@ -217,9 +217,9 @@ function scalarTyping() {
     });
     ui.slider('n', 0, 10, { bind: ui.local('n', 0).bind() });
     ui.textField('text', { label: 'Text', bind: ui.local('text', '').bind() });
-    // @ts-expect-error binding is still invariant
     ui.textField('invalid', {
       label: 'Invalid',
+      // @ts-expect-error binding is still invariant
       bind: ui.local('flag', true).bind(),
     });
     const form = ui.local('form', {
@@ -229,9 +229,9 @@ function scalarTyping() {
     });
     const flags: ModelBinding<boolean[]> = form.field('flags').bind();
     const pair: ModelBinding<[boolean, string]> = form.field('pair').bind();
-    // @ts-expect-error nested bindings remain invariant
     ui.textField('invalidNested', {
       label: 'Invalid',
+      // @ts-expect-error nested bindings remain invariant
       bind: form.field('nested').field('enabled').bind(),
     });
     void flags;

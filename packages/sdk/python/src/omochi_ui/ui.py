@@ -6,14 +6,15 @@ every call, including custom Catalog UI subclasses; it never stores one globally
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import is_dataclass
 from functools import wraps
-from typing import Any, Callable, Concatenate, ParamSpec, TypeVar, overload
+from typing import Any, Concatenate, ParamSpec, TypeVar, overload
 
 from ._context import get_ui
 from .builder import UI
 from .errors import DeclarationError
-from .references import Local, MISSING
+from .references import MISSING, Local
 
 P = ParamSpec("P")
 R = TypeVar("R")

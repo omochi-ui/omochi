@@ -2,30 +2,30 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+from collections.abc import Callable, Coroutine
+from contextlib import AbstractAsyncContextManager, asynccontextmanager, suppress
 from dataclasses import dataclass, field
 from typing import (
     Any,
-    Callable,
     Generic,
     TypeVar,
     cast,
     get_type_hints,
     overload,
-    Coroutine,
 )
-from contextlib import asynccontextmanager, AbstractAsyncContextManager
-from typing_extensions import TypeVar as DefaultTypeVar
-from .schema import Schema, InputSchema, from_type
-from .expression import Expr, encode_input, references
-from .inputs import compose
-from .references import compatible_type
-from ._context import current_ui
 
-from .resources import ResourceRegistry, hello
+from typing_extensions import TypeVar as DefaultTypeVar
+
+from ._context import current_ui
 from .builder import UI
 from .catalog import BASIC_CATALOG, Catalog
 from .errors import DeclarationError, ProtocolError
+from .expression import Expr, encode_input, references
+from .inputs import compose
 from .reconcile import Reconciler
+from .references import compatible_type
+from .resources import ResourceRegistry, hello
+from .schema import InputSchema, Schema, from_type
 from .transport import StdioTransport, Transport
 
 InputType = TypeVar("InputType")
@@ -72,7 +72,7 @@ class Action(Generic[InputType, ExpressionType]):
 
 
 class ActionContext(Generic[StateType]):
-    def __init__(self, runtime: "Runtime[StateType, Any]"):
+    def __init__(self, runtime: Runtime[StateType, Any]):
         self._runtime = runtime
         self._messages: list[dict[str, Any]] = []
         self._update_lock = asyncio.Lock()
@@ -130,11 +130,14 @@ class App(Generic[StateType, UIType]):
         self,
         state: StateType,
         *,
-        catalog: Catalog[UIType] = cast(Catalog[UIType], BASIC_CATALOG),
+        catalog: Catalog[UIType] | None = None,
         resources: ResourceRegistry | None = None,
     ):
         self.resources = resources or ResourceRegistry()
-        self.state, self.catalog = state, catalog
+        self.state = state
+        self.catalog = (
+            catalog if catalog is not None else cast(Catalog[UIType], BASIC_CATALOG)
+        )
         self._views: dict[str, Callable[[UIType, StateType], Any]] = {}
         self._actions: dict[str, tuple[Callable[..., Any], Schema[Any]]] = {}
         self._built = False
@@ -270,7 +273,7 @@ class App(Generic[StateType, UIType]):
 
         return register(handler) if handler is not None else register
 
-    def build(self) -> "Runtime[StateType, UIType]":
+    def build(self) -> Runtime[StateType, UIType]:
         if self._built:
             raise DeclarationError("app is already built")
         self._built = True
@@ -376,7 +379,7 @@ class Runtime(Generic[StateType, UIType]):
                 for _, future in batch:
                     if not future.done():
                         future.set_result(messages)
-            except Exception as error:
+            except Exception as error:  # noqa: BLE001 - propagate mutator failures to callers.
                 for _, future in batch:
                     if not future.done():
                         future.set_exception(error)
@@ -538,9 +541,8 @@ class Runtime(Generic[StateType, UIType]):
                 else asyncio.shield(self._shutdown_task)
             )
             if failed:
-                try:
+                # Preserve the receive/action failure, including cancellation.
+                with suppress(BaseException):
                     await closing
-                except BaseException:
-                    pass  # Preserve the receive/action failure.
             else:
                 await closing

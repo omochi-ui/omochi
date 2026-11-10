@@ -1,7 +1,6 @@
 import {
   isResourceFrame,
   resourceHello,
-  serveResources,
   type ResourceFrame,
 } from '@omochi-ui/core';
 import { ResourceRegistry } from '../resources.js';

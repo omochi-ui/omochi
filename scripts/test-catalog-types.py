@@ -6,12 +6,11 @@ Build the native CLI first, then run with mypy and pyright installed:
 
 import json
 import os
-from pathlib import Path
 import re
 import subprocess
 import sys
 import tempfile
-
+from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SDK = ROOT / "packages/sdk/python/src"
@@ -72,7 +71,7 @@ def check(checker: str, directory: Path) -> None:
     if checker == "pyright":
         args += ["--outputjson"]
     result = subprocess.run(
-        args, cwd=directory, env=ENV, text=True, capture_output=True
+        args, check=False, cwd=directory, env=ENV, text=True, capture_output=True
     )
     source = (directory / "negative.py").read_text().splitlines()
     expected = {i for i, line in enumerate(source, 1) if "# error:" in line}
@@ -119,6 +118,7 @@ def main() -> None:
                 "--rust",
                 str(outputs[2]),
             ],
+            check=False,
             cwd=ROOT,
             text=True,
             capture_output=True,

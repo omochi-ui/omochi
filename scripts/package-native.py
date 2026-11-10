@@ -1,7 +1,14 @@
 #!/usr/bin/env python3
 """Build/package host native services. Does not publish or install."""
 
-import argparse, hashlib, io, json, platform, subprocess, tarfile, tomllib
+import argparse
+import hashlib
+import io
+import json
+import platform
+import subprocess
+import tarfile
+import tomllib
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent

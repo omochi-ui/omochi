@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 
-from interface_positive import app, run, Form, State
+from interface_positive import Form, State, app, run
 from omochi_ui import ActionContext, Local, schema, ui
 
 

@@ -4,7 +4,6 @@ import pathlib
 import subprocess
 import tempfile
 
-
 mobile = pathlib.Path(__file__).resolve().parents[2]
 source = mobile / "android/app/src/main/java/fyi/omochi/mobile/IdentityLeases.java"
 harness = """
@@ -61,6 +60,7 @@ with tempfile.TemporaryDirectory(prefix="omochi-android-lease-") as temporary:
             inode = path.stat().st_ino
             blocked = subprocess.run(
                 command + ["omochi.test.owner"],
+                check=False,
                 input="\n",
                 capture_output=True,
                 text=True,
@@ -69,6 +69,7 @@ with tempfile.TemporaryDirectory(prefix="omochi-android-lease-") as temporary:
             assert blocked.returncode != 0, "second process acquired identity"
             separate = subprocess.run(
                 command + ["omochi.test.independent"],
+                check=False,
                 input="\n",
                 capture_output=True,
                 text=True,
@@ -84,6 +85,7 @@ with tempfile.TemporaryDirectory(prefix="omochi-android-lease-") as temporary:
             assert path.stat().st_ino == inode, "lease file was replaced"
         retry = subprocess.run(
             command + ["omochi.test.owner"],
+            check=False,
             input="\n",
             capture_output=True,
             text=True,

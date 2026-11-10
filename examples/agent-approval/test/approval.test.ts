@@ -49,7 +49,7 @@ function observeQueue(t: TestContext, queue: ApprovalQueue) {
   const listeners = new Set<() => void>();
   queue.onChange = () => {
     previous();
-    for (const listener of [...listeners]) listener();
+    for (const listener of listeners) listener();
   };
   t.after(() => {
     queue.onChange = previous;
@@ -474,7 +474,7 @@ test('settings use synchronous pre-execution hooks with a deadline longer than r
         : config.hooks.PreToolUse[0].hooks[0];
     expect(entry.timeout).toBe(360);
     expect(entry.async).not.toBe(true);
-    expect(entry.command).toContain(`hook.ts\" ${agent}`);
+    expect(entry.command).toContain(`hook.ts" ${agent}`);
     if (agent === 'cursor') expect(entry.failClosed).toBe(false);
   }
 });

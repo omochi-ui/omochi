@@ -1,3 +1,6 @@
+# These assertions verify generated runtime Literal and union representations.
+# ruff: noqa: PYI030, PYI061
+
 import json
 from typing import Literal, get_args, get_type_hints
 

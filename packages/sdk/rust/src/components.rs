@@ -332,7 +332,6 @@ impl<C> Component for CheckBox<C> {
                 default: self.default,
                 bind: self.bind,
                 label: self.label,
-                ..Default::default()
             },
         )?;
         ui.extend_last(self.props);

@@ -326,13 +326,12 @@ fn expand(mut input: DeriveInput) -> syn::Result<proc_macro2::TokenStream> {
                     if ["with", "serialize_with"]
                         .iter()
                         .any(|x| meta.path().is_ident(x))
+                        && adapter.is_none()
                     {
-                        if adapter.is_none() {
-                            return Err(syn::Error::new_spanned(
-                                meta,
-                                "custom field serialization requires #[action_input(adapter = Path)]",
-                            ));
-                        }
+                        return Err(syn::Error::new_spanned(
+                            meta,
+                            "custom field serialization requires #[action_input(adapter = Path)]",
+                        ));
                     }
                     if let Meta::NameValue(nv) = meta {
                         if nv.path.is_ident("rename") {

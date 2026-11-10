@@ -4,15 +4,15 @@
 import argparse
 import json
 import os
-from pathlib import Path
 import re
-import socket
 import signal
+import socket
 import ssl
 import subprocess
 import tempfile
 import time
 import tomllib
+from pathlib import Path
 from urllib.request import urlopen
 
 

@@ -5,13 +5,13 @@ import importlib.util
 import io
 import json
 import os
+import subprocess
+import sys
 import tarfile
 import tempfile
 import unittest
-import subprocess
-import sys
-from unittest.mock import patch
 from pathlib import Path
+from unittest.mock import patch
 
 spec = importlib.util.spec_from_file_location(
     "native_npm", Path(__file__).with_name("package-native-npm.py")
@@ -82,9 +82,12 @@ class ArchiveTests(unittest.TestCase):
             {"duplicate": True},
             {"symlink": True},
         ]:
-            with self.subTest(options=options), tempfile.TemporaryDirectory() as root:
-                with self.assertRaises(ValueError):
-                    packaging.validate_archive(self.archive(root, **options), "0.2.0")
+            with (
+                self.subTest(options=options),
+                tempfile.TemporaryDirectory() as root,
+                self.assertRaises(ValueError),
+            ):
+                packaging.validate_archive(self.archive(root, **options), "0.2.0")
 
     def test_rejects_corrupt_outer_archive_before_opening_tar(self):
         with tempfile.TemporaryDirectory() as root:

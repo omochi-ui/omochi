@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { test } from '@omochi-ui/core/testing';
 
 import { A2uiSnapshot } from '../src/node/snapshot.js';
-import type { A2UIMessage, JsonObject } from '../src/index.js';
+import type { A2UIMessage, JsonObject, JsonValue } from '../src/index.js';
 
 const fixture = JSON.parse(
   readFileSync(
@@ -80,7 +80,8 @@ test('array traversal ignores inherited numeric properties', () => {
     createSurface: { surfaceId: 'one', catalogId: 'test' },
   });
   // A hole survives structuredClone; a property on Array.prototype must not fill it.
-  const rows = new Array(4);
+  const rows: JsonValue[] = [];
+  rows.length = 4;
   snapshot.apply({
     version: 'v0.9',
     updateDataModel: { surfaceId: 'one', value: { rows } },

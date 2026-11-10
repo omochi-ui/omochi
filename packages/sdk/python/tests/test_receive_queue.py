@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import asyncio
 import json
-from itertools import product
 import tempfile
 import unittest
+from itertools import product
 
 from omochi_ui import App, UnixSocketServerTransport, schema
 from omochi_ui.receive_queue import (
@@ -126,7 +126,7 @@ class ReceiveQueueTests(unittest.IsolatedAsyncioTestCase):
                     await asyncio.gather(running, return_exceptions=True)
 
     async def test_resource_pump_overflow_closes_source_and_fails(self):
-        for budget in ("count", "bytes"):
+        async def check_case(budget):
             with self.subTest(budget=budget):
                 message = action_message(
                     "é" * (512 * 1024) if budget == "bytes" else ""
@@ -175,6 +175,9 @@ class ReceiveQueueTests(unittest.IsolatedAsyncioTestCase):
                     overflow.set()
                     release.set()
                     await asyncio.gather(running, return_exceptions=True)
+
+        for budget in ("count", "bytes"):
+            await check_case(budget)
 
     async def test_dequeue_and_close_release_capacity_without_a_sentinel_slot(self):
         queue = ReceiveQueue()

@@ -2,7 +2,6 @@
 """Package/verify all native crates, including the built dashboard, without publishing."""
 
 import argparse
-from contextlib import contextmanager
 import hashlib
 import json
 import shutil
@@ -10,6 +9,7 @@ import subprocess
 import tarfile
 import tempfile
 import tomllib
+from contextlib import contextmanager
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent

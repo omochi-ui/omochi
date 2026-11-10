@@ -1,7 +1,7 @@
 import json
 from typing import Any, get_type_hints
 
-from catalog import ForwardProps, ReverseProps, ParentProps, ParentReverseProps
+from catalog import ForwardProps, ParentProps, ParentReverseProps, ReverseProps
 
 valid = {"value": "b", "details": {"label": "label", "enabled": True, "count": 2}}
 forward: ForwardProps = valid

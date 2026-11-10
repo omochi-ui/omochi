@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Any
 
 from .receive_queue import ReceiveQueue, ReceiveQueueOverflowError
-from .resources import is_resource, hello
+from .resources import hello, is_resource
 from .snapshot import A2uiSnapshot
 from .transport import MAX_FRAME_BYTES, Transport
 
@@ -275,7 +275,8 @@ class UnixSocketServerTransport(Transport):
             except BaseException as error:
                 os.close(fd)
                 if isinstance(error, BlockingIOError):
-                    raise RuntimeError(
+                    # Preserve the public publisher-ownership error type.
+                    raise RuntimeError(  # noqa: TRY004
                         f"another omochi service already owns {directory}"
                     ) from error
                 raise

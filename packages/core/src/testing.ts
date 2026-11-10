@@ -36,6 +36,8 @@ export function test(
     name,
     async () => {
       const disposers: Array<() => unknown | Promise<unknown>> = [];
+      let failed = false;
+      let failure: unknown;
       try {
         await run({
           after: (dispose) => {
@@ -46,19 +48,22 @@ export function test(
           },
         });
       } catch (error) {
-        if (error !== skipped) throw error;
-      } finally {
-        const errors: unknown[] = [];
-        for (const dispose of disposers.reverse()) {
-          try {
-            await dispose();
-          } catch (error) {
-            errors.push(error);
-          }
+        if (error !== skipped) {
+          failed = true;
+          failure = error;
         }
-        if (errors.length)
-          throw new AggregateError(errors, 'test cleanup failed');
       }
+      const errors: unknown[] = [];
+      for (const dispose of disposers.reverse()) {
+        try {
+          await dispose();
+        } catch (error) {
+          errors.push(error);
+        }
+      }
+      if (errors.length)
+        throw new AggregateError(errors, 'test cleanup failed');
+      if (failed) throw failure;
     },
     options.timeout ?? 15_000,
   );

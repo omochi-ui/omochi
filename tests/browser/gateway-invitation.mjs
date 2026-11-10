@@ -109,8 +109,6 @@ try {
   console.log(
     'PASS: real Chromium fragment removal, cross-tab acknowledged transfer, confirmation required, default gateway name, warm owner/gateway navigation preserves pending handoff',
   );
-} catch (error) {
-  throw error;
 } finally {
   await browser?.close();
   host?.close();

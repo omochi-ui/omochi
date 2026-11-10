@@ -6,7 +6,7 @@ from pathlib import Path
 
 from omochi_ui import App
 from omochi_ui.ir import Declaration, Node, Slot
-from omochi_ui.reconcile import Reconciler, STANDARD_CATALOG
+from omochi_ui.reconcile import STANDARD_CATALOG, Reconciler
 
 
 def declaration(value):

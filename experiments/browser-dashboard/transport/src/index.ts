@@ -164,7 +164,7 @@ class OwnedStream implements Stream {
     this.dead = true;
     this.closing = (async () => {
       await this.reset();
-      await Promise.allSettled([...this.pending]);
+      await Promise.allSettled(this.pending);
       this.raw.free();
       this.removed();
     })();
@@ -269,7 +269,7 @@ class OwnedConnection implements Connection {
       this.raw.cancel_open(operation);
     this.closing = (async () => {
       await Promise.all([...this.streams].map((stream) => stream.cancel()));
-      await Promise.allSettled([...this.opening.values()]);
+      await Promise.allSettled(this.opening.values());
       await this.ended.catch(() => {});
       this.raw.free();
       this.removed();
@@ -345,7 +345,7 @@ class OwnedEndpoint implements Endpoint {
       await Promise.all(
         [...this.connections].map((connection) => connection.close()),
       );
-      await Promise.allSettled([...this.connecting.values()]);
+      await Promise.allSettled(this.connecting.values());
       await this.raw.close();
       frameReaders.delete(this);
       this.raw.free();

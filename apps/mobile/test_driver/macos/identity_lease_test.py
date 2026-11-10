@@ -38,6 +38,7 @@ with tempfile.TemporaryDirectory() as directory:
             assert owner.stdout.readline().strip() == "acquired"
             blocked = subprocess.run(
                 [str(binary), namespace],
+                check=False,
                 input="",
                 capture_output=True,
                 text=True,
@@ -46,6 +47,7 @@ with tempfile.TemporaryDirectory() as directory:
             assert blocked.returncode != 0, "second process acquired the same identity"
             other = subprocess.run(
                 [str(binary), namespace + ".other"],
+                check=False,
                 input="",
                 capture_output=True,
                 text=True,
@@ -60,6 +62,7 @@ with tempfile.TemporaryDirectory() as directory:
                 assert owner.returncode == 0
         retry = subprocess.run(
             [str(binary), namespace],
+            check=False,
             input="",
             capture_output=True,
             text=True,

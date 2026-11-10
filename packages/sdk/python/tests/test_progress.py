@@ -3,12 +3,12 @@ import json
 import unittest
 from pathlib import Path
 
-from omochi_ui import schema, Expr, InputSchema, ActionContext, UI, App
+from omochi_ui import App, schema
 from omochi_ui.builder import Tab
 
 
 class MemoryTransport:
-    capabilities = set()
+    capabilities = frozenset()
 
     def __init__(self):
         self.sent = []

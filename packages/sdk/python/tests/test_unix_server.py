@@ -3,24 +3,20 @@ from __future__ import annotations
 import asyncio
 import json
 import os
-import tempfile
 import subprocess
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
 from omochi_ui import (
-    schema,
-    Expr,
-    InputSchema,
-    ActionContext,
-    UI,
     App,
     ResourceRegistry,
     UnixSocketServerTransport,
+    schema,
 )
-from omochi_ui.unix_server import validate_service_id, _prepare_fallback_runtime_root
+from omochi_ui.unix_server import _prepare_fallback_runtime_root, validate_service_id
 
 
 def counter_app() -> App:
@@ -59,11 +55,13 @@ class UnixSocketServerTransportTests(unittest.TestCase):
             parent.chmod(0o755)
             root = parent / "omochi"
             # Inject foreign ownership without requiring chown privileges.
-            with patch(
-                "omochi_ui.unix_server.os.geteuid", return_value=os.geteuid() + 1
+            with (
+                patch(
+                    "omochi_ui.unix_server.os.geteuid", return_value=os.geteuid() + 1
+                ),
+                self.assertRaises(PermissionError),
             ):
-                with self.assertRaises(PermissionError):
-                    _prepare_fallback_runtime_root(root)
+                _prepare_fallback_runtime_root(root)
             self.assertFalse(root.exists())
             self.assertEqual(parent.stat().st_mode & 0o777, 0o755)
 
@@ -177,7 +175,7 @@ class UnixSocketServerTransportTests(unittest.TestCase):
                     owner._cleanup_sync()
                     with self.assertRaisesRegex(RuntimeError, "another omochi service"):
                         await contender.start()
-                    reader, writer = await asyncio.open_unix_connection(
+                    _reader, writer = await asyncio.open_unix_connection(
                         str(successor.socket_path)
                     )
                     writer.close()
@@ -240,12 +238,14 @@ class UnixSocketServerTransportTests(unittest.TestCase):
         async def scenario() -> None:
             with tempfile.TemporaryDirectory() as root:
                 transport = UnixSocketServerTransport("demo", runtime_dir=root)
-                with patch(
-                    "omochi_ui.unix_server.asyncio.start_unix_server",
-                    side_effect=OSError("bind failed"),
+                with (
+                    patch(
+                        "omochi_ui.unix_server.asyncio.start_unix_server",
+                        side_effect=OSError("bind failed"),
+                    ),
+                    self.assertRaisesRegex(OSError, "bind failed"),
                 ):
-                    with self.assertRaisesRegex(OSError, "bind failed"):
-                        await transport.start()
+                    await transport.start()
                 await transport.close()
                 await transport.close()
                 await transport.start()
@@ -376,9 +376,8 @@ class UnixSocketServerTransportTests(unittest.TestCase):
             with self.subTest(service_id=service_id):
                 self.assertEqual(validate_service_id(service_id), service_id)
         for service_id in ("demo\n", "demo\r\n", "x" * 65):
-            with self.subTest(service_id=service_id):
-                with self.assertRaises(ValueError):
-                    validate_service_id(service_id)
+            with self.subTest(service_id=service_id), self.assertRaises(ValueError):
+                validate_service_id(service_id)
 
     def test_rejects_invalid_service_ids_before_publication(self) -> None:
         async def scenario() -> None:
@@ -467,7 +466,7 @@ import omochi_ui
                 await successor.start()
                 await first.close()
                 first._cleanup_sync()
-                reader, writer = await asyncio.open_unix_connection(
+                _reader, writer = await asyncio.open_unix_connection(
                     str(successor.socket_path)
                 )
                 writer.close()

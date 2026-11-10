@@ -6,6 +6,7 @@ All application traffic and resources travel over iroh/UDP directly.
 
 import argparse
 import json
+import logging
 import os
 import re
 import select
@@ -33,7 +34,6 @@ class Fixture:
         self.gateways = {}
         self.services = {}
         self.invitations = {}
-        self.logs = []
         self.online = False
         self.counts = {0: 1, 1: 1}
         self.image_size = 0
@@ -57,27 +57,26 @@ class Fixture:
     def gateway(self, index):
         self.stop(self.gateways, index)
         root = self.root(index)
-        log = open(root / "gateway.log", "ab")
-        self.logs.append(log)
-        process = subprocess.Popen(
-            [
-                str(CLI),
-                "--config-dir",
-                str(root / "config"),
-                "--runtime-dir",
-                str(root / "omochi"),
-                "gateway",
-                "--remote",
-                "--pair",
-                *([] if self.online else ["--offline"]),
-                "--name",
-                f"Native test {index + 1}",
-            ],
-            cwd=REPO,
-            stdout=subprocess.PIPE,
-            stderr=log,
-            text=True,
-        )
+        with open(root / "gateway.log", "ab") as log:
+            process = subprocess.Popen(
+                [
+                    str(CLI),
+                    "--config-dir",
+                    str(root / "config"),
+                    "--runtime-dir",
+                    str(root / "omochi"),
+                    "gateway",
+                    "--remote",
+                    "--pair",
+                    *([] if self.online else ["--offline"]),
+                    "--name",
+                    f"Native test {index + 1}",
+                ],
+                cwd=REPO,
+                stdout=subprocess.PIPE,
+                stderr=log,
+                text=True,
+            )
         self.gateways[index] = process
         deadline = time.monotonic() + 15
         while time.monotonic() < deadline:
@@ -100,8 +99,6 @@ class Fixture:
         key = (index, slot)
         self.stop(self.services, key)
         root = self.root(index)
-        log = open(root / f"sdk-{slot}.log", "ab")
-        self.logs.append(log)
         extra = {}
         if self.image_size:
             size = self.image_size
@@ -123,20 +120,23 @@ class Fixture:
             path = root / "image.png"
             path.write_bytes(png)
             extra["OMOCHI_IMAGE_FILE"] = str(path)
-        self.services[key] = subprocess.Popen(
-            ["bun", "run", str(APP / "tool/sdk_fixture.ts")],
-            cwd=REPO,
-            env={
-                **os.environ,
-                "XDG_RUNTIME_DIR": str(root),
-                "OMOCHI_SERVICE": "native-app" if slot == 0 else f"native-app-{slot}",
-                "OMOCHI_IMAGE": "1",
-                "OMOCHI_MODEL_BYTES": str(self.model_bytes),
-                **extra,
-            },
-            stdout=log,
-            stderr=log,
-        )
+        with open(root / f"sdk-{slot}.log", "ab") as log:
+            self.services[key] = subprocess.Popen(
+                ["bun", "run", str(APP / "tool/sdk_fixture.ts")],
+                cwd=REPO,
+                env={
+                    **os.environ,
+                    "XDG_RUNTIME_DIR": str(root),
+                    "OMOCHI_SERVICE": "native-app"
+                    if slot == 0
+                    else f"native-app-{slot}",
+                    "OMOCHI_IMAGE": "1",
+                    "OMOCHI_MODEL_BYTES": str(self.model_bytes),
+                    **extra,
+                },
+                stdout=log,
+                stderr=log,
+            )
 
     def service(self, index):
         self.stop_services(index)
@@ -147,8 +147,6 @@ class Fixture:
         for index in (0, 1):
             self.stop_services(index)
             self.stop(self.gateways, index)
-        for log in self.logs:
-            log.close()
         self.temp.cleanup()
 
 
@@ -243,6 +241,7 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(body)
         except Exception as error:
+            logging.getLogger(__name__).exception("Native fixture request failed")
             self.send_error(500, type(error).__name__)
 
 

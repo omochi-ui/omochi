@@ -80,6 +80,8 @@ test(
       async send(message) {
         sent.push(message);
       },
+      // The test transport waits without producing messages.
+      // oxlint-disable-next-line require-yield
       async *[Symbol.asyncIterator]() {
         await stopped.promise;
       },

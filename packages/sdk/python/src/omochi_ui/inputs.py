@@ -6,7 +6,7 @@ from dataclasses import fields, is_dataclass
 from typing import Any
 
 from .errors import DeclarationError, ProtocolError
-from .expression import Expr, Composed, encode_input, references
+from .expression import Composed, Expr, encode_input, references
 from .references import DynamicLocal, same_type
 from .schema import Schema
 

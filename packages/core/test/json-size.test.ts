@@ -14,6 +14,8 @@ test('JSON size matches compact wire serialization without encoding a complete t
     '',
     '"\\\b\f\n\r\t\u0000\u001f',
     'ASCII 日本語 é 😀 \ud800 \udfff',
+    // Measure a hole alongside an explicit undefined element.
+    // oxlint-disable-next-line no-sparse-arrays
     [1, , undefined, null],
     { '😀"': { x: [null, 'é'], omitted: undefined } },
     undefined,
@@ -73,7 +75,8 @@ test('only deeply immutable trees have cached sizes', () => {
 });
 
 test('sparse measurement counts gaps arithmetically', () => {
-  const value = new Array(100000000);
+  const value: unknown[] = [];
+  value.length = 100000000;
   value[99999999] = 'a';
   assert.equal(jsonBytes(value), 500000000);
 });

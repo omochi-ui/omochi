@@ -9,7 +9,7 @@ const names: Record<Agent, string> = {
   opencode: 'OpenCode',
 };
 const escapeText = (value: string) =>
-  value.replace(/[\\`*_{}\[\]()<>#+.!|~-]/g, '\\$&');
+  value.replace(/[\\`*_{}[\]()<>#+.!|~-]/g, '\\$&');
 
 export function codeBlock(value: unknown): string {
   const text = JSON.stringify(value, null, 2);

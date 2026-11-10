@@ -1,11 +1,11 @@
 """Package both Rust SDK crates and compile examples from the actual archives."""
 
 import argparse
-from pathlib import Path
 import subprocess
 import tarfile
 import tempfile
 import tomllib
+from pathlib import Path
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--allow-dirty", action="store_true")

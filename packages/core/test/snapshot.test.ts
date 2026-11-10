@@ -72,7 +72,8 @@ test('array traversal ignores inherited numeric properties', () => {
     createSurface: { surfaceId: 'one', catalogId: 'test' },
   });
   // A hole survives structuredClone; a property on Array.prototype must not fill it.
-  const rows = new Array(4);
+  const rows: unknown[] = [];
+  rows.length = 4;
   snapshot.apply({
     version: 'v0.9',
     updateDataModel: { surfaceId: 'one', value: { rows } },

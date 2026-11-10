@@ -109,14 +109,6 @@ async function live(page, count = 2) {
     'live shared panels',
   );
 }
-async function savedConnections(page) {
-  return page.evaluate(`(async()=>{
-    const request=indexedDB.open('omochi.hub-client.v1',1);
-    const db=await new Promise((resolve,reject)=>{request.onsuccess=()=>resolve(request.result);request.onerror=()=>reject()});
-    try { return await new Promise((resolve,reject)=>{const tx=db.transaction('shares','readonly');const read=tx.objectStore('shares').getAll();tx.oncomplete=()=>resolve(read.result);tx.onabort=()=>reject()}); }
-    finally { db.close(); }
-  })()`);
-}
 async function createLink(interact = false, edit = false) {
   await click(browser, 'Share dashboard');
   await until(

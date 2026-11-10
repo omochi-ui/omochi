@@ -2,6 +2,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+
 from omochi_ui import ResourceRegistry
 
 FIXTURE = json.loads(
@@ -50,6 +51,7 @@ class ResourceTests(unittest.TestCase):
 
     def test_initial_render_failure_closes_registry(self):
         import asyncio
+
         from omochi_ui import App
         from omochi_ui.transport import CallbackTransport
 

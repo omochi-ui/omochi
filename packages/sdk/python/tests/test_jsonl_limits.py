@@ -9,7 +9,6 @@ import unittest
 
 from omochi_ui import UnixSocketServerTransport
 
-
 MAX_FRAME_BYTES = 4 * 1024 * 1024
 
 
@@ -126,7 +125,7 @@ class JsonlLimitTests(unittest.IsolatedAsyncioTestCase):
                 await transport.start()
                 for name, message, ending in accepted_frames():
                     with self.subTest(name=name):
-                        reader, writer = await asyncio.open_unix_connection(
+                        _reader, writer = await asyncio.open_unix_connection(
                             str(transport.socket_path)
                         )
                         try:
@@ -147,7 +146,7 @@ class JsonlLimitTests(unittest.IsolatedAsyncioTestCase):
                 await transport.close()
 
     async def test_unix_rejects_only_the_oversized_connection(self):
-        for name, frame in rejected_frames():
+        async def check_case(name, frame):
             with self.subTest(name=name), tempfile.TemporaryDirectory() as root:
                 transport = UnixSocketServerTransport("demo", runtime_dir=root)
                 disconnected = asyncio.Event()
@@ -157,7 +156,7 @@ class JsonlLimitTests(unittest.IsolatedAsyncioTestCase):
                 async def observe_accept(reader, writer):
                     try:
                         await accept(reader, writer)
-                    except Exception as error:
+                    except Exception as error:  # noqa: BLE001 - assert every callback failure below.
                         errors.append(error)
                     finally:
                         disconnected.set()
@@ -200,3 +199,6 @@ class JsonlLimitTests(unittest.IsolatedAsyncioTestCase):
                         await writer.wait_closed()
                 finally:
                     await transport.close()
+
+        for name, frame in rejected_frames():
+            await check_case(name, frame)

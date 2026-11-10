@@ -6,18 +6,16 @@ from dataclasses import dataclass, field
 from typing import Literal, NotRequired, TypedDict
 
 from omochi_ui import (
+    UI,
     ActionContext,
     App,
     CallbackTransport,
     DeclarationError,
-    Expr,
     Local,
     ProtocolError,
-    UI,
     schema,
     ui,
 )
-from omochi_ui.expression import encode_input
 
 
 @dataclass
@@ -243,9 +241,8 @@ class InterfaceTests(unittest.IsolatedAsyncioTestCase):
 
         def main(state):
             try:
-                with ui.scope("failed"):
-                    with ui.column():
-                        raise ValueError("stop")
+                with ui.scope("failed"), ui.column():
+                    raise ValueError("stop")
             except ValueError:
                 pass
             ui.text("root", key="plain")
@@ -335,9 +332,8 @@ class InterfaceTests(unittest.IsolatedAsyncioTestCase):
         await asyncio.gather(*tasks)
         with self.assertRaisesRegex(DeclarationError, "while rendering"):
             ui.text("outside")
-        with self.assertRaisesRegex(DeclarationError, "while rendering"):
-            with ui.column():
-                pass
+        with self.assertRaisesRegex(DeclarationError, "while rendering"), ui.column():
+            pass
 
     async def test_render_failure_resets_facade_and_async_render_is_rejected(self):
         app = App({})
@@ -383,9 +379,11 @@ class InterfaceTests(unittest.IsolatedAsyncioTestCase):
                 bool(form.temperature)
             with ui.scope("same"):
                 pass
-            with self.assertRaisesRegex(DeclarationError, "duplicate scope"):
-                with ui.scope("same"):
-                    pass
+            with (
+                self.assertRaisesRegex(DeclarationError, "duplicate scope"),
+                ui.scope("same"),
+            ):
+                pass
             with self.assertRaisesRegex(DeclarationError, "finite number"):
                 ui.local("invalid", {"temperature": "wrong"}, type=Form)
 
@@ -475,8 +473,8 @@ class InterfaceTests(unittest.IsolatedAsyncioTestCase):
             await runtime.invoke("run", {"temperature": 200})
         app = App({})
 
-        @app.action
-        def run(value: Form, ctx):
+        @app.action("run")
+        def fail(value: Form, ctx):
             raise ProtocolError("handler error")
 
         async def valid():

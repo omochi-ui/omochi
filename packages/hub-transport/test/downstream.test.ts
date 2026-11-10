@@ -5,17 +5,18 @@ import { FakeDownstreamState, fixture } from './fixtures.js';
 
 test('downstream facade delegates application and acknowledgement and frees state once', () => {
   const f = fixture();
-  let raw!: FakeDownstreamState;
+  const instances: FakeDownstreamState[] = [];
   f.module.DownstreamState = class extends FakeDownstreamState {
     constructor() {
       super();
-      raw = this;
+      instances.push(this);
     }
   };
   const state = createTransportFacade(f.module).createDownstreamState('share', {
     interact: true,
     editLayout: false,
   });
+  const raw = instances[0]!;
   expect(
     state.accept({ kind: 'snapshotEnd', sequence: '18446744073709551615' })
       .sequence,

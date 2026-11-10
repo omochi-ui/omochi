@@ -17,7 +17,6 @@ import tempfile
 import time
 import uuid
 
-
 mobile = pathlib.Path(__file__).resolve().parents[2]
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("--device", required=True)
@@ -38,7 +37,7 @@ adb = [str(sdk / "platform-tools/adb"), "-s", args.device]
 
 def run(command, cwd=None):
     result = subprocess.run(
-        list(map(str, command)), cwd=cwd, capture_output=True, text=True
+        list(map(str, command)), check=False, cwd=cwd, capture_output=True, text=True
     )
     if result.returncode:
         raise RuntimeError(result.stdout + result.stderr)

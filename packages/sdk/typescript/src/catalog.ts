@@ -217,7 +217,7 @@ export interface BasicComponentMap {
 }
 
 export type ComponentMap = object;
-export interface CatalogDefinition<Components extends ComponentMap> {
+export interface CatalogDefinition<_Components extends ComponentMap> {
   readonly id: string;
   readonly name: string;
 }

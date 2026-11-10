@@ -35,7 +35,7 @@ class RuntimeShutdownTests(unittest.IsolatedAsyncioTestCase):
         queue = asyncio.Queue()
 
         class CustomTransport:
-            capabilities = set()
+            capabilities = frozenset()
             closed = False
 
             async def send(self, message):
@@ -169,7 +169,7 @@ class RuntimeShutdownTests(unittest.IsolatedAsyncioTestCase):
     async def test_cleanup_error_still_closes_resources_and_preserves_receive_error(
         self,
     ):
-        for fail_receive in [False, True]:
+        async def check_case(fail_receive):
             with self.subTest(fail_receive=fail_receive):
                 runtime, _ = self.runtime()
                 reading, cleaned = asyncio.Event(), asyncio.Event()
@@ -177,7 +177,7 @@ class RuntimeShutdownTests(unittest.IsolatedAsyncioTestCase):
                 cleanup = RuntimeError("stop failed")
 
                 class CustomTransport:
-                    capabilities = set()
+                    capabilities = frozenset()
 
                     async def send(self, message):
                         pass
@@ -211,3 +211,6 @@ class RuntimeShutdownTests(unittest.IsolatedAsyncioTestCase):
                 self.assertTrue(cleaned.is_set())
                 with self.assertRaisesRegex(ValueError, "resource registry closed"):
                     runtime.resources.bytes(b"", "image/png")
+
+        for fail_receive in [False, True]:
+            await check_case(fail_receive)

@@ -2,6 +2,7 @@
 
 import asyncio
 import sys
+
 from omochi_ui import App
 
 app = App({})

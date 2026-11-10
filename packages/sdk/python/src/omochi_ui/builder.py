@@ -1,27 +1,21 @@
 from __future__ import annotations
 
-from contextlib import AbstractContextManager, contextmanager
 import builtins
 import json
+from collections.abc import Callable, Iterator, Mapping, Sequence
+from contextlib import AbstractContextManager, contextmanager
 from copy import deepcopy
 from dataclasses import dataclass, is_dataclass
-from .expression import Expr, encode_input, uses_object_merge, MERGE_OBJECTS_CAPABILITY
-from .schema import from_type
-from .references import Local, DynamicLocal, ModelBinding, same_type
-from ._context import RenderScope
 from typing import (
-    TypeVar,
+    TYPE_CHECKING,
     Any,
-    Callable,
-    Iterator,
     Literal,
-    Sequence,
+    TypeVar,
     Unpack,
     overload,
-    TYPE_CHECKING,
-    Mapping,
 )
 
+from ._context import RenderScope
 from .catalog import (
     BASIC_CATALOG,
     ButtonOptions,
@@ -29,10 +23,10 @@ from .catalog import (
     CardProps,
     Catalog,
     CheckableOptions,
-    CommonProps,
     CheckBoxProps,
     ChoicePickerOptions,
     ChoicePickerProps,
+    CommonProps,
     DateTimeInputOptions,
     DateTimeInputProps,
     DividerProps,
@@ -56,7 +50,10 @@ from .catalog import (
     TextProps,
 )
 from .errors import DeclarationError, ProtocolError
+from .expression import MERGE_OBJECTS_CAPABILITY, Expr, encode_input, uses_object_merge
 from .ir import Declaration, Node, Slot
+from .references import DynamicLocal, Local, ModelBinding, same_type
+from .schema import from_type
 
 if TYPE_CHECKING:
     from .app import Action, ActionCall
@@ -78,7 +75,7 @@ T = TypeVar("T")
 @dataclass(frozen=True, slots=True)
 class Tab:
     title: DynamicString
-    content: Callable[["UI"], Any]
+    content: Callable[[UI], Any]
 
 
 class UI:
@@ -195,7 +192,7 @@ class UI:
         return node
 
     def _slot(
-        self, node: Node, path: str, kind: str, build: Callable[["UI"], Any]
+        self, node: Node, path: str, kind: str, build: Callable[[UI], Any]
     ) -> Slot:
         slot = Slot(path=path, kind=kind)
         node.slots.append(slot)
@@ -417,8 +414,8 @@ class UI:
     def modal(
         self,
         *,
-        trigger: Callable[["UI"], Any],
-        content: Callable[["UI"], Any],
+        trigger: Callable[[UI], Any],
+        content: Callable[[UI], Any],
         key: str | None = None,
         **props: Unpack[CommonProps],
     ) -> None:

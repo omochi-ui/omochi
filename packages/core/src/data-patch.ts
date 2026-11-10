@@ -94,7 +94,7 @@ export function planDataPatch(
       missing: false,
       materialize() {
         if (array) {
-          const result = new Array<unknown>(length).fill(null);
+          const result: unknown[] = Array.from({ length }, () => null);
           for (const [entry, current] of entries) {
             const at = Number(entry);
             if (at === index) continue;

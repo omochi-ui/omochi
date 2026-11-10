@@ -9,13 +9,12 @@ import argparse
 import base64
 import ipaddress
 import json
-from pathlib import Path
 import queue
 import subprocess
 import sys
 import tempfile
 import threading
-
+from pathlib import Path
 
 # Run via stdin to python3 on the Mac. PTYs make dns-sd flush its callbacks.
 MAC_PROBE = r"""
@@ -148,7 +147,7 @@ def main():
                 for line in process.stdout:
                     events.put(json.loads(line), timeout=1)
                 events.put({"event": "eof"}, timeout=1)
-            except Exception as error:
+            except (OSError, ValueError, queue.Full) as error:
                 events.put({"event": "error", "message": str(error)}, timeout=1)
 
         reader = threading.Thread(target=read_events, daemon=True)
@@ -174,6 +173,7 @@ def main():
                     args.ssh_host,
                     "python3 -",
                 ],
+                check=False,
                 input=script,
                 capture_output=True,
                 text=True,

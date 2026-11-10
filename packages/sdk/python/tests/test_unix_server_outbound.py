@@ -7,7 +7,7 @@ import unittest
 from unittest.mock import patch
 
 from omochi_ui import ResourceRegistry, UnixSocketServerTransport
-from omochi_ui.unix_server import _MAX_PENDING_BYTES, _OutboundPeer, _encode_frame
+from omochi_ui.unix_server import _MAX_PENDING_BYTES, _encode_frame, _OutboundPeer
 
 
 class ControlledWriter:

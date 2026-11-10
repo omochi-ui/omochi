@@ -190,6 +190,8 @@ if (mode === 'custom' || mode === 'late-rejection' || mode === 'callback') {
       async stopReceiving() {
         stoppedReceiving++;
       },
+      // The test transport waits without producing messages.
+      // oxlint-disable-next-line require-yield
       async *[Symbol.asyncIterator]() {
         await new Promise(() => {});
       },
@@ -297,6 +299,8 @@ if (mode === 'custom' || mode === 'late-rejection' || mode === 'callback') {
     async stopReceiving() {
       throw cleanup;
     },
+    // The test transport waits or throws without producing messages.
+    // oxlint-disable-next-line require-yield
     async *[Symbol.asyncIterator]() {
       reading.resolve();
       if (mode === 'handler-error') throw primary;

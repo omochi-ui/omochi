@@ -566,7 +566,7 @@ class BrowserSession implements LiveSession {
           await gateway.reconciling;
         }),
       );
-      await Promise.allSettled([...this.retrying.values()]);
+      await Promise.allSettled(this.retrying.values());
       await this.binding?.catch(() => {});
       await this.endpoint?.close();
       this.endpoint = null;

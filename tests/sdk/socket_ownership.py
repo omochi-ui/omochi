@@ -11,12 +11,12 @@ import asyncio
 import fcntl
 import json
 import os
-from pathlib import Path
 import selectors
 import socket
 import subprocess
 import sys
 import tempfile
+from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "packages/sdk/python/src"))
@@ -32,7 +32,7 @@ async def python_owner():
     )
     try:
         await transport.start()
-    except Exception:
+    except (OSError, RuntimeError):
         await transport.close()
         print("OWNER REJECTED", flush=True)
         return

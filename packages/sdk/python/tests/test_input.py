@@ -2,8 +2,9 @@ import asyncio
 import json
 import unittest
 from dataclasses import dataclass, field
-from typing import TypedDict, NotRequired
-from omochi_ui import App, Expr, InputSchema, schema, ProtocolError, DeclarationError
+from typing import NotRequired, TypedDict
+
+from omochi_ui import App, DeclarationError, Expr, InputSchema, ProtocolError, schema
 
 
 @dataclass
@@ -20,6 +21,19 @@ INPUT = InputSchema(Values, ValuesExpr)
 
 class InputTests(unittest.IsolatedAsyncioTestCase):
     async def test_explicit_schemas_with_nested_custom_decoders(self):
+        async def check_case(annotation, validator, raw, decoded):
+            with self.subTest(annotation=annotation):
+                calls = []
+                app = App({})
+
+                def run(value, ctx):
+                    calls.append(value)
+
+                run.__annotations__["value"] = annotation
+                app.action(run, schema=validator)
+                await app.build().invoke("run", raw)
+                self.assertEqual(calls, [decoded])
+
         for annotation, validator, raw, decoded in [
             (list[int], schema.array(schema.custom(int)), ["1", "2"], [1, 2]),
             (
@@ -60,17 +74,7 @@ class InputTests(unittest.IsolatedAsyncioTestCase):
                 "ready",
             ),
         ]:
-            with self.subTest(annotation=annotation):
-                calls = []
-                app = App({})
-
-                def run(value, ctx):
-                    calls.append(value)
-
-                run.__annotations__["value"] = annotation
-                app.action(run, schema=validator)
-                await app.build().invoke("run", raw)
-                self.assertEqual(calls, [decoded])
+            await check_case(annotation, validator, raw, decoded)
 
     def test_explicit_schemas_reject_known_nested_type_mismatches(self):
         for annotation, validator in [
@@ -317,7 +321,8 @@ class InputTests(unittest.IsolatedAsyncioTestCase):
         fixture = json.loads(
             (Path(__file__).parents[4] / "spec/fixtures/action-input.json").read_text()
         )
-        for case in fixture["messages"]:
+
+        async def check_case(case):
             with self.subTest(name=case["name"]):
                 calls = []
                 app = App({})
@@ -328,6 +333,9 @@ class InputTests(unittest.IsolatedAsyncioTestCase):
 
                 self.assertEqual(await app.build().handle(case["message"]), [])
                 self.assertEqual(calls, [case["input"]])
+
+        for case in fixture["messages"]:
+            await check_case(case)
 
     async def test_complete_field_schema_identity(self):
         @dataclass
@@ -394,11 +402,12 @@ class InputTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_merge_schema_and_fixture(self):
         from pathlib import Path
+
         from omochi_ui import (
-            merge_objects,
             MERGE_OBJECTS_CAPABILITY,
             CapabilityError,
             Reconciler,
+            merge_objects,
         )
 
         fixture = json.loads(

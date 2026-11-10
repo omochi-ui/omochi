@@ -1,6 +1,7 @@
 from dataclasses import dataclass, field
 from typing import TypedDict, assert_type
-from omochi_ui import App, UI, ActionContext, Action, Expr, InputSchema, schema
+
+from omochi_ui import UI, Action, ActionContext, App, Expr, InputSchema, schema
 
 
 @dataclass

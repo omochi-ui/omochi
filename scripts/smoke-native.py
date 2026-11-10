@@ -1,7 +1,15 @@
 #!/usr/bin/env python3
 """Verify/extract/install an archive, then serve its embedded UI with no runtimes on PATH."""
 
-import argparse, hashlib, json, os, re, selectors, subprocess, tarfile, tempfile
+import argparse
+import hashlib
+import json
+import os
+import re
+import selectors
+import subprocess
+import tarfile
+import tempfile
 from pathlib import Path
 from urllib.request import urlopen
 

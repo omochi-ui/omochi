@@ -1,7 +1,7 @@
 import json
 from typing import get_type_hints
 
-from catalog import NamedProps, PROPERTYNAMESCATALOG, PropertyNamesCatalogUI
+from catalog import PROPERTYNAMESCATALOG, NamedProps, PropertyNamesCatalogUI
 
 props: NamedProps = {
     "sourceURL": "source",

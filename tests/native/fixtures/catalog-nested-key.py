@@ -1,4 +1,5 @@
 import json
+
 from catalog import NESTEDKEYCATALOG, NestedKeyCatalogUI
 
 ui = NestedKeyCatalogUI("main", NESTEDKEYCATALOG, lambda *args: "unused")

@@ -123,7 +123,7 @@ export function jsonBytes(value: unknown): number {
 export function materializeJson(value: unknown): unknown {
   if (value === null || typeof value !== 'object') return value;
   if (Array.isArray(value)) {
-    const result = new Array<unknown>(value.length).fill(null);
+    const result: unknown[] = Array.from({ length: value.length }, () => null);
     for (const [key, child] of jsonEntries(value))
       result[Number(key)] = child === undefined ? null : materializeJson(child);
     return result;

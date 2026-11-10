@@ -15,7 +15,6 @@ import uuid
 import xml.etree.ElementTree as ET
 import zipfile
 
-
 mobile = pathlib.Path(__file__).resolve().parents[2]
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("--device", required=True)

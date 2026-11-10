@@ -34,7 +34,6 @@ import type {
   JsonObject,
   JsonValue,
   LocalDeclaration,
-  LocalValueExpression,
   NodeIR,
   SlotIR,
 } from './types.js';

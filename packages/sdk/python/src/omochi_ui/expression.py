@@ -2,18 +2,18 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field, fields, is_dataclass
-from typing import Any, Generic, TypeVar, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Generic, TypeVar
 
 if TYPE_CHECKING:
-    from .schema import Schema
     from ._context import RenderScope
+    from .schema import Schema
 from .errors import DeclarationError
 
-T = TypeVar("T", covariant=True)
+T_co = TypeVar("T_co", covariant=True)
 
 
 @dataclass(frozen=True)
-class Expr(Generic[T]):
+class Expr(Generic[T_co]):
     path: str
     _schema: Schema[Any] | None = field(
         default=None, kw_only=True, repr=False, compare=False
@@ -30,7 +30,7 @@ Ref = Expr
 
 
 @dataclass(frozen=True)
-class Composed(Expr[T]):
+class Composed(Expr[T_co]):
     encoded: Any = None
     sources: tuple[Expr[Any], ...] = ()
 
@@ -126,17 +126,17 @@ MERGE_OBJECTS_CAPABILITY = "omochi.mergeObjects/1"
 
 
 @dataclass(frozen=True)
-class SchemaValue(Generic[T]):
+class SchemaValue(Generic[T_co]):
     schema: Any
-    value: T | Expr[T]
+    value: T_co | Expr[T_co]
 
 
 @dataclass(frozen=True)
-class ObjectMerge(Expr[T]):
+class ObjectMerge(Expr[T_co]):
     parts: tuple[SchemaValue[Any], ...] = ()
 
 
-def merge_objects(result: Schema[T], *parts: SchemaValue[Any]) -> ObjectMerge[T]:
+def merge_objects(result: Schema[T_co], *parts: SchemaValue[Any]) -> ObjectMerge[T_co]:
     from .schema import _known_kind
 
     if result.members is None and not (

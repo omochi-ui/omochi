@@ -37,7 +37,7 @@ test('bridge identity integers are canonical decimal u64 strings, never rounded 
   for (const value of [
     1,
     0,
-    18446744073709551615,
+    Number('18446744073709551615'),
     '01',
     '+1',
     '-1',

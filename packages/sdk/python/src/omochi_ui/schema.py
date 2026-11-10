@@ -2,25 +2,25 @@ from __future__ import annotations
 
 import math
 import types
+from collections.abc import Callable
 from contextvars import ContextVar
 from dataclasses import fields, is_dataclass
 from typing import (
     Any,
-    Callable,
     Generic,
+    Literal,
+    NotRequired,
+    Required,
     TypeVar,
+    Union,
     get_args,
     get_origin,
     get_type_hints,
     is_typeddict,
-    Literal,
-    Union,
-    Required,
-    NotRequired,
     overload,
 )
 
-from .errors import ProtocolError, DeclarationError
+from .errors import DeclarationError, ProtocolError
 from .expression import Expr, SchemaValue, encode_input
 
 T = TypeVar("T")
@@ -202,7 +202,7 @@ def boolean() -> Schema[bool]:
     return result
 
 
-def _finite(value: int | float) -> bool:
+def _finite(value: float) -> bool:
     try:
         return math.isfinite(value)
     except OverflowError:
