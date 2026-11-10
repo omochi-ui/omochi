@@ -16,7 +16,7 @@ and [project README](https://github.com/omochi-ui/omochi) for examples.
 
 ```python
 import asyncio
-from omochi_ui import App, UnixSocketServerTransport, ui
+from omochi_ui import App, LocalServerTransport, ui
 
 app = App({"result": ""})
 
@@ -36,7 +36,7 @@ def main(state):
 
 
 app.mount(main)
-asyncio.run(app.start(UnixSocketServerTransport("temperature", name="Temperature")))
+asyncio.run(app.start(LocalServerTransport("temperature", name="Temperature")))
 ```
 
 Start `npx @omochi-ui/cli hub` separately, open **http://127.0.0.1:5555/**,

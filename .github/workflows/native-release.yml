@@ -59,6 +59,10 @@ jobs:
             target: x86_64-apple-darwin
           - os: macos-15
             target: aarch64-apple-darwin
+          - os: windows-2025
+            target: x86_64-pc-windows-msvc
+          - os: windows-11-arm
+            target: aarch64-pc-windows-msvc
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     steps:
@@ -75,8 +79,7 @@ jobs:
           package-manager-cache: false
       - uses: actions/setup-python@v7
         with:
-          python-version: '3.12'
-      - run: python3 -m pip install ./packages/sdk/python
+          python-version: ${{ runner.os == 'Windows' && '3.14' || '3.12' }}
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
@@ -90,12 +93,27 @@ jobs:
           restore-keys: |
             bun-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('.bun-version') }}-
       - run: bun install --frozen-lockfile
+      - run: python3 -m pip install ./packages/sdk/python
+      - run: python3 scripts/build-local.py
       - run: python3 -B scripts/test_native_packaging.py
       - run: python3 scripts/package-native.py
-      - run: python3 scripts/smoke-native.py artifacts/native/*.tar.gz
-      - run: cargo test --release --locked --manifest-path crates/Cargo.toml --workspace
-      - run: OMOCHI_NATIVE_TEST=1 OMOCHI_NATIVE_PROFILE=release bun test packages/renderer/test/native.test.ts tests/native/mcp.test.ts
-      - run: python3 scripts/package-native-npm.py --partial artifacts/native/*.tar.gz
+      - name: Verify native archives
+        shell: bash
+        run: python3 scripts/smoke-native.py artifacts/native/*.tar.gz
+      - if: runner.os != 'Windows'
+        run: cargo test --release --locked --manifest-path crates/Cargo.toml --workspace
+      - if: runner.os == 'Windows'
+        run: cargo test --release --locked --manifest-path crates/Cargo.toml -p omochi-process
+      - if: runner.os == 'Windows'
+        run: |
+          python -m pip install "websockets>=14"
+          python scripts/test-local-native.py
+        env:
+          OMOCHI_NATIVE_PROFILE: release
+      - if: runner.os != 'Windows'
+        run: OMOCHI_NATIVE_TEST=1 OMOCHI_NATIVE_PROFILE=release bun test packages/renderer/test/native.test.ts tests/native/mcp.test.ts
+      - shell: bash
+        run: python3 scripts/package-native-npm.py --partial artifacts/native/*.tar.gz
       - run: bun run release:native:smoke:npm
       - uses: actions/upload-artifact@v7
         with:
@@ -117,7 +135,7 @@ jobs:
           package-manager-cache: false
       - uses: actions/setup-python@v7
         with:
-          python-version: '3.12'
+          python-version: ${{ runner.os == 'Windows' && '3.14' || '3.12' }}
       - uses: actions/download-artifact@v8
         with:
           pattern: native-release-*
@@ -143,7 +161,7 @@ jobs:
           bun-version-file: .bun-version
       - uses: actions/setup-python@v7
         with:
-          python-version: '3.12'
+          python-version: ${{ runner.os == 'Windows' && '3.14' || '3.12' }}
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
@@ -213,7 +231,7 @@ jobs:
           bun-version-file: .bun-version
       - uses: actions/setup-python@v7
         with:
-          python-version: '3.12'
+          python-version: ${{ runner.os == 'Windows' && '3.14' || '3.12' }}
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:

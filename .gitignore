@@ -157,3 +157,9 @@ test-results/
 
 # Verified release distributions
 /artifacts/
+
+# Generated SDK native adapters
+/packages/sdk/typescript/native/
+/packages/sdk/python/src/omochi_ui/_native/
+
+__pycache__/

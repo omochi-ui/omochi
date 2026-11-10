@@ -224,6 +224,7 @@ mod tests {
     #[test]
     fn owners_are_separate_single_identity_grants_and_revocation_never_restores_stale_records() {
         let root = tempfile::tempdir().unwrap();
+        omochi_local::files::private_directory(root.path()).unwrap();
         let store = OwnerStore::new(root.path().to_owned());
         let other = store.clone();
         let (grant, secret) = store.create().unwrap();
@@ -246,6 +247,7 @@ mod tests {
     #[test]
     fn expired_tokens_do_not_enroll_but_bound_identities_survive_expiry() {
         let root = tempfile::tempdir().unwrap();
+        omochi_local::files::private_directory(root.path()).unwrap();
         let store = OwnerStore::new(root.path().to_owned());
         let (pending, token) = store.create().unwrap();
         let (bound, proof) = store.create().unwrap();

@@ -9,11 +9,10 @@ use omochi_protocol::{
 };
 use serde::Serialize;
 use serde_json::Value;
-use std::os::unix::fs::MetadataExt;
+
 use std::{path::PathBuf, sync::Arc, time::Duration};
 use tokio::{
     io::{AsyncRead, AsyncWrite},
-    net::UnixListener,
     sync::{OwnedSemaphorePermit, Semaphore, mpsc},
     task::{JoinHandle, JoinSet},
 };
@@ -61,21 +60,6 @@ impl StreamAdmission {
             OpenStream::Resource { .. } => &self.limits.resource,
         };
         Ok(slots.clone().try_acquire_owned()?)
-    }
-}
-
-struct OwnedSocket {
-    path: PathBuf,
-    device: u64,
-    inode: u64,
-}
-impl Drop for OwnedSocket {
-    fn drop(&mut self) {
-        if std::fs::symlink_metadata(&self.path)
-            .is_ok_and(|m| m.dev() == self.device && m.ino() == self.inode)
-        {
-            let _ = std::fs::remove_file(&self.path);
-        }
     }
 }
 
@@ -222,28 +206,16 @@ impl Gateway {
         }
     }
     /// Never unlinks an existing socket. A running legacy gateway must be stopped explicitly.
-    pub fn listen_unix(
+    pub async fn listen_local(
         &self,
         path: PathBuf,
         node_id: String,
         name: String,
     ) -> Result<JoinHandle<Result<()>>> {
-        let parent = path
-            .parent()
-            .context("gateway socket needs a parent directory")?;
-        omochi_local_discovery::scan(parent)?; // also checks the local trust boundary
-        let listener = UnixListener::bind(&path).context(
-            "gateway socket is already present; stop any existing gateway before retrying",
-        )?;
-        let metadata = std::fs::symlink_metadata(&path)?;
-        let owned_socket = OwnedSocket {
-            path,
-            device: metadata.dev(),
-            inode: metadata.ino(),
-        };
+        let runtime = omochi_local::LocalRuntime::open(path)?;
+        let listener = runtime.publish_gateway().await?;
         let gateway = self.clone();
         Ok(tokio::spawn(async move {
-            let _owned_socket = owned_socket;
             let limits = StreamLimits::new(MAX_LOCAL_HUBS);
             let mut tasks = JoinSet::new();
             let result = loop {
@@ -251,7 +223,7 @@ impl Gateway {
                     _ = gateway.stop.cancelled() => break Ok(()),
                     Some(_) = tasks.join_next(), if !tasks.is_empty() => {},
                     accepted = listener.accept() => {
-                        let (socket, _) = match accepted { Ok(value) => value, Err(error) => break Err(error.into()) };
+                        let socket = match accepted { Ok(value) => value, Err(error) => break Err(error.into()) };
                         let Ok(admission) = limits.admit() else { continue };
                         let child = gateway.clone(); let node = node_id.clone(); let name = name.clone();
                         tasks.spawn(async move { let (reader, writer) = socket.into_split(); child.serve_stream_from(reader, writer, &node, &name, CommandOrigin::Local, Some(admission)).await });
@@ -260,6 +232,7 @@ impl Gateway {
             };
             tasks.abort_all();
             while tasks.join_next().await.is_some() {}
+            listener.stop().await;
             drop(listener);
             result
         }))
@@ -310,15 +283,26 @@ mod tests {
         use std::os::unix::fs::PermissionsExt;
         let root = tempfile::tempdir().unwrap();
         std::fs::set_permissions(root.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
+        omochi_local::LocalRuntime::prepare(Some(root.path().to_path_buf())).unwrap();
         let path = root.path().join("gateway.sock");
         let gateway = Gateway::new();
         let id = "a".repeat(64);
         let task = gateway
-            .listen_unix(path.clone(), id.clone(), "test".into())
+            .listen_local(
+                (path.clone()).parent().unwrap().to_path_buf(),
+                id.clone(),
+                "test".into(),
+            )
+            .await
             .unwrap();
         assert!(
             gateway
-                .listen_unix(path.clone(), id.clone(), "duplicate".into())
+                .listen_local(
+                    (path.clone()).parent().unwrap().to_path_buf(),
+                    id.clone(),
+                    "duplicate".into()
+                )
+                .await
                 .is_err()
         );
         let mut socket = tokio::net::UnixStream::connect(&path).await.unwrap();

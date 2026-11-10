@@ -28,6 +28,10 @@ export interface Manifest {
   version: string;
   private?: boolean;
   omochiNative?: { crate: string; binary: string };
+  omochiLocal?: boolean;
+  os?: string[];
+  cpu?: string[];
+  libc?: string[];
   files?: string[];
   main?: string;
   types?: string;
@@ -53,6 +57,18 @@ interface Packed {
 interface PyPiFile {
   filename: string;
   digests: { sha256: string };
+}
+
+/** Install the host adapter explicitly; foreign adapters must remain optional. */
+export function smokePackages<T extends { name: string }>(
+  packages: T[],
+  hostAdapter: string,
+): T[] {
+  if (!packages.some(({ name }) => name === hostAdapter))
+    throw new Error(`Missing host adapter: ${hostAdapter}`);
+  return packages.filter(
+    ({ name }) => !name.startsWith('@omochi-ui/local-') || name === hostAdapter,
+  );
 }
 
 /** Private browser build inputs and native launcher versions are independent of SDK releases. */
@@ -163,6 +179,13 @@ export function publicationOrder(workspaces: Workspace[]): Workspace[] {
           throw new Error(
             `${manifest.name} depends on private package ${name}`,
           );
+        if (
+          dependency.manifest.omochiLocal &&
+          version === dependency.manifest.version
+        ) {
+          visit(dependency);
+          continue;
+        }
         if (version !== 'workspace:*')
           throw new Error(
             `Use workspace:* for ${manifest.name}'s dependency on ${name}`,
@@ -184,6 +207,7 @@ export function distributionManifest(
   versions: Map<string, string>,
 ): Manifest {
   const result = structuredClone(manifest);
+  delete result.omochiLocal;
   delete result.scripts;
   delete result.devDependencies;
   for (const field of dependencyFields) {
@@ -251,6 +275,41 @@ export async function loadRelease(
     ).text(),
   ) as { package: { version: string } };
   const version = python.project.version;
+  const local = Bun.TOML.parse(
+    await Bun.file(
+      path.join(root, 'packages/sdk/rust/local/Cargo.toml'),
+    ).text(),
+  ) as { package: { version: string } };
+  const adapters = await Promise.all(
+    ['local-node', 'local-ffi'].map(async (name) => {
+      const manifest = Bun.TOML.parse(
+        await Bun.file(
+          path.join(root, `packages/sdk/rust/${name}/Cargo.toml`),
+        ).text(),
+      ) as { package: { version: string } };
+      return [name, manifest.package.version];
+    }),
+  );
+  const targets = (await Bun.file(
+    path.join(root, 'scripts/local/targets.json'),
+  ).json()) as { target: string; os: string; cpu: string; libc?: string }[];
+  for (const target of targets) {
+    const suffix =
+      target.os === 'linux' ? (target.libc === 'musl' ? '-musl' : '-gnu') : '';
+    workspaces.push({
+      directory: `artifacts/local/${target.target}`,
+      manifest: {
+        name: `@omochi-ui/local-${target.os}-${target.cpu}${suffix}`,
+        version,
+        omochiLocal: true,
+        main: 'omochi_local.node',
+        files: ['omochi_local.node'],
+        os: [target.os],
+        cpu: [target.cpu],
+        ...(target.libc ? { libc: [target.libc] } : {}),
+      },
+    });
+  }
   validateVersion(
     version,
     {
@@ -258,6 +317,8 @@ export async function loadRelease(
       'Python workspace': pythonRoot.project.version,
       'Rust SDK': rust.package.version,
       'Rust SDK macros': macros.package.version,
+      'Local IPC': local.package.version,
+      ...Object.fromEntries(adapters),
     },
     tag,
   );
@@ -285,11 +346,11 @@ async function pack(): Promise<void> {
   for (const { directory, manifest } of release.packages) {
     const staging = await mkdtemp(path.join(tmpdir(), 'omochi-pack-'));
     try {
-      if (!manifest.files?.includes('dist'))
+      if (!manifest.omochiLocal && !manifest.files?.includes('dist'))
         throw new Error(
           `${manifest.name} needs an explicit files allowlist including dist`,
         );
-      for (const file of manifest.files) {
+      for (const file of manifest.files ?? []) {
         if (
           path.isAbsolute(file) ||
           file.split('/').includes('..') ||
@@ -443,11 +504,12 @@ async function preparePyPi(): Promise<void> {
     (name) => name.endsWith('.whl') || name.endsWith('.tar.gz'),
   );
   if (
-    filenames.length !== 2 ||
-    !filenames.some((name) => name.endsWith('.whl')) ||
-    !filenames.some((name) => name.endsWith('.tar.gz'))
+    filenames.filter((name) => name.endsWith('.whl')).length !== 8 ||
+    filenames.filter((name) => name.endsWith('.tar.gz')).length !== 1
   ) {
-    throw new Error('Expected a Python wheel and source distribution');
+    throw new Error(
+      'Expected eight platform wheels and one source distribution',
+    );
   }
   const local = await Promise.all(
     filenames.map(async (filename) => ({

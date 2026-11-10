@@ -10,7 +10,7 @@ import { test } from '@omochi-ui/core/testing';
 import { App, schema, type JsonObject } from '../src/index.js';
 import { CallbackTransport } from '../src/transport.js';
 import {
-  UnixSocketServerTransport,
+  LocalServerTransport,
   WebSocketServerTransport,
 } from '../src/node/index.js';
 import {
@@ -87,7 +87,7 @@ for (const budget of ['count', 'bytes'] as const) {
         const transport =
           kind === 'websocket'
             ? new WebSocketServerTransport({ port: 0 })
-            : new UnixSocketServerTransport({
+            : new LocalServerTransport({
                 serviceId: 'queue',
                 runtimeDir: root,
               });
@@ -122,7 +122,7 @@ for (const budget of ['count', 'bytes'] as const) {
           await once(client, 'open');
           send = (value) => client.send(JSON.stringify(value));
         } else {
-          const client = createConnection(transport.socketPath!);
+          const client = createConnection(socketPath(transport));
           t.after(() => client.destroy());
           createInterface({ input: client }).on('line', inspect);
           closed = once(client, 'close');
@@ -216,3 +216,9 @@ test('dequeue and clear release pending byte and message capacity', () => {
   assert.equal(queue.shift(), '');
   queue.push('');
 });
+
+function socketPath(transport: LocalServerTransport): string {
+  const endpoint = transport.endpoint;
+  assert.ok(endpoint?.kind === 'unix');
+  return endpoint.path;
+}

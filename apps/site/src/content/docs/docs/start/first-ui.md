@@ -7,7 +7,7 @@ sidebar:
 
 ## Hubを開く
 
-LinuxまたはmacOSとNode.js 22以上を用意し、ターミナル1で実行します。別の導入方法は[インストール](../installation/)を参照してください。
+Linux・macOS・Windows 11とNode.js 22以上を用意し、ターミナル1で実行します。別の導入方法は[インストール](../installation/)を参照してください。
 
 ```sh
 npx @omochi-ui/cli hub

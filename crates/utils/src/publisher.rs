@@ -3,9 +3,9 @@ use crate::events::EventBuffer;
 use crate::local::LocalTransport;
 use anyhow::{Context, Result, bail};
 use omochi_protocol::session::validate_service_message_frame;
-use omochi_ui::{A2uiSnapshot, UnixSocketServerOptions};
+use omochi_ui::{A2uiSnapshot, LocalServerOptions};
 use serde_json::{Value, json};
-use std::path::PathBuf;
+
 use tokio::{sync::oneshot, task::JoinHandle};
 use tokio_util::sync::CancellationToken;
 
@@ -18,7 +18,7 @@ pub struct Publisher {
     commands: omochi_protocol::queue::Sender<Request>,
     pub events: EventBuffer,
     pub service_id: String,
-    pub socket_path: PathBuf,
+    pub endpoint: omochi_local::LocalEndpoint,
     stop: CancellationToken,
 }
 pub struct PublisherTask {
@@ -32,10 +32,10 @@ impl PublisherTask {
     }
 }
 impl Publisher {
-    pub async fn open(options: UnixSocketServerOptions) -> Result<(Self, PublisherTask)> {
+    pub async fn open(options: LocalServerOptions) -> Result<(Self, PublisherTask)> {
         let service_id = options.service_id.clone();
         let mut transport = LocalTransport::bind(options).await?;
-        let socket_path = transport.socket_path().to_owned();
+        let endpoint = transport.endpoint().clone();
         let (commands, mut requests) = omochi_protocol::queue::channel(
             8,
             omochi_protocol::queue::DEFAULT_BYTES,
@@ -46,7 +46,7 @@ impl Publisher {
             commands,
             events: EventBuffer::default(),
             service_id: service_id.clone(),
-            socket_path,
+            endpoint,
             stop: stop.clone(),
         };
         let events = publisher.events.clone();
@@ -181,8 +181,14 @@ async fn publish(
     *snapshot = candidate;
     Ok(json!({"accepted":batch.len(),"serviceId":service,"surfaceIds":snapshot.surface_ids()}))
 }
-#[cfg(test)]
+#[cfg(all(test, unix))]
 mod tests {
+    fn socket_path(endpoint: &omochi_local::LocalEndpoint) -> &std::path::Path {
+        match endpoint {
+            omochi_local::LocalEndpoint::Unix { path } => path,
+            _ => unreachable!(),
+        }
+    }
     use super::*;
     use omochi_protocol::{MAX_FRAME_BYTES, session::ServiceFrame};
     use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
@@ -218,7 +224,7 @@ mod tests {
         let root = tempfile::tempdir().unwrap();
         std::fs::set_permissions(root.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
         let (publisher, task) =
-            Publisher::open(UnixSocketServerOptions::new("test").with_runtime_dir(root.path()))
+            Publisher::open(LocalServerOptions::new("test").with_runtime_dir(root.path()))
                 .await
                 .unwrap();
         publisher
@@ -237,7 +243,7 @@ mod tests {
         Vec<Value>,
         tokio::io::Lines<BufReader<tokio::net::UnixStream>>,
     ) {
-        let socket = tokio::net::UnixStream::connect(&publisher.socket_path)
+        let socket = tokio::net::UnixStream::connect(socket_path(&publisher.endpoint))
             .await
             .unwrap();
         let mut lines = BufReader::new(socket).lines();
@@ -326,7 +332,7 @@ mod tests {
         let root = tempfile::tempdir().unwrap();
         use std::os::unix::fs::PermissionsExt;
         std::fs::set_permissions(root.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
-        let options = UnixSocketServerOptions::new("test").with_runtime_dir(root.path());
+        let options = LocalServerOptions::new("test").with_runtime_dir(root.path());
         let (publisher, task) = Publisher::open(options.clone()).await.unwrap();
         assert!(Publisher::open(options).await.is_err());
         let create =
@@ -342,7 +348,7 @@ mod tests {
         assert_eq!(publisher.list().await.unwrap()["surfaceIds"], json!([]));
         publisher.publish(vec![create, json!({"version":"v0.9","updateDataModel":{"surfaceId":"main","value":{"count":1}}})]).await.unwrap();
         publisher.publish(vec![json!({"version":"v0.9","updateDataModel":{"surfaceId":"main","path":"/count","value":2}})]).await.unwrap();
-        let socket = tokio::net::UnixStream::connect(&publisher.socket_path)
+        let socket = tokio::net::UnixStream::connect(socket_path(&publisher.endpoint))
             .await
             .unwrap();
         let (read, mut write) = socket.into_split();
@@ -368,7 +374,7 @@ mod tests {
                 .len(),
             1
         );
-        let path = publisher.socket_path.clone();
+        let path = socket_path(&publisher.endpoint).to_owned();
         task.close().await.unwrap();
         assert!(!path.exists());
         assert!(publisher.publish(vec![json!({})]).await.is_err());

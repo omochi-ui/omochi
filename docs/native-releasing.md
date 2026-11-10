@@ -42,14 +42,13 @@ cargo install omochi-utils --version 0.3.2 --locked
 ```
 
 npm wrappers need Node.js 22+ and select exact-version optional packages:
-`@omochi-ui/native-{linux,darwin}-{x64,arm64}`. Each contains both native binaries.
+`@omochi-ui/native-{linux,darwin,win32}-{x64,arm64}`. Each contains both native binaries.
 There is no postinstall script, runtime download, compilation or Bun requirement.
 Keep optional dependencies enabled. Linux prebuilds target glibc (built on Ubuntu
-22.04); musl prebuilds are not provided. Native services currently support Linux
-and macOS; Windows source builds are also unsupported. Native archives can still be
+22.04); musl prebuilds are not provided. Native services support Linux, macOS and Windows 11 on x64/ARM64. Native archives can still be
 installed directly without Node. npm registry integrity covers the binary package.
 
-Cargo publishes the eight native crates, including protocol, mdns, transport, discovery,
+Cargo publishes the nine native crates, including protocol, mdns, transport, discovery,
 gateway and hub, because registry builds must resolve their dependencies. Internal
 path dependencies have exact release version requirements. The existing Rust SDK
 version must already be published. Hub dashboard assets are embedded in the `.crate`,
@@ -60,12 +59,12 @@ so `cargo install` does not need Bun, Node, or a checkout of the monorepo.
 ```sh
 bun install --frozen-lockfile
 bun run build:native:release
-python3 scripts/package-crates.py          # packages and builds all eight crates
+python3 scripts/package-crates.py          # packages and builds all nine crates
 python3 scripts/package-native-npm.py artifacts/native/*.tar.gz
 bun run release:native:smoke:npm
 ```
 
-The npm pack command normally requires all four platform archives from the same
+The npm pack command normally requires all six platform archives from the same
 commit. For host-only testing, pass `--partial`; such a bundle cannot be staged.
 `package-crates.py --allow-dirty` permits local verification; dirty bundles also
 cannot be published. `--no-verify` is only for inspecting crate contents and is
@@ -139,7 +138,7 @@ published macro crate; the native publisher does the same for the mDNS crate.
 
 ### Registry workflows
 
-`.github/workflows/native-release.yml` builds and tests four platform archives,
+`.github/workflows/native-release.yml` builds and tests six platform archives,
 installs the npm tarballs outside the checkout with install scripts disabled,
 and packages/builds the actual Rust crate archives before either publisher runs.
 
@@ -154,12 +153,12 @@ Registry-side setup is required once (workflow files do not grant registry acces
    deployment rules restrict tags, allow `native-v*` as well as the existing `v*`
    and `main` rules. Use GitHub owner `omochi-ui`, repository `omochi`.
 2. Configure npm trusted publishing for `native-release.yml` on cli/utils and all
-   four platform packages. Those wrapper names previously used `release.yml`;
+   six platform packages. Those wrapper names previously used `release.yml`;
    move their trusted-publisher workflow to the native workflow, leaving SDK/core/
    renderer/hub-ui on the existing workflow. New platform names need first-publication
    credentials; use a narrowly scoped `NPM_BOOTSTRAP_TOKEN` environment secret and
    the workflow's `bootstrap` option, then remove it after OIDC setup.
-3. Configure crates.io trusted publishing for `native-release.yml` on all eight new
+3. Configure crates.io trusted publishing for `native-release.yml` on all nine
    native crates. Keep the Rust SDK's publisher on `release.yml`. Use a temporary
    `CRATES_IO_BOOTSTRAP_TOKEN` in the `crates-io` environment for first publication.
 4. npm uses the same staged publication policy as SDK releases. Review the exact

@@ -9,7 +9,6 @@ use omochi_transport::{
     store::{Role, Store},
 };
 use std::{
-    os::unix::fs::{MetadataExt, PermissionsExt},
     path::{Path, PathBuf},
     time::Duration,
 };
@@ -26,7 +25,8 @@ const DEFAULT_WEB_URL: &str = "https://app.omochi.fyi/";
 struct Cli {
     #[arg(long, global = true, env = "OMOCHI_CONFIG_DIR")]
     config_dir: Option<PathBuf>,
-    #[arg(long, global = true, env = "OMOCHI_RUNTIME_ROOT")]
+    #[arg(long, global = true, env = std::env::var_os("OMOCHI_RUNTIME_DIR")
+        .filter(|value| !value.is_empty()).map(|_| "OMOCHI_RUNTIME_DIR"))]
     runtime_dir: Option<PathBuf>,
     #[command(subcommand)]
     command: Command,
@@ -145,11 +145,7 @@ fn config_root(explicit: Option<PathBuf>) -> Result<PathBuf> {
     if let Some(path) = explicit {
         return Ok(path);
     }
-    let base = std::env::var_os("XDG_CONFIG_HOME")
-        .map(PathBuf::from)
-        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".config")))
-        .context("set XDG_CONFIG_HOME or --config-dir")?;
-    Ok(base.join("omochi/rust-v1"))
+    Ok(omochi_local::config_root()?)
 }
 fn validate_web_url(text: &str) -> std::result::Result<String, String> {
     let invalid = || {
@@ -181,45 +177,14 @@ fn web_invitation(base: &str, invitation: &str) -> Result<String> {
     Ok(format!("{base}#g:{payload}"))
 }
 
-fn private_directory(path: &Path) -> Result<()> {
-    if !path.exists() {
-        std::fs::create_dir_all(path)?;
-        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o700))?;
-    }
-    let meta = std::fs::symlink_metadata(path)?;
-    unsafe extern "C" {
-        fn getuid() -> u32;
-    }
-    if !meta.is_dir() || meta.mode() & 0o077 != 0 || meta.uid() != unsafe { getuid() } {
-        bail!(
-            "runtime directory must be owned and private: {}",
-            path.display()
-        )
-    }
-    Ok(())
-}
-struct ShutdownSignal {
-    term: tokio::signal::unix::Signal,
-    interrupt: tokio::signal::unix::Signal,
-}
-impl ShutdownSignal {
-    // Register before advertising readiness; constructing an async future alone
-    // does not install handlers and leaves a window for the default SIGTERM exit.
-    fn new() -> Result<Self> {
-        use tokio::signal::unix::{SignalKind, signal};
-        Ok(Self {
-            term: signal(SignalKind::terminate())?,
-            interrupt: signal(SignalKind::interrupt())?,
-        })
-    }
-    async fn wait(&mut self) {
-        tokio::select! { _ = self.interrupt.recv() => {}, _ = self.term.recv() => {} }
-    }
-}
+use omochi_process::ShutdownSignal;
 async fn probe(path: &Path) -> Result<()> {
     use omochi_protocol::{OpenStream, VERSION, read_frame, session::Control, write_frame};
     tokio::time::timeout(Duration::from_secs(2), async {
-        let mut socket = tokio::net::UnixStream::connect(path).await?;
+        let mut socket = omochi_local::LocalRuntime::open(path.to_path_buf())?
+            .gateway_endpoint()?
+            .connect()
+            .await?;
         write_frame(&mut socket, &OpenStream::Control { protocol: VERSION }).await?;
         match read_frame::<_, Control>(&mut socket).await? {
             Some(Control::Hello {
@@ -268,7 +233,9 @@ async fn run(cli: Cli) -> Result<()> {
     let root = config_root(cli.config_dir)?;
     let store = Store::open(&root)?;
     let runtime = match cli.runtime_dir {
-        Some(root) => root,
+        Some(root) => omochi_local::LocalRuntime::prepare(Some(root))?
+            .root()
+            .to_path_buf(),
         None => omochi_ui::prepare_omochi_runtime_root()?,
     };
     match cli.command {
@@ -373,12 +340,13 @@ async fn run(cli: Cli) -> Result<()> {
             } else {
                 None
             };
-            private_directory(&runtime)?;
+            omochi_local::LocalRuntime::prepare(Some(runtime.clone()))?;
             let gateway = omochi_gateway::Gateway::new();
             let identity = store.identity(Role::Gateway)?;
             let node = identity.public().to_string();
-            let local =
-                gateway.listen_unix(runtime.join("gateway.sock"), node.clone(), name.clone())?;
+            let local = gateway
+                .listen_local(runtime.clone(), node.clone(), name.clone())
+                .await?;
             let discovery = gateway.discover(runtime.clone());
             let mut remote_endpoint = None;
             let mut remote_task = None;
@@ -469,7 +437,7 @@ async fn run(cli: Cli) -> Result<()> {
         } => {
             let node = store.identity(Role::Gateway)?.public().to_string();
             let composition = composition::load(&file, &node)?;
-            private_directory(&runtime)?;
+            omochi_local::LocalRuntime::prepare(Some(runtime.clone()))?;
             let runtime = runtime.canonicalize()?;
             let mut children = composition::Supervisor::start(&composition.services, &runtime)?;
             let result = serve_hub(
@@ -531,25 +499,26 @@ async fn serve_hub(
         presets,
         open,
     } = options;
-    private_directory(&runtime)?;
-    let socket = runtime.join("gateway.sock");
-    let owned = if socket.exists() {
-        probe(&socket).await?;
+    omochi_local::LocalRuntime::prepare(Some(runtime.clone()))?;
+    let socket = runtime.clone();
+    let owned = if runtime.join("gateway.json").exists() && probe(&runtime).await.is_ok() {
         None
     } else if !no_auto_gateway {
         let gateway = omochi_gateway::Gateway::new();
-        let listener = gateway.listen_unix(
-            socket.clone(),
-            store.identity(Role::Gateway)?.public().to_string(),
-            "local".into(),
-        )?;
+        let listener = gateway
+            .listen_local(
+                socket.clone(),
+                store.identity(Role::Gateway)?.public().to_string(),
+                "local".into(),
+            )
+            .await?;
         let discovery = gateway.discover(runtime);
         Some((gateway, listener, discovery))
     } else {
         None
     };
     let hub = omochi_hub::Hub::new();
-    let attached = hub.attach_unix(socket);
+    let attached = hub.attach_local(socket);
     let mut tasks = Vec::new();
     let mut remote_task = None;
     let mut result: Result<()> = async {

@@ -2,6 +2,7 @@ fn private_root() -> tempfile::TempDir {
     use std::os::unix::fs::PermissionsExt;
     let root = tempfile::tempdir().unwrap();
     std::fs::set_permissions(root.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
+    omochi_local::LocalRuntime::prepare(Some(root.path().to_path_buf())).unwrap();
     root
 }
 use std::{process::Stdio, time::Duration};
@@ -9,6 +10,65 @@ use tokio::{
     io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
     process::Command,
 };
+
+#[tokio::test]
+async fn runtime_environment_ignores_empty_values_and_defers_to_cli() {
+    for selection in ["empty", "environment", "explicit"] {
+        let root = tempfile::tempdir().unwrap();
+        let mut command = Command::new(env!("CARGO_BIN_EXE_omochi-utils"));
+        command
+            .args(["stream", "--service-id", "runtime-env"])
+            .env("XDG_RUNTIME_DIR", root.path())
+            .env(
+                "OMOCHI_RUNTIME_DIR",
+                if selection == "empty" {
+                    std::ffi::OsString::new()
+                } else {
+                    root.path().join("environment").into_os_string()
+                },
+            )
+            .stdin(Stdio::piped())
+            .stderr(Stdio::piped())
+            .kill_on_drop(true);
+        let expected = match selection {
+            "empty" => root.path().join("omochi/v2"),
+            "environment" => root.path().join("environment"),
+            _ => {
+                command
+                    .arg("--runtime-dir")
+                    .arg(root.path().join("explicit"));
+                root.path().join("explicit")
+            }
+        };
+        let mut child = command.spawn().unwrap();
+        let mut logs = BufReader::new(child.stderr.take().unwrap()).lines();
+        let ready = tokio::time::timeout(Duration::from_secs(5), logs.next_line())
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        assert!(
+            ready.starts_with("Published service runtime-env"),
+            "{ready}"
+        );
+        assert!(expected.join("svc-runtime-env~/manifest.json").is_file());
+        if selection == "explicit" {
+            assert!(!root.path().join("environment").exists());
+        }
+        assert_eq!(
+            unsafe { libc::kill(child.id().unwrap() as i32, libc::SIGTERM) },
+            0
+        );
+        assert!(
+            tokio::time::timeout(Duration::from_secs(5), child.wait())
+                .await
+                .unwrap()
+                .unwrap()
+                .success()
+        );
+    }
+}
+
 #[tokio::test]
 async fn native_stream_replays_unicode_keeps_eof_and_exits_while_stdin_is_idle() {
     for eof in [false, true] {
@@ -36,7 +96,7 @@ async fn native_stream_replays_unicode_keeps_eof_and_exits_while_stdin_is_idle()
         } else {
             child.stdin = Some(input);
         }
-        let socket = tokio::net::UnixStream::connect(root.path().join("test/a2ui.sock"))
+        let socket = tokio::net::UnixStream::connect(root.path().join("svc-test~/a2ui.sock"))
             .await
             .unwrap();
         let mut lines = BufReader::new(socket).lines();
@@ -65,7 +125,7 @@ async fn native_stream_replays_unicode_keeps_eof_and_exits_while_stdin_is_idle()
                 .unwrap()
                 .success()
         );
-        assert!(!root.path().join("test/a2ui.sock").exists());
+        assert!(!root.path().join("svc-test~/a2ui.sock").exists());
     }
 }
 
@@ -89,7 +149,7 @@ async fn button_only_runs_on_action_and_publishes_completion() {
         .unwrap()
         .unwrap()
         .unwrap();
-    let socket = tokio::net::UnixStream::connect(root.path().join("button/a2ui.sock"))
+    let socket = tokio::net::UnixStream::connect(root.path().join("svc-button~/a2ui.sock"))
         .await
         .unwrap();
     let (read, mut write) = socket.into_split();
@@ -172,7 +232,7 @@ async fn process_restart_policies_and_manual_stop() {
             .unwrap()
             .unwrap()
             .unwrap();
-        let socket = tokio::net::UnixStream::connect(root.path().join("worker/a2ui.sock"))
+        let socket = tokio::net::UnixStream::connect(root.path().join("svc-worker~/a2ui.sock"))
             .await
             .unwrap();
         let (read, mut write) = socket.into_split();
@@ -301,7 +361,7 @@ async fn watch_diff_history_pause_and_resume() {
         .unwrap()
         .unwrap()
         .unwrap();
-    let socket = tokio::net::UnixStream::connect(root.path().join("watch/a2ui.sock"))
+    let socket = tokio::net::UnixStream::connect(root.path().join("svc-watch~/a2ui.sock"))
         .await
         .unwrap();
     let (read, mut write) = socket.into_split();
@@ -403,7 +463,7 @@ async fn watch_on_change_publishes_initial_result_and_timeout_is_visible() {
             .unwrap()
             .unwrap()
             .unwrap();
-        let socket = tokio::net::UnixStream::connect(root.path().join("watch/a2ui.sock"))
+        let socket = tokio::net::UnixStream::connect(root.path().join("svc-watch~/a2ui.sock"))
             .await
             .unwrap();
         let mut lines = BufReader::new(socket).lines();
@@ -488,7 +548,7 @@ async fn http_reports_unhealthy_and_recovery_through_native_action_loop() {
         .unwrap()
         .unwrap()
         .unwrap();
-    let socket = tokio::net::UnixStream::connect(root.path().join("health/a2ui.sock"))
+    let socket = tokio::net::UnixStream::connect(root.path().join("svc-health~/a2ui.sock"))
         .await
         .unwrap();
     let (read, mut write) = socket.into_split();

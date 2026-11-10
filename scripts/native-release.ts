@@ -6,6 +6,7 @@ import { npmStageId, root, run } from './release.ts';
 
 const registry = 'https://registry.npmjs.org/';
 export const crateNames = [
+  'omochi-process',
   'omochi-protocol',
   'omochi-mdns',
   'omochi-transport',
@@ -82,7 +83,7 @@ export async function validateNativeSources(): Promise<void> {
         if (
           dependency.path &&
           dependency.version !==
-            `=${name === 'omochi-ui' ? sdk.package.version : version}`
+            `=${['omochi-ui', 'omochi-local'].includes(name) ? sdk.package.version : version}`
         ) {
           throw new Error(
             `${member}: path dependency ${name} needs the exact publication version`,

@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from omochi_ui import App, CallbackTransport, UnixSocketServerTransport, schema
+from omochi_ui import App, CallbackTransport, LocalServerTransport, schema
 
 
 class RuntimeShutdownTests(unittest.IsolatedAsyncioTestCase):
@@ -117,11 +117,11 @@ class RuntimeShutdownTests(unittest.IsolatedAsyncioTestCase):
     async def test_unix_shutdown_disconnects_clients_and_retracts_publication(self):
         runtime, state = self.runtime()
         with tempfile.TemporaryDirectory(prefix="omochi-shutdown-") as root:
-            transport = UnixSocketServerTransport("app", runtime_dir=root)
+            transport = LocalServerTransport("app", runtime_dir=root)
             started = asyncio.create_task(runtime.start(transport))
             try:
                 await asyncio.wait_for(runtime.ready(), 2)
-                socket_path = transport.socket_path
+                socket_path = transport.endpoint["path"]
                 reader, writer = await asyncio.open_unix_connection(str(socket_path))
                 try:
                     # Receiving the hello proves the server has accepted this client.

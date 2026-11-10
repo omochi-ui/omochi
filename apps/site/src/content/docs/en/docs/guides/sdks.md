@@ -5,13 +5,13 @@ sidebar:
   order: 1
 ---
 
-Build an app that receives a slider value in Python, TypeScript, or Rust. On Linux or macOS, [start the Hub](../../start/installation/) first:
+Build an app that receives a slider value in Python, TypeScript, or Rust. On Linux, macOS or Windows 11, [start the Hub](../../start/installation/) first:
 
 ```sh
 npx @omochi-ui/cli hub
 ```
 
-Choose a language and create the following file in your own project. Each app publishes a Unix socket that the Hub discovers.
+Choose a language and create the following file in your own project. Each app publishes a local endpoint that the Hub discovers.
 
 ## Python
 
@@ -29,7 +29,7 @@ Save this as `app.py`.
 import asyncio
 from dataclasses import dataclass
 
-from omochi_ui import ActionContext, App, UnixSocketServerTransport, ui
+from omochi_ui import ActionContext, App, LocalServerTransport, ui
 
 
 @dataclass
@@ -37,9 +37,11 @@ class State:
     temperature: float = 50
     result: str | None = None
 
+
 @dataclass
 class RunInput:
     temperature: float
+
 
 app = App(State())
 
@@ -63,7 +65,7 @@ def main(state: State) -> None:
 app.mount(main)
 
 
-asyncio.run(app.start(UnixSocketServerTransport("temperature-python", name="Temperature")))
+asyncio.run(app.start(LocalServerTransport("temperature-python", name="Temperature")))
 ```
 
 ```sh
@@ -84,7 +86,7 @@ Save this as `app.mts`.
 
 ```ts
 import { schema, App } from "@omochi-ui/sdk";
-import { UnixSocketServerTransport } from "@omochi-ui/sdk/node";
+import { LocalServerTransport } from "@omochi-ui/sdk/node";
 
 const state: { temperature: number; result: string | null } = {
   temperature: 50,
@@ -105,7 +107,7 @@ app.surface("main", (ui, current) => {
   if (current.result) ui.text(current.result, { key: "result" });
 });
 
-await app.start(new UnixSocketServerTransport({
+await app.start(new LocalServerTransport({
   serviceId: "temperature-typescript",
   name: "Temperature",
 }));
@@ -132,7 +134,7 @@ Replace `src/main.rs` with the following.
 
 ```rust
 use omochi_ui::{ActionInput, Button, ButtonVariant, Input, Slider, Text, TextVariant};
-use omochi_ui::{App, Result, UnixSocketServerOptions, UnixSocketServerTransport};
+use omochi_ui::{App, Result, LocalServerOptions, LocalServerTransport};
 use serde::{Deserialize, Serialize};
 
 struct State {
@@ -194,8 +196,8 @@ async fn main() -> Result<()> {
         Ok(())
     })?;
 
-    let transport = UnixSocketServerTransport::bind(
-        UnixSocketServerOptions::new("temperature-rust").with_name("Temperature"),
+    let transport = LocalServerTransport::bind(
+        LocalServerOptions::new("temperature-rust").with_name("Temperature"),
     ).await?;
     app.start_with(transport).await
 }
@@ -222,4 +224,4 @@ Run the app and Hub as the same OS user with the same runtime directory. Keep bo
 
 ## Transports
 
-These examples publish Unix sockets. See [Transports](../../reference/transports/) for stdio, WebSocket, custom connections, and shutdown.
+These examples publish local endpoints. See [Transports](../../reference/transports/) for stdio, WebSocket, custom connections, and shutdown.

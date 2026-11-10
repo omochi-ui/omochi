@@ -1,4 +1,4 @@
-"""Package both Rust SDK crates and compile examples from the actual archives."""
+"""Package all three Rust SDK crates and compile examples from the actual archives."""
 
 import argparse
 import subprocess
@@ -19,6 +19,10 @@ command = [
     "--manifest-path",
     str(sdk / "Cargo.toml"),
     "--workspace",
+    "--exclude",
+    "omochi-local-node",
+    "--exclude",
+    "omochi-local-ffi",
     "--locked",
     "--no-verify",
 ]
@@ -27,11 +31,12 @@ if args.allow_dirty:
 subprocess.run(command, check=True)
 with tempfile.TemporaryDirectory(prefix="omochi-sdk-crates-") as directory:
     extracted = Path(directory)
-    for name in ("omochi-ui-macros", "omochi-ui"):
+    for name in ("omochi-local", "omochi-ui-macros", "omochi-ui"):
         with tarfile.open(
             sdk / "target/package" / f"{name}-{version}.crate"
         ) as archive:
             archive.extractall(extracted, filter="data")
+    local = extracted / f"omochi-local-{version}"
     macro = extracted / f"omochi-ui-macros-{version}"
     package = extracted / f"omochi-ui-{version}"
     # Use the packaged macro, never the source-tree macro. This also works before
@@ -47,6 +52,8 @@ with tempfile.TemporaryDirectory(prefix="omochi-sdk-crates-") as directory:
             str(sdk / "target/package-check"),
             "--config",
             f'patch.crates-io.omochi-ui-macros.path="{macro}"',
+            "--config",
+            f'patch.crates-io.omochi-local.path="{local}"',
         ],
         check=True,
     )

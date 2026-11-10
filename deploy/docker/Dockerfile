@@ -14,9 +14,9 @@ FROM debian:bookworm-slim AS runtime
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl libgcc-s1 \
     && rm -rf /var/lib/apt/lists/* \
     && groupadd --gid 10001 omochi && useradd --uid 10001 --gid 10001 --create-home omochi \
-    && install -d -o 10001 -g 10001 -m 0700 /run/omochi /run/omochi/python-example /var/lib/omochi
+    && install -d -o 10001 -g 10001 -m 0700 /run/omochi /run/omochi/v2 /var/lib/omochi
 COPY --from=build /src/crates/target/release/omochi-ui /src/crates/target/release/omochi-utils /usr/local/bin/
-ENV XDG_RUNTIME_DIR=/run OMOCHI_CONFIG_DIR=/var/lib/omochi
+ENV OMOCHI_RUNTIME_DIR=/run/omochi/v2 OMOCHI_CONFIG_DIR=/var/lib/omochi
 USER 10001:10001
 EXPOSE 5555
 ENTRYPOINT ["omochi-ui"]

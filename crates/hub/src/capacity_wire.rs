@@ -1,5 +1,6 @@
 //! Wire-level capacity regression: two Gateway controllers, independent service streams.
 use super::*;
+use tokio::net::UnixStream;
 use tokio::{net::UnixListener, sync::mpsc, task::JoinSet};
 
 type Update = (String, Arc<Value>);
@@ -156,7 +157,7 @@ async fn two_gateway_streams_admit_eight_stably_and_withdraw_only_the_oversized_
         let id = id.clone();
         attached.push(tokio::spawn(async move {
             hub.run_until(
-                Connection::Unix(path),
+                Connection::Local(omochi_local::LocalEndpoint::Unix { path }),
                 Some(id),
                 false,
                 hub.stop.child_token(),

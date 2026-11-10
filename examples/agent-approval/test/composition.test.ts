@@ -18,7 +18,8 @@ test('documented composition serves the dashboard and routes all four demo decis
   env.OMOCHI_APPROVAL_SOCKET = path.join(
     root,
     'omochi',
-    'agent-approval',
+    'v2',
+    'svc-agent-approval~',
     'approval.sock',
   );
   const hub = Bun.spawn(

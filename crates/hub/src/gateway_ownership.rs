@@ -1,4 +1,5 @@
-//! One node can be reachable through both automatic Unix and registered iroh.
+use tokio::net::UnixStream;
+// One node can be reachable through both automatic Unix and registered iroh.
 use super::*;
 use futures_util::{SinkExt, StreamExt};
 use omochi_transport::store::{Role, Store};
@@ -44,11 +45,12 @@ async fn unix_and_registered_iroh_share_services_and_fail_over_after_cleanup() {
         let runtime = root.path().join("runtime");
         std::fs::create_dir(&runtime).unwrap();
         std::fs::set_permissions(&runtime, std::fs::Permissions::from_mode(0o700)).unwrap();
-        let app = runtime.join("app");
-        std::fs::create_dir(&app).unwrap();
+        omochi_local::LocalRuntime::prepare(Some(runtime.to_path_buf())).unwrap();
+        let app = runtime.join("svc-app~");
+        omochi_local::files::private_directory(&app).unwrap();
         std::fs::write(
             app.join("manifest.json"),
-            r#"{"name":"App","socket":"a2ui.sock"}"#,
+            r#"{"version":2,"serviceId":"app","name":"App","endpoint":{"kind":"unix","path":"a2ui.sock"}}"#,
         )
         .unwrap();
         let listener = tokio::net::UnixListener::bind(app.join("a2ui.sock")).unwrap();
@@ -91,7 +93,7 @@ async fn unix_and_registered_iroh_share_services_and_fail_over_after_cleanup() {
         warm.close(0u32.into(), b"address seeded");
         let socket = runtime.join("gateway.sock");
         let unix_server = gateway
-            .listen_unix(socket.clone(), node.clone(), "gateway".into())
+            .listen_local((socket.clone()).parent().unwrap().to_path_buf(), node.clone(), "gateway".into()).await
             .unwrap();
 
         let mut hub = Hub::new();
@@ -102,7 +104,7 @@ async fn unix_and_registered_iroh_share_services_and_fail_over_after_cleanup() {
             let hub = hub.clone();
             let stop = local_stop.clone();
             async move {
-                hub.run_until(Connection::Unix(socket), None, true, stop)
+                hub.run_until(Connection::Local(omochi_local::LocalEndpoint::Unix { path: socket }), None, true, stop)
                     .await
             }
         });

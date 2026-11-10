@@ -118,9 +118,33 @@ try {
         '-c',
         '%u:%g:%a',
         '/run/omochi',
-        '/run/omochi/python-example',
+        '/run/omochi/v2',
+        '/run/omochi/v2/svc-python-example~',
       ),
-      '10001:10001:700\n10001:10001:700',
+      '10001:10001:700\n10001:10001:700\n10001:10001:700',
+    );
+    assert.equal(
+      await compose(
+        'exec',
+        '-T',
+        service,
+        'cat',
+        '/run/omochi/v2/runtime.json',
+      ),
+      '{"version":2}',
+    );
+    assert.equal(
+      await compose(
+        'exec',
+        '-T',
+        service,
+        'stat',
+        '-c',
+        '%u:%g:%a',
+        '/run/omochi/v2/.runtime.lock~',
+        '/run/omochi/v2/.svc-python-example.lock~',
+      ),
+      '10001:10001:600\n10001:10001:600',
     );
   }
   assert.ok((await compose('port', 'hub', '5555')).startsWith('127.0.0.1:'));

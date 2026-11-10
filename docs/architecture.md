@@ -18,10 +18,10 @@ rendering adapters. npm CLI packages launch native executables.
 
 ```text
 TypeScript / Python / Rust app
-    │ manifest + Unix JSONL (A2UI v0.9 and resources/1)
+    │ manifest + local JSONL (A2UI v0.9 and resources/1)
     ▼
 Rust Gateway
-    │ Gateway v4: local Unix streams or authenticated iroh streams
+    │ Gateway v4: local IPC or authenticated iroh streams
     ▼
 Rust Hub ── HTTP / WebSocket / SSE ── local React dashboard
     └────── iroh owner/share protocols ── hosted React / external-Hub Flutter client
@@ -66,12 +66,15 @@ domains. None promotes a peer into another role implicitly.
 | `packages/sdk/typescript/src` | `App`, `Runtime`, builders, expressions, schemas, reconciliation and resources; Node/Bun server transports in `node/` |
 | `packages/sdk/python/src/omochi_ui` | Equivalent runtime plus typed Python input composition and context-based UI declarations |
 | `packages/sdk/rust/src`, `packages/sdk/rust/macros` | Equivalent Rust runtime, Serde-aware typed expressions and `ActionInput` derive |
+| `packages/sdk/rust/local` | Shared `omochi-local` runtime roots, private files, publication ownership, manifests and Unix/named-pipe byte streams |
+| `packages/sdk/rust/local-node`, `packages/sdk/rust/local-ffi` | Node-API and C ABI adapters for TypeScript/Node/Bun and Python local transports |
 | `packages/core/src` | TypeScript JSONL, snapshots, resource broker, client-frame validation, browser session contracts, namespacing and test helpers |
 | `crates/protocol` | Gateway v4 framing, sessions, data-path validation, bounded fanout and queues |
 | `crates/downstream-core` | Transport-independent owner/share client protocol and apply/ACK state for WASM/native adapters |
 | `crates/mdns` | Platform address-discovery backends, record aggregation and cancellation |
 | `crates/transport` | iroh endpoint binding, relay selection, enrollment, identity/trust and durable storage |
-| `crates/discovery` | Local SDK manifest validation and filesystem watching |
+| `crates/discovery` | Shared-runtime discovery scans and filesystem watching |
+| `crates/process` | Owned process trees, Unix process groups, Windows Job Objects and shutdown signals |
 | `crates/gateway` | One upstream SDK connection per service, snapshots, subscriptions, action/resource routing |
 | `crates/hub` | Gateway aggregation, scoped subscriptions/images, boards, owner/share control, local HTTP/WS/SSE and embedded assets |
 | `crates/cli` | `omochi-ui`, process supervision, compositions, stdio preview and catalog generation |
@@ -93,9 +96,10 @@ domains. None promotes a peer into another role implicitly.
 | `experiments` | Direct-Gateway browser implementations, probes and dated evidence |
 
 The main native workspace is [`crates/Cargo.toml`](../crates/Cargo.toml). The
-Rust SDK is an independent package; native crates reuse its snapshot support
-through a versioned path dependency with runtime features disabled where
-appropriate. `downstream-core` and `native-bridge` are private implementation
+Rust SDK has an independent workspace that includes `omochi-local` and its
+language adapters. Native crates reuse the shared local module and SDK snapshot
+support through versioned path dependencies, with SDK runtime features disabled
+where appropriate. `downstream-core` and `native-bridge` are private implementation
 crates. Bun manages SDK/browser packages and launcher stubs; root scripts invoke
 Cargo explicitly. `packages/core` contains reusable TypeScript helpers, while
 native service implementations live in `crates/`.
@@ -160,7 +164,7 @@ typed TypeScript, Python and Rust bindings; adding a catalog name alone does not
 install its client rendering implementation.
 
 Runtime shutdown stops receiving, cleans up owned tasks and closes the resource
-registry. Transport-specific shutdown controls socket/listener ownership. See
+registry. Transport-specific shutdown controls endpoint/listener ownership. See
 the three SDK `app`, `builder`, `reconcile` and transport modules for the concrete
 language APIs, and the [basic message fixture](../spec/fixtures/basic.json) for
 cross-language ordering.
@@ -168,24 +172,44 @@ cross-language ordering.
 ## Local publication, discovery and Gateway
 
 SDK transports default to stdio JSONL for a single child-process integration.
-All three SDKs expose a Unix socket server publisher for discovery. TypeScript
-also supplies callback/WebSocket transports and a Node/Bun WebSocket server.
-The Unix service publishes `<runtimeRoot>/<serviceId>/manifest.json` with
-`{name,socket,icon?}` and normally listens on `a2ui.sock` in that directory.
-Service IDs use 1–64 ASCII letters/digits/`.`/`_`/`-`, excluding `.` and `..`.
+All three SDKs expose `LocalServerTransport` for discovery. TypeScript also
+supplies callback/WebSocket transports and a Node/Bun WebSocket server.
+The shared `omochi-local` module owns local publication and byte streams;
+SDKs retain JSONL framing, snapshots and fanout policy.
 
-The runtime root normally follows `$XDG_RUNTIME_DIR/omochi`; when XDG is unset or
-empty, the fallback is `<tempdir>/omochi-<effective uid>/omochi`. The private
-owned directory is local authentication. SDK publishers and native utilities
-hold the same nonblocking exclusive flock for a service's complete lifetime.
-Persistent `.<serviceId>.lock~` files must keep their inode across shutdown and
-crash recovery. Only the lock owner may probe/remove a stale socket and publish
-the manifest. See [local service ownership](../spec/local-service-ownership.md).
+Runtime format 2 publishes `<runtimeRoot>/svc-<serviceId>~/manifest.json` with
+`{version:2,serviceId,name,endpoint,icon?}`. Local service IDs match
+`[a-z0-9._-]{1,64}`, excluding `.` and `..`; uppercase is rejected. Unix endpoints
+use a filename such as `a2ui.sock` inside the service directory. Windows
+endpoints use a random `\\.\pipe\omochi-local-v2-<32 lowercase hex digits>` name.
+The [manifest schema](../spec/local-service.schema.json) defines both endpoint
+variants.
 
-[`crates/discovery`](../crates/discovery/src/lib.rs) validates the root, service
-IDs, bounded regular-file manifests, socket filenames and icon metadata before
-use. Filesystem notifications wake a validated scan; periodic scans remain
-necessary. Invalid/partial manifests are omitted until a valid later scan.
+An explicit SDK/CLI runtime directory or nonempty `OMOCHI_RUNTIME_DIR` overrides
+the platform default. Unix defaults to `$XDG_RUNTIME_DIR/omochi/v2`, or
+`<tempdir>/omochi-<effective uid>/v2` without XDG. Windows defaults to the
+LocalAppData known folder's `Omochi\Runtime\v2`. The root contains
+`runtime.json` with `{"version":2}`; `.runtime.lock~` serializes initialization.
+A nonempty root without the marker is rejected rather than migrated.
+
+The private runtime is local authentication. Unix managed directories are owned
+by the effective user with mode 0700 and files use mode 0600. Windows directories,
+files and pipe servers use protected current-user-only ACLs; clients verify the
+pipe server's owner SID before sending data. Unsafe ownership, permissions,
+symlinks or managed reparse points are rejected. SDK publishers and native
+utilities hold a nonblocking exclusive lock for their complete lifetime: flock
+on Unix and LockFileEx on Windows. Permanent `.svc-<serviceId>.lock~` files are
+never unlinked. Only the owner may recover a stale endpoint and advertise after
+listening; teardown preserves files replaced by a successor. The Gateway uses
+`gateway.json` and `.gateway.lock~` in the runtime root, with the same typed local
+endpoints. Runtime/manifest version 2 is independent of Gateway wire version 4.
+See [local service ownership](../spec/local-service-ownership.md) for the exact
+validation, lifecycle and distribution contracts.
+
+[`crates/discovery`](../crates/discovery/src/lib.rs) delegates validation of the
+root, service IDs, bounded regular-file manifests, endpoints and icon metadata
+to `omochi-local`. Filesystem notifications wake a validated scan; periodic scans
+remain necessary. Invalid/partial manifests are omitted until a valid later scan.
 Discovery supplies candidates and never grants remote trust.
 
 The Gateway shares one SDK connection across downstream subscribers, maintains
@@ -196,7 +220,7 @@ One service exceeding replay bounds is retracted without invalidating unrelated
 services. Roster admission is bounded by both service count and encoded bytes.
 
 Gateway v4 uses a nonempty UTF-8 JSON body with a four-byte big-endian length,
-bounded to 4 MiB, on both local Unix streams and remote iroh. Control streams
+bounded to 4 MiB, on both local IPC streams and remote iroh. Control streams
 carry hello, full service rosters and ping/pong. Service streams carry
 `snapshotStart`, messages, `snapshotEnd` and then live messages; the reverse
 direction carries client actions/errors. Resource streams perform one request
@@ -216,9 +240,9 @@ Hub-facing service routes are `<nodeId>~<serviceId>`, and Surface IDs are
 `<nodeId>~<serviceId>/<surfaceId>`. Action routing restores the SDK's Surface ID
 and narrows client model metadata to the destination service. Epoch/generation
 checks prevent a retired session from acting on or removing a successor's state.
-If Unix and iroh both reach the same Gateway identity, one control session owns
-subscriptions while other live sessions remain standby. Ownership transfers only
-after old streams finish and their Surfaces are retracted.
+If local IPC and iroh both reach the same Gateway identity, one control session
+owns subscriptions while other live sessions remain standby. Ownership transfers
+only after old streams finish and their Surfaces are retracted.
 
 The local Hub defaults to `127.0.0.1:5555` and starts a local Gateway if needed.
 [`http.rs`](../crates/hub/src/http.rs) exposes these boundaries:
@@ -355,8 +379,8 @@ capacity details live in the [mobile guide](../apps/mobile/README.md).
 ## Resources, image policy and capacity
 
 [`resources/1`](../spec/resources.md) is separate control traffic on SDK
-stdio/Unix/WebSocket connections. Registries copy immutable bytes into private
-temporary storage and allocate opaque IDs. `stat` returns size/MIME/ETag;
+stdio/local IPC/WebSocket connections. Registries copy immutable bytes into
+private temporary storage and allocate opaque IDs. `stat` returns size/MIME/ETag;
 `read` pulls at most 24 KiB. Gateway v4 carries one exchange per resource stream,
 and local HTTP adapters retain HEAD, ETag and single-range semantics. Resource
 frames/bytes never become A2UI snapshot state. Normal shutdown removes owned
@@ -376,7 +400,7 @@ The major bounds belong to different layers and must remain distinct:
 | Layer | Bound / overload behavior |
 | --- | --- |
 | SDK action receive queues | 256 pending application messages or 4 MiB; overflow latches a receive error and ends the stream after the running handler |
-| SDK Unix and TypeScript WS server output | 16 MiB outstanding encoded bytes per client, including active writes; overflow disconnects that client |
+| SDK local and TypeScript WS server output | 16 MiB outstanding encoded bytes per client, including active writes; overflow disconnects that client |
 | Gateway wire / roster | 4 MiB per framed JSON message; at most 256 services and one frame's encoded roster capacity |
 | Gateway snapshot / fanout | 16 MiB snapshot; fanout independently bounds message count and 16 MiB of encoded data; each materialized replay frame must also fit 4 MiB |
 | Native action/publication queues | 8 MiB retained through processing |
@@ -402,10 +426,10 @@ defaults to `127.0.0.1:5555`; a `ws` query selects a direct endpoint. It display
 all Surfaces on its connection. The multi-service dashboard is a separate entry.
 
 `up` loads version-1 `omochi.toml`, validates services and panel placement,
-supervises child process groups and exposes a read-only preset. Command arrays
+supervises child process trees and exposes a read-only preset. Command arrays
 execute directly; the composition loader does not implicitly use a shell. It
-sets service/runtime environment for discovery and terminates owned process
-groups on shutdown. See
+sets service/runtime environment for discovery. `omochi-process` terminates owned
+Unix process groups or Windows Job Objects on shutdown. See
 [`composition.rs`](../crates/cli/src/composition.rs).
 
 [`crates/utils`](../crates/utils/src/main.rs) publishes utility Surfaces through
@@ -421,10 +445,13 @@ boundaries, not a separate authorization mechanism in the Hub.
 
 [`package.json`](../package.json),
 [`crates/Cargo.toml`](../crates/Cargo.toml) and the individual SDK manifests
-define actual build dependencies and versions. `build:web` builds package assets;
-`build` then builds native CLI/utils. `build:native` builds the required embedded
-dashboard packages and native executables. Hosted WASM/dashboard and Flutter
-builds are separate. Native distributions embed built dashboard assets so
+define actual build dependencies and versions. `build:sdk-local` invokes
+[`scripts/build-local.py`](../scripts/build-local.py) to build the Node-API/C ABI
+adapters and stage host binaries for TypeScript and Python. `build` runs that step,
+then `build:web` for package assets and Cargo for native CLI/utils. `build:native`
+builds the adapters, required embedded dashboard packages and native executables.
+Hosted WASM/dashboard and Flutter builds are separate. Native distributions
+embed built dashboard assets so
 installed Cargo packages need no Bun runtime/build step.
 
 SDK/browser and native releases have separate version/check/package flows.

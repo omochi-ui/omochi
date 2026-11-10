@@ -24,7 +24,6 @@ use std::{
     time::Duration,
 };
 use tokio::{
-    net::UnixStream,
     sync::{Mutex, broadcast, mpsc, oneshot},
     task::JoinHandle,
 };
@@ -292,7 +291,7 @@ impl Gateway {
     async fn connect_loop(&self, spec: DiscoveredService, stop: CancellationToken) {
         let mut delay = 100;
         loop {
-            let connection = tokio::select! { _ = stop.cancelled() => return, result = UnixStream::connect(&spec.socket_path) => result };
+            let connection = tokio::select! { _ = stop.cancelled() => return, result = spec.endpoint.connect() => result };
             if let Ok(socket) = connection {
                 delay = 100;
                 let generation = self.next_generation.fetch_add(1, Ordering::Relaxed);
@@ -404,10 +403,16 @@ mod tests {
             id: "app".into(),
             manifest: omochi_local_discovery::Manifest {
                 name: "\0\n\"\\🍡日本語".into(),
-                socket: "a2ui.sock".into(),
+                version: 2,
+                service_id: "app".into(),
+                endpoint: omochi_local::LocalEndpoint::Unix {
+                    path: "a2ui.sock".into(),
+                },
                 icon: Some("🍡\"\\".into()),
             },
-            socket_path: PathBuf::new(),
+            endpoint: omochi_local::LocalEndpoint::Unix {
+                path: PathBuf::new(),
+            },
         };
         let envelope = serde_json::to_vec(&Control::Services { services: vec![] })
             .unwrap()
@@ -483,15 +488,16 @@ mod tests {
         }
         let root = tempfile::tempdir().unwrap();
         std::fs::set_permissions(root.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
+        omochi_local::LocalRuntime::prepare(Some(root.path().to_path_buf())).unwrap();
         let icon = format!("data:image/png;base64,{}", "A".repeat(65_499));
         let mut sdk_tasks = Vec::new();
         for index in 0..65 {
             let id = format!("z{index:03}");
-            let directory = root.path().join(&id);
-            std::fs::create_dir(&directory).unwrap();
+            let directory = root.path().join(format!("svc-{id}~"));
+            omochi_local::files::private_directory(&directory).unwrap();
             std::fs::write(
                 directory.join("manifest.json"),
-                json!({"name":id, "socket":"a2ui.sock", "icon":icon}).to_string(),
+                json!({"version":2,"serviceId":id,"name":id,"endpoint":{"kind":"unix","path":"a2ui.sock"},"icon":icon}).to_string(),
             )
             .unwrap();
             let listener = UnixListener::bind(directory.join("a2ui.sock")).unwrap();
@@ -531,7 +537,7 @@ mod tests {
         manifest.name = "\0\"\\🍡".repeat(4500);
         let bytes = serde_json::to_vec(manifest).unwrap();
         assert!(bytes.len() < 128 * 1024);
-        std::fs::write(root.path().join("z000/manifest.json"), bytes).unwrap();
+        std::fs::write(root.path().join("svc-z000~/manifest.json"), bytes).unwrap();
         found = scan(root.path()).unwrap();
         assert_eq!(found.len(), 65);
         gateway.reconcile_discovery(&mut tasks, found.clone()).await;
@@ -602,11 +608,17 @@ mod tests {
         let service = |id: String| DiscoveredService {
             manifest: omochi_local_discovery::Manifest {
                 name: id.clone(),
-                socket: "sdk.sock".into(),
+                version: 2,
+                service_id: id.clone(),
+                endpoint: omochi_local::LocalEndpoint::Unix {
+                    path: "sdk.sock".into(),
+                },
                 icon: None,
             },
             id,
-            socket_path: socket_path.clone(),
+            endpoint: omochi_local::LocalEndpoint::Unix {
+                path: socket_path.clone(),
+            },
         };
         let mut found: BTreeMap<_, _> = (0..MAX_SERVICES)
             .map(|i| {
@@ -837,11 +849,12 @@ mod tests {
     async fn shared_sdk_stream_replays_snapshot_routes_actions_and_retracts() {
         let root = tempfile::tempdir().unwrap();
         std::fs::set_permissions(root.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
-        let directory = root.path().join("app");
-        std::fs::create_dir(&directory).unwrap();
+        omochi_local::LocalRuntime::prepare(Some(root.path().to_path_buf())).unwrap();
+        let directory = root.path().join("svc-app~");
+        omochi_local::files::private_directory(&directory).unwrap();
         std::fs::write(
             directory.join("manifest.json"),
-            r#"{"name":"App","socket":"a2ui.sock"}"#,
+            r#"{"version":2,"serviceId":"app","name":"App","endpoint":{"kind":"unix","path":"a2ui.sock"}}"#,
         )
         .unwrap();
         let listener = UnixListener::bind(directory.join("a2ui.sock")).unwrap();

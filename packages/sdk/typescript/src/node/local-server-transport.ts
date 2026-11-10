@@ -4,10 +4,6 @@ import {
   type ResourceFrame,
 } from '@omochi-ui/core';
 import { ResourceRegistry } from '../resources.js';
-import { chmod, rmdir } from 'node:fs/promises';
-import { createServer, type Server, type Socket } from 'node:net';
-import path from 'node:path';
-import process from 'node:process';
 
 import { A2uiClientMessageSchema } from '@a2ui/web_core/v0_9';
 
@@ -15,29 +11,23 @@ import { ReceiveQueue, ReceiveQueueOverflowError } from '../receive-queue.js';
 import type { Transport } from '../transport.js';
 import type { A2UIMessage, JsonObject } from '../types.js';
 import {
-  assertSocketPathFits,
-  claimSocketPath,
-  ensureServiceDirectory,
-  lockService,
-  omochiRuntimeRoot,
-  prepareFallbackRuntimeRoot,
-  removeServiceDirectory,
-  removeServiceDirectorySync,
-  validateServiceId,
-  writeServiceManifest,
-} from './service-directory.js';
+  nativeRequest,
+  NativeDuplex,
+  type LocalEndpoint,
+} from './native-local.js';
+export type { LocalEndpoint } from './native-local.js';
 import { A2uiSnapshot } from './snapshot.js';
 import { encodeReplay, OutboundWriter } from './outbound-writer.js';
 import { JsonlFramer } from './jsonl-framer.js';
 
-export interface UnixSocketServerTransportOptions {
-  /** Discovery id and directory name; must match `[A-Za-z0-9._-]{1,64}`. */
+export interface LocalServerTransportOptions {
+  /** Discovery id and directory name; must match `[a-z0-9._-]{1,64}`. */
   serviceId: string;
   /** Human-readable label shown by a hub. Defaults to `serviceId`. */
   name?: string;
   /** An emoji, or a `data:image/...;base64,` URL a browser can render directly. */
   icon?: string;
-  /** Defaults to `$XDG_RUNTIME_DIR/omochi`. */
+  /** Complete runtime root; defaults to OMOCHI_RUNTIME_DIR or the platform v2 directory. */
   runtimeDir?: string;
   capabilities?: Iterable<string>;
 }
@@ -47,19 +37,17 @@ interface PendingReceive {
   reject(error: unknown): void;
 }
 
-const SOCKET_FILE_NAME = 'a2ui.sock';
-
 /**
- * Publishes one application on a unix domain socket and advertises it for discovery.
+ * Publishes one application through user-private local IPC for discovery.
  *
- * The transport writes `<runtimeDir>/<serviceId>/manifest.json` next to the socket so a
- * hub can find it without configuration. Reaching the socket is the authentication: the
- * runtime directory is mode 0700, so only the owning user can connect.
+ * The shared native adapter writes `<runtimeDir>/svc-<serviceId>~/manifest.json`
+ * and serves a Unix domain socket or Windows named pipe. Access is restricted
+ * to the current OS user through directory permissions or Windows ACLs.
  *
  * Like `WebSocketServerTransport`, it fans one application out to every connected
  * renderer and merges their inbound messages into a single stream for the Runtime.
  */
-export class UnixSocketServerTransport implements Transport {
+export class LocalServerTransport implements Transport {
   resources?: ResourceRegistry;
   readonly capabilities: ReadonlySet<string>;
   readonly ready: Promise<void>;
@@ -67,38 +55,33 @@ export class UnixSocketServerTransport implements Transport {
   private readonly serviceId: string;
   private readonly manifestName: string;
   private readonly icon: string | undefined;
-  private readonly root: string;
-  private readonly fallbackRoot: boolean;
-  private readonly server: Server = createServer();
-  private readonly clients = new Set<Socket>();
-  private readonly outbound = new WeakMap<Socket, OutboundWriter>();
+  private readonly root: string | undefined;
+  private nativeId: number | null = null;
+  private resolvedEndpoint: LocalEndpoint | null = null;
+  private accepting: Promise<void> | null = null;
+  private readonly clients = new Set<NativeDuplex>();
+  private readonly outbound = new WeakMap<NativeDuplex, OutboundWriter>();
   private readonly snapshot = new A2uiSnapshot();
   private readonly received = new ReceiveQueue<JsonObject>();
   private readonly waiting: PendingReceive[] = [];
-  private readonly exitCleanup: () => void;
-  private releaseService: (() => void) | null = null;
   private resolvedDirectory: string | null = null;
   private closed = false;
   private receiveError: unknown = null;
   private closePromise: Promise<void> | null = null;
 
-  constructor(options: UnixSocketServerTransportOptions) {
-    this.serviceId = validateServiceId(options.serviceId);
+  constructor(options: LocalServerTransportOptions) {
+    if (
+      !/^[a-z0-9._-]{1,64}$/.test(options.serviceId) ||
+      ['.', '..'].includes(options.serviceId)
+    )
+      throw new TypeError(
+        'serviceId must match [a-z0-9._-]{1,64} and cannot be . or ..',
+      );
+    this.serviceId = options.serviceId;
     this.manifestName = options.name ?? this.serviceId;
     this.icon = options.icon;
-    this.root = options.runtimeDir ?? omochiRuntimeRoot();
-    this.fallbackRoot =
-      options.runtimeDir === undefined && !process.env.XDG_RUNTIME_DIR;
+    this.root = options.runtimeDir;
     this.capabilities = new Set(options.capabilities ?? []);
-    this.server.on('connection', (socket) => this.accept(socket));
-    this.exitCleanup = () => {
-      if (this.resolvedDirectory)
-        removeServiceDirectorySync(this.resolvedDirectory);
-      this.resolvedDirectory = null;
-      this.releaseService?.();
-      this.releaseService = null;
-    };
-    process.once('exit', this.exitCleanup);
     this.ready = this.publish().catch((error: unknown) => {
       this.receiveError = error;
       this.flushReceivers();
@@ -106,11 +89,8 @@ export class UnixSocketServerTransport implements Transport {
     });
   }
 
-  /** The socket path, available once `ready` resolves. */
-  get socketPath(): string | null {
-    return this.resolvedDirectory
-      ? path.join(this.resolvedDirectory, SOCKET_FILE_NAME)
-      : null;
+  get endpoint(): LocalEndpoint | null {
+    return this.resolvedEndpoint;
   }
 
   get directory(): string | null {
@@ -146,76 +126,55 @@ export class UnixSocketServerTransport implements Transport {
     this.closePromise = (async () => {
       // Startup may still be binding or writing its manifest when close is called.
       await this.ready.catch(() => {});
-      const directory = this.resolvedDirectory;
-      try {
-        // Retract the advertisement before tearing the socket down.
-        if (directory) await removeServiceDirectory(directory);
-      } finally {
-        for (const client of this.clients) {
-          this.outbound.get(client)?.close();
-          client.destroy();
-        }
-        this.clients.clear();
-        if (this.server.listening) {
-          await new Promise<void>((resolve) =>
-            this.server.close(() => resolve()),
-          );
-        }
+      for (const client of this.clients) {
+        this.outbound.get(client)?.close();
+        client.destroy();
       }
+      this.clients.clear();
+      if (this.nativeId !== null) await nativeRequest('close', this.nativeId);
+      if (this.accepting) await this.accepting;
+      this.nativeId = null;
       this.resolvedDirectory = null;
-      this.releaseService?.();
-      this.releaseService = null;
-      process.off('exit', this.exitCleanup);
+      this.resolvedEndpoint = null;
     })();
     return this.closePromise;
   }
 
   private async publish(): Promise<void> {
-    if (this.fallbackRoot) await prepareFallbackRuntimeRoot(this.root);
-    this.releaseService = await lockService(this.root, this.serviceId);
-    const directory = path.join(this.root, this.serviceId);
+    const result = JSON.parse(
+      (
+        await nativeRequest('publish', 0, Buffer.alloc(0), {
+          serviceId: this.serviceId,
+          name: this.manifestName,
+          icon: this.icon,
+          runtimeDir: this.root,
+        })
+      ).toString(),
+    ) as { id: number; endpoint: LocalEndpoint; directory: string };
+    this.nativeId = result.id;
+    this.resolvedDirectory = result.directory;
+    this.resolvedEndpoint = result.endpoint;
+    this.accepting = this.acceptNative();
+  }
+
+  private async acceptNative(): Promise<void> {
     try {
-      await ensureServiceDirectory(this.root, this.serviceId);
-      await this.listen(directory);
-    } catch (error) {
-      // Leave no empty directory behind for a discovery pass to walk into. `rmdir`
-      // refuses a non-empty directory, so a live service's files are never touched.
-      await rmdir(directory).catch(() => undefined);
-      if (!this.resolvedDirectory) {
-        this.releaseService?.();
-        this.releaseService = null;
-        process.off('exit', this.exitCleanup);
+      while (!this.closed && this.nativeId !== null) {
+        const handle = JSON.parse(
+          (await nativeRequest('accept', this.nativeId)).toString(),
+        ) as number;
+        this.accept(new NativeDuplex(handle));
       }
-      throw error;
+    } catch (error) {
+      if (!this.closed) {
+        this.receiveError = error;
+        this.flushReceivers();
+        void this.close();
+      }
     }
   }
 
-  private async listen(directory: string): Promise<void> {
-    const socketPath = path.join(directory, SOCKET_FILE_NAME);
-    assertSocketPathFits(socketPath);
-    await claimSocketPath(socketPath);
-    await new Promise<void>((resolve, reject) => {
-      const onError = (error: Error) => reject(error);
-      this.server.once('error', onError);
-      this.server.listen(socketPath, () => {
-        this.server.off('error', onError);
-        this.resolvedDirectory = directory;
-        resolve();
-      });
-    });
-    // Linux enforces unix socket permissions on connect, and listen() applies the umask.
-    await chmod(socketPath, 0o600);
-    const manifest = { name: this.manifestName, socket: SOCKET_FILE_NAME } as {
-      name: string;
-      icon?: string;
-      socket: string;
-    };
-    if (this.icon !== undefined) manifest.icon = this.icon;
-    // Advertise only once the socket accepts connections, so a readable manifest is connectable.
-    await writeServiceManifest(directory, manifest);
-  }
-
-  private accept(socket: Socket): void {
+  private accept(socket: NativeDuplex): void {
     if (this.closed) {
       socket.destroy();
       return;
@@ -232,7 +191,6 @@ export class UnixSocketServerTransport implements Transport {
     };
     socket.on('error', disconnect);
     socket.on('close', disconnect);
-    socket.setNoDelay(true);
     const outbound = new OutboundWriter((text, complete) => {
       socket.write(text, complete);
     }, disconnect);

@@ -31,7 +31,11 @@ export function approvalSocketPath(
 ): string {
   return (
     env.OMOCHI_APPROVAL_SOCKET ??
-    path.join(omochiRuntimeRoot(env), 'agent-approval', 'approval.sock')
+    path.join(
+      env.OMOCHI_RUNTIME_DIR || omochiRuntimeRoot(),
+      'svc-agent-approval~',
+      'approval.sock',
+    )
   );
 }
 

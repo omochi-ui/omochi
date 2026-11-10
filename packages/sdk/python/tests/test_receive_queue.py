@@ -6,7 +6,7 @@ import tempfile
 import unittest
 from itertools import product
 
-from omochi_ui import App, UnixSocketServerTransport, schema
+from omochi_ui import App, LocalServerTransport, schema
 from omochi_ui.receive_queue import (
     MAX_PENDING_BYTES,
     MAX_PENDING_MESSAGES,
@@ -78,11 +78,11 @@ class ReceiveQueueTests(unittest.IsolatedAsyncioTestCase):
                     MAX_PENDING_MESSAGES, MAX_PENDING_BYTES // len(encoded(message))
                 )
                 app, entered, release, calls, stat = self.blocked_app()
-                transport = UnixSocketServerTransport("queue", runtime_dir=root)
+                transport = LocalServerTransport("queue", runtime_dir=root)
                 await transport.start()
                 running = asyncio.create_task(app.start(transport))
                 reader, writer = await asyncio.open_unix_connection(
-                    str(transport.socket_path)
+                    str(transport.endpoint["path"])
                 )
                 try:
                     writer.write(encoded(action_message()) + b"\n")

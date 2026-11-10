@@ -6,7 +6,7 @@ const repo =
 const { App, schema } = await import(
   `${repo}/packages/sdk/typescript/src/index.ts`
 );
-const { UnixSocketServerTransport } = await import(
+const { LocalServerTransport } = await import(
   `${repo}/packages/sdk/typescript/src/node/index.ts`
 );
 
@@ -52,7 +52,7 @@ app.surface('main', (ui, state) => {
     });
 });
 await app.start(
-  new UnixSocketServerTransport({
+  new LocalServerTransport({
     serviceId: process.env.OMOCHI_SERVICE ?? 'flutter-example',
     name: 'Flutter integration',
   }),

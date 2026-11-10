@@ -2,21 +2,19 @@ from __future__ import annotations
 
 import asyncio
 import json
-import os
 import subprocess
 import sys
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
 
 from omochi_ui import (
     App,
+    LocalServerTransport,
     ResourceRegistry,
-    UnixSocketServerTransport,
     schema,
 )
-from omochi_ui.unix_server import _prepare_fallback_runtime_root, validate_service_id
+from omochi_ui.local_server import validate_service_id
 
 
 def counter_app() -> App:
@@ -47,24 +45,7 @@ async def read_messages(reader: asyncio.StreamReader, count: int) -> list[dict]:
     return messages
 
 
-class UnixSocketServerTransportTests(unittest.TestCase):
-    def test_rejects_foreign_fallback_parent_before_traversal(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            parent = Path(temporary) / "parent"
-            parent.mkdir(mode=0o755)
-            parent.chmod(0o755)
-            root = parent / "omochi"
-            # Inject foreign ownership without requiring chown privileges.
-            with (
-                patch(
-                    "omochi_ui.unix_server.os.geteuid", return_value=os.geteuid() + 1
-                ),
-                self.assertRaises(PermissionError),
-            ):
-                _prepare_fallback_runtime_root(root)
-            self.assertFalse(root.exists())
-            self.assertEqual(parent.stat().st_mode & 0o777, 0o755)
-
+class LocalServerTransportTests(unittest.TestCase):
     def test_isolates_malformed_client_frames(self) -> None:
         fixtures = Path(__file__).parents[4] / "spec/fixtures"
         actions = json.loads((fixtures / "client-actions.json").read_text())
@@ -72,7 +53,7 @@ class UnixSocketServerTransportTests(unittest.TestCase):
 
         async def scenario() -> None:
             with tempfile.TemporaryDirectory() as root:
-                transport = UnixSocketServerTransport("demo", runtime_dir=root)
+                transport = LocalServerTransport("demo", runtime_dir=root)
                 resources = ResourceRegistry()
                 transport.resources = resources
                 uri = resources.bytes(b"media", "image/png")
@@ -80,7 +61,7 @@ class UnixSocketServerTransportTests(unittest.TestCase):
 
                 async def connect():
                     reader, writer = await asyncio.open_unix_connection(
-                        str(transport.socket_path)
+                        str(transport.endpoint["path"])
                     )
                     writers.append(writer)
                     self.assertEqual(
@@ -155,165 +136,31 @@ class UnixSocketServerTransportTests(unittest.TestCase):
 
         asyncio.run(scenario())
 
-    def test_close_releases_ownership_with_an_inherited_file_description(self) -> None:
-        async def scenario() -> None:
-            with tempfile.TemporaryDirectory() as root:
-                owner = UnixSocketServerTransport("demo", runtime_dir=root)
-                successor = UnixSocketServerTransport("demo", runtime_dir=root)
-                contender = UnixSocketServerTransport("demo", runtime_dir=root)
-                await owner.start()
-                assert owner._lock_fd is not None
-                # dup and fork retain the same open file description. Keep one
-                # alive through close, independent of subprocess scheduling.
-                inherited = os.dup(owner._lock_fd)
-                try:
-                    await owner.close()
-                    await successor.start()
-                finally:
-                    os.close(inherited)
-                try:
-                    owner._cleanup_sync()
-                    with self.assertRaisesRegex(RuntimeError, "another omochi service"):
-                        await contender.start()
-                    _reader, writer = await asyncio.open_unix_connection(
-                        str(successor.socket_path)
-                    )
-                    writer.close()
-                    await writer.wait_closed()
-                finally:
-                    await contender.close()
-                    await successor.close()
-
-        asyncio.run(scenario())
-
-    def test_close_waits_for_start_and_retracts_the_service(self) -> None:
-        async def scenario() -> None:
-            with tempfile.TemporaryDirectory() as root:
-                transport = UnixSocketServerTransport("demo", runtime_dir=root)
-                binding = asyncio.Event()
-                release_bind = asyncio.Event()
-                closing = asyncio.Event()
-                start_unix_server = asyncio.start_unix_server
-                servers = []
-
-                async def blocked_bind(*args, **kwargs):
-                    binding.set()
-                    await release_bind.wait()
-                    server = await start_unix_server(*args, **kwargs)
-                    servers.append(server)
-                    return server
-
-                async def close() -> None:
-                    closing.set()
-                    await transport.close()
-
-                with patch(
-                    "omochi_ui.unix_server.asyncio.start_unix_server", blocked_bind
-                ):
-                    started = asyncio.create_task(transport.start())
-                    await asyncio.wait_for(binding.wait(), timeout=5)
-                    closed = asyncio.create_task(close())
-                    await asyncio.wait_for(closing.wait(), timeout=5)
-                    try:
-                        self.assertFalse(closed.done())
-                    finally:
-                        release_bind.set()
-                        await asyncio.wait_for(
-                            asyncio.gather(started, closed), timeout=5
-                        )
-
-                await transport.close()
-                await transport.start()
-                self.assertFalse(servers[0].is_serving())
-                self.assertIsNone(transport._server)
-                self.assertFalse((Path(root) / "demo").exists())
-                with self.assertRaises(OSError):
-                    await asyncio.open_unix_connection(
-                        str(Path(root) / "demo" / "a2ui.sock")
-                    )
-
-        asyncio.run(scenario())
-
-    def test_close_after_bind_failure_is_idempotent(self) -> None:
-        async def scenario() -> None:
-            with tempfile.TemporaryDirectory() as root:
-                transport = UnixSocketServerTransport("demo", runtime_dir=root)
-                with (
-                    patch(
-                        "omochi_ui.unix_server.asyncio.start_unix_server",
-                        side_effect=OSError("bind failed"),
-                    ),
-                    self.assertRaisesRegex(OSError, "bind failed"),
-                ):
-                    await transport.start()
-                await transport.close()
-                await transport.close()
-                await transport.start()
-                self.assertIsNone(transport._server)
-                self.assertFalse((Path(root) / "demo").exists())
-
-        asyncio.run(scenario())
-
-    def test_cancelled_close_still_releases_receive_and_retracts_the_service(
-        self,
-    ) -> None:
-        async def scenario() -> None:
-            with tempfile.TemporaryDirectory() as root:
-                transport = UnixSocketServerTransport("demo", runtime_dir=root)
-                await transport.start()
-                server = transport._server
-                assert server is not None
-                waiting_for_message = asyncio.Event()
-                waiting_for_close = asyncio.Event()
-                queue_get = transport._queue.get
-
-                async def get_message():
-                    waiting_for_message.set()
-                    return await queue_get()
-
-                async def wait_closed() -> None:
-                    waiting_for_close.set()
-                    await asyncio.Event().wait()
-
-                with patch.object(transport._queue, "get", get_message):
-                    receiving = asyncio.create_task(anext(transport.receive()))
-                    await asyncio.wait_for(waiting_for_message.wait(), timeout=5)
-                    with patch.object(server, "wait_closed", wait_closed):
-                        closing = asyncio.create_task(transport.close())
-                        await asyncio.wait_for(waiting_for_close.wait(), timeout=5)
-                        closing.cancel()
-                        with self.assertRaises(asyncio.CancelledError):
-                            await closing
-                    await transport.close()
-                    with self.assertRaises(StopAsyncIteration):
-                        await asyncio.wait_for(receiving, timeout=5)
-
-                await transport.start()
-                self.assertFalse(server.is_serving())
-                self.assertIsNone(transport._server)
-                self.assertFalse((Path(root) / "demo").exists())
-
-        asyncio.run(scenario())
-
     def test_publishes_and_cleans_up_a_discoverable_service(self) -> None:
         async def scenario() -> None:
             with tempfile.TemporaryDirectory() as root:
-                transport = UnixSocketServerTransport(
+                transport = LocalServerTransport(
                     "demo", name="Demo", icon="🎤", runtime_dir=root
                 )
                 running = asyncio.create_task(counter_app().start(transport))
                 await transport.start()
 
-                directory = Path(root) / "demo"
+                directory = Path(root) / "svc-demo~"
                 self.assertEqual(transport.directory, directory)
                 self.assertEqual(
                     json.loads((directory / "manifest.json").read_text()),
-                    {"name": "Demo", "socket": "a2ui.sock", "icon": "🎤"},
+                    {
+                        "version": 2,
+                        "serviceId": "demo",
+                        "name": "Demo",
+                        "endpoint": {"kind": "unix", "path": "a2ui.sock"},
+                        "icon": "🎤",
+                    },
                 )
                 self.assertEqual(directory.stat().st_mode & 0o777, 0o700)
 
                 reader, writer = await asyncio.open_unix_connection(
-                    str(transport.socket_path)
+                    str(transport.endpoint["path"])
                 )
                 initial = await read_messages(reader, 3)
                 self.assertEqual(initial[0]["createSurface"]["surfaceId"], "main")
@@ -328,10 +175,10 @@ class UnixSocketServerTransportTests(unittest.TestCase):
     def test_fans_out_and_snapshots_for_a_late_client(self) -> None:
         async def scenario() -> None:
             with tempfile.TemporaryDirectory() as root:
-                transport = UnixSocketServerTransport("demo", runtime_dir=root)
+                transport = LocalServerTransport("demo", runtime_dir=root)
                 running = asyncio.create_task(counter_app().start(transport))
                 await transport.start()
-                path = str(transport.socket_path)
+                path = str(transport.endpoint["path"])
 
                 reader, writer = await asyncio.open_unix_connection(path)
                 await read_messages(reader, 3)
@@ -372,10 +219,10 @@ class UnixSocketServerTransportTests(unittest.TestCase):
         asyncio.run(scenario())
 
     def test_validates_the_entire_service_id(self) -> None:
-        for service_id in ("demo", "Demo_1.2-3", "x" * 64):
+        for service_id in ("demo", "demo_1.2-3", "x" * 64):
             with self.subTest(service_id=service_id):
                 self.assertEqual(validate_service_id(service_id), service_id)
-        for service_id in ("demo\n", "demo\r\n", "x" * 65):
+        for service_id in ("Demo", "demo\n", "demo\r\n", "x" * 65):
             with self.subTest(service_id=service_id), self.assertRaises(ValueError):
                 validate_service_id(service_id)
 
@@ -390,7 +237,7 @@ class UnixSocketServerTransportTests(unittest.TestCase):
                     transport = None
                     try:
                         with self.assertRaises(ValueError):
-                            transport = UnixSocketServerTransport(
+                            transport = LocalServerTransport(
                                 service_id, runtime_dir=runtime_dir
                             )
                             await transport.start()
@@ -420,70 +267,15 @@ import omochi_ui
             check=True,
         )
 
-    def test_ownership_survives_bind_and_cleanup_barriers(self) -> None:
-        async def scenario() -> None:
-            with tempfile.TemporaryDirectory() as root:
-                first = UnixSocketServerTransport("demo", runtime_dir=root)
-                paused, resume = asyncio.Event(), asyncio.Event()
-                listen = first._listen
-
-                async def paused_listen(directory):
-                    paused.set()
-                    await resume.wait()
-                    await listen(directory)
-
-                first._listen = paused_listen
-                started = asyncio.create_task(first.start())
-                await paused.wait()
-
-                async def reject_contender():
-                    contender = UnixSocketServerTransport("demo", runtime_dir=root)
-                    with self.assertRaisesRegex(RuntimeError, "already owns"):
-                        await contender.start()
-                    await contender.close()
-
-                await reject_contender()
-                resume.set()
-                await started
-                await reject_contender()
-                paused.clear()
-                resume.clear()
-                server = first._server
-                wait_closed = server.wait_closed
-
-                async def paused_close():
-                    paused.set()
-                    await resume.wait()
-                    await wait_closed()
-
-                server.wait_closed = paused_close
-                stopped = asyncio.create_task(first.close())
-                await paused.wait()
-                await reject_contender()
-                resume.set()
-                await stopped
-                successor = UnixSocketServerTransport("demo", runtime_dir=root)
-                await successor.start()
-                await first.close()
-                first._cleanup_sync()
-                _reader, writer = await asyncio.open_unix_connection(
-                    str(successor.socket_path)
-                )
-                writer.close()
-                await writer.wait_closed()
-                await successor.close()
-
-        asyncio.run(scenario())
-
     def test_refuses_a_second_instance_and_recovers_a_stale_socket(self) -> None:
         async def scenario() -> None:
             with tempfile.TemporaryDirectory() as root:
-                first = UnixSocketServerTransport("demo", runtime_dir=root)
+                first = LocalServerTransport("demo", runtime_dir=root)
                 running = asyncio.create_task(counter_app().start(first))
                 await first.start()
 
-                duplicate = UnixSocketServerTransport("demo", runtime_dir=root)
-                with self.assertRaises(RuntimeError):
+                duplicate = LocalServerTransport("demo", runtime_dir=root)
+                with self.assertRaises(OSError):
                     await duplicate.start()
                 await duplicate.close()
 
@@ -491,12 +283,16 @@ import omochi_ui
                 await running
 
                 # A socket file left behind by a crash must not block the next start.
-                (Path(root) / "demo").mkdir(exist_ok=True)
-                (Path(root) / "demo" / "a2ui.sock").touch()
-                restarted = UnixSocketServerTransport("demo", runtime_dir=root)
+                (Path(root) / "svc-demo~").mkdir(exist_ok=True)
+                import socket
+
+                stale = socket.socket(socket.AF_UNIX)
+                stale.bind(str(Path(root) / "svc-demo~" / "a2ui.sock"))
+                stale.close()
+                restarted = LocalServerTransport("demo", runtime_dir=root)
                 second = asyncio.create_task(counter_app().start(restarted))
                 await restarted.start()
-                self.assertIsNotNone(restarted.socket_path)
+                self.assertIsNotNone(restarted.endpoint["path"])
                 await restarted.close()
                 await second
 

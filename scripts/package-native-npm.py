@@ -6,6 +6,7 @@ import hashlib
 import json
 import shutil
 import subprocess
+import sys
 import tarfile
 import tempfile
 import tomllib
@@ -36,7 +37,13 @@ def validate_archive(archive, version):
     target = next((t for t in TARGETS if t["target"] == metadata["target"]), None)
     if target is None:
         raise ValueError("Unsupported archive target")
-    for name in ["bin/omochi-ui", "bin/omochi-utils", "LICENSE", "README.md"]:
+    suffix = ".exe" if target["os"] == "win32" else ""
+    for name in [
+        "bin/omochi-ui" + suffix,
+        "bin/omochi-utils" + suffix,
+        "LICENSE",
+        "README.md",
+    ]:
         if hashlib.sha256(files[name]).hexdigest() != metadata["sha256"][name]:
             raise ValueError(f"File checksum mismatch: {name}")
     return target, metadata, files
@@ -57,15 +64,10 @@ def pack(directory, manifest, output):
     shutil.copy2(ROOT / "LICENSE", directory / "LICENSE")
     if not (directory / "README.md").exists():
         shutil.copy2(ROOT / "crates/DISTRIBUTION.md", directory / "README.md")
+    # Windows provides npm.cmd rather than an npm executable.
+    npm = "npm.cmd" if sys.platform == "win32" else "npm"
     result = subprocess.check_output(
-        [
-            "npm",
-            "pack",
-            "--ignore-scripts",
-            "--json",
-            "--pack-destination",
-            str(output),
-        ],
+        [npm, "pack", "--ignore-scripts", "--json", "--pack-destination", str(output)],
         cwd=directory,
         text=True,
     )
@@ -105,6 +107,7 @@ def main():
             directory = Path(temporary)
             (directory / "bin").mkdir()
             for name in ["omochi-ui", "omochi-utils"]:
+                name += ".exe" if target["os"] == "win32" else ""
                 binary = directory / "bin" / name
                 binary.write_bytes(files["bin/" + name])
                 binary.chmod(0o755)

@@ -5,13 +5,13 @@ sidebar:
   order: 1
 ---
 
-Python・TypeScript・Rustのいずれかで、スライダーの値を受け取るアプリを作ります。LinuxまたはmacOSで、[Hubを起動](../../start/installation/)しておいてください。
+Python・TypeScript・Rustのいずれかで、スライダーの値を受け取るアプリを作ります。Linux・macOS・Windows 11で、[Hubを起動](../../start/installation/)しておいてください。
 
 ```sh
 npx @omochi-ui/cli hub
 ```
 
-言語をひとつ選び、以下のファイルを自分のプロジェクトに作成します。アプリはUnixソケットで公開され、Hubに検出されます。
+言語をひとつ選び、以下のファイルを自分のプロジェクトに作成します。アプリはローカルIPCで公開され、Hubに検出されます。
 
 ## Python
 
@@ -29,7 +29,7 @@ pip install omochi-ui
 import asyncio
 from dataclasses import dataclass
 
-from omochi_ui import ActionContext, App, UnixSocketServerTransport, ui
+from omochi_ui import ActionContext, App, LocalServerTransport, ui
 
 
 @dataclass
@@ -37,9 +37,11 @@ class State:
     temperature: float = 50
     result: str | None = None
 
+
 @dataclass
 class RunInput:
     temperature: float
+
 
 app = App(State())
 
@@ -63,7 +65,7 @@ def main(state: State) -> None:
 app.mount(main)
 
 
-asyncio.run(app.start(UnixSocketServerTransport("temperature-python", name="Temperature")))
+asyncio.run(app.start(LocalServerTransport("temperature-python", name="Temperature")))
 ```
 
 ```sh
@@ -84,7 +86,7 @@ npm install --save-dev tsx typescript
 
 ```ts
 import { schema, App } from "@omochi-ui/sdk";
-import { UnixSocketServerTransport } from "@omochi-ui/sdk/node";
+import { LocalServerTransport } from "@omochi-ui/sdk/node";
 
 const state: { temperature: number; result: string | null } = {
   temperature: 50,
@@ -105,7 +107,7 @@ app.surface("main", (ui, current) => {
   if (current.result) ui.text(current.result, { key: "result" });
 });
 
-await app.start(new UnixSocketServerTransport({
+await app.start(new LocalServerTransport({
   serviceId: "temperature-typescript",
   name: "Temperature",
 }));
@@ -132,7 +134,7 @@ cargo add tokio --features macros,rt-multi-thread
 
 ```rust
 use omochi_ui::{ActionInput, Button, ButtonVariant, Input, Slider, Text, TextVariant};
-use omochi_ui::{App, Result, UnixSocketServerOptions, UnixSocketServerTransport};
+use omochi_ui::{App, Result, LocalServerOptions, LocalServerTransport};
 use serde::{Deserialize, Serialize};
 
 struct State {
@@ -194,8 +196,8 @@ async fn main() -> Result<()> {
         Ok(())
     })?;
 
-    let transport = UnixSocketServerTransport::bind(
-        UnixSocketServerOptions::new("temperature-rust").with_name("Temperature"),
+    let transport = LocalServerTransport::bind(
+        LocalServerOptions::new("temperature-rust").with_name("Temperature"),
     ).await?;
     app.start_with(transport).await
 }
@@ -222,4 +224,4 @@ cargo run
 
 ## Transport
 
-これらの例はUnixソケットで公開します。標準入出力・WebSocket・独自接続の選択と終了処理は[Transportリファレンス](../../reference/transports/)を参照してください。
+これらの例はローカルIPCで公開します。標準入出力・WebSocket・独自接続の選択と終了処理は[Transportリファレンス](../../reference/transports/)を参照してください。

@@ -1,19 +1,12 @@
 //! Native utility publication using the existing SDK manifest and JSONL contract.
-use anyhow::{Context, Result, bail};
-use fs2::FileExt;
+use anyhow::Result;
 use futures_util::{SinkExt, StreamExt};
+use omochi_local::{LocalEndpoint, LocalRuntime, LocalStream};
 use omochi_protocol::{MAX_FRAME_BYTES, fanout, queue};
-use omochi_ui::{A2uiSnapshot, UnixSocketServerOptions};
+use omochi_ui::{A2uiSnapshot, LocalServerOptions};
 use serde_json::Value;
-use std::{
-    fs,
-    os::unix::fs::{FileTypeExt, MetadataExt, OpenOptionsExt, PermissionsExt},
-    path::{Path, PathBuf},
-    sync::Arc,
-    time::Duration,
-};
+use std::{sync::Arc, time::Duration};
 use tokio::{
-    net::{UnixListener, UnixStream},
     sync::{Mutex, Semaphore, mpsc},
     task::{JoinHandle, JoinSet},
 };
@@ -26,126 +19,25 @@ struct State {
     snapshot: A2uiSnapshot,
     events: fanout::Sender,
 }
-struct ServiceLock(fs::File);
-impl ServiceLock {
-    fn acquire(root: &Path, service_id: &str) -> Result<Self> {
-        let file = fs::OpenOptions::new()
-            .create(true)
-            .truncate(false)
-            .read(true)
-            .write(true)
-            .mode(0o600)
-            .open(root.join(format!(".{service_id}.lock~")))?;
-        file.try_lock_exclusive()
-            .context("another omochi service owns this service id")?;
-        Ok(Self(file))
-    }
-}
-impl Drop for ServiceLock {
-    fn drop(&mut self) {
-        // A concurrent fork can inherit this open file description until exec,
-        // even with CLOEXEC. Closing our fd alone would leave its flock held.
-        // Release explicitly after publication cleanup, then close our fd.
-        let _ = FileExt::unlock(&self.0);
-    }
-}
-struct OwnedFiles {
-    directory: PathBuf,
-    socket: PathBuf,
-    inode: (u64, u64),
-    manifest_inode: Option<(u64, u64)>,
-}
-impl Drop for OwnedFiles {
-    fn drop(&mut self) {
-        if fs::symlink_metadata(&self.socket).is_ok_and(|m| (m.dev(), m.ino()) == self.inode) {
-            let _ = fs::remove_file(&self.socket);
-            let manifest = self.directory.join("manifest.json");
-            if fs::symlink_metadata(&manifest)
-                .is_ok_and(|m| Some((m.dev(), m.ino())) == self.manifest_inode)
-            {
-                let _ = fs::remove_file(manifest);
-            }
-            let _ = fs::remove_dir(&self.directory);
-        }
-    }
-}
-// Drop in this order even when the supervisor is aborted: stop listening, retract
-// this publication, then release the shared lifetime lock. Never unlink its inode.
-struct Publication {
-    listener: UnixListener,
-    _files: OwnedFiles,
-    _lock: ServiceLock,
-}
-impl Publication {
-    async fn accept(&self) -> std::io::Result<(UnixStream, tokio::net::unix::SocketAddr)> {
-        self.listener.accept().await
-    }
-}
-fn private(path: &Path) -> Result<()> {
-    if !path.exists() {
-        fs::create_dir_all(path)?;
-        fs::set_permissions(path, fs::Permissions::from_mode(0o700))?;
-    }
-    let m = fs::symlink_metadata(path)?;
-    if !m.is_dir() || m.mode() & 0o077 != 0 || m.uid() != unsafe { libc::getuid() } {
-        bail!("runtime directory must be owned and private");
-    }
-    Ok(())
-}
 pub struct LocalTransport {
     state: Arc<Mutex<State>>,
     input: mpsc::Receiver<queue::Entry<Value>>,
     stop: CancellationToken,
     task: Option<JoinHandle<()>>,
-    socket: PathBuf,
+    endpoint: LocalEndpoint,
 }
 impl LocalTransport {
-    pub async fn bind(options: UnixSocketServerOptions) -> Result<Self> {
-        if !omochi_protocol::session::valid_service_id(&options.service_id) {
-            bail!("invalid service id");
-        }
-        let root = match options.runtime_dir {
-            Some(root) => root,
-            None => omochi_ui::prepare_omochi_runtime_root()?,
-        };
-        private(&root)?;
-        let lock = ServiceLock::acquire(&root, &options.service_id)?;
-        let directory = root.join(&options.service_id);
-        private(&directory)?;
-        let socket = directory.join("a2ui.sock");
-        if let Ok(metadata) = fs::symlink_metadata(&socket) {
-            if !metadata.file_type().is_socket() {
-                bail!("service socket path is not a socket");
-            }
-            match UnixStream::connect(&socket).await {
-                Ok(_) => bail!("another service owns this socket"),
-                Err(error) if error.kind() == std::io::ErrorKind::ConnectionRefused => {
-                    fs::remove_file(&socket)?
-                }
-                Err(error) => return Err(error.into()),
-            }
-        }
-        let listener = UnixListener::bind(&socket)?;
-        let m = fs::symlink_metadata(&socket)?;
-        let mut files = OwnedFiles {
-            directory: directory.clone(),
-            socket: socket.clone(),
-            inode: (m.dev(), m.ino()),
-            manifest_inode: None,
-        };
-        fs::set_permissions(&socket, fs::Permissions::from_mode(0o600))?;
-        let manifest = omochi_local_discovery::Manifest {
-            name: options.name.unwrap_or(options.service_id),
-            socket: "a2ui.sock".into(),
-            icon: options.icon,
-        };
-        manifest.validate()?;
-        let temporary = directory.join(format!(".manifest.{}.tmp", std::process::id()));
-        fs::write(&temporary, serde_json::to_vec(&manifest)?)?;
-        fs::set_permissions(&temporary, fs::Permissions::from_mode(0o600))?;
-        fs::rename(temporary, directory.join("manifest.json"))?;
-        let manifest_metadata = fs::symlink_metadata(directory.join("manifest.json"))?;
-        files.manifest_inode = Some((manifest_metadata.dev(), manifest_metadata.ino()));
+    pub async fn bind(options: LocalServerOptions) -> Result<Self> {
+        omochi_local::validate_service_id(&options.service_id)?;
+        let root = LocalRuntime::prepare(options.runtime_dir)?;
+        let publication = root
+            .publish(
+                &options.service_id,
+                options.name.as_deref().unwrap_or(&options.service_id),
+                options.icon,
+            )
+            .await?;
+        let endpoint = publication.endpoint().clone();
         let (events, _) = fanout::channel(32, fanout::DEFAULT_BYTES);
         let state = Arc::new(Mutex::new(State {
             snapshot: A2uiSnapshot::new(),
@@ -155,11 +47,6 @@ impl LocalTransport {
         let stop = CancellationToken::new();
         let shared = state.clone();
         let cancellation = stop.clone();
-        let publication = Publication {
-            listener,
-            _files: files,
-            _lock: lock,
-        };
         let task = tokio::spawn(async move {
             let clients = Arc::new(Semaphore::new(16));
             let mut tasks = JoinSet::new();
@@ -168,7 +55,7 @@ impl LocalTransport {
                     _ = cancellation.cancelled() => break,
                     _ = tasks.join_next(), if !tasks.is_empty() => {},
                     result = publication.accept() => {
-                        let Ok((stream, _)) = result else { break; };
+                        let Ok(stream) = result else { break; };
                         let Ok(permit) = clients.clone().try_acquire_owned() else { continue; };
                         let state = shared.clone(); let input = sender.clone(); let stop = cancellation.clone();
                         tasks.spawn(async move {
@@ -178,6 +65,7 @@ impl LocalTransport {
                     }
                 }
             }
+            publication.stop().await;
             tasks.abort_all();
             while tasks.join_next().await.is_some() {}
             drop(publication);
@@ -187,11 +75,11 @@ impl LocalTransport {
             input,
             stop,
             task: Some(task),
-            socket,
+            endpoint,
         })
     }
-    pub fn socket_path(&self) -> &Path {
-        &self.socket
+    pub fn endpoint(&self) -> &LocalEndpoint {
+        &self.endpoint
     }
     pub async fn send(&mut self, message: &Value) -> Result<()> {
         let mut state = self.state.lock().await;
@@ -221,7 +109,7 @@ impl Drop for LocalTransport {
     }
 }
 async fn connection(
-    stream: UnixStream,
+    stream: LocalStream,
     state: Arc<Mutex<State>>,
     input: queue::Sender<Value>,
 ) -> Result<()> {
@@ -260,11 +148,16 @@ async fn connection(
     tokio::select! { result = write => result, result = read => result }
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 mod tests {
     use super::*;
-    use omochi_ui::UnixSocketServerTransport;
+    use omochi_ui::LocalServerTransport;
+    use std::{
+        fs,
+        os::unix::fs::{MetadataExt, PermissionsExt},
+    };
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::UnixStream;
 
     fn private_root() -> tempfile::TempDir {
         let root = tempfile::tempdir().unwrap();
@@ -279,7 +172,7 @@ mod tests {
         // dup and fork both retain the same open file description. Keep that
         // reference alive deterministically, as a child would before exec closes
         // its CLOEXEC descriptors, without relying on subprocess scheduling.
-        let inherited = owner.0.try_clone().unwrap();
+        let inherited = owner.0.file().try_clone().unwrap();
         assert!(ServiceLock::acquire(root.path(), "shared").is_err());
         drop(owner);
         let successor = ServiceLock::acquire(root.path(), "shared").unwrap();
@@ -292,28 +185,22 @@ mod tests {
     #[tokio::test]
     async fn sdk_and_utility_share_the_persistent_lock_and_allow_successors_after_close() {
         let root = private_root();
-        let options = UnixSocketServerOptions::new("shared").with_runtime_dir(root.path());
-        let lock_path = root.path().join(".shared.lock~");
+        let options = LocalServerOptions::new("shared").with_runtime_dir(root.path());
+        let lock_path = root.path().join(".svc-shared.lock~");
         let mut utility = LocalTransport::bind(options.clone()).await.unwrap();
         let lock_metadata = fs::metadata(&lock_path).unwrap();
         assert_eq!(lock_metadata.mode() & 0o777, 0o600);
         let inode = (lock_metadata.dev(), lock_metadata.ino());
-        assert!(
-            UnixSocketServerTransport::bind(options.clone())
-                .await
-                .is_err()
-        );
+        assert!(LocalServerTransport::bind(options.clone()).await.is_err());
         assert!(LocalTransport::bind(options.clone()).await.is_err());
         utility.close().await;
 
-        let mut sdk = UnixSocketServerTransport::bind(options.clone())
-            .await
-            .unwrap();
+        let mut sdk = LocalServerTransport::bind(options.clone()).await.unwrap();
         utility.close().await;
         drop(utility);
         assert!(LocalTransport::bind(options.clone()).await.is_err());
         UnixStream::connect(sdk.socket_path()).await.unwrap();
-        assert!(root.path().join("shared/manifest.json").exists());
+        assert!(root.path().join("svc-shared~/manifest.json").exists());
         sdk.close().await;
 
         let mut successor = LocalTransport::bind(options).await.unwrap();
@@ -327,14 +214,11 @@ mod tests {
     #[tokio::test]
     async fn shared_lock_excludes_sdk_and_utility_before_a_socket_exists() {
         let root = private_root();
+        omochi_local::LocalRuntime::prepare(Some(root.path().to_path_buf())).unwrap();
         let lock = ServiceLock::acquire(root.path(), "shared").unwrap();
-        let options = UnixSocketServerOptions::new("shared").with_runtime_dir(root.path());
+        let options = LocalServerOptions::new("shared").with_runtime_dir(root.path());
         assert!(LocalTransport::bind(options.clone()).await.is_err());
-        assert!(
-            UnixSocketServerTransport::bind(options.clone())
-                .await
-                .is_err()
-        );
+        assert!(LocalServerTransport::bind(options.clone()).await.is_err());
         assert!(!root.path().join("shared").exists());
         drop(lock);
         let mut transport = LocalTransport::bind(options).await.unwrap();
@@ -345,7 +229,7 @@ mod tests {
     async fn cancelled_close_keeps_ownership_until_listener_and_files_are_cleaned() {
         use std::{future::Future, task::Context};
         let root = private_root();
-        let options = UnixSocketServerOptions::new("shared").with_runtime_dir(root.path());
+        let options = LocalServerOptions::new("shared").with_runtime_dir(root.path());
         let mut transport = LocalTransport::bind(options.clone()).await.unwrap();
         let mut closing = Box::pin(transport.close());
         assert!(
@@ -357,12 +241,8 @@ mod tests {
         drop(closing);
         // The current-thread supervisor has not processed cancellation yet.
         assert!(LocalTransport::bind(options.clone()).await.is_err());
-        assert!(
-            UnixSocketServerTransport::bind(options.clone())
-                .await
-                .is_err()
-        );
-        assert!(root.path().join("shared/manifest.json").exists());
+        assert!(LocalServerTransport::bind(options.clone()).await.is_err());
+        assert!(root.path().join("svc-shared~/manifest.json").exists());
         transport.close().await;
         assert!(!root.path().join("shared").exists());
         let mut successor = LocalTransport::bind(options).await.unwrap();
@@ -374,7 +254,7 @@ mod tests {
     #[tokio::test]
     async fn aborted_supervisor_retracts_publication_before_releasing_ownership() {
         let root = private_root();
-        let options = UnixSocketServerOptions::new("shared").with_runtime_dir(root.path());
+        let options = LocalServerOptions::new("shared").with_runtime_dir(root.path());
         let mut transport = LocalTransport::bind(options.clone()).await.unwrap();
         let task = transport.task.take().unwrap();
         task.abort();
@@ -382,7 +262,7 @@ mod tests {
         assert!(LocalTransport::bind(options.clone()).await.is_err());
         assert!(task.await.unwrap_err().is_cancelled());
         assert!(!root.path().join("shared").exists());
-        let mut successor = UnixSocketServerTransport::bind(options).await.unwrap();
+        let mut successor = LocalServerTransport::bind(options).await.unwrap();
         successor.close().await;
     }
 
@@ -402,7 +282,7 @@ mod tests {
         };
         announce("WAITING");
         command();
-        let mut options = UnixSocketServerOptions::new("demo");
+        let mut options = LocalServerOptions::new("demo");
         if let Some(root) = root {
             options = options.with_runtime_dir(root);
         }
@@ -421,8 +301,7 @@ mod tests {
     #[tokio::test]
     async fn a_slow_reader_is_disconnected_after_exceeding_the_byte_budget() {
         let root = tempfile::tempdir().unwrap();
-        let options =
-            UnixSocketServerOptions::new("slow").with_runtime_dir(root.path().join("private"));
+        let options = LocalServerOptions::new("slow").with_runtime_dir(root.path().join("private"));
         let mut transport = LocalTransport::bind(options).await.unwrap();
         let mut slow = UnixStream::connect(transport.socket_path()).await.unwrap();
         // Receiving an action proves the connection has taken its subscription.
@@ -447,7 +326,7 @@ mod tests {
     async fn duplicate_owners_oversized_input_and_idle_clients_are_closed_safely() {
         let root = tempfile::tempdir().unwrap();
         fs::set_permissions(root.path(), fs::Permissions::from_mode(0o700)).unwrap();
-        let options = UnixSocketServerOptions::new("native").with_runtime_dir(root.path());
+        let options = LocalServerOptions::new("native").with_runtime_dir(root.path());
         let mut transport = LocalTransport::bind(options.clone()).await.unwrap();
         assert!(LocalTransport::bind(options).await.is_err());
         let mut oversized = UnixStream::connect(transport.socket_path()).await.unwrap();
@@ -472,17 +351,17 @@ mod tests {
         transport.close().await;
         assert_eq!(idle.read(&mut byte).await.unwrap(), 0);
         assert!(!socket.exists());
-        assert!(!root.path().join("native/manifest.json").exists());
+        assert!(!root.path().join("svc-native~/manifest.json").exists());
     }
     #[tokio::test]
     async fn refuses_shared_runtime_and_does_not_delete_replaced_manifest() {
         let root = tempfile::tempdir().unwrap();
-        fs::set_permissions(root.path(), fs::Permissions::from_mode(0o755)).unwrap();
-        let options = UnixSocketServerOptions::new("native").with_runtime_dir(root.path());
+        fs::set_permissions(root.path(), fs::Permissions::from_mode(0o777)).unwrap();
+        let options = LocalServerOptions::new("native").with_runtime_dir(root.path());
         assert!(LocalTransport::bind(options.clone()).await.is_err());
         fs::set_permissions(root.path(), fs::Permissions::from_mode(0o700)).unwrap();
         let mut transport = LocalTransport::bind(options).await.unwrap();
-        let directory = root.path().join("native");
+        let directory = root.path().join("svc-native~");
         fs::write(directory.join("replacement"), "replacement").unwrap();
         fs::rename(
             directory.join("replacement"),
@@ -494,5 +373,39 @@ mod tests {
             fs::read_to_string(directory.join("manifest.json")).unwrap(),
             "replacement"
         );
+    }
+}
+
+#[cfg(all(test, unix))]
+struct ServiceLock(omochi_local::files::FileLock);
+#[cfg(all(test, unix))]
+impl ServiceLock {
+    fn acquire(root: &std::path::Path, id: &str) -> std::io::Result<Self> {
+        Ok(Self(omochi_local::files::FileLock::acquire(
+            &root.join(format!(".svc-{id}.lock~")),
+            true,
+        )?))
+    }
+}
+#[cfg(all(test, unix))]
+trait SocketPath {
+    fn socket_path(&self) -> &std::path::Path;
+}
+#[cfg(all(test, unix))]
+impl SocketPath for LocalTransport {
+    fn socket_path(&self) -> &std::path::Path {
+        match self.endpoint() {
+            LocalEndpoint::Unix { path } => path,
+            _ => unreachable!(),
+        }
+    }
+}
+#[cfg(all(test, unix))]
+impl SocketPath for omochi_ui::LocalServerTransport {
+    fn socket_path(&self) -> &std::path::Path {
+        match self.endpoint() {
+            LocalEndpoint::Unix { path } => path,
+            _ => unreachable!(),
+        }
     }
 }

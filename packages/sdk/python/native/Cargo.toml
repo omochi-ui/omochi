@@ -1,0 +1,3 @@
+[workspace]
+members = ["local", "local-ffi"]
+resolver = "3"

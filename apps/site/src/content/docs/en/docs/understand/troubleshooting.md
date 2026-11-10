@@ -7,7 +7,7 @@ sidebar:
 
 ## The app prints JSON instead of opening a browser
 
-`app.start()` defaults to stdin/stdout. To display it in a Hub, select `UnixSocketServerTransport` as shown in the [SDK guide](../../guides/sdks/). See [Transports](../../reference/transports/) for custom clients and stdio previews.
+`app.start()` defaults to stdin/stdout. To display it in a Hub, select `LocalServerTransport` as shown in the [SDK guide](../../guides/sdks/). See [Transports](../../reference/transports/) for custom clients and stdio previews.
 
 ## Port 5555 is already occupied
 
@@ -15,7 +15,7 @@ sidebar:
 
 ## A service does not appear
 
-Check that the app publishes through `UnixSocketServerTransport` under the same OS user and runtime directory as the Gateway. The Hub does not start apps automatically. Check paths and environment variables in [configuration](../../reference/configuration/); keep runtime directories at mode 0700.
+Check that the app publishes through `LocalServerTransport` under the same OS user and runtime directory as the Gateway. The Hub does not start apps automatically. Check paths and environment variables in [configuration](../../reference/configuration/); keep Unix runtime directories at mode 0700 and Windows ACLs restricted to your user.
 
 ## Input seems stale after an update
 

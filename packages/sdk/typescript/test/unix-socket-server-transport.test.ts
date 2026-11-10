@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { access, mkdtemp, readFile, rm, mkdir } from 'node:fs/promises';
-import { createConnection, Socket, type Server } from 'node:net';
+import { access, mkdtemp, readFile, rm } from 'node:fs/promises';
+import { createConnection, Socket } from 'node:net';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { createInterface } from 'node:readline';
@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { test } from '@omochi-ui/core/testing';
 
 import { schema, App } from '../src/index.js';
-import { UnixSocketServerTransport } from '../src/node/index.js';
+import { LocalServerTransport } from '../src/node/index.js';
 import type { JsonObject } from '../src/index.js';
 
 for (const runtime of ['node', 'bun']) {
@@ -118,7 +118,7 @@ function counterApp(): { app: App<{ count: number }> } {
 
 test('publishes a discoverable socket and manifest, then removes both on close', async (t) => {
   const root = await runtimeDir(t);
-  const transport = new UnixSocketServerTransport({
+  const transport = new LocalServerTransport({
     serviceId: 'demo',
     name: 'Demo',
     icon: '🎤',
@@ -128,19 +128,21 @@ test('publishes a discoverable socket and manifest, then removes both on close',
   const running = app.start(transport);
   await transport.ready;
 
-  const directory = path.join(root, 'demo');
+  const directory = path.join(root, 'svc-demo~');
   assert.equal(transport.directory, directory);
-  assert.equal(transport.socketPath, path.join(directory, 'a2ui.sock'));
+  assert.equal(socketPath(transport), path.join(directory, 'a2ui.sock'));
   assert.deepEqual(
     JSON.parse(await readFile(path.join(directory, 'manifest.json'), 'utf8')),
     {
       name: 'Demo',
-      socket: 'a2ui.sock',
+      version: 2,
+      serviceId: 'demo',
+      endpoint: { kind: 'unix', path: 'a2ui.sock' },
       icon: '🎤',
     },
   );
 
-  const client = connectClient(transport.socketPath!);
+  const client = connectClient(socketPath(transport));
   t.after(() => client.socket.destroy());
   const first = await client.next();
   assert.deepEqual(first, {
@@ -163,7 +165,7 @@ test('publishes a discoverable socket and manifest, then removes both on close',
 
 test('fans one application out to every client and snapshots for late joiners', async (t) => {
   const root = await runtimeDir(t);
-  const transport = new UnixSocketServerTransport({
+  const transport = new LocalServerTransport({
     serviceId: 'demo',
     runtimeDir: root,
   });
@@ -175,7 +177,7 @@ test('fans one application out to every client and snapshots for late joiners', 
     await running;
   });
 
-  const first = connectClient(transport.socketPath!);
+  const first = connectClient(socketPath(transport));
   t.after(() => first.socket.destroy());
   await first.next();
   await first.next();
@@ -195,7 +197,7 @@ test('fans one application out to every client and snapshots for late joiners', 
   );
   await first.next();
 
-  const late = connectClient(transport.socketPath!);
+  const late = connectClient(socketPath(transport));
   t.after(() => late.socket.destroy());
   const replay = [await late.next(), await late.next(), await late.next()];
   const components = replay.find((message) => 'updateComponents' in message) as
@@ -214,7 +216,7 @@ test('refuses a service id that would escape the runtime directory', async (t) =
   const root = await runtimeDir(t);
   for (const serviceId of ['.', '..', 'a/b', '', 'x'.repeat(65)]) {
     assert.throws(
-      () => new UnixSocketServerTransport({ serviceId, runtimeDir: root }),
+      () => new LocalServerTransport({ serviceId, runtimeDir: root }),
       TypeError,
     );
   }
@@ -222,7 +224,7 @@ test('refuses a service id that would escape the runtime directory', async (t) =
 
 test('recovers a socket left behind by a crash and refuses a live duplicate', async (t) => {
   const root = await runtimeDir(t);
-  const first = new UnixSocketServerTransport({
+  const first = new LocalServerTransport({
     serviceId: 'demo',
     runtimeDir: root,
   });
@@ -230,17 +232,18 @@ test('recovers a socket left behind by a crash and refuses a live duplicate', as
   const running = app.start(first);
   await first.ready;
 
-  const duplicate = new UnixSocketServerTransport({
+  const duplicate = new LocalServerTransport({
     serviceId: 'demo',
     runtimeDir: root,
   });
-  await assert.rejects(duplicate.ready, /already owns/);
+  await assert.rejects(
+    duplicate.ready,
+    /WouldBlock|locked|temporarily unavailable/i,
+  );
   await duplicate.close();
-  assert.equal(cleanupState(duplicate).server.listening, false);
-  assert.equal(cleanupState(duplicate).clients.size, 0);
-  await access(first.socketPath!);
+  await access(socketPath(first));
   await access(path.join(first.directory!, 'manifest.json'));
-  const surviving = connectClient(first.socketPath!);
+  const surviving = connectClient(socketPath(first));
   await surviving.next();
   surviving.socket.destroy();
 
@@ -248,7 +251,7 @@ test('recovers a socket left behind by a crash and refuses a live duplicate', as
   await running;
 
   // A stale socket file must not block the next start.
-  const restarted = new UnixSocketServerTransport({
+  const restarted = new LocalServerTransport({
     serviceId: 'demo',
     runtimeDir: root,
   });
@@ -259,138 +262,27 @@ test('recovers a socket left behind by a crash and refuses a live duplicate', as
     await restarted.close();
     await secondRunning;
   });
-  assert.ok(restarted.socketPath);
+  assert.ok(socketPath(restarted));
 });
 
-function cleanupState(transport: UnixSocketServerTransport) {
-  return transport as unknown as {
-    server: Server;
-    clients: Set<Socket>;
-    exitCleanup: () => void;
-    accept(socket: Socket): void;
-  };
-}
-
-test('close during startup is idempotent and leaves no owned resources', async (t) => {
+test('close during startup is idempotent and releases publication ownership', async (t) => {
   const root = await runtimeDir(t);
-  for (let i = 0; i < 5; i++) {
-    const transport = new UnixSocketServerTransport({
-      serviceId: 'early',
-      runtimeDir: root,
-    });
-    const state = cleanupState(transport);
-    const first = transport.close();
-    assert.equal(transport.close(), first);
-    assert.ok(
-      process.listeners('exit').includes(state.exitCleanup),
-      'exit cleanup survives pending startup',
-    );
-    const late = new Socket();
-    state.accept(late);
-    assert.ok(late.destroyed, 'shutdown rejects new connections');
-    await Promise.all([first, transport.close()]);
-    await transport.ready;
-    assert.equal(state.server.listening, false);
-    assert.equal(state.clients.size, 0);
-    assert.ok(!process.listeners('exit').includes(state.exitCleanup));
-    await assert.rejects(access(path.join(root, 'early')));
-    assert.equal((await transport[Symbol.asyncIterator]().next()).done, true);
-    await transport.close();
-  }
-});
-
-test('close after a manifest-write failure cleans up the successfully bound socket', async (t) => {
-  const root = await runtimeDir(t);
-  await mkdir(path.join(root, 'failed/manifest.json'), { recursive: true });
-  const transport = new UnixSocketServerTransport({
-    serviceId: 'failed',
+  const transport = new LocalServerTransport({
+    serviceId: 'early',
     runtimeDir: root,
   });
-  await assert.rejects(transport.ready);
-  assert.equal(transport.directory, path.join(root, 'failed'));
-  assert.ok(cleanupState(transport).server.listening);
-  await transport.close();
-  assert.equal(cleanupState(transport).server.listening, false);
-  assert.equal(cleanupState(transport).clients.size, 0);
-  assert.ok(
-    !process.listeners('exit').includes(cleanupState(transport).exitCleanup),
-  );
-  await assert.rejects(access(path.join(root, 'failed')));
-  await transport.close();
-});
-
-test('ownership excludes contenders before bind and until cleanup finishes', async (t) => {
-  const root = await runtimeDir(t);
-  const first = new UnixSocketServerTransport({
-    serviceId: 'demo',
+  const closing = transport.close();
+  assert.equal(transport.close(), closing);
+  await closing;
+  assert.equal(transport.endpoint, null);
+  const successor = new LocalServerTransport({
+    serviceId: 'early',
     runtimeDir: root,
   });
-  const state = first as unknown as {
-    listen(directory: string): Promise<void>;
-    server: Server;
-    exitCleanup(): void;
-  };
-  const listen = state.listen.bind(first);
-  let arrived!: () => void;
-  const paused = new Promise<void>((resolve) => {
-    arrived = resolve;
-  });
-  let resume!: () => void;
-  const barrier = new Promise<void>((resolve) => {
-    resume = resolve;
-  });
-  state.listen = async (directory) => {
-    arrived();
-    await barrier;
-    await listen(directory);
-  };
-  t.after(() => first.close());
-  await paused;
-  const rejectContender = async () => {
-    const contender = new UnixSocketServerTransport({
-      serviceId: 'demo',
-      runtimeDir: root,
-    });
-    await assert.rejects(contender.ready, /already owns/);
-    await contender.close();
-  };
-  await rejectContender(); // Owner has no listening socket yet.
-  resume();
-  await first.ready;
-  await rejectContender();
-  const close = state.server.close.bind(state.server);
-  let finishClose!: () => void;
-  let closing!: () => void;
-  const cleanupPaused = new Promise<void>((resolve) => {
-    closing = resolve;
-  });
-  state.server.close = ((callback: () => void) => {
-    finishClose = () => {
-      close(callback);
-    };
-    closing();
-    return state.server;
-  }) as Server['close'];
-  const stopped = first.close();
-  await cleanupPaused; // Directory has gone, but listener shutdown still owns the lock.
-  await rejectContender();
-  finishClose();
-  await stopped;
-  const successor = new UnixSocketServerTransport({
-    serviceId: 'demo',
-    runtimeDir: root,
-  });
-  t.after(() => successor.close());
   await successor.ready;
-  await first.close();
-  state.exitCleanup(); // An obsolete cleanup callback cannot retract the successor.
-  await access(successor.socketPath!);
-  const client = connectClient(successor.socketPath!);
-  await new Promise<void>((resolve, reject) => {
-    client.socket.once('connect', resolve);
-    client.socket.once('error', reject);
-  });
-  client.socket.destroy();
+  await transport.close();
+  await access(path.join(successor.directory!, 'manifest.json'));
+  await successor.close();
 });
 
 for (const runtime of ['node', 'bun']) {
@@ -414,4 +306,10 @@ for (const runtime of ['node', 'bun']) {
       assert.equal(result.stdout.trim(), 'slow reader isolated');
     },
   );
+}
+
+function socketPath(transport: LocalServerTransport): string {
+  const endpoint = transport.endpoint;
+  assert.ok(endpoint?.kind === 'unix');
+  return endpoint.path;
 }

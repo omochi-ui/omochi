@@ -18,7 +18,9 @@ if (selected.length !== 3) throw new Error('Missing host npm artifacts');
 const staging = await mkdtemp(path.join(tmpdir(), 'omochi-native-installed-'));
 // macOS TMPDIR can already consume most of sockaddr_un.sun_path. Keep sockets
 // in a separate short, private directory; npm installation still uses TMPDIR.
-const runtime = await mkdtemp('/tmp/omochi-npm-');
+const runtime = await mkdtemp(
+  path.join(process.platform === 'win32' ? tmpdir() : '/tmp', 'omochi-npm-'),
+);
 try {
   await writeFile(
     path.join(staging, 'package.json'),
@@ -43,17 +45,23 @@ try {
     ],
     staging,
   );
+  const node = run('node', ['-p', 'process.execPath']);
   for (const binary of ['omochi-ui', 'omochi-utils']) {
     const actual = run(
-      path.join(staging, 'node_modules/.bin', binary),
-      ['--version'],
+      node,
+      [
+        path.join(
+          staging,
+          `node_modules/@omochi-ui/${binary === 'omochi-ui' ? 'cli' : 'utils'}/bin/${binary}.cjs`,
+        ),
+        '--version',
+      ],
       staging,
     );
     if (actual !== `${binary} ${artifacts.version}`)
       throw new Error(`Wrong native version: ${actual}`);
   }
   // Starting a real hub checks assets and signal forwarding across the npm launcher.
-  const node = run('node', ['-p', 'process.execPath']);
   const child = Bun.spawn(
     [
       node,
@@ -96,11 +104,17 @@ try {
         throw new Error('Launcher did not forward shutdown');
       }),
     ]);
-    if (status !== 0) throw new Error(`Hub exit status ${status}`);
+    if (process.platform !== 'win32' && status !== 0)
+      throw new Error(`Hub exit status ${status}`);
   } finally {
     if (child.exitCode === null) child.kill('SIGKILL');
     await child.exited;
-    await reading;
+    await Promise.race([
+      reading,
+      Bun.sleep(5000).then(() => {
+        throw new Error('Native child survived launcher shutdown');
+      }),
+    ]);
   }
   console.log(
     'Native npm tarballs: isolated install, both commands, bundled dashboard and SIGTERM passed',

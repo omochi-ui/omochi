@@ -206,7 +206,10 @@ test('browser actions cross A2UI and resolve only the selected hook socket', asy
   );
   await waitFor(() => app.queue.pending.size === 2);
   const [firstId, secondId] = [...app.queue.pending.keys()];
-  const browser = createConnection(app.transport.socketPath!);
+  const endpoint = app.transport.endpoint!;
+  const browser = createConnection(
+    endpoint.kind === 'unix' ? endpoint.path : endpoint.name,
+  );
   t.after(
     () =>
       new Promise<void>((resolve) => {

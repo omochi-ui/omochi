@@ -27,10 +27,10 @@
     "typecheck:rust": "bun run build:web && cargo check --manifest-path crates/Cargo.toml --workspace --locked --all-targets && cargo check --manifest-path packages/sdk/rust/Cargo.toml --workspace --locked --all-targets && cargo check --manifest-path packages/hub-transport/Cargo.toml --workspace --locked --all-targets && cargo check --manifest-path examples/rust/Cargo.toml --workspace --locked --all-targets && cargo check --manifest-path experiments/browser-dashboard/transport/Cargo.toml --workspace --locked --all-targets && cargo check --manifest-path experiments/browser-hub/Cargo.toml --workspace --locked --all-targets",
     "typecheck:mobile": "bun run lint:mobile",
     "check": "bun run format:check && bun run lint && bun run typecheck:web && bun run typecheck:python",
-    "build": "bun run build:web && cargo build --manifest-path crates/Cargo.toml --locked -p omochi-cli -p omochi-utils",
+    "build": "bun run build:sdk-local && bun run build:web && cargo build --manifest-path crates/Cargo.toml --locked -p omochi-cli -p omochi-utils",
     "quickstart": "bun run build && bun run omochi-ui up --open examples/quickstart/omochi.toml",
     "test": "bun run build && bun run test:format && bun run test:checks && bun run --filter './packages/**' test && bun run test:server-rust && bun --check --tsconfig-override tests/native/tsconfig.json && OMOCHI_NATIVE_TEST=1 bun test tests/native packages/renderer/test/native.test.ts && bun run test:approval && bun run test:packaging && bun run test:sdk-ownership",
-    "test:packaging": "bun run release:typecheck && bun test scripts/release.test.ts scripts/native-release.test.ts && python3 -B scripts/test_native_packaging.py",
+    "test:packaging": "bun run release:typecheck && bun test scripts/release.test.ts scripts/native-release.test.ts && python3 -B scripts/test_native_packaging.py && python3 -B scripts/test_build_local.py",
     "test:renderer-package": "bun run build:web && bun scripts/test-renderer-package.ts",
     "test:approval": "bun --check --tsconfig-override examples/agent-approval/tsconfig.json && bun test ./examples/agent-approval/test",
     "test:python": "PYTHONPATH=packages/sdk/python/src python3 -m unittest discover -s packages/sdk/python/tests -v",
@@ -44,7 +44,7 @@
     "release:pack": "bun scripts/release.ts pack",
     "release:smoke": "bun scripts/smoke-npm.ts",
     "release:stage:npm": "bun scripts/release.ts stage-npm",
-    "build:native": "bun run --filter @omochi-ui/core build && bun run --filter @omochi-ui/renderer build && bun run --filter @omochi-ui/hub-ui build && cargo build --manifest-path crates/Cargo.toml --locked -p omochi-cli -p omochi-utils",
+    "build:native": "bun run build:sdk-local && bun run --filter @omochi-ui/core build && bun run --filter @omochi-ui/renderer build && bun run --filter @omochi-ui/hub-ui build && cargo build --manifest-path crates/Cargo.toml --locked -p omochi-cli -p omochi-utils",
     "build:native:release": "python3 scripts/package-native.py",
     "test:native-renderer": "bun run build:native && OMOCHI_NATIVE_TEST=1 bun test packages/renderer/test/native.test.ts",
     "release:native:check": "bun scripts/native-release.ts check",
@@ -71,7 +71,8 @@
     "experiment:browser-dashboard": "bun experiments/browser-dashboard/run.ts",
     "build:hosted": "bun run build:web && bun run --filter @omochi-ui/hub-transport build:wasm && bun run --filter @omochi-ui/hub-ui build:hosted",
     "test:dashboard-sharing": "bun run build:native && bun run build:hosted && cargo build --manifest-path crates/Cargo.toml --locked -p omochi-hub --example dashboard_fixture && bun tests/browser/sharing.mjs",
-    "check:dashboard-app": "bun run --filter @omochi-ui/dashboard-app check"
+    "check:dashboard-app": "bun run --filter @omochi-ui/dashboard-app check",
+    "build:sdk-local": "python3 scripts/build-local.py"
   },
   "devDependencies": {
     "@happy-dom/global-registrator": "^21.0.4",

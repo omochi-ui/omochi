@@ -2,7 +2,7 @@ import asyncio
 import os
 from dataclasses import dataclass
 
-from omochi_ui import ActionContext, App, UnixSocketServerTransport, ui
+from omochi_ui import ActionContext, App, LocalServerTransport, ui
 
 
 @dataclass
@@ -46,7 +46,7 @@ def transport():
     service_id = os.environ.get("OMOCHI_SERVICE")
     if not service_id:
         return None
-    return UnixSocketServerTransport(service_id, name="Python example", icon="🐍")
+    return LocalServerTransport(service_id, name="Python example", icon="🐍")
 
 
 if __name__ == "__main__":

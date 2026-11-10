@@ -5,6 +5,7 @@ import argparse
 import hashlib
 import io
 import json
+import os
 import platform
 import subprocess
 import tarfile
@@ -24,8 +25,8 @@ def main():
     parser.add_argument("--skip-build", action="store_true")
     parser.add_argument("--output", type=Path, default=ROOT / "artifacts/native")
     args = parser.parse_args()
-    if platform.system() not in ("Linux", "Darwin"):
-        parser.error("supported hosts: Linux and macOS")
+    if platform.system() not in ("Linux", "Darwin", "Windows"):
+        parser.error("supported hosts: Linux, macOS and Windows")
     target = next(
         line.split(": ", 1)[1]
         for line in run("rustc", "-vV").splitlines()
@@ -40,6 +41,11 @@ def main():
                 ["bun", "run", "--filter", f"@omochi-ui/{package}", "build"],
                 cwd=ROOT,
                 check=True,
+            )
+        env = dict(os.environ)
+        if platform.system() == "Windows":
+            env["RUSTFLAGS"] = (
+                env.get("RUSTFLAGS", "") + " -C target-feature=+crt-static"
             )
         subprocess.run(
             [
@@ -56,17 +62,30 @@ def main():
             ],
             cwd=ROOT,
             check=True,
+            env=env,
         )
     files = {}
     for name in ("omochi-ui", "omochi-utils"):
+        name += ".exe" if platform.system() == "Windows" else ""
         path = WORKSPACE / "target/release" / name
-        if not path.is_file() or run(str(path), "--version") != f"{name} {version}":
+        if (
+            not path.is_file()
+            or run(str(path), "--version") != f"{name.removesuffix('.exe')} {version}"
+        ):
             parser.error(f"missing or stale release binary: {path}")
         files[f"bin/{name}"] = (path.read_bytes(), 0o755)
     for name, path in [
         ("LICENSE", ROOT / "LICENSE"),
         ("README.md", WORKSPACE / "DISTRIBUTION.md"),
-        ("install.sh", ROOT / "scripts/install-native.sh"),
+        (
+            ("install.ps1" if platform.system() == "Windows" else "install.sh"),
+            ROOT
+            / (
+                "scripts/install-native.ps1"
+                if platform.system() == "Windows"
+                else "scripts/install-native.sh"
+            ),
+        ),
     ]:
         files[name] = (path.read_bytes(), 0o755 if name.endswith(".sh") else 0o644)
     manifest = {

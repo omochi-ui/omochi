@@ -1,0 +1,14 @@
+[package]
+name = "omochi-local-node"
+version = "0.2.2"
+edition = "2024"
+publish = false
+[lib]
+crate-type = ["cdylib"]
+[dependencies]
+omochi-local = { path = "../local", version = "=0.2.2" }
+napi = { version = "2", default-features = false, features = ["napi8", "tokio_rt"] }
+napi-derive = "2"
+tokio = { version = "1", features = ["rt", "net", "time"] }
+[build-dependencies]
+napi-build = "2"

@@ -173,11 +173,12 @@ mod tests {
         let runtime = dir.path().join("runtime");
         std::fs::create_dir(&runtime).unwrap();
         std::fs::set_permissions(&runtime, std::fs::Permissions::from_mode(0o700)).unwrap();
-        let service_dir = runtime.join("app");
-        std::fs::create_dir(&service_dir).unwrap();
+        omochi_local::LocalRuntime::prepare(Some(runtime.to_path_buf())).unwrap();
+        let service_dir = runtime.join("svc-app~");
+        omochi_local::files::private_directory(&service_dir).unwrap();
         std::fs::write(
             service_dir.join("manifest.json"),
-            r#"{"name":"App","socket":"a2ui.sock"}"#,
+            r#"{"version":2,"serviceId":"app","name":"App","endpoint":{"kind":"unix","path":"a2ui.sock"}}"#,
         )
         .unwrap();
         let listener = UnixListener::bind(service_dir.join("a2ui.sock")).unwrap();

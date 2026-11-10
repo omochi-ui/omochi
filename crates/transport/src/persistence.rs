@@ -3,56 +3,23 @@ use anyhow::{Context, Result, bail};
 use fs2::FileExt;
 use std::{
     fs::{self, File, OpenOptions},
-    io::Write,
-    os::unix::fs::OpenOptionsExt,
     path::{Path, PathBuf},
     time::{Duration, Instant},
 };
 
 /// Hold this file for the entire read/validate/mutate/commit transaction.
 pub fn lock(path: &Path) -> std::io::Result<File> {
-    let file = OpenOptions::new()
-        .create(true)
-        .truncate(false)
-        .read(true)
-        .write(true)
-        .mode(0o600)
-        .open(path)?;
+    let file = omochi_local::files::private_file(path, false)?;
     file.lock_exclusive()?;
     Ok(file)
 }
 fn lock_new(path: &Path) -> std::io::Result<File> {
-    let file = OpenOptions::new()
-        .create_new(true)
-        .read(true)
-        .write(true)
-        .mode(0o600)
-        .open(path)?;
+    let file = omochi_local::files::private_file(path, true)?;
     file.lock_exclusive()?;
     Ok(file)
 }
-/// An error after rename does not imply that the write was rolled back.
 pub fn atomic_write(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
-    let root = path.parent().expect("state file has a parent");
-    let temporary = root.join(format!(
-        ".state-{}.tmp",
-        hex::encode(rand::random::<[u8; 16]>())
-    ));
-    let result = (|| {
-        let mut file = OpenOptions::new()
-            .create_new(true)
-            .write(true)
-            .mode(0o600)
-            .open(&temporary)?;
-        file.write_all(bytes)?;
-        file.sync_all()?;
-        fs::rename(&temporary, path)?;
-        File::open(root)?.sync_all()
-    })();
-    if result.is_err() {
-        let _ = fs::remove_file(temporary);
-    }
-    result
+    omochi_local::files::atomic_write(path, bytes)
 }
 pub struct Lease {
     file: File,
@@ -121,7 +88,9 @@ pub async fn wait_for_ack(generation: u64, leases: Vec<PathBuf>, timeout: Durati
                         FileExt::unlock(&file)?;
                         continue;
                     } // exited process
-                    Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {}
+                    Err(e)
+                        if e.raw_os_error() == fs2::lock_contended_error().raw_os_error()
+                            || e.kind() == std::io::ErrorKind::WouldBlock => {}
                     Err(e) => return Err(e.into()),
                 }
                 let acknowledged = fs::read_to_string(path.with_extension("ack"))
@@ -166,6 +135,7 @@ mod tests {
     #[tokio::test]
     async fn another_process_holding_the_transaction_lock_does_not_block_async_timers() {
         let root = tempfile::tempdir().unwrap();
+        omochi_local::files::private_directory(root.path()).unwrap();
         let mut child = std::process::Command::new(std::env::current_exe().unwrap())
             .args(["--exact", "persistence::tests::hold_transaction_in_child"])
             .env("OMOCHI_LOCK_TEST_ROOT", root.path())
@@ -193,6 +163,7 @@ mod tests {
     #[tokio::test]
     async fn namespaces_are_independent_and_invalid_ack_never_confirms_revocation() {
         let root = tempfile::tempdir().unwrap();
+        omochi_local::files::private_directory(root.path()).unwrap();
         let owner = Lease::register(root.path(), "owner-live-", 3).unwrap();
         let share = Lease::register(root.path(), "share-live-", 3).unwrap();
         assert_eq!(leases(root.path(), "owner-live-").unwrap().len(), 1);
@@ -231,6 +202,7 @@ mod tests {
     fn commits_are_private_and_failed_replacements_clean_temporary_files() {
         use std::os::unix::fs::PermissionsExt;
         let root = tempfile::tempdir().unwrap();
+        omochi_local::files::private_directory(root.path()).unwrap();
         let path = root.path().join("state.json");
         atomic_write(&path, b"first").unwrap();
         assert_eq!(

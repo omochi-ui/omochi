@@ -1,15 +1,14 @@
-//! A shell-free command session with bounded output and process-group teardown.
+use omochi_process::{Command, Stdio};
+// A shell-free command session with bounded output and process-tree teardown.
 use crate::output::Decoder;
 use std::{
     future::Future,
-    os::unix::process::ExitStatusExt,
     path::PathBuf,
-    process::{ExitStatus, Stdio},
+    process::ExitStatus,
     time::{Duration, Instant},
 };
 use tokio::{
     io::{AsyncRead, AsyncReadExt},
-    process::Command,
     sync::mpsc,
     task::JoinHandle,
 };
@@ -36,9 +35,9 @@ impl Outcome {
             format!(
                 "Stopped by {}",
                 match signal {
-                    libc::SIGTERM => "SIGTERM",
-                    libc::SIGKILL => "SIGKILL",
-                    libc::SIGINT => "SIGINT",
+                    omochi_process::SIGTERM => "SIGTERM",
+                    omochi_process::SIGKILL => "SIGKILL",
+                    omochi_process::SIGINT => "SIGINT",
                     _ => "signal",
                 }
             )
@@ -58,19 +57,6 @@ pub struct Running {
     pub result: JoinHandle<Outcome>,
     pub stop: CancellationToken,
 }
-struct Group(i32);
-impl Group {
-    fn signal(&self, signal: i32) {
-        unsafe {
-            libc::kill(-self.0, signal);
-        }
-    }
-}
-impl Drop for Group {
-    fn drop(&mut self) {
-        self.signal(libc::SIGKILL);
-    }
-}
 impl Running {
     pub fn start(options: Options, timeout: Option<Duration>) -> Self {
         let (output, receiver) = mpsc::channel(8);
@@ -83,9 +69,7 @@ impl Running {
                 .args(options.argv.iter().skip(1))
                 .stdin(Stdio::null())
                 .stdout(Stdio::piped())
-                .stderr(Stdio::piped())
-                .process_group(0)
-                .kill_on_drop(true);
+                .stderr(Stdio::piped());
             if let Some(cwd) = options.cwd {
                 command.current_dir(cwd);
             }
@@ -101,7 +85,7 @@ impl Running {
                     };
                 }
             };
-            let group = Group(child.id().unwrap() as i32);
+            let group = child.group();
             let stdout = child.stdout.take().unwrap();
             let stderr = child.stderr.take().unwrap();
             let (status, timed_out) = supervise(
@@ -116,7 +100,7 @@ impl Running {
             .await;
             Outcome {
                 code: status.and_then(|s| s.code()),
-                signal: status.and_then(|s| s.signal()),
+                signal: status.and_then(|s| omochi_process::exit_signal(&s)),
                 error: None,
                 timed_out,
                 duration: started.elapsed(),
@@ -161,7 +145,7 @@ async fn supervise(
                 stopping = true;
                 discard_output = true;
                 pending = None;
-                signal(libc::SIGTERM);
+                signal(omochi_process::SIGTERM);
                 deadline = tokio::time::Instant::now() + Duration::from_secs(1);
                 None
             },
@@ -171,13 +155,13 @@ async fn supervise(
                 discard_output = true;
                 pending = None;
                 if stopping {
-                    signal(libc::SIGKILL);
+                    signal(omochi_process::SIGKILL);
                     out_open = false;
                     err_open = false;
                 } else {
                     timed_out = true;
                     stopping = true;
-                    signal(libc::SIGTERM);
+                    signal(omochi_process::SIGTERM);
                 }
                 deadline = tokio::time::Instant::now() + Duration::from_secs(1);
                 None
@@ -186,7 +170,7 @@ async fn supervise(
                 waited = true;
                 status = result.ok();
                 // A completed command must not leave descendants holding its pipes.
-                signal(libc::SIGKILL);
+                signal(omochi_process::SIGKILL);
                 deadline = tokio::time::Instant::now() + Duration::from_secs(1);
                 stopping = true;
                 None
@@ -222,6 +206,8 @@ async fn supervise(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(unix)]
+    use std::os::unix::process::ExitStatusExt;
 
     use std::{
         pin::Pin,
@@ -309,18 +295,20 @@ mod tests {
         assert!(run.signals.try_recv().is_err());
         tokio::time::advance(Duration::from_millis(1)).await;
         tokio::task::yield_now().await;
-        assert_eq!(run.signals.try_recv(), Ok(libc::SIGTERM));
+        assert_eq!(run.signals.try_recv(), Ok(omochi_process::SIGTERM));
         tokio::time::advance(Duration::from_millis(999)).await;
         tokio::task::yield_now().await;
         assert!(run.signals.try_recv().is_err());
         tokio::time::advance(Duration::from_millis(1)).await;
         tokio::task::yield_now().await;
-        assert_eq!(run.signals.try_recv(), Ok(libc::SIGKILL));
+        assert_eq!(run.signals.try_recv(), Ok(omochi_process::SIGKILL));
         assert!(!run.result.is_finished(), "must wait for reaping");
-        run.exit.send(ExitStatus::from_raw(libc::SIGKILL)).unwrap();
+        run.exit
+            .send(ExitStatus::from_raw(omochi_process::SIGKILL))
+            .unwrap();
         let (status, timed_out) = run.result.await.unwrap();
         assert!(timed_out);
-        assert_eq!(status.unwrap().signal(), Some(libc::SIGKILL));
+        assert_eq!(status.unwrap().signal(), Some(omochi_process::SIGKILL));
         assert_eq!(run.output.recv().await.as_deref(), Some("queued"));
         assert_eq!(
             run.output.recv().await,
@@ -333,12 +321,14 @@ mod tests {
     async fn output_backpressure_cannot_delay_cancellation() {
         let mut run = backpressured(None).await;
         run.stop.cancel();
-        assert_eq!(run.signals.recv().await, Some(libc::SIGTERM));
-        run.exit.send(ExitStatus::from_raw(libc::SIGTERM)).unwrap();
+        assert_eq!(run.signals.recv().await, Some(omochi_process::SIGTERM));
+        run.exit
+            .send(ExitStatus::from_raw(omochi_process::SIGTERM))
+            .unwrap();
         drop(run.chunks);
         let (status, timed_out) = run.result.await.unwrap();
         assert!(!timed_out);
-        assert_eq!(status.unwrap().signal(), Some(libc::SIGTERM));
+        assert_eq!(status.unwrap().signal(), Some(omochi_process::SIGTERM));
         assert_eq!(run.output.recv().await.as_deref(), Some("queued"));
         assert_eq!(run.output.recv().await, None);
     }
@@ -347,7 +337,7 @@ mod tests {
     async fn exited_command_bounds_output_flush_without_marking_a_timeout() {
         let mut run = backpressured(Some(Duration::from_secs(10))).await;
         run.exit.send(ExitStatus::from_raw(0)).unwrap();
-        assert_eq!(run.signals.recv().await, Some(libc::SIGKILL));
+        assert_eq!(run.signals.recv().await, Some(omochi_process::SIGKILL));
         tokio::time::advance(Duration::from_millis(999)).await;
         tokio::task::yield_now().await;
         assert!(!run.result.is_finished());
@@ -489,6 +479,6 @@ mod tests {
         let result = finish(run).await;
         assert!(!result.timed_out);
         assert!(result.error.is_none());
-        assert_eq!(result.signal, Some(libc::SIGKILL));
+        assert_eq!(result.signal, Some(omochi_process::SIGKILL));
     }
 }

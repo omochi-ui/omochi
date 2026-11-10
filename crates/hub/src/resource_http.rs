@@ -262,11 +262,12 @@ mod tests {
     async fn browser_resource_ranges_are_streamed_from_the_sdk() {
         let root = tempfile::tempdir().unwrap();
         std::fs::set_permissions(root.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
-        let directory = root.path().join("app");
-        std::fs::create_dir(&directory).unwrap();
+        omochi_local::LocalRuntime::prepare(Some(root.path().to_path_buf())).unwrap();
+        let directory = root.path().join("svc-app~");
+        omochi_local::files::private_directory(&directory).unwrap();
         std::fs::write(
             directory.join("manifest.json"),
-            r#"{"name":"App","socket":"a2ui.sock"}"#,
+            r#"{"version":2,"serviceId":"app","name":"App","endpoint":{"kind":"unix","path":"a2ui.sock"}}"#,
         )
         .unwrap();
         let listener = tokio::net::UnixListener::bind(directory.join("a2ui.sock")).unwrap();
@@ -300,12 +301,12 @@ mod tests {
         let node = "a".repeat(64);
         let gateway = omochi_gateway::Gateway::new();
         let discovery = gateway.discover(root.path().to_owned());
-        let path = root.path().join("gateway.sock");
         let server = gateway
-            .listen_unix(path.clone(), node.clone(), "gateway".into())
+            .listen_local(root.path().to_path_buf(), node.clone(), "gateway".into())
+            .await
             .unwrap();
         let hub = Hub::new();
-        let attached = hub.attach_unix(path);
+        let attached = hub.attach_local(root.path().to_path_buf());
         let (address, http) = crate::http::serve(
             HttpState {
                 hub: hub.clone(),

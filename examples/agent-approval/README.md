@@ -102,7 +102,7 @@ does not provide a question-answer form or rewrite their inputs.
 
 The service publishes `main` over Omochi's existing A2UI Unix transport.
 Hook requests use a separate `approval.sock` in the same private service
-directory, normally `$XDG_RUNTIME_DIR/omochi/agent-approval/`. Both processes
+directory, normally `$XDG_RUNTIME_DIR/omochi/v2/svc-agent-approval~/`. Both processes
 must run as the same OS user and use the same runtime directory. With no
 `XDG_RUNTIME_DIR`, the SDK's per-user temporary-directory fallback is used.
 For a custom service ID or runtime location, set `OMOCHI_APPROVAL_SOCKET` to

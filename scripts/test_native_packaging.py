@@ -20,6 +20,39 @@ packaging = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(packaging)
 
 
+class NpmPackTests(unittest.TestCase):
+    def test_packs_with_installed_npm_and_paths_with_spaces(self):
+        with tempfile.TemporaryDirectory(prefix="omochi-npm-pack-") as root:
+            directory = Path(root) / "package source"
+            output = Path(root) / "packed artifacts"
+            (directory / "bin").mkdir(parents=True)
+            output.mkdir()
+            (directory / "bin/omochi-ui").write_bytes(b"fixture native binary")
+            manifest = {
+                "name": "@omochi-ui/native-packaging-test",
+                "version": "0.0.0",
+                "files": ["bin"],
+                "scripts": {"prepack": "exit 1"},
+            }
+
+            with patch.dict(
+                os.environ, {"npm_config_cache": str(Path(root) / "npm cache")}
+            ):
+                artifact = packaging.pack(directory, manifest, output)
+
+            self.assertEqual(artifact["name"], manifest["name"])
+            self.assertEqual(artifact["version"], manifest["version"])
+            self.assertTrue(artifact["integrity"].startswith("sha512-"))
+            with tarfile.open(output / artifact["filename"]) as archive:
+                self.assertEqual(
+                    archive.extractfile("package/bin/omochi-ui").read(),
+                    b"fixture native binary",
+                )
+                self.assertEqual(
+                    json.load(archive.extractfile("package/package.json")), manifest
+                )
+
+
 class ArchiveTests(unittest.TestCase):
     def archive(
         self,
@@ -315,6 +348,7 @@ class CrateSourceTests(unittest.TestCase):
         for directory, name in [
             (sdk, "omochi-ui"),
             (sdk / "macros", "omochi-ui-macros"),
+            (sdk / "local", "omochi-local"),
         ]:
             (directory / "src").mkdir(parents=True)
             (directory / "Cargo.toml").write_text(
@@ -322,12 +356,14 @@ class CrateSourceTests(unittest.TestCase):
             )
         with (sdk / "Cargo.toml").open("a") as file:
             file.write(
-                '[workspace]\nmembers = ["macros"]\n[dependencies]\n'
+                '[workspace]\nmembers = ["macros", "local"]\n[dependencies]\n'
                 'omochi-ui-macros = { path = "macros", version = "=9.99.99" }\n'
+                'omochi-local = { path = "local", version = "=9.99.99" }\n'
             )
+        (sdk / "local/src/lib.rs").write_text("pub fn local() {}\n")
         (sdk / "macros/src/lib.rs").write_text("pub fn cursor() {}\n")
         (sdk / "src/lib.rs").write_text(
-            "pub fn snapshot_cursor() { omochi_ui_macros::cursor(); }\n"
+            "pub fn snapshot_cursor() { omochi_ui_macros::cursor(); omochi_local::local(); }\n"
         )
         (self.workspace / "hub/Cargo.toml").write_text(
             '[package]\nname = "omochi-hub"\nversion.workspace = true\nedition = "2024"\n'

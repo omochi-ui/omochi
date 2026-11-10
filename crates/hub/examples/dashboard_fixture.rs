@@ -13,8 +13,7 @@ use omochi_transport::{
     store::{Role, Store},
 };
 use omochi_ui::{
-    App, ButtonOptions, ImageOptions, TextFieldOptions, UnixSocketServerOptions,
-    UnixSocketServerTransport,
+    App, ButtonOptions, ImageOptions, LocalServerOptions, LocalServerTransport, TextFieldOptions,
 };
 use rustls_pki_types::{CertificateDer, PrivateKeyDer, pem::PemObject};
 use serde_json::{Value, json};
@@ -161,8 +160,8 @@ async fn run() -> Result<()> {
             ui.text("PRIVATE CANARY: never share this Surface")?;
             Ok(())
         })?;
-        let transport = UnixSocketServerTransport::bind(
-            UnixSocketServerOptions::new("app")
+        let transport = LocalServerTransport::bind(
+            LocalServerOptions::new("app")
                 .with_name(format!("Fixture app {index}"))
                 .with_runtime_dir(&runtime),
         )
@@ -170,14 +169,18 @@ async fn run() -> Result<()> {
         sdk_jobs.push(tokio::task::spawn_local(app.start_with(transport)));
         let gateway = Gateway::new();
         let node = key().public().to_string();
-        let socket = runtime.join("gateway.sock");
-        jobs.push(gateway.listen_unix(
-            socket.clone(),
-            node.clone(),
-            format!("Fixture gateway {index}"),
-        )?);
+        let socket = runtime.clone();
+        jobs.push(
+            gateway
+                .listen_local(
+                    socket.clone(),
+                    node.clone(),
+                    format!("Fixture gateway {index}"),
+                )
+                .await?,
+        );
         jobs.push(gateway.discover(runtime));
-        attachments.push(hub.attach_unix(socket));
+        attachments.push(hub.attach_local(socket));
         gateways.push(gateway);
         ids.push(node);
     }

@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { createInterface } from 'node:readline';
 import { ResourceRegistry } from '@omochi-ui/sdk';
-import { UnixSocketServerTransport } from '@omochi-ui/sdk/node';
+import { LocalServerTransport } from '@omochi-ui/sdk/node';
 
 const actions = JSON.parse(
   readFileSync(
@@ -25,7 +25,7 @@ const errors = JSON.parse(
   ),
 );
 const root = await mkdtemp(path.join(tmpdir(), 'omochi-frames-'));
-const transport = new UnixSocketServerTransport({
+const transport = new LocalServerTransport({
   serviceId: 'demo',
   runtimeDir: root,
 });
@@ -34,7 +34,7 @@ transport.resources = resources;
 const uri = resources.bytes(new Uint8Array([1, 2, 3]), 'image/png');
 const clients = [];
 async function connect() {
-  const socket = createConnection(transport.socketPath);
+  const socket = createConnection(transport.endpoint.path);
   clients.push(socket);
   const lines = createInterface({ input: socket, crlfDelay: Infinity });
   const messages = lines[Symbol.asyncIterator]();

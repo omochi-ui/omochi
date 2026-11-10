@@ -7,7 +7,9 @@ import io
 import os
 import re
 import secrets
+import shutil
 import tempfile
+import weakref
 from pathlib import Path
 from threading import RLock
 
@@ -66,9 +68,7 @@ class ResourceRegistry:
             ):
                 raise ValueError("explicit media MIME type required")
             if self._directory is None:
-                self._directory = tempfile.TemporaryDirectory(
-                    prefix="omochi-resources-"
-                )
+                self._directory = _PrivateDirectory()
             resource_id = secrets.token_hex(16)
             path = Path(self._directory.name) / resource_id
             size = 0
@@ -159,3 +159,24 @@ class ResourceRegistry:
                     }
             except OSError:
                 return error(500)
+
+
+class _PrivateDirectory:
+    def __init__(self):
+        from ._native_local import create_private_directory
+
+        self.name = str(
+            Path(tempfile.gettempdir()) / f"omochi-resources-{secrets.token_hex(16)}"
+        )
+        create_private_directory(Path(self.name))
+        self._finalizer = weakref.finalize(self, _remove_private_directory, self.name)
+
+    def cleanup(self):
+        self._finalizer()
+
+
+def _remove_private_directory(path: str) -> None:
+    try:
+        shutil.rmtree(path)
+    except FileNotFoundError:
+        pass

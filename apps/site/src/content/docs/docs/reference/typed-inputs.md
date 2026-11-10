@@ -48,8 +48,10 @@ dataclassの初期値からはスキーマを取得できます。`ui`経由で�
 ```python
 from typing import TypedDict
 
+
 class FormInput(TypedDict):
     temperature: float
+
 
 # Surface内:
 form = ui.local("form", {"temperature": 50.0}, type=FormInput)
@@ -116,8 +118,10 @@ Pythonは各要素と結果のスキーマを使います。`Schema.input()`は�
 from typing import TypedDict
 from omochi_ui import merge_objects, schema, StdioTransport, MERGE_OBJECTS_CAPABILITY
 
+
 class Counts(TypedDict):
     count: int
+
 
 title = schema.object_({"title": schema.string()})
 counts = schema.object_({"count": schema.integer()})

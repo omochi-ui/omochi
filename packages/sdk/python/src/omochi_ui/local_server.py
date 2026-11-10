@@ -1,18 +1,11 @@
 from __future__ import annotations
 
 import asyncio
-import atexit
-import errno
 import json
 import os
 import re
-import shutil
-import socket as socket_module
-import stat
-import tempfile
 from collections import deque
 from collections.abc import AsyncIterator
-from contextlib import suppress
 from pathlib import Path
 from typing import Any
 
@@ -22,12 +15,7 @@ from .snapshot import A2uiSnapshot
 from .transport import MAX_FRAME_BYTES, Transport
 
 # Mirrors the id constraint the hub applies, so "<service_id>/<surface_id>" stays splittable.
-SERVICE_ID_PATTERN = re.compile(r"^[A-Za-z0-9._-]{1,64}$")
-
-# Linux caps sun_path at 108 bytes and macOS at 104; leave room for the null terminator.
-_MAX_SOCKET_PATH_BYTES = 100
-
-_SOCKET_FILE_NAME = "a2ui.sock"
+SERVICE_ID_PATTERN = re.compile(r"^[a-z0-9._-]{1,64}$")
 
 # Includes each frame's UTF-8 encoding and trailing LF, through drain completion.
 _MAX_PENDING_BYTES = 16 * 1024 * 1024
@@ -153,61 +141,17 @@ def validate_service_id(service_id: str) -> str:
 
 
 def omochi_runtime_root() -> Path:
-    """Resolves the directory holding one subdirectory per published service.
+    from ._native_local import default_root
 
-    ``$XDG_RUNTIME_DIR`` is per-user and mode 0700, and that permission is the entire
-    local trust boundary. A world-writable ``/tmp/omochi`` is never used, because another
-    local user could pre-create a service directory and squat the socket.
-    """
-    configured = os.environ.get("XDG_RUNTIME_DIR")
-    if configured:
-        return Path(configured) / "omochi"
-    return Path(tempfile.gettempdir()) / f"omochi-{os.geteuid()}" / "omochi"
+    return default_root()
 
 
-def _prepare_fallback_runtime_root(root: Path) -> None:
-    # Validate the parent before traversing into it. Never repair directories that
-    # other users could have populated with socket, manifest or lock-file entries.
-    for directory in (root.parent, root):
-        try:
-            directory.mkdir(mode=0o700)
-        except FileExistsError:
-            pass
-        metadata = directory.lstat()
-        if (
-            not stat.S_ISDIR(metadata.st_mode)
-            or metadata.st_uid != os.geteuid()
-            or metadata.st_mode & 0o022
-        ):
-            raise PermissionError(
-                f"fallback runtime directory must be owned, a real directory, and not writable by other users: {directory}"
-            )
-        # Older versions created safe, owned 0755 parents. Tighten those only.
-        directory.chmod(0o700)
+class LocalServerTransport(Transport):
+    """Publishes one application through user-private local IPC for discovery.
 
-
-def _is_socket_in_use(path: Path) -> bool:
-    probe = socket_module.socket(socket_module.AF_UNIX, socket_module.SOCK_STREAM)
-    probe.settimeout(0.5)
-    try:
-        probe.connect(str(path))
-    except OSError as error:
-        if error.errno not in (errno.ENOENT, errno.ECONNREFUSED):
-            raise
-        return False
-    else:
-        return True
-    finally:
-        probe.close()
-
-
-class UnixSocketServerTransport(Transport):
-    """Publishes one application on a unix domain socket and advertises it for discovery.
-
-    The transport writes ``<runtime_dir>/<service_id>/manifest.json`` next to the socket
-    so a hub can find it without configuration. Reaching the socket is the
-    authentication: the runtime directory is mode 0700, so only the owning user can
-    connect.
+    The shared native adapter writes
+    ``<runtime_dir>/svc-<service_id>~/manifest.json`` and serves a Unix domain
+    socket or Windows named pipe restricted to the current OS user.
 
     Like the TypeScript ``WebSocketServerTransport`` it fans one application out to every
     connected renderer and merges their inbound messages into a single stream.
@@ -225,99 +169,81 @@ class UnixSocketServerTransport(Transport):
         self._service_id = validate_service_id(service_id)
         self._name = name or self._service_id
         self._icon = icon
-        self._root = (
-            Path(runtime_dir) if runtime_dir is not None else omochi_runtime_root()
-        )
-        self._fallback_root = runtime_dir is None and not os.environ.get(
-            "XDG_RUNTIME_DIR"
-        )
+        self._root = Path(runtime_dir) if runtime_dir is not None else None
         self.capabilities = capabilities or set()
         self._snapshot = A2uiSnapshot()
         self._clients: set[_OutboundPeer] = set()
         self._client_tasks: set[asyncio.Task[Any]] = set()
         self._queue = ReceiveQueue()
-        self._server: asyncio.AbstractServer | None = None
+        self._native_id: int | None = None
+        self._accept_task: asyncio.Task[None] | None = None
+        self._endpoint: dict[str, Any] | None = None
         self._directory: Path | None = None
-        self._lock_fd: int | None = None
         self._start_lock = asyncio.Lock()
         self._closed = False
-        atexit.register(self._cleanup_sync)
+        self._close_task: asyncio.Task[None] | None = None
 
     @property
     def directory(self) -> Path | None:
         return self._directory
 
     @property
-    def socket_path(self) -> Path | None:
-        return self._directory / _SOCKET_FILE_NAME if self._directory else None
+    def endpoint(self) -> dict[str, Any] | None:
+        return self._endpoint
 
     async def start(self) -> None:
-        """Publishes the socket and manifest. Called automatically on first use."""
+        from ._native_local import request
+
         async with self._start_lock:
-            if self._server is not None or self._closed:
+            if self._native_id is not None or self._closed:
                 return
-            # Keep non-Unix transports importable on platforms without fcntl.
-            import fcntl
-
-            if self._fallback_root:
-                _prepare_fallback_runtime_root(self._root)
-            directory = self._root / self._service_id
-            self._root.mkdir(parents=True, exist_ok=True, mode=0o700)
-            self._root.chmod(0o700)
-            # A permanent inode outside the removable service directory. Never unlink it.
-            fd = os.open(
-                self._root / f".{self._service_id}.lock~",
-                os.O_CREAT | os.O_WRONLY,
-                0o600,
-            )
+            options: dict[str, Any] = {
+                "serviceId": self._service_id,
+                "name": self._name,
+                "icon": self._icon,
+            }
+            if self._root is not None:
+                options["runtimeDir"] = str(self._root)
+            # Shield startup so cancellation cannot orphan a successful publication.
+            starting = asyncio.create_task(request("publish", **options))
             try:
-                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            except BaseException as error:
-                os.close(fd)
-                if isinstance(error, BlockingIOError):
-                    # Preserve the public publisher-ownership error type.
-                    raise RuntimeError(  # noqa: TRY004
-                        f"another omochi service already owns {directory}"
-                    ) from error
-                raise
-            self._lock_fd = fd
-            try:
-                directory.mkdir(exist_ok=True, mode=0o700)
-                await self._listen(directory)
-            except BaseException:
-                # Leave no empty directory behind for a discovery pass to walk into.
-                # rmdir refuses a non-empty directory, so a live service is never touched.
-                with suppress(OSError):
-                    directory.rmdir()
-                if self._directory is None:
-                    self._release_lock()
-                raise
+                result = json.loads(await asyncio.shield(starting))
+            except asyncio.CancelledError:
 
-    async def _listen(self, directory: Path) -> None:
-        # mkdir's mode is masked by umask and leaves an existing directory untouched.
-        self._root.chmod(0o700)
-        directory.chmod(0o700)
-        path = directory / _SOCKET_FILE_NAME
-        if len(str(path).encode()) > _MAX_SOCKET_PATH_BYTES:
-            raise ValueError(f"unix socket path is too long for this platform: {path}")
-        if path.exists():
-            # A path that still accepts connections means another instance owns this
-            # service id. The lifetime flock serializes probe, bind and cleanup.
-            if _is_socket_in_use(path):
-                raise RuntimeError(f"another omochi service already owns {path}")
-            path.unlink()
-        self._server = await asyncio.start_unix_server(
-            self._accept, path=str(path), limit=MAX_FRAME_BYTES
-        )
-        self._directory = directory
-        # Linux enforces unix socket permissions on connect, and bind applies the umask.
-        path.chmod(stat.S_IRUSR | stat.S_IWUSR)
-        manifest: dict[str, Any] = {"name": self._name, "socket": _SOCKET_FILE_NAME}
-        if self._icon is not None:
-            manifest["icon"] = self._icon
-        # Advertise only once the socket accepts connections, so a readable manifest
-        # is always connectable.
-        self._write_manifest(directory, manifest)
+                async def cleanup() -> None:
+                    result = json.loads(await starting)
+                    await request("close", result["id"])
+
+                # Keep both result delivery and teardown independent of further
+                # caller cancellations. Retain the lock until ownership is gone.
+                cleaning = asyncio.create_task(cleanup())
+                while not cleaning.done():
+                    try:
+                        await asyncio.shield(cleaning)
+                    except asyncio.CancelledError:
+                        pass
+                cleaning.result()
+                raise
+            self._native_id = result["id"]
+            self._directory = Path(result["directory"])
+            self._endpoint = result["endpoint"]
+            self._accept_task = asyncio.create_task(self._accept_native())
+
+    async def _accept_native(self) -> None:
+        from ._native_local import Reader, Writer, request
+
+        assert self._native_id is not None
+        try:
+            while not self._closed:
+                handle = json.loads(await request("accept", self._native_id))
+                task = asyncio.create_task(
+                    self._accept(Reader(handle, MAX_FRAME_BYTES), Writer(handle))
+                )
+                self._client_tasks.add(task)
+                task.add_done_callback(self._client_tasks.discard)
+        except OSError:
+            if not self._closed:
+                self._queue.finish(discard=True)
 
     async def send(self, message: dict[str, Any]) -> None:
         await self.start()
@@ -339,46 +265,29 @@ class UnixSocketServerTransport(Transport):
         await self.close()
 
     async def close(self) -> None:
-        if self._closed:
-            return
-        # A bind in progress must finish before its socket and manifest are removed.
-        async with self._start_lock:
-            if self._closed:
-                return
+        if self._close_task is None:
+            # Stop inbound work before teardown can join the client tasks.
             self._closed = True
-            atexit.unregister(self._cleanup_sync)
-            # Retract the advertisement before tearing the socket down.
-            if self._directory is not None:
-                shutil.rmtree(self._directory, ignore_errors=True)
-            clients = list(self._clients)
-            for client in clients:
-                client.abort()
-            self._clients.clear()
-            server = self._server
-            self._server = None
-            try:
-                if server is not None:
-                    server.close()
-                    await server.wait_closed()
-                tasks = self._client_tasks | {
-                    client.task for client in clients if client.task is not None
-                }
-                tasks.discard(asyncio.current_task())
-                if tasks:
-                    await asyncio.gather(*tasks, return_exceptions=True)
-            finally:
-                self._directory = None
-                self._release_lock()
-                # Cancellation must also release a consumer parked on receive().
-                self._queue.finish(discard=True)
+            self._close_task = asyncio.create_task(self._close(asyncio.current_task()))
+        await asyncio.shield(self._close_task)
 
-    @staticmethod
-    def _write_manifest(directory: Path, manifest: dict[str, Any]) -> None:
-        """Publishes atomically so a discovery pass never reads a half-written file."""
-        temporary = directory / f".manifest.{os.getpid()}.tmp"
-        temporary.write_text(json.dumps(manifest, ensure_ascii=False) + "\n")
-        temporary.chmod(stat.S_IRUSR | stat.S_IWUSR)
-        temporary.replace(directory / "manifest.json")
+    async def _close(self, origin: asyncio.Task[Any] | None) -> None:
+        from ._native_local import request
+
+        async with self._start_lock:
+            if self._native_id is not None:
+                handle, self._native_id = self._native_id, None
+                await asyncio.shield(request("close", handle))
+            tasks = self._client_tasks | (
+                {self._accept_task} if self._accept_task else set()
+            )
+            tasks.discard(asyncio.current_task())
+            tasks.discard(origin)
+            if tasks:
+                await asyncio.gather(*tasks, return_exceptions=True)
+            self._directory = None
+            self._endpoint = None
+            self._queue.finish(discard=True)
 
     async def _accept(
         self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter
@@ -399,7 +308,7 @@ class UnixSocketServerTransport(Transport):
                 and not client.closed
                 and (line := await reader.readline())
             ):
-                if client.closed:
+                if self._closed or client.closed:
                     break
                 text = line.decode().strip()
                 if not text:
@@ -434,23 +343,3 @@ class UnixSocketServerTransport(Transport):
             client.abort()
             await asyncio.gather(client.task, return_exceptions=True)
             self._client_tasks.discard(task)
-
-    def _release_lock(self) -> None:
-        if self._lock_fd is not None:
-            import fcntl
-
-            fd = self._lock_fd
-            self._lock_fd = None
-            try:
-                # fork can retain this open file description until exec even with
-                # CLOEXEC. Closing our fd alone must not delay a successor.
-                fcntl.flock(fd, fcntl.LOCK_UN)
-            finally:
-                os.close(fd)
-
-    def _cleanup_sync(self) -> None:
-        """Last-resort cleanup: interpreter shutdown cannot await ``close()``."""
-        if self._directory is not None:
-            shutil.rmtree(self._directory, ignore_errors=True)
-            self._directory = None
-        self._release_lock()

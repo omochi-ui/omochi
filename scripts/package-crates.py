@@ -58,6 +58,10 @@ def local_sdk(enabled, allow_dirty):
         "--manifest-path",
         str(sdk / "Cargo.toml"),
         "--workspace",
+        "--exclude",
+        "omochi-local-node",
+        "--exclude",
+        "omochi-local-ffi",
         "--locked",
         "--no-verify",
     ]
@@ -66,7 +70,7 @@ def local_sdk(enabled, allow_dirty):
     subprocess.run(command, cwd=ROOT, check=True)
     with tempfile.TemporaryDirectory(prefix="omochi-native-sdk-") as temporary:
         packages = {}
-        for name in ["omochi-ui-macros", "omochi-ui"]:
+        for name in ["omochi-local", "omochi-ui-macros", "omochi-ui"]:
             with tarfile.open(
                 sdk / "target/package" / f"{name}-{version}.crate"
             ) as archive:

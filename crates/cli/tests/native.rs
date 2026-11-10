@@ -14,6 +14,48 @@ fn command(root: &Path) -> Command {
     command.env("PATH", "/nonexistent").kill_on_drop(true);
     command
 }
+
+#[tokio::test]
+async fn runtime_environment_ignores_empty_values_and_defers_to_cli() {
+    for selection in ["empty", "environment", "explicit"] {
+        let root = tempfile::tempdir().unwrap();
+        let mut child = Command::new(env!("CARGO_BIN_EXE_omochi-ui"));
+        child
+            .args(["id", "--config-dir"])
+            .arg(root.path().join("config"))
+            .env("XDG_RUNTIME_DIR", root.path())
+            .env(
+                "OMOCHI_RUNTIME_DIR",
+                if selection == "empty" {
+                    std::ffi::OsString::new()
+                } else {
+                    root.path().join("environment").into_os_string()
+                },
+            );
+        let expected = match selection {
+            "empty" => root.path().join("omochi/v2"),
+            "environment" => root.path().join("environment"),
+            _ => {
+                child.arg("--runtime-dir").arg(root.path().join("explicit"));
+                root.path().join("explicit")
+            }
+        };
+        let output = tokio::time::timeout(Duration::from_secs(10), child.output())
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{selection}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(expected.join("runtime.json").is_file(), "{selection}");
+        if selection == "explicit" {
+            assert!(!root.path().join("environment").exists());
+        }
+    }
+}
+
 #[tokio::test]
 async fn gateway_invalid_relay_allows_restart_in_the_same_runtime() {
     let root = tempfile::tempdir().unwrap();
@@ -72,6 +114,7 @@ async fn gateway_startup_failure_preserves_an_unowned_socket() {
     let runtime = root.path().join("runtime");
     std::fs::create_dir(&runtime).unwrap();
     std::fs::set_permissions(&runtime, std::fs::Permissions::from_mode(0o700)).unwrap();
+    omochi_local::LocalRuntime::prepare(Some(runtime.clone())).unwrap();
     let socket = runtime.join("gateway.sock");
     let listener = tokio::net::UnixListener::bind(&socket).unwrap();
     let before = std::fs::symlink_metadata(&socket).unwrap();
@@ -84,10 +127,7 @@ async fn gateway_startup_failure_preserves_an_unowned_socket() {
     .unwrap();
     assert!(!output.status.success());
     let error = String::from_utf8_lossy(&output.stderr);
-    assert!(
-        error.contains("gateway socket is already present"),
-        "{error}"
-    );
+    assert!(error.contains("existing live publisher"), "{error}");
     let after = std::fs::symlink_metadata(&socket).unwrap();
     assert_eq!((before.dev(), before.ino()), (after.dev(), after.ino()));
     let client = tokio::net::UnixStream::connect(&socket).await.unwrap();
@@ -1702,7 +1742,7 @@ async fn default_runtime_secures_fallback_before_native_startup() {
                 0o700
             );
             assert_eq!(
-                std::fs::metadata(parent.join("omochi"))
+                std::fs::metadata(parent.join("v2"))
                     .unwrap()
                     .permissions()
                     .mode()
@@ -1711,7 +1751,7 @@ async fn default_runtime_secures_fallback_before_native_startup() {
             );
         } else {
             assert!(error.contains("fallback runtime directory"), "{error}");
-            assert!(!parent.join("omochi").exists());
+            assert!(!parent.join("v2").exists());
             assert_eq!(
                 std::fs::metadata(&parent).unwrap().permissions().mode() & 0o777,
                 mode

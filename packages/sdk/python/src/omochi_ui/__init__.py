@@ -2,10 +2,10 @@ from .app import Action, ActionCall, ActionContext, App, Runtime
 from .builder import UI, Local, ModelBinding, Tab
 from .catalog import BASIC_CATALOG, Catalog
 from .errors import A2UIError, CapabilityError, DeclarationError, ProtocolError
+from .local_server import LocalServerTransport, omochi_runtime_root
 from .reconcile import PROTOCOL_VERSION, STANDARD_CATALOG, Reconciler
 from .snapshot import A2uiSnapshot
 from .transport import CallbackTransport, StdioTransport, Transport, WebSocketTransport
-from .unix_server import UnixSocketServerTransport, omochi_runtime_root
 
 __all__ = [
     "BASIC_CATALOG",
@@ -23,6 +23,7 @@ __all__ = [
     "Catalog",
     "DeclarationError",
     "Local",
+    "LocalServerTransport",
     "ModelBinding",
     "ProtocolError",
     "Reconciler",
@@ -30,7 +31,6 @@ __all__ = [
     "StdioTransport",
     "Tab",
     "Transport",
-    "UnixSocketServerTransport",
     "WebSocketTransport",
     "omochi_runtime_root",
 ]

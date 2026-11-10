@@ -9,6 +9,12 @@ fn shared_resource_contract_and_limits() {
         .bytes(fixture["content"].as_str().unwrap().as_bytes(), "video/mp4")
         .unwrap();
     let resource = uri.rsplit('/').next().unwrap();
+    assert_eq!(resource.len(), 32);
+    assert!(
+        resource
+            .bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+    );
     for read in fixture["reads"].as_array().unwrap() {
         let response = registry.respond(&json!({"omochi":"resources/1","kind":"request","id":"test","resource":resource,"op":"read","offset":read["offset"],"length":read["length"]}));
         assert_eq!(response["status"], read["status"]);
@@ -21,5 +27,32 @@ fn shared_resource_contract_and_limits() {
         404
     );
     assert_ne!(registry.bytes(b"0123456789", "video/mp4").unwrap(), uri);
+    registry.close();
+}
+
+#[test]
+fn file_registration_keeps_an_immutable_media_snapshot() {
+    let temp = tempfile::tempdir().unwrap();
+    let source = temp.path().join("source.png");
+    std::fs::write(&source, b"media").unwrap();
+    let registry = ResourceRegistry::default();
+    let uri = registry.file(&source, None).unwrap();
+    let resource = uri.strip_prefix("omochi://resources/").unwrap();
+    assert_eq!(resource.len(), 32);
+    assert!(
+        resource
+            .bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+    );
+    std::fs::write(&source, b"changed").unwrap();
+    std::fs::remove_file(&source).unwrap();
+    let stat =
+        registry.respond(&json!({"kind":"request","id":"stat","resource":resource,"op":"stat"}));
+    assert_eq!(stat["status"], 200);
+    assert_eq!(stat["size"], 5);
+    assert_eq!(stat["mime"], "image/png");
+    let read = registry.respond(&json!({"kind":"request","id":"read","resource":resource,"op":"read","offset":0,"length":5}));
+    assert_eq!(read["status"], 200);
+    assert_eq!(read["data"], "bWVkaWE=");
     registry.close();
 }

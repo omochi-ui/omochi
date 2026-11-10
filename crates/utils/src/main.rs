@@ -1,6 +1,6 @@
 use anyhow::Result;
 use clap::{Args, Parser, Subcommand};
-use omochi_ui::UnixSocketServerOptions;
+use omochi_ui::LocalServerOptions;
 use omochi_utils::{publisher::Publisher, surface::TextSurface};
 use std::path::PathBuf;
 use tokio_util::sync::CancellationToken;
@@ -21,7 +21,8 @@ struct Common {
     service_id: Option<String>,
     #[arg(long)]
     name: Option<String>,
-    #[arg(long, env = "OMOCHI_RUNTIME_ROOT")]
+    #[arg(long, env = std::env::var_os("OMOCHI_RUNTIME_DIR")
+        .filter(|value| !value.is_empty()).map(|_| "OMOCHI_RUNTIME_DIR"))]
     runtime_dir: Option<PathBuf>,
 }
 #[derive(Subcommand)]
@@ -179,14 +180,14 @@ async fn run(cli: Cli) -> Result<()> {
         .service_id
         .clone()
         .unwrap_or_else(|| format!("utils-{}", uuid::Uuid::new_v4()));
-    let mut options = UnixSocketServerOptions::new(&id).with_name(&name);
+    let mut options = LocalServerOptions::new(&id).with_name(&name);
     options.runtime_dir = common.runtime_dir.clone();
+    let mut signal = omochi_process::ShutdownSignal::new()?;
     let (publisher, owner) = Publisher::open(options).await?;
     let stop = CancellationToken::new();
     let signal_stop = stop.clone();
-    let mut term = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
     let signals = tokio::spawn(async move {
-        tokio::select! { _ = tokio::signal::ctrl_c() => {}, _ = term.recv() => {} }
+        signal.wait().await;
         signal_stop.cancel();
     });
     eprintln!("Published service {id} ({name})");

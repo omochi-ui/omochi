@@ -11,8 +11,10 @@ Update these version sources together:
 - npm: `packages/{core,renderer,hub-ui}/package.json` and
   `packages/sdk/typescript/package.json`.
 - Python: `packages/sdk/python/pyproject.toml` and root `pyproject.toml`.
-- Rust: `packages/sdk/rust/Cargo.toml`, its exact macro dependency and
-  `packages/sdk/rust/macros/Cargo.toml`.
+- Rust: `packages/sdk/rust/Cargo.toml`, `macros/Cargo.toml`, `local/Cargo.toml`,
+  `local-node/Cargo.toml`, `local-ffi/Cargo.toml` and their exact SDK dependencies.
+- SDK npm native adapters: the eight exact optional dependency versions in
+  `packages/sdk/typescript/package.json`. Platform manifests are generated.
 
 Regenerate affected Bun, uv and Cargo lockfiles without updating unrelated
 dependencies. Private workspaces and native npm launcher stubs keep their
@@ -35,9 +37,12 @@ the stable tag at that commit. `bun run release:check vX.Y.Z` verifies that the
 tag matches the checkout and versions and belongs to `origin/main`.
 
 Publishing a stable GitHub Release starts `.github/workflows/release.yml`.
-It builds/tests all three languages, verifies the packaged distributions, stages
-the four npm packages, and publishes the Python SDK to PyPI and the macro/SDK
-crates to crates.io. For a manual run, dispatch `release.yml` with the existing
+It builds/tests all three languages and the eight native adapter configurations
+in `local-sdk.yml`, verifies the packaged distributions, stages the four browser/SDK
+npm packages plus eight adapter packages, and publishes eight Python platform
+wheels, an sdist and the local/macro/SDK crates. Python source archives include
+the Rust adapter sources; building from an sdist requires Cargo. For a manual run,
+dispatch `release.yml` with the existing
 tag, `registry: all`, `dry_run: false` and `bootstrap: false`; a dry run uses
 `dry_run: true`. Avoid dispatching a second publication for the same release
 while its Release event is running. Never move a published tag or replace an
@@ -52,7 +57,8 @@ not publish GHCR images.
 
 A successful npm staging job does not make the version installable. Review the
 exact stage IDs and provenance in the job summary, then approve on npmjs.com
-with maintainer 2FA, in this order: core, SDK, renderer, hub-ui. For native npm
+with maintainer 2FA: approve core and the SDK adapter platform packages before SDK,
+then renderer and hub-ui. For native npm
 packages, approve platform packages before CLI/utils. Approval is performed by
 the maintainer; do not add approval credentials or enable direct publishing in
 Actions.

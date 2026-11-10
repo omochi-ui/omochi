@@ -258,6 +258,7 @@ bun run --filter @omochi-ui/hub-ui build
 cargo build --manifest-path crates/Cargo.toml -p omochi-cli
 
 # terminal 1, apps/mobile
+python3 -B tool/test_native_fixture.py # Headless Gateway/SDK discovery check
 python3 tool/native_fixture.py --online
 # terminal 2, Android
 adb reverse tcp:5559 tcp:5559

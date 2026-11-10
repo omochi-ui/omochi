@@ -466,7 +466,7 @@ pub(crate) mod tests {
                 snapshot: Arc::new(snapshot),
                 snapshot_charge: None,
                 actions,
-                connection: Connection::Unix(path),
+                connection: Connection::Local(omochi_local::LocalEndpoint::Unix { path }),
                 instance,
                 lifetime,
                 scopes: [(surface.clone(), scope)].into(),
