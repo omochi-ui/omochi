@@ -32,7 +32,7 @@ export function approvalSocketPath(
   return (
     env.OMOCHI_APPROVAL_SOCKET ??
     path.join(
-      env.OMOCHI_RUNTIME_DIR ?? omochiRuntimeRoot(),
+      env.OMOCHI_RUNTIME_DIR || omochiRuntimeRoot(),
       'svc-agent-approval~',
       'approval.sock',
     )
