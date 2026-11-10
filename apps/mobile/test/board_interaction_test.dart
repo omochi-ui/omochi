@@ -1,5 +1,6 @@
 import 'dart:ui' as ui;
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -21,7 +22,13 @@ BoardPanel panel(String id, int y) => BoardPanel(
 );
 
 void main() {
-  for (final cancellation in ['width', 'parent', 'lifecycle', 'escape']) {
+  for (final cancellation in [
+    'width',
+    'parent',
+    'lifecycle',
+    'escape',
+    'raw pointer',
+  ]) {
     testWidgets('resize cancellation restores draft after $cancellation', (
       tester,
     ) async {
@@ -74,13 +81,17 @@ void main() {
           );
         case 'escape':
           await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+        case 'raw pointer':
+          await gesture.cancel();
       }
       await tester.pump();
       expect((controller as dynamic).isResizing.value, false);
-      await gesture.moveBy(const Offset(0, 56));
-      await tester.pump();
-      expect(tester.takeException(), isNull);
-      await gesture.up();
+      if (cancellation != 'raw pointer') {
+        await gesture.moveBy(const Offset(0, 56));
+        await tester.pump();
+        expect(tester.takeException(), isNull);
+        await gesture.up();
+      }
       await tester.pumpAndSettle();
       expect(controller.layout.value.single.toMap(), original);
       expect(changes, isEmpty);
@@ -106,6 +117,80 @@ void main() {
       await tester.pumpWidget(const SizedBox());
     }, variant: TargetPlatformVariant({TargetPlatform.linux}));
   }
+
+  testWidgets(
+    'raw pointer cancellation restores wide header drag',
+    (tester) async {
+      tester.view.physicalSize = const Size(1100, 900);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final hub = HubSession();
+      addTearDown(hub.dispose);
+      for (final message in demoMessages()) {
+        hub.receive(message);
+      }
+      final changes = <List<BoardPanel>>[];
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: BoardCanvas(
+              panels: [panel('Form', 2)],
+              session: hub,
+              interact: true,
+              onChange: changes.add,
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final input = find.byType(TextField);
+      await tester.enterText(input, 'Retained after drag cancellation');
+      final state = tester.state(input);
+      final controller = tester
+          .widget<grid.DashboardOverlay>(find.byType(grid.DashboardOverlay))
+          .controller;
+      final original = controller.layout.value.single.toMap();
+      Future<TestGesture> drag() => tester.startGesture(
+        tester.getCenter(find.byIcon(Icons.drag_handle)),
+        kind: defaultTargetPlatform == TargetPlatform.linux
+            ? ui.PointerDeviceKind.mouse
+            : ui.PointerDeviceKind.touch,
+      );
+      final gesture = await drag();
+      // The mobile overlay subscribes to raw moves after dragging starts.
+      await tester.pump();
+      await gesture.moveBy(const Offset(0, 112));
+      await tester.pump();
+      expect(controller.isDragging.value, true);
+      expect(controller.layout.value.single.toMap(), isNot(original));
+      await gesture.cancel();
+      await tester.pumpAndSettle();
+      expect(controller.isDragging.value, false);
+      expect(controller.layout.value.single.toMap(), original);
+      expect(changes, isEmpty);
+      expect(tester.state(input), same(state));
+      expect(
+        tester.widget<TextField>(input).controller!.text,
+        'Retained after drag cancellation',
+      );
+      final next = await drag();
+      await tester.pump();
+      await next.moveBy(const Offset(0, 112));
+      await tester.pump();
+      await next.up();
+      await tester.pumpAndSettle();
+      expect(changes, hasLength(1));
+      expect(changes.single.single.y, 0);
+      expect(tester.state(input), same(state));
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox());
+    },
+    variant: TargetPlatformVariant({
+      TargetPlatform.linux,
+      TargetPlatform.android,
+    }),
+  );
 
   for (final cancellation in ['escape', 'width']) {
     testWidgets('narrow reorder cancels after $cancellation', (tester) async {
