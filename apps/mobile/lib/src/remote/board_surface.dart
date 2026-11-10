@@ -103,24 +103,27 @@ class BoardSurfaceHost extends StatelessWidget {
                   child: Offstage(offstage: !visible, child: child),
                 ),
               ),
-              child: CompositedTransformFollower(
-                link: anchor.link,
-                showWhenUnlinked: false,
-                child: Align(
-                  alignment: Alignment.topLeft,
-                  child: SizedBox.fromSize(
-                    size: size,
-                    child: _SurfaceBody(
-                      anchor: anchor,
-                      resizeEdges: resizeEdges,
-                      child: ClipRRect(
-                        borderRadius: const BorderRadius.vertical(
-                          bottom: Radius.circular(12),
-                        ),
-                        child: Material(
-                          type: MaterialType.transparency,
-                          child: child,
-                        ),
+              // Keep the follower's layout and hit bounds at the full slot
+              // size, even when the body is taller than the scroll viewport.
+              child: OverflowBox(
+                alignment: Alignment.topLeft,
+                minWidth: size.width,
+                maxWidth: size.width,
+                minHeight: size.height,
+                maxHeight: size.height,
+                child: CompositedTransformFollower(
+                  link: anchor.link,
+                  showWhenUnlinked: false,
+                  child: _SurfaceBody(
+                    anchor: anchor,
+                    resizeEdges: resizeEdges,
+                    child: ClipRRect(
+                      borderRadius: const BorderRadius.vertical(
+                        bottom: Radius.circular(12),
+                      ),
+                      child: Material(
+                        type: MaterialType.transparency,
+                        child: child,
                       ),
                     ),
                   ),

@@ -7,9 +7,11 @@ import 'dart:ui' as ui;
 import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter/material.dart';
+import 'package:genui/genui.dart';
 import 'package:omochi_mobile/src/remote/board_layout.dart';
 import 'package:omochi_mobile/src/remote/board_models.dart';
 import 'package:omochi_mobile/src/remote/board_canvas.dart';
+import 'package:omochi_mobile/src/remote/board_surface.dart';
 import 'package:omochi_mobile/src/hub_session.dart';
 
 import 'support/renderer_fixture.dart';
@@ -43,6 +45,124 @@ void main() {
       expect(validLayout([panel('a', 0, 100001, 1, 1)]), false);
     },
   );
+  for (final (name, viewport, keyboardInset) in [
+    ('wide tall panel', const Size(1100, 500), 0.0),
+    ('narrow landscape panel', const Size(600, 300), 0.0),
+    ('keyboard-reduced narrow panel', const Size(600, 700), 400.0),
+  ]) {
+    testWidgets('$name keeps full GenUI body size and input hit area', (
+      tester,
+    ) async {
+      tester.view.physicalSize = viewport;
+      tester.view.devicePixelRatio = 1;
+      tester.view.viewInsets = FakeViewPadding(bottom: keyboardInset);
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      addTearDown(tester.view.resetViewInsets);
+      final hub = HubSession();
+      addTearDown(hub.dispose);
+      for (final message in surfaceMessages(
+        formId,
+        [
+          {
+            'id': 'root',
+            'component': 'Column',
+            'justify': 'end',
+            'children': ['input'],
+          },
+          {
+            'id': 'input',
+            'component': 'TextField',
+            'label': 'Bottom input',
+            'value': {'path': '/value'},
+          },
+        ],
+        {'value': ''},
+      )) {
+        hub.receive(message);
+      }
+      var writes = 0;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: BoardCanvas(
+              panels: [
+                panel('First', 0, 0, 12, 20),
+                panel('Second', 0, 20, 12, 20),
+              ],
+              session: hub,
+              interact: true,
+              onChange: (_) => writes++,
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final slot = find.byType(BoardSurfaceSlot).first;
+      final anchor = tester.widget<BoardSurfaceSlot>(slot).anchor;
+      final slotSize = tester.getSize(slot);
+      final canvasRect = tester.getRect(find.byType(BoardCanvas));
+      expect(
+        slotSize,
+        Size(viewport.width - 32, viewport.width > 760 ? 1056 : 552),
+      );
+      expect(slotSize.height, greaterThan(canvasRect.height));
+      expect(tester.getSize(find.byType(Surface).first), slotSize);
+      final state = tester.state(find.byType(TextField).first);
+      final input = find.byElementPredicate(
+        (element) => identical(element, state.context),
+        skipOffstage: false,
+      );
+      final focus = tester
+          .widget<EditableText>(
+            find.descendant(of: input, matching: find.byType(EditableText)),
+          )
+          .focusNode;
+      // Exercise the part of the follower beyond its original viewport height.
+      expect(
+        tester.getRect(input).top - tester.getRect(slot).top,
+        greaterThan(canvasRect.height),
+      );
+      expect(input.hitTestable(), findsNothing);
+      final scrollable = tester.state<ScrollableState>(
+        find
+            .descendant(
+              of: find.byType(BoardScrollView),
+              matching: find.byType(Scrollable),
+            )
+            .first,
+      );
+      final inputOffset = tester.getRect(input).bottom - canvasRect.bottom + 16;
+      Future<void> revealAndFocus() async {
+        scrollable.position.jumpTo(inputOffset);
+        await tester.pumpAndSettle();
+        expect(input.hitTestable(), findsOneWidget);
+        await tester.tap(input);
+        await tester.pumpAndSettle();
+        expect(focus.hasFocus, true);
+      }
+
+      await revealAndFocus();
+      await tester.enterText(input, 'Retained bottom input');
+      focus.unfocus();
+      await tester.pumpAndSettle();
+      scrollable.position.jumpTo(scrollable.position.maxScrollExtent);
+      await tester.pumpAndSettle();
+      expect(anchor.link.leader, isNull);
+      expect(state.mounted, true);
+      expect(input.hitTestable(), findsNothing);
+      await revealAndFocus();
+      expect(tester.state(input), same(state));
+      expect(
+        tester.widget<TextField>(input).controller!.text,
+        'Retained bottom input',
+      );
+      expect(tester.getSize(find.byType(Surface).first), slotSize);
+      expect(writes, 0);
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox());
+    });
+  }
   testWidgets(
     'width switching retains real GenUI input state without layout writes',
     (tester) async {
