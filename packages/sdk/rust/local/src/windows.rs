@@ -248,6 +248,9 @@ pub fn validate_directory(path: &Path) -> io::Result<()> {
     validate_owner(f.as_raw_handle(), true)
 }
 pub fn private_directory(path: &Path) -> io::Result<()> {
+    // A single relative component has an empty parent, which is not a directory.
+    // Resolve it before recursion without managing the existing cwd itself.
+    let path = std::path::absolute(path)?;
     if !path.exists() {
         let parent = path
             .parent()
@@ -265,7 +268,7 @@ pub fn private_directory(path: &Path) -> io::Result<()> {
             }
         }
     }
-    validate_directory(path)
+    validate_directory(&path)
 }
 pub fn private_file(path: &Path, new: bool) -> io::Result<File> {
     let file = open(
