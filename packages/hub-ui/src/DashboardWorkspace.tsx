@@ -314,7 +314,6 @@ export function DashboardWorkspace({ environment, connectionUi, connectionSideba
       {session.error && <div className="notice" role="status" data-error-code={session.errorCode ?? undefined}>{session.errorCode ? t(`sessionError.${session.errorCode}`) : <>{shared ? t('workspace.shareInterrupted') : direct ? t('workspace.gatewayUnavailable') : t('workspace.hubInterrupted')} <small>{session.error}</small></>}</div>}
       {sourceError && <div className="notice" role="alert">{localizedError(sourceError, t)}</div>}
       {undo && editing && <div className="notice"><span>{t('workspace.removed')}</span><Button onClick={() => { setDraft(d => d ? { ...d, panels: undo } : d); setUndo(null); setMessage({ key: 'workspace.restored' }); focusMain(); }}>{t('workspace.undo')}</Button></div>}
-      {editing && <p className="layout-hint">{t('view.compactionHelp')}</p>}
       {narrow && editing && <div className="notice">{t('workspace.mobileHelp')}</div>}
       {active && <div className="board-bar"><span>{t('workspace.views', { count: panels.length })}</span>
         {editing && !shared && <Button id="add-view" className="with-icon" disabled={busy || panels.length >= 200} onClick={openPicker}><Icon name="plus" /> {t('view.add')}</Button>}</div>}

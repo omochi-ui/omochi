@@ -116,7 +116,6 @@ export default {
     "retry": "Retry view",
     "up": "Move up",
     "down": "Move down",
-    "compactionHelp": "Views automatically pack upward. Moving down may return a view to its previous position when there is empty space above. Save to keep your changes.",
     "resizeHandle": "Resize view {{edge}}",
     "keyboardHelp": "Use arrow keys on the move handle to move. Hold Shift and press an arrow key to resize.",
     "detailsTitle": "View details",
