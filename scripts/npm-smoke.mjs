@@ -30,17 +30,20 @@ assert.ok(
       ),
     ),
 );
-const runtimeDir = await mkdtemp(
+const temporary = await mkdtemp(
   path.join(
     process.platform === 'win32' ? tmpdir() : '/tmp',
     'omochi-sdk-pack-',
   ),
 );
-const transport = new nodeSdk.LocalServerTransport({
-  serviceId: 'con',
-  runtimeDir,
-});
+// Let the native adapter create the runtime with its private Windows DACL.
+const runtimeDir = path.join(temporary, 'runtime');
+let transport;
 try {
+  transport = new nodeSdk.LocalServerTransport({
+    serviceId: 'con',
+    runtimeDir,
+  });
   await transport.ready;
   const manifest = JSON.parse(
     await readFile(path.join(transport.directory, 'manifest.json'), 'utf8'),
@@ -52,8 +55,11 @@ try {
     process.platform === 'win32' ? 'namedPipe' : 'unix',
   );
 } finally {
-  await transport.close();
-  await rm(runtimeDir, { recursive: true, force: true });
+  try {
+    await transport?.close();
+  } finally {
+    await rm(temporary, { recursive: true, force: true });
+  }
 }
 assert.ok(
   (
