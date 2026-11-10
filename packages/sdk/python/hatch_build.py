@@ -3,6 +3,7 @@
 import json
 import os
 import platform
+import runpy
 import struct
 import subprocess
 import sys
@@ -10,6 +11,10 @@ import sysconfig
 from pathlib import Path
 
 from hatchling.builders.hooks.plugin.interface import BuildHookInterface
+
+native_build_environment = runpy.run_path(
+    str(Path(__file__).with_name("cargo_build.py"))
+)["native_build_environment"]
 
 
 def validate_native_target(artifact, manifest):
@@ -105,11 +110,10 @@ class CustomBuildHook(BuildHookInterface):
             return
         if struct.calcsize("P") != 8:
             raise ValueError("Native wheels require a 64-bit Python interpreter")
-        if sys.platform == "win32":
-            os.environ.setdefault("RUSTFLAGS", "-C target-feature=+crt-static")
         if sys.platform == "darwin":
             os.environ.setdefault("MACOSX_DEPLOYMENT_TARGET", "11.0")
         target = os.environ.get("CARGO_BUILD_TARGET")
+        env = native_build_environment(Path.cwd(), target=target)
         command = [
             "cargo",
             "build",
@@ -122,7 +126,9 @@ class CustomBuildHook(BuildHookInterface):
         ]
         if target:
             command += ["--target", target]
-        result = subprocess.run(command, check=True, stdout=subprocess.PIPE, text=True)
+        result = subprocess.run(
+            command, check=True, env=env, stdout=subprocess.PIPE, text=True
+        )
         windows, apple = sys.platform == "win32", sys.platform == "darwin"
         name = (
             "omochi_local_ffi.dll"

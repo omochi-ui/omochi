@@ -19,9 +19,8 @@ def check_configured_cargo_output(stage):
     package = project / "src/omochi_ui"
     package.mkdir(parents=True)
     (package / "__init__.py").write_text("")
-    shutil.copy2(
-        ROOT / "packages/sdk/python/hatch_build.py", project / "hatch_build.py"
-    )
+    for name in ("hatch_build.py", "cargo_build.py"):
+        shutil.copy2(ROOT / "packages/sdk/python" / name, project / name)
     (project / "pyproject.toml").write_text("""
 [build-system]
 requires = ["hatchling"]

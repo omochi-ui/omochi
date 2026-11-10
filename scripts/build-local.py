@@ -3,14 +3,16 @@
 
 import argparse
 import json
-import os
-import platform
+import runpy
 import shutil
 import subprocess
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SDK = ROOT / "packages/sdk/rust"
+native_build_environment = runpy.run_path(
+    str(ROOT / "packages/sdk/python/cargo_build.py")
+)["native_build_environment"]
 
 
 def native_artifacts(command: list[str], env: dict[str, str]) -> dict[str, Path]:
@@ -67,9 +69,7 @@ def main():
         command.append("--release")
     if args.target:
         command += ["--target", args.target]
-    env = dict(os.environ)
-    if args.release and platform.system() == "Windows":
-        env["RUSTFLAGS"] = env.get("RUSTFLAGS", "") + " -C target-feature=+crt-static"
+    env = native_build_environment(ROOT, target=args.target, release=args.release)
     metadata = json.loads(
         subprocess.check_output(
             [

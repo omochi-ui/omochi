@@ -37,8 +37,10 @@ class LocalBuildTests(unittest.TestCase):
             "CARGO_BUILD_TARGET_DIR",
             "RUSTFLAGS",
             "CARGO_ENCODED_RUSTFLAGS",
+            "CARGO_BUILD_RUSTFLAGS",
         ):
             self.env.pop(key, None)
+        self.env["CARGO_HOME"] = str(self.root / "cargo-home")
         self.host = "x86_64-unknown-linux-gnu"
 
     def build(self, args=(), env=None):
@@ -56,7 +58,7 @@ class LocalBuildTests(unittest.TestCase):
         target_dir = self.root / "configured target"
         build = target_dir / target if target else target_dir
         build /= "release" if release else "debug"
-        build.mkdir(parents=True)
+        build.mkdir(parents=True, exist_ok=True)
         prefix, suffix = (
             ("", ".dll") if target and "windows" in target else ("lib", ".so")
         )
@@ -83,12 +85,13 @@ class LocalBuildTests(unittest.TestCase):
             build_local.subprocess,
             "check_output",
             side_effect=lambda command, **kwargs: (
-                f"host: {self.host}\n"
+                'unix\ntarget_os="linux"\ntarget_env="musl"\n'
+                if command[:3] == ["rustc", "--print", "cfg"]
+                else f"host: {self.host}\n"
                 if command[0] == "rustc"
                 else json.dumps({"target_directory": str(target_dir)})
             ),
         ).start()
-        patch.object(build_local.platform, "system", return_value="Linux").start()
         return run
 
     def test_default_host_build_stages_both_development_adapters(self):
@@ -156,6 +159,132 @@ class LocalBuildTests(unittest.TestCase):
         self.assertFalse((self.root / "packages/sdk/typescript/native").exists())
         self.assertFalse(
             (self.root / "packages/sdk/python/src/omochi_ui/_native").exists()
+        )
+
+    def test_musl_crt_flags_follow_cli_environment_config_and_host_targets(self):
+        musl = "x86_64-unknown-linux-musl"
+        config_dir = self.root / ".cargo"
+        config_dir.mkdir()
+        for selection in ("explicit", "environment", "config", "host"):
+            for flags in (
+                {},
+                {"RUSTFLAGS": "--cfg existing -C target-feature=+crt-static"},
+                {
+                    "RUSTFLAGS": "--cfg ignored",
+                    "CARGO_ENCODED_RUSTFLAGS": '--cfg\x1fexisting="with space"',
+                },
+            ):
+                with self.subTest(selection=selection, flags=flags):
+                    self.host = (
+                        musl if selection == "host" else "x86_64-pc-windows-msvc"
+                    )
+                    run = self.mock_cargo(musl, release=True)
+                    config = config_dir / "config.toml"
+                    config.write_text(
+                        f'[build]\ntarget = "{musl if selection == "config" else self.host}"\n'
+                    )
+                    if selection == "host":
+                        config.unlink()
+                    env = flags | {"CARGO_HOME": str(self.root / "cargo-home")}
+                    if selection == "environment":
+                        env["CARGO_BUILD_TARGET"] = musl
+                    elif selection == "explicit":
+                        env["CARGO_BUILD_TARGET"] = self.host
+                    args = ["--release"]
+                    if selection == "explicit":
+                        args += ["--target", musl]
+                    self.build(args, env)
+                    actual = run.call_args.kwargs["env"]
+                    if "CARGO_ENCODED_RUSTFLAGS" in flags:
+                        self.assertEqual(actual["RUSTFLAGS"], flags["RUSTFLAGS"])
+                        self.assertEqual(
+                            actual["CARGO_ENCODED_RUSTFLAGS"],
+                            flags["CARGO_ENCODED_RUSTFLAGS"]
+                            + "\x1f-C\x1ftarget-feature=-crt-static",
+                        )
+                    elif "RUSTFLAGS" in flags:
+                        self.assertEqual(
+                            actual["RUSTFLAGS"],
+                            flags.get("RUSTFLAGS", "")
+                            + " -C target-feature=-crt-static",
+                        )
+                    else:
+                        self.assertEqual(
+                            actual["CARGO_ENCODED_RUSTFLAGS"],
+                            "-C\x1ftarget-feature=-crt-static",
+                        )
+                    patch.stopall()
+
+    def test_windows_crt_flags_follow_target_and_preserve_encoded_flags(self):
+        windows = "aarch64-pc-windows-msvc"
+        run = self.mock_cargo(windows, release=True)
+        self.build(
+            ["--target", windows, "--release"],
+            {"CARGO_ENCODED_RUSTFLAGS": "--cfg\x1fexisting"},
+        )
+        self.assertEqual(
+            run.call_args.kwargs["env"]["CARGO_ENCODED_RUSTFLAGS"],
+            "--cfg\x1fexisting\x1f-C\x1ftarget-feature=+crt-static",
+        )
+
+    def test_configured_flags_keep_cargo_merging_and_target_precedence(self):
+        target = "x86_64-unknown-linux-musl"
+        config_dir = self.root / ".cargo"
+        config_dir.mkdir()
+        cargo_home = self.root / "cargo-home"
+        cargo_home.mkdir()
+        (cargo_home / "config.toml").write_text(
+            '[build]\nrustflags = ["--cfg", "global_build"]\n'
+            f'[target.{target}]\nrustflags = ["--cfg", "global_target"]\n'
+        )
+        config = config_dir / "config.toml"
+        config.write_text(
+            f'[build]\ntarget = "{target}"\nrustflags = ["--cfg", "local_build"]\n'
+            f'[target.{target}]\nrustflags = ["--cfg", "local_target"]\n'
+            '[target.\'cfg(all(unix, any(target_env = "musl", not(target_os = "linux"))))\']\n'
+            'rustflags = ["--cfg", \'spaced="with space"\']\n'
+            '[target.\'cfg(windows)\']\nrustflags = ["--cfg", "ignored"]\n'
+        )
+        run = self.mock_cargo(target)
+        self.build(
+            env={
+                f"CARGO_TARGET_{target.upper().replace('-', '_')}_RUSTFLAGS": "--cfg env_target"
+            }
+        )
+        self.assertEqual(
+            run.call_args.kwargs["env"]["CARGO_ENCODED_RUSTFLAGS"].split("\x1f"),
+            [
+                "--cfg",
+                "global_target",
+                "--cfg",
+                "local_target",
+                "--cfg",
+                "env_target",
+                "--cfg",
+                'spaced="with space"',
+                "-C",
+                "target-feature=-crt-static",
+            ],
+        )
+        config.write_text(
+            f'[build]\ntarget = "{target}"\nrustflags = ["--cfg", "local_build"]\n'
+        )
+        (cargo_home / "config.toml").write_text(
+            '[build]\nrustflags = ["--cfg", "global_build"]\n'
+        )
+        self.build(env={"CARGO_BUILD_RUSTFLAGS": "--cfg env_build"})
+        self.assertEqual(
+            run.call_args.kwargs["env"]["CARGO_ENCODED_RUSTFLAGS"].split("\x1f"),
+            [
+                "--cfg",
+                "global_build",
+                "--cfg",
+                "local_build",
+                "--cfg",
+                "env_build",
+                "-C",
+                "target-feature=-crt-static",
+            ],
         )
 
     @unittest.skipUnless(

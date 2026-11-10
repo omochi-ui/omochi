@@ -20,7 +20,7 @@ test = ["pytest>=8", "mypy>=1.18", "pyright>=1.1.400"]
 packages = ["src/omochi_ui"]
 
 [tool.hatch.build.targets.sdist]
-include = ["src", "README.md", "LICENSE", "pyproject.toml", "hatch_build.py", "native/Cargo.toml"]
+include = ["src", "README.md", "LICENSE", "pyproject.toml", "hatch_build.py", "cargo_build.py", "native/Cargo.toml"]
 
 [project.urls]
 Repository = "https://github.com/omochi-ui/omochi"

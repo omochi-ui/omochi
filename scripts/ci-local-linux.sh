@@ -4,9 +4,6 @@ export PATH=/opt/python/cp311-cp311/bin:$PATH
 export CARGO_HOME=/tmp/omochi-cargo RUSTUP_HOME=/tmp/omochi-rustup BUN_INSTALL=/tmp/omochi-bun
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
 export PATH="$CARGO_HOME/bin:$BUN_INSTALL/bin:$PATH"
-if [[ "${OMOCHI_LIBC}" == musl ]]; then
-  export RUSTFLAGS='-C target-feature=-crt-static'
-fi
 python -m pip install build hatchling auditwheel typing_extensions
 python scripts/build-local.py --release
 python -m build --wheel --outdir /tmp/omochi-wheel packages/sdk/python
