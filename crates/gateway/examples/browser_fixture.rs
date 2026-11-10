@@ -412,9 +412,10 @@ async fn source(
         )
         .await?;
         if gated_sdk && index == 0 && service_id == "s" {
-            sdk_gate = Some(sdk_gate::install(
-                &runtime.join(&service_id).join("a2ui.sock"),
-            )?);
+            let omochi_ui::LocalEndpoint::Unix { path } = transport.endpoint() else {
+                bail!("SDK gate requires a Unix endpoint");
+            };
+            sdk_gate = Some(sdk_gate::install(path)?);
         }
         let (load_tx, load_rx) = mpsc::channel(8);
         load_inputs.push(load_tx);
