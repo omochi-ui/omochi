@@ -7,10 +7,9 @@ import { SurfaceView, useA2uiSource } from '@omochi-ui/renderer';
 import { Button } from './Button.js';
 import { Icon } from './Icon.js';
 import { PanelGrid } from './PanelGrid.js';
-import { PanelLayoutControls } from './PanelLayoutControls.js';
 import { DialogHeader, restoreDialogFocus } from './dialogs.js';
 import { referenceId, type Dashboard, type Panel } from './contracts.js';
-import { appendPanel, compactPanels, placePanel, reorderPanels } from './layout.js';
+import { appendPanel, compactPanels, placePanel, resizePanel, reorderPanels } from './layout.js';
 import { desiredServices, groupByNode, splitSurfaceId, type ServiceView } from './services.js';
 import { BOARD_FILE_LIMIT, exportBoard, parseBoard, type SourceLabel } from './board-codec.js';
 import { SessionFault } from '@omochi-ui/core/browser';
@@ -337,7 +336,14 @@ export function DashboardWorkspace({ environment, connectionUi, connectionSideba
           return <article className="panel" key={panel.id} data-panel-id={panel.id} data-reference={id} data-surface={present ? id : undefined}>
             <header className="panel-header">
               {editing && !narrow && <Button static aria-label={t('view.moveLabel', { name: panel.title })} className="drag-handle" disabled={busy}
-                aria-describedby="layout-help" onKeyDown={event => { const delta = ({ ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] } as Record<string, number[]>)[event.key]; if (delta) { event.preventDefault(); changePanel({ ...panel, x: panel.x + delta[0]!, y: Math.min(100000, panel.y + delta[1]!) }); } }}><Icon name="grip" /></Button>}
+                aria-describedby="layout-help" onKeyDown={event => {
+                  const delta = ({ ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] } as Record<string, [number, number]>)[event.key];
+                  if (!delta) return;
+                  event.preventDefault();
+                  const [dx, dy] = delta;
+                  changePanel(event.shiftKey ? resizePanel(panel, 'se', dx, dy)
+                    : { ...panel, x: panel.x + dx, y: Math.min(100000, panel.y + dy) });
+                }}><Icon name="grip" /></Button>}
               <div className="panel-heading">{editing ? <input aria-invalid={validated && !panel.title.trim()} aria-describedby={validated && !panel.title.trim() ? errorId : undefined} aria-label={t('view.nameLabel', { name: panel.title })} maxLength={200} disabled={busy} value={panel.title} onChange={e => changePanel({ ...panel, title: e.target.value })} /> : <h2>{panel.title}</h2>}{editing && validated && !panel.title.trim() && <p className="field-error" id={errorId}>{t('view.nameRequired')}</p>}
                 <small>{sourceName}</small></div>
               <Button className="details-button" aria-label={t('view.detailsLabel', { name: panel.title })} onClick={() => { rememberFocus(); setDetails(panel); }}>{t('view.details')}</Button>
@@ -349,9 +355,9 @@ export function DashboardWorkspace({ environment, connectionUi, connectionSideba
                 {direct && service && <Button disabled={busy || !gateways.has(panel.reference.nodeId)} onClick={() => {
                   setSourceError(null); void environment.session.retry({ service: `${panel.reference.nodeId}~${panel.reference.serviceId}` }).catch(reason => setSourceError(reason instanceof Error ? reason : new SessionFault('SourceUnavailable')));
                 }}>{t('view.retry')}</Button>}</div>}</div>
-            {editing && <footer className="panel-editor">
-              {narrow ? <><Button disabled={busy || panels[0]?.id === panel.id} onClick={() => reorder(panel.id, -1)}>{t('view.up')}</Button><Button disabled={busy || panels[panels.length - 1]?.id === panel.id} onClick={() => reorder(panel.id, 1)}>{t('view.down')}</Button></>
-                : <PanelLayoutControls panel={panel} busy={busy} onChange={changePanel} />}
+            {editing && narrow && <footer className="panel-editor">
+              <Button disabled={busy || panels[0]?.id === panel.id} onClick={() => reorder(panel.id, -1)}>{t('view.up')}</Button>
+              <Button disabled={busy || panels[panels.length - 1]?.id === panel.id} onClick={() => reorder(panel.id, 1)}>{t('view.down')}</Button>
             </footer>}
           </article>;
         })}

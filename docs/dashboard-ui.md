@@ -37,10 +37,10 @@ React Grid Layout: [Desktop editing](assets/dashboard-ui/rgl-editing.png) ·
   pointer geometry, collision handling and scroll-aware movement. Escape, pointer
   cancellation, window blur or resizing the browser cancels the current gesture.
   Cancelling a gesture preserves all earlier draft edits.
-- **Adjust layout** provides buttons for moving and changing width/height without
-  dragging. Arrow keys on the grip move one cell. Pointer edits, keyboard edits,
-  additions and removals all use vertical packing. A downward move into empty
-  space may return to its previous row because gaps automatically close.
+- Arrow keys on the grip move one cell. Hold **Shift** and press an arrow key to
+  change width or height. Pointer edits, keyboard edits, additions and removals
+  all use vertical packing. A downward move into empty space may return to its
+  previous row because gaps automatically close.
 - At 760px and below, **Move up / Move down** changes order and repacks the common
   desktop grid left to right, preserving panel sizes. Resizing the browser alone
   never changes draft or saved geometry. The same mounted grid and SurfaceView

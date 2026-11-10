@@ -187,12 +187,16 @@ try {
     await input('[aria-label="Dashboard name"]', 'Daily overview');
     assert.equal(await evaluate("document.querySelectorAll('.panel input[type=number]').length"), 0);
     assert.equal(await evaluate("document.querySelectorAll('.resize-edge').length"), 8);
-    await click('Adjust layout');
-    await evaluate("document.querySelector('.adjust-controls [aria-label=\"Wider\"]').click()");
-    await until(async () => (await geometry()).w === 7, 'wider geometry');
-    await cdp('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 });
-    await cdp('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 });
-    await until(() => evaluate("!document.querySelector('.adjust-controls:popover-open')"), 'layout menu dismissed before dragging');
+    assert.equal(await evaluate("document.querySelectorAll('.adjust-controls, .panel-editor').length"), 0, 'desktop editing uses grid handles');
+    await evaluate("document.querySelector('.drag-handle').focus()");
+    for (const [key, dimension, expected] of [
+      ['ArrowRight', 'w', 7], ['ArrowLeft', 'w', 6], ['ArrowRight', 'w', 7],
+      ['ArrowDown', 'h', 7], ['ArrowUp', 'h', 6],
+    ]) {
+      await cdp('Input.dispatchKeyEvent', { type: 'keyDown', key, code: key, modifiers: 8 });
+      await cdp('Input.dispatchKeyEvent', { type: 'keyUp', key, code: key });
+      await until(async () => (await geometry())[dimension] === expected, `keyboard resize ${key}`);
+    }
     // Pointer moves are previews; escape returns the original rectangle.
     const initialGeometry = await geometry();
     const columnWidth = await evaluate("(document.querySelector('.panel-grid').clientWidth + 16) / 12");
