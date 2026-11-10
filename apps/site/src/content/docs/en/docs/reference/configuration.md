@@ -12,14 +12,14 @@ sidebar:
 | Hub HTTP/WebSocket | `127.0.0.1:5555` |
 | Stdio development bridge | Port `5555` |
 | Source-based Vite preview | Port `5173` |
-| Runtime directory | `$XDG_RUNTIME_DIR/omochi` |
+| Runtime directory | `$XDG_RUNTIME_DIR/omochi/v2` |
 | Native identity, trust, and dashboards | `$XDG_CONFIG_HOME/omochi/rust-v1`, or `$HOME/.config/omochi/rust-v1` |
 
-`--config-dir` or `OMOCHI_CONFIG_DIR` changes native state storage. `--runtime-dir` or `OMOCHI_RUNTIME_ROOT` selects the CLI/utils runtime directory. When `XDG_RUNTIME_DIR` is unset or empty, its default is `<system temporary directory>/omochi-<uid>/omochi`.
+`--config-dir` or `OMOCHI_CONFIG_DIR` changes native state storage. `--runtime-dir` or `OMOCHI_RUNTIME_DIR` selects the complete runtime directory. SDK transport options take precedence over the same environment variable. Without XDG, Unix uses `<system temporary directory>/omochi-<uid>/omochi/v2`. Windows defaults to LocalAppData KnownFolder `Omochi\Runtime\v2` for runtime and `Omochi\rust-v1` for native state.
 
-SDK apps must use the same directory. Set `XDG_RUNTIME_DIR` consistently or pass each SDK transport's runtime-root option; standalone SDK apps do not read `OMOCHI_RUNTIME_ROOT`. With `up`, an explicit runtime path must end in `/omochi` so child SDKs can share it. `OMOCHI_SERVICE` is the service ID passed by `up`; bundled examples use it to select Unix discovery.
+SDK apps, Gateway and Hub must use the same directory. `up` exports `OMOCHI_RUNTIME_DIR` to its children; explicit paths can have any final component. `OMOCHI_SERVICE` is the service ID passed by `up`; bundled examples use it to select local discovery.
 
-Keep runtime directories owned by your user with mode 0700. Shared writable directories are rejected. Dashboard files preserve layout, not live application state.
+Keep Unix runtime directories owned by your user with mode 0700. Windows uses a protected current-user-only ACL. Shared writable directories are rejected. Dashboard files preserve layout, not live application state. See [Transports](../transports/) for the v2 upgrade procedure.
 
 ## Networking
 

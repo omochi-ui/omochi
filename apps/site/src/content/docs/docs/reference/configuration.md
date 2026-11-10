@@ -12,14 +12,14 @@ sidebar:
 | Hub HTTP/WebSocket | `127.0.0.1:5555` |
 | 標準入出力の開発ブリッジ | ポート`5555` |
 | ソースから起動するViteプレビュー | ポート`5173` |
-| 実行時ディレクトリ | `$XDG_RUNTIME_DIR/omochi` |
+| 実行時ディレクトリ | `$XDG_RUNTIME_DIR/omochi/v2` |
 | ネイティブのID・信頼・ダッシュボード | `$XDG_CONFIG_HOME/omochi/rust-v1`、未設定なら`$HOME/.config/omochi/rust-v1` |
 
-`--config-dir`か`OMOCHI_CONFIG_DIR`でネイティブ状態の保存先を変えます。`--runtime-dir`か`OMOCHI_RUNTIME_ROOT`はCLI・utilsの実行時ディレクトリを選びます。`XDG_RUNTIME_DIR`が未設定または空なら、既定は`<システム一時ディレクトリ>/omochi-<uid>/omochi`です。
+`--config-dir`か`OMOCHI_CONFIG_DIR`でnative状態の保存先を変えます。`--runtime-dir`か`OMOCHI_RUNTIME_DIR`は実行時ディレクトリ全体を指定します。SDK Transportの明示オプションは同じ環境変数より優先します。XDG未設定のUnixでは`<システム一時ディレクトリ>/omochi-<uid>/omochi/v2`を使います。Windowsの既定はLocalAppData KnownFolderの`Omochi\Runtime\v2`、native状態は`Omochi\rust-v1`です。
 
-SDKアプリも同じディレクトリを使う必要があります。`XDG_RUNTIME_DIR`を揃えるか、SDK Transportの実行時ルートのオプションを渡してください。単独起動するSDKは`OMOCHI_RUNTIME_ROOT`を読みません。`up`で実行時パスを明示する場合は、子SDKと共有するため末尾を`/omochi`にします。`OMOCHI_SERVICE`は`up`が渡すサービスIDで、同梱exampleではUnix検出の選択に使います。
+SDKアプリ・Gateway・Hubは同じディレクトリを使ってください。`up`は子プロセスへ`OMOCHI_RUNTIME_DIR`を渡し、パス末尾の制約はありません。`OMOCHI_SERVICE`は`up`が渡すサービスIDで、同梱exampleではローカル検出の選択に使います。
 
-実行時ディレクトリは自分のユーザー所有・モード0700を維持してください。共有書き込み可能な場所は拒否します。ダッシュボードのファイルは配置を保存するもので、アプリの実行状態は含みません。
+Unixでは自分のユーザー所有・モード0700を維持し、Windowsでは現在のユーザーだけを許可する保護ACLを使います。共有書き込み可能な場所は拒否します。ダッシュボードのファイルは配置を保存するもので、アプリの実行状態は含みません。v2への更新手順は[Transport](../transports/)を参照してください。
 
 ## ネットワーク
 

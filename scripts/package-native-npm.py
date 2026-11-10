@@ -33,7 +33,8 @@ def validate_archive(archive, version):
     target = next((t for t in TARGETS if t['target'] == metadata['target']), None)
     if target is None:
         raise ValueError('Unsupported archive target')
-    for name in ['bin/omochi-ui', 'bin/omochi-utils', 'LICENSE', 'README.md']:
+    suffix = '.exe' if target['os'] == 'win32' else ''
+    for name in ['bin/omochi-ui' + suffix, 'bin/omochi-utils' + suffix, 'LICENSE', 'README.md']:
         if hashlib.sha256(files[name]).hexdigest() != metadata['sha256'][name]:
             raise ValueError(f'File checksum mismatch: {name}')
     return target, metadata, files
@@ -74,6 +75,7 @@ def main():
             directory = Path(temporary)
             (directory / 'bin').mkdir()
             for name in ['omochi-ui', 'omochi-utils']:
+                name += '.exe' if target['os'] == 'win32' else ''
                 binary = directory / 'bin' / name
                 binary.write_bytes(files['bin/' + name])
                 binary.chmod(0o755)

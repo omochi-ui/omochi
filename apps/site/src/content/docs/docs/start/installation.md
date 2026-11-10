@@ -7,7 +7,7 @@ sidebar:
 
 ## Hubを起動する
 
-SDKやutilsで作ったUIを表示するには、アプリと同じPCでHubを起動します。LinuxまたはmacOSとNode.js 22以上があれば、任意のディレクトリで実行できます。
+SDKやutilsで作ったUIを表示するには、アプリと同じPCでHubを起動します。Linux・macOS・Windows 11とNode.js 22以上があれば、任意のディレクトリで実行できます。
 
 ```sh
 npx @omochi-ui/cli hub

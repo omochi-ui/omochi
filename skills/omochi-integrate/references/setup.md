@@ -10,7 +10,7 @@ registry version: source examples may be ahead of published releases. The native
 CLI's Cargo package is `omochi-cli`, while its executable is `omochi-ui`.
 
 For an SDK integration in the user's project, prefer a published CLI. On
-Linux/macOS with Node.js 22+, start the local hub without cloning Omochi:
+Linux, macOS or Windows 11 with Node.js 22+, start the local hub without cloning Omochi:
 
 ```sh
 npx @omochi-ui/cli hub
@@ -37,7 +37,9 @@ bun run build
 ```
 
 This needs Bun 1.4.3+ and current stable Rust/Cargo. Python needs 3.11+; the Rust
-SDK needs Rust 1.85+. Native services and Unix sockets require Linux/macOS.
+SDK needs Rust 1.85+. Local IPC uses Unix sockets on Linux/macOS and named pipes
+on Windows 11. Python source installs build the native adapter with Cargo; Node.js/Bun
+installs need optional dependencies enabled.
 See [installation](https://omochi.fyi/en/docs/start/installation/) for supported
 distributions. Native archives include the dashboard and need no JS runtime.
 The Vite development preview is separate and is not included in native archives.
@@ -58,12 +60,13 @@ checkout path):
 
 ## Choose one connection
 
-### Local dashboard: discoverable Unix socket
+### Local dashboard: discoverable local IPC
 
-Start the program with `UnixSocketServerTransport` as shown in the language
+Start the program with `LocalServerTransport` as shown in the language
 reference. Those examples explicitly read `OMOCHI_SERVICE`; setting that
 variable alone does not change the SDK's default transport. Choose a stable,
-unique service ID such as `my-tool`.
+unique lowercase service ID such as `my-tool`. Set `OMOCHI_RUNTIME_DIR` consistently
+when the app and Hub need a custom runtime directory.
 
 Start `npx @omochi-ui/cli hub` (or installed `omochi-ui hub`) and open `http://127.0.0.1:5555/`, create a dashboard, add
 the app's surface, and save it. From a source checkout, the CLI equivalent is

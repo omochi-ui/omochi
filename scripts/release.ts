@@ -15,6 +15,7 @@ export interface Manifest {
   version: string;
   private?: boolean;
   omochiNative?: { crate: string; binary: string };
+  omochiLocal?: boolean;
   files?: string[];
   main?: string;
   types?: string;
@@ -91,6 +92,7 @@ export function publicationOrder(workspaces: Workspace[]): Workspace[] {
         if (version.startsWith('workspace:') && !dependency) throw new Error(`Unknown workspace dependency: ${name}`);
         if (!dependency) continue;
         if (dependency.manifest.private) throw new Error(`${manifest.name} depends on private package ${name}`);
+        if (dependency.manifest.omochiLocal && version === dependency.manifest.version) { visit(dependency); continue; }
         if (version !== 'workspace:*') throw new Error(`Use workspace:* for ${manifest.name}'s dependency on ${name}`);
         visit(dependency);
       }
@@ -105,6 +107,7 @@ export function publicationOrder(workspaces: Workspace[]): Workspace[] {
 
 export function distributionManifest(manifest: Manifest, versions: Map<string, string>): Manifest {
   const result = structuredClone(manifest);
+  delete result.omochiLocal;
   delete result.scripts;
   delete result.devDependencies;
   for (const field of dependencyFields) {
@@ -141,9 +144,24 @@ export async function loadRelease(tag?: string): Promise<{ version: string; pack
   const rust = Bun.TOML.parse(await Bun.file(path.join(root, 'packages/sdk/rust/Cargo.toml')).text()) as { package: { version: string } };
   const macros = Bun.TOML.parse(await Bun.file(path.join(root, 'packages/sdk/rust/macros/Cargo.toml')).text()) as { package: { version: string } };
   const version = python.project.version;
+  const local = Bun.TOML.parse(await Bun.file(path.join(root, 'packages/sdk/rust/local/Cargo.toml')).text()) as { package: { version: string } };
+  const adapters = await Promise.all(['local-node', 'local-ffi'].map(async name => {
+    const manifest = Bun.TOML.parse(await Bun.file(path.join(root, `packages/sdk/rust/${name}/Cargo.toml`)).text()) as { package: { version: string } };
+    return [name, manifest.package.version];
+  }));
+  const targets = await Bun.file(path.join(root, 'scripts/local/targets.json')).json() as { target: string; os: string; cpu: string; libc?: string }[];
+  for (const target of targets) {
+    const suffix = target.os === 'linux' ? (target.libc === 'musl' ? '-musl' : '-gnu') : '';
+    workspaces.push({ directory: `artifacts/local/${target.target}`, manifest: {
+      name: `@omochi-ui/local-${target.os}-${target.cpu}${suffix}`, version, omochiLocal: true,
+      main: 'omochi_local.node', files: ['omochi_local.node'],
+      ...{ os: [target.os], cpu: [target.cpu], ...(target.libc ? {libc: [target.libc]} : {}) },
+    } });
+  }
   validateVersion(version, {
     ...publicSdkVersions(workspaces),
-    'Python workspace': pythonRoot.project.version, 'Rust SDK': rust.package.version, 'Rust SDK macros': macros.package.version,
+    'Python workspace': pythonRoot.project.version, 'Rust SDK': rust.package.version, 'Rust SDK macros': macros.package.version, 'Local IPC': local.package.version,
+    ...Object.fromEntries(adapters),
   }, tag);
   const license = await readFile(path.join(root, 'LICENSE'));
   for (const sdk of ['python', 'rust']) {
@@ -163,8 +181,8 @@ async function pack(): Promise<void> {
   for (const { directory, manifest } of release.packages) {
     const staging = await mkdtemp(path.join(tmpdir(), 'omochi-pack-'));
     try {
-      if (!manifest.files?.includes('dist')) throw new Error(`${manifest.name} needs an explicit files allowlist including dist`);
-      for (const file of manifest.files) {
+      if (!manifest.omochiLocal && !manifest.files?.includes('dist')) throw new Error(`${manifest.name} needs an explicit files allowlist including dist`);
+      for (const file of manifest.files ?? []) {
         if (path.isAbsolute(file) || file.split('/').includes('..') || /[*?]/.test(file)) throw new Error(`Unsupported files entry: ${file}`);
         await cp(path.join(root, directory, file), path.join(staging, file), { recursive: true });
       }
@@ -234,8 +252,8 @@ async function preparePyPi(): Promise<void> {
   const { version } = await loadRelease();
   const directory = path.join(root, 'artifacts/python');
   const filenames = (await readdir(directory)).filter((name) => name.endsWith('.whl') || name.endsWith('.tar.gz'));
-  if (filenames.length !== 2 || !filenames.some((name) => name.endsWith('.whl')) || !filenames.some((name) => name.endsWith('.tar.gz'))) {
-    throw new Error('Expected a Python wheel and source distribution');
+  if (filenames.filter(name => name.endsWith('.whl')).length !== 8 || filenames.filter(name => name.endsWith('.tar.gz')).length !== 1) {
+    throw new Error('Expected eight platform wheels and one source distribution');
   }
   const local = await Promise.all(filenames.map(async (filename) => ({
     filename, digests: { sha256: createHash('sha256').update(await readFile(path.join(directory, filename))).digest('hex') },

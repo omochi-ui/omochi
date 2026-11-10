@@ -9,7 +9,7 @@ import { WebSocket } from 'ws';
 import { test } from '@omochi-ui/core/testing';
 import { App, schema, type JsonObject } from '../src/index.js';
 import { CallbackTransport } from '../src/transport.js';
-import { UnixSocketServerTransport, WebSocketServerTransport } from '../src/node/index.js';
+import { LocalServerTransport, WebSocketServerTransport } from '../src/node/index.js';
 import { MAX_PENDING_BYTES, MAX_PENDING_MESSAGES, ReceiveQueue, ReceiveQueueOverflowError } from '../src/receive-queue.js';
 
 function barrier() {
@@ -51,7 +51,7 @@ for (const budget of ['count', 'bytes'] as const) {
         t.after(() => rm(root, { recursive: true, force: true }));
         const transport = kind === 'websocket'
           ? new WebSocketServerTransport({ port: 0 })
-          : new UnixSocketServerTransport({ serviceId: 'queue', runtimeDir: root });
+          : new LocalServerTransport({ serviceId: 'queue', runtimeDir: root });
         const blocked = blockedApp();
         const running = blocked.app.start(transport);
         const outcome = running.then(() => null, error => error);
@@ -76,7 +76,7 @@ for (const budget of ['count', 'bytes'] as const) {
           await once(client, 'open');
           send = value => client.send(JSON.stringify(value));
         } else {
-          const client = createConnection(transport.socketPath!);
+          const client = createConnection(socketPath(transport));
           t.after(() => client.destroy());
           createInterface({ input: client }).on('line', inspect);
           closed = once(client, 'close');
@@ -152,3 +152,9 @@ test('dequeue and clear release pending byte and message capacity', () => {
   assert.equal(queue.shift(), '');
   queue.push('');
 });
+
+function socketPath(transport: LocalServerTransport): string {
+  const endpoint = transport.endpoint;
+  assert.ok(endpoint?.kind === "unix");
+  return endpoint.path;
+}

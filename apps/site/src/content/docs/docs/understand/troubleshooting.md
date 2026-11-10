@@ -7,7 +7,7 @@ sidebar:
 
 ## アプリが画面を開かずJSONを出力する
 
-`app.start()`の既定は標準入出力です。Hubで表示するには[SDKガイド](../../guides/sdks/)の`UnixSocketServerTransport`を指定してください。独自クライアントや標準入出力のプレビューには[Transportリファレンス](../../reference/transports/)を参照します。
+`app.start()`の既定は標準入出力です。Hubで表示するには[SDKガイド](../../guides/sdks/)の`LocalServerTransport`を指定してください。独自クライアントや標準入出力のプレビューには[Transportリファレンス](../../reference/transports/)を参照します。
 
 ## 5555が使用中
 
@@ -15,7 +15,7 @@ sidebar:
 
 ## サービスが見つからない
 
-アプリが`UnixSocketServerTransport`で公開され、Gatewayと同じOSユーザー・実行時ディレクトリで動いているか確認します。Hubはアプリを自動起動しません。[設定](../../reference/configuration/)で保存先と環境変数を確認し、実行時ディレクトリの0700権限は緩めないでください。
+アプリが`LocalServerTransport`で公開され、Gatewayと同じOSユーザー・実行時ディレクトリで動いているか確認します。Hubはアプリを自動起動しません。[設定](../../reference/configuration/)で保存先と環境変数を確認し、Unixの実行時ディレクトリは0700、WindowsのACLは現在のユーザーだけに維持してください。
 
 ## 更新しても入力が変わらない
 

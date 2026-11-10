@@ -5,7 +5,7 @@ sidebar:
   order: 3
 ---
 
-ネイティブのutilsを使うと、SDKアプリを書かずに検出可能なSurfaceを公開できます。LinuxまたはmacOSとNode.js 22以上があれば、任意のディレクトリでHubを起動できます。
+ネイティブのutilsを使うと、SDKアプリを書かずに検出可能なSurfaceを公開できます。Linux・macOS・Windows 11とNode.js 22以上があれば、任意のディレクトリでHubを起動できます。
 
 ```sh
 npx @omochi-ui/cli hub

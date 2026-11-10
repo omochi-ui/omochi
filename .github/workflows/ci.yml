@@ -69,6 +69,8 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: ${{ matrix.python }}
+      - uses: dtolnay/rust-toolchain@stable
+      - run: python scripts/build-local.py
       - run: python -m pip install mypy pyright build
       - run: python scripts/test-sdk-types.py
       - run: python -m build packages/sdk/python --outdir /tmp/sdk-wheel

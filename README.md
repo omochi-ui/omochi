@@ -36,7 +36,7 @@ an external Hub.
 
 ## Use it
 
-On Linux or macOS with Node.js 22+:
+On Linux, macOS or Windows 11 with Node.js 22+:
 
 ```sh
 npx @omochi-ui/cli hub

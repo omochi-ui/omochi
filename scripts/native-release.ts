@@ -5,7 +5,7 @@ import path from 'node:path';
 import { npmStageId, root, run } from './release.ts';
 
 const registry = 'https://registry.npmjs.org/';
-export const crateNames = ['omochi-protocol', 'omochi-mdns', 'omochi-transport', 'omochi-local-discovery', 'omochi-gateway', 'omochi-hub', 'omochi-cli', 'omochi-utils'];
+export const crateNames = ['omochi-process', 'omochi-protocol', 'omochi-mdns', 'omochi-transport', 'omochi-local-discovery', 'omochi-gateway', 'omochi-hub', 'omochi-cli', 'omochi-utils'];
 type Artifact = { name: string; version: string; filename: string; integrity?: string; sha256?: string };
 type Bundle = { version: string; packages: Artifact[]; complete?: boolean; verified?: boolean; commit?: string; dirty?: boolean; localSdk?: boolean };
 const targets = await Bun.file(path.join(root, 'scripts/native/targets.json')).json() as { os: string; cpu: string }[];
@@ -33,7 +33,7 @@ export async function validateNativeSources(): Promise<void> {
     if (!license.equals(await readFile(path.join(directory, 'LICENSE')))) throw new Error(`${member} LICENSE differs from the root`);
     for (const field of ['dependencies', 'dev-dependencies', 'build-dependencies']) {
       for (const [name, dependency] of Object.entries(manifest[field] ?? {}) as [string, any][]) {
-        if (dependency.path && dependency.version !== `=${name === 'omochi-ui' ? sdk.package.version : version}`) {
+        if (dependency.path && dependency.version !== `=${['omochi-ui', 'omochi-local'].includes(name) ? sdk.package.version : version}`) {
           throw new Error(`${member}: path dependency ${name} needs the exact publication version`);
         }
       }

@@ -1,26 +1,20 @@
 use crate::resources::{ResourceRegistry, hello, is_resource};
 use std::collections::{BTreeSet, VecDeque};
-use std::fs;
-use std::os::fd::AsRawFd;
-use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt, PermissionsExt};
+
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use serde_json::{Map, Value};
+pub use omochi_local::LocalEndpoint;
+use omochi_local::{LocalRuntime, LocalStream, ServicePublication};
+use serde_json::Value;
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
-use tokio::net::{UnixListener, UnixStream};
 use tokio::sync::{Mutex, Notify, OwnedSemaphorePermit, Semaphore, mpsc, oneshot, watch};
 use tokio::task::{JoinHandle, JoinSet};
 
 use crate::snapshot::{A2uiSnapshot, SnapshotCursor};
 use crate::transport::Transport;
 use crate::{Error, Result};
-
-const SOCKET_FILE_NAME: &str = "a2ui.sock";
-
-/// Linux caps `sun_path` at 108 bytes and macOS at 104; leave room for the null terminator.
-const MAX_SOCKET_PATH_BYTES: usize = 100;
 
 /// Encoded UTF-8 bytes, including newlines, queued or being written per client.
 const MAX_OUTBOUND_BYTES: usize = 16 * 1024 * 1024;
@@ -170,87 +164,30 @@ impl ClientSender {
     }
 }
 
-/// Mirrors the id constraint the hub applies, so `<serviceId>/<surfaceId>` stays splittable.
-pub fn validate_service_id(service_id: &str) -> Result<()> {
-    // "." and ".." pass the character check but would collapse or escape the service directory.
-    let acceptable = !service_id.is_empty()
-        && service_id.len() <= 64
-        && service_id != "."
-        && service_id != ".."
-        && service_id
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-'));
-    if acceptable {
-        Ok(())
-    } else {
-        Err(Error::Declaration(format!(
-            "service id must match [A-Za-z0-9._-]{{1,64}} and cannot be \".\" or \"..\": {service_id:?}"
-        )))
-    }
-}
-
-/// Resolves the directory holding one subdirectory per published service.
-///
-/// `$XDG_RUNTIME_DIR` is per-user and mode 0700, and that permission is the entire local
-/// trust boundary. A world-writable `/tmp/omochi` is never used, because another local
-/// user could pre-create a service directory and squat the socket.
+/// Resolve the version 2 runtime directory.
 pub fn omochi_runtime_root() -> PathBuf {
-    match std::env::var_os("XDG_RUNTIME_DIR").filter(|value| !value.is_empty()) {
-        Some(configured) => PathBuf::from(configured).join("omochi"),
-        None => {
-            let uid = unsafe { libc::geteuid() };
-            std::env::temp_dir()
-                .join(format!("omochi-{uid}"))
-                .join("omochi")
-        }
-    }
+    omochi_local::default_runtime_root().expect("could not resolve per-user runtime directory")
 }
-
-/// Resolves the default runtime root and secures its per-user fallback before use.
-/// Explicit XDG runtime directories retain their existing trust policy.
 pub fn prepare_omochi_runtime_root() -> Result<PathBuf> {
-    let root = omochi_runtime_root();
-    if std::env::var_os("XDG_RUNTIME_DIR").is_none_or(|value| value.is_empty()) {
-        prepare_fallback_runtime_root(&root, unsafe { libc::geteuid() })?;
-    }
-    Ok(root)
+    Ok(LocalRuntime::prepare(None)?.root().to_path_buf())
 }
-
-fn prepare_fallback_runtime_root(root: &Path, uid: u32) -> Result<()> {
-    // Validate the parent before following any path below it. Writable existing
-    // directories may already contain attacker-planted entries, so reject them.
-    for directory in [root.parent().expect("fallback has a parent"), root] {
-        match fs::DirBuilder::new().mode(0o700).create(directory) {
-            Ok(()) => {}
-            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
-            Err(error) => return Err(error.into()),
-        }
-        let metadata = fs::symlink_metadata(directory)?;
-        if !metadata.is_dir() || metadata.uid() != uid || metadata.mode() & 0o022 != 0 {
-            return Err(Error::Transport(format!(
-                "fallback runtime directory must be owned, a real directory, and not writable by other users: {}",
-                directory.display()
-            )));
-        }
-        // Safe, owned 0755 directories from older versions can be tightened.
-        fs::set_permissions(directory, fs::Permissions::from_mode(0o700))?;
-    }
-    Ok(())
+pub fn validate_service_id(id: &str) -> Result<()> {
+    Ok(omochi_local::validate_service_id(id)?)
 }
 
 #[derive(Debug, Clone)]
-pub struct UnixSocketServerOptions {
+pub struct LocalServerOptions {
     pub service_id: String,
     /// Human-readable label shown by a hub. Defaults to the service id.
     pub name: Option<String>,
     /// An emoji, or a `data:image/...;base64,` URL a browser can render directly.
     pub icon: Option<String>,
-    /// Defaults to `$XDG_RUNTIME_DIR/omochi`.
+    /// Complete runtime root; defaults to OMOCHI_RUNTIME_DIR or the platform v2 directory.
     pub runtime_dir: Option<PathBuf>,
     pub capabilities: BTreeSet<String>,
 }
 
-impl UnixSocketServerOptions {
+impl LocalServerOptions {
     pub fn new(service_id: impl Into<String>) -> Self {
         Self {
             service_id: service_id.into(),
@@ -292,96 +229,54 @@ struct Publication {
     clients: Vec<ClientSender>,
 }
 
-/// Publishes one application on a unix domain socket and advertises it for discovery.
+/// Publishes one application through user-private local IPC for discovery.
 ///
-/// The transport writes `<runtime_dir>/<service_id>/manifest.json` next to the socket so a
-/// hub can find it without configuration. Reaching the socket is the authentication: the
-/// runtime directory is mode 0700, so only the owning user can connect.
+/// The shared native module writes `<runtime_dir>/svc-<service_id>~/manifest.json`
+/// and serves a Unix domain socket or Windows named pipe. Access is restricted
+/// to the current OS user through directory permissions or Windows ACLs.
 ///
 /// One application is fanned out to every connected renderer, and their inbound messages
 /// are merged into a single stream for the Runtime.
-pub struct UnixSocketServerTransport {
+pub struct LocalServerTransport {
     shared: Arc<Shared>,
     inbound: Arc<InboundQueue>,
     accept: Option<JoinHandle<()>>,
     shutdown: Option<oneshot::Sender<()>>,
-    finished: oneshot::Receiver<()>,
+    finished: watch::Receiver<bool>,
     capabilities: BTreeSet<String>,
     directory: PathBuf,
-    socket_path: PathBuf,
+    endpoint: LocalEndpoint,
     closed: bool,
-    #[cfg(test)]
+    #[cfg(all(test, unix))]
     service_publication: std::sync::Weak<ServicePublication>,
 }
 
-impl UnixSocketServerTransport {
-    pub async fn bind(mut options: UnixSocketServerOptions) -> Result<Self> {
+impl LocalServerTransport {
+    pub async fn bind(mut options: LocalServerOptions) -> Result<Self> {
         validate_service_id(&options.service_id)?;
-        let root = match options.runtime_dir.take() {
-            Some(root) => root,
-            None => prepare_omochi_runtime_root()?,
-        };
-        let directory = root.join(&options.service_id);
-        fs::create_dir_all(&root)?;
-        fs::set_permissions(&root, fs::Permissions::from_mode(0o700))?;
-        let service_lock = lock_service(&root, &options.service_id)?;
-        let (finished, completion) = oneshot::channel();
-        let publication = ServicePublication {
-            directory,
-            owns_socket: false,
-            _service_lock: service_lock,
-            _finished: PublicationFinished(Some(finished)),
-        };
-        fs::create_dir_all(&publication.directory)?;
-        // create_dir_all's mode is masked by umask and leaves an existing directory untouched.
-        fs::set_permissions(&root, fs::Permissions::from_mode(0o700))?;
-        fs::set_permissions(&publication.directory, fs::Permissions::from_mode(0o700))?;
-        Self::listen(publication, completion, options).await
-    }
-
-    async fn listen(
-        mut publication: ServicePublication,
-        finished: oneshot::Receiver<()>,
-        options: UnixSocketServerOptions,
-    ) -> Result<Self> {
-        let directory = publication.directory.clone();
-        let socket_path = directory.join(SOCKET_FILE_NAME);
-        if socket_path.as_os_str().len() > MAX_SOCKET_PATH_BYTES {
-            return Err(Error::Transport(format!(
-                "unix socket path is too long for this platform: {}",
-                socket_path.display()
-            )));
-        }
-        claim_socket_path(&socket_path).await?;
-
-        let listener = UnixListener::bind(&socket_path)?;
-        publication.owns_socket = true;
-        let listener = ServiceListener {
-            listener,
-            publication: Arc::new(publication),
-        };
-        // Linux enforces unix socket permissions on connect, and bind applies the umask.
-        fs::set_permissions(&socket_path, fs::Permissions::from_mode(0o600))?;
-
+        let root = LocalRuntime::prepare(options.runtime_dir.take())?;
+        let publication = root
+            .publish(
+                &options.service_id,
+                options.name.as_deref().unwrap_or(&options.service_id),
+                options.icon.clone(),
+            )
+            .await?;
+        let directory = publication.directory().to_path_buf();
+        let endpoint = publication.endpoint().clone();
+        let finished = publication.finished();
+        let listener = Arc::new(publication);
+        #[cfg(all(test, unix))]
+        let service_publication = Arc::downgrade(&listener);
         let shared = Arc::new(Shared {
             resources: std::sync::RwLock::new(None),
             publication: Mutex::new(Publication::default()),
         });
-        // Advertise only once the socket accepts connections, so a readable manifest is
-        // always connectable.
-        write_manifest(
-            &directory,
-            options.name.as_deref().unwrap_or(&options.service_id),
-            options.icon.as_deref(),
-        )?;
-
         let inbound = Arc::new(InboundQueue::new());
         let sender = Arc::clone(&inbound);
         let mut failed = inbound.failed.subscribe();
         let (shutdown, mut stopping) = oneshot::channel();
         let accept_shared = Arc::clone(&shared);
-        #[cfg(test)]
-        let service_publication = Arc::downgrade(&listener.publication);
         let accept = tokio::spawn(async move {
             let mut connections = JoinSet::new();
             loop {
@@ -391,12 +286,12 @@ impl UnixSocketServerTransport {
                     _ = failed.changed() => break,
                     // Reap finished connections without keeping their task allocations.
                     _ = connections.join_next(), if !connections.is_empty() => {},
-                    accepted = listener.listener.accept() => {
-                        let Ok((stream, _)) = accepted else { break };
+                    accepted = listener.accept() => {
+                        let Ok(stream) = accepted else { break };
                         connections.spawn(serve_connection(
                             ServiceConnection {
                                 stream,
-                                _publication: Arc::clone(&listener.publication),
+                                _publication: Arc::clone(&listener),
                             },
                             Arc::clone(&accept_shared),
                             sender.clone(),
@@ -406,6 +301,7 @@ impl UnixSocketServerTransport {
             }
             // Each connection owns both socket halves, so joining their cancellation
             // also waits for every reader and writer to release its resources.
+            listener.stop().await;
             connections.shutdown().await;
             accept_shared.publication.lock().await.clients.clear();
             sender.close();
@@ -420,15 +316,15 @@ impl UnixSocketServerTransport {
             finished,
             capabilities: options.capabilities,
             directory: directory.to_path_buf(),
-            socket_path,
+            endpoint,
             closed: false,
-            #[cfg(test)]
+            #[cfg(all(test, unix))]
             service_publication,
         })
     }
 
-    pub fn socket_path(&self) -> &Path {
-        &self.socket_path
+    pub fn endpoint(&self) -> &LocalEndpoint {
+        &self.endpoint
     }
 
     pub fn directory(&self) -> &Path {
@@ -452,12 +348,12 @@ impl UnixSocketServerTransport {
         self.accept.take();
         // A panicked/aborted supervisor aborts its JoinSet without joining it.
         // Wait for the final socket's guard to finish cleanup and unlock as well.
-        let _ = (&mut self.finished).await;
+        let _ = self.finished.wait_for(|finished| *finished).await;
         self.closed = true;
     }
 }
 
-impl Drop for UnixSocketServerTransport {
+impl Drop for LocalServerTransport {
     fn drop(&mut self) {
         // Last-resort cleanup for a transport dropped without close().
         // The supervisor owns every connection and completes their cancellation even
@@ -469,7 +365,7 @@ impl Drop for UnixSocketServerTransport {
 }
 
 #[async_trait]
-impl Transport for UnixSocketServerTransport {
+impl Transport for LocalServerTransport {
     fn set_resources(&mut self, resources: ResourceRegistry) {
         *self.shared.resources.write().unwrap() = Some(resources);
     }
@@ -498,127 +394,9 @@ impl Transport for UnixSocketServerTransport {
     }
 }
 
-// Publication cleanup and ownership travel together. Accepted connections retain
-// this guard too: aborting or panicking the supervisor only requests their task
-// cancellation, and cannot release the lock before their sockets actually drop.
-struct ServicePublication {
-    directory: PathBuf,
-    owns_socket: bool,
-    _service_lock: ServiceLock,
-    // Notify only after service_lock has explicitly unlocked and closed.
-    _finished: PublicationFinished,
-}
-
-struct PublicationFinished(Option<oneshot::Sender<()>>);
-
-impl Drop for PublicationFinished {
-    fn drop(&mut self) {
-        if let Some(finished) = self.0.take() {
-            let _ = finished.send(());
-        }
-    }
-}
-
-impl Drop for ServicePublication {
-    fn drop(&mut self) {
-        if self.owns_socket {
-            let _ = fs::remove_dir_all(&self.directory);
-        } else {
-            // A failed probe must leave an older publisher's files untouched.
-            let _ = fs::remove_dir(&self.directory);
-        }
-        // service_lock drops after cleanup, including on failed/cancelled bind.
-    }
-}
-
-// Fields drop in declaration order, including cancellation before first poll.
-// Close each socket before releasing its reference to the publication guard.
-struct ServiceListener {
-    listener: UnixListener,
-    publication: Arc<ServicePublication>,
-}
-
 struct ServiceConnection {
-    stream: UnixStream,
+    stream: LocalStream,
     _publication: Arc<ServicePublication>,
-}
-
-struct ServiceLock(fs::File);
-
-impl Drop for ServiceLock {
-    fn drop(&mut self) {
-        // A concurrent fork can keep this open file description alive until exec,
-        // despite CLOEXEC. Release ownership before closing our descriptor so a
-        // successor does not depend on an unrelated child's scheduling.
-        unsafe { libc::flock(self.0.as_raw_fd(), libc::LOCK_UN) };
-    }
-}
-
-/// Keep this inode forever: unlinking a locked file would allow a second owner.
-/// `~` cannot occur in service ids, and service cleanup never touches the lock file.
-fn lock_service(root: &Path, service_id: &str) -> Result<ServiceLock> {
-    let file = fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .mode(0o600)
-        .open(root.join(format!(".{service_id}.lock~")))?;
-    // flock locks open file descriptions, so distinct transports in one process also
-    // contend, and the kernel releases ownership if the process crashes.
-    if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } != 0 {
-        let error = std::io::Error::last_os_error();
-        if error.kind() == std::io::ErrorKind::WouldBlock {
-            return Err(Error::Transport(format!(
-                "another omochi service already owns {}",
-                root.join(service_id).display()
-            )));
-        }
-        return Err(error.into());
-    }
-    Ok(ServiceLock(file))
-}
-
-/// Takes ownership of the socket path, removing one left behind by a crash.
-///
-/// A path that still accepts connections means another instance owns this service id;
-/// the caller holds the lifetime lock through probing, binding and cleanup.
-async fn claim_socket_path(socket_path: &Path) -> Result<()> {
-    if !socket_path.exists() {
-        return Ok(());
-    }
-    match UnixStream::connect(socket_path).await {
-        Ok(_) => {
-            return Err(Error::Transport(format!(
-                "another omochi service already owns {}",
-                socket_path.display()
-            )));
-        }
-        Err(error)
-            if matches!(
-                error.kind(),
-                std::io::ErrorKind::NotFound | std::io::ErrorKind::ConnectionRefused
-            ) => {}
-        Err(error) => return Err(error.into()),
-    }
-    fs::remove_file(socket_path)?;
-    Ok(())
-}
-
-/// Publishes the manifest atomically so a discovery pass never reads a half-written file.
-fn write_manifest(directory: &Path, name: &str, icon: Option<&str>) -> Result<()> {
-    let mut manifest = Map::new();
-    manifest.insert("name".into(), Value::String(name.to_owned()));
-    if let Some(icon) = icon {
-        manifest.insert("icon".into(), Value::String(icon.to_owned()));
-    }
-    manifest.insert("socket".into(), Value::String(SOCKET_FILE_NAME.to_owned()));
-    let temporary = directory.join(format!(".manifest.{}.tmp", std::process::id()));
-    fs::write(
-        &temporary,
-        format!("{}\n", serde_json::to_string(&Value::Object(manifest))?),
-    )?;
-    fs::set_permissions(&temporary, fs::Permissions::from_mode(0o600))?;
-    fs::rename(&temporary, directory.join("manifest.json"))?;
-    Ok(())
 }
 
 /// Validate the v0.9 envelope before it can reach the shared Runtime.
@@ -649,13 +427,13 @@ fn is_client_message(value: &Value) -> bool {
 }
 
 async fn serve_connection(
-    mut connection: ServiceConnection,
+    connection: ServiceConnection,
     shared: Arc<Shared>,
     inbound: Arc<InboundQueue>,
 ) {
     // Borrow the halves so the connection keeps both the stream and publication
     // alive until all reader/writer futures have been dropped.
-    let (reader, mut writer) = connection.stream.split();
+    let (reader, mut writer) = connection.stream.into_split();
     let (sender, mut outbound, mut cancelled) = ClientSender::new();
     let announce_resources = shared.resources.read().unwrap().is_some();
     let snapshot = {
@@ -757,36 +535,26 @@ async fn serve_connection(
         .retain(|client| !client.queue.same_channel(&sender.queue));
 }
 
-#[cfg(test)]
-#[path = "../tests/unix_server/publication.rs"]
-mod publication_tests;
-
-#[cfg(test)]
+#[cfg(all(test, unix))]
+use std::fs;
+#[cfg(all(test, unix))]
+use tokio::net::UnixStream;
+#[cfg(all(test, unix))]
+impl LocalServerTransport {
+    fn socket_path(&self) -> &Path {
+        match &self.endpoint {
+            LocalEndpoint::Unix { path } => path,
+            _ => unreachable!(),
+        }
+    }
+}
+#[cfg(all(test, unix))]
+#[path = "../tests/unix_server/inbound.rs"]
+mod inbound_tests;
+#[cfg(all(test, unix))]
 #[path = "../tests/unix_server/outbound.rs"]
 mod outbound_tests;
 
-#[cfg(test)]
-#[path = "../tests/unix_server/inbound.rs"]
-mod inbound_tests;
-
-#[cfg(test)]
-mod fallback_tests {
-    use super::*;
-
-    #[test]
-    fn rejects_foreign_parent_without_traversing_or_chmodding_it() {
-        let uid = unsafe { libc::geteuid() };
-        let sandbox = std::env::temp_dir().join(format!("omochi-fb-owner-{}", std::process::id()));
-        fs::create_dir(&sandbox).unwrap();
-        let parent = sandbox.join("parent");
-        fs::create_dir(&parent).unwrap();
-        fs::set_permissions(&parent, fs::Permissions::from_mode(0o755)).unwrap();
-        let root = parent.join("omochi");
-        // Inject an expected owner different from the real directory owner; no
-        // privilege or mutation of another user's directory is needed.
-        assert!(prepare_fallback_runtime_root(&root, uid.wrapping_add(1)).is_err());
-        assert!(!root.exists());
-        assert_eq!(fs::metadata(&parent).unwrap().mode() & 0o777, 0o755);
-        fs::remove_dir_all(sandbox).unwrap();
-    }
-}
+#[cfg(all(test, unix))]
+#[path = "../tests/unix_server/publication.rs"]
+mod publication_tests;

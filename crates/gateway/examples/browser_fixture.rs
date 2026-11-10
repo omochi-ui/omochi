@@ -16,8 +16,8 @@ use omochi_transport::{
     store::{Role, Store},
 };
 use omochi_ui::{
-    App, ButtonOptions, ImageOptions, TextFieldOptions, Transport, UnixSocketServerOptions,
-    UnixSocketServerTransport,
+    App, ButtonOptions, ImageOptions, LocalServerOptions, LocalServerTransport, TextFieldOptions,
+    Transport,
 };
 use rustls_pki_types::{CertificateDer, PrivateKeyDer, pem::PemObject};
 use serde_json::{Value, json};
@@ -38,7 +38,7 @@ struct DraftForm {
 }
 
 struct ObservedSdk {
-    inner: UnixSocketServerTransport,
+    inner: LocalServerTransport,
     gateway: usize,
     service: String,
     load: mpsc::Receiver<u64>,
@@ -405,8 +405,8 @@ async fn source(
             }
             Ok(())
         })?;
-        let transport = UnixSocketServerTransport::bind(
-            UnixSocketServerOptions::new(&service_id)
+        let transport = LocalServerTransport::bind(
+            LocalServerOptions::new(&service_id)
                 .with_name(format!("SDK {index} {service_id}"))
                 .with_runtime_dir(&runtime),
         )

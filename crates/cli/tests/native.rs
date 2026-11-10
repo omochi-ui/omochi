@@ -72,6 +72,7 @@ async fn gateway_startup_failure_preserves_an_unowned_socket() {
     let runtime = root.path().join("runtime");
     std::fs::create_dir(&runtime).unwrap();
     std::fs::set_permissions(&runtime, std::fs::Permissions::from_mode(0o700)).unwrap();
+    omochi_local::LocalRuntime::prepare(Some(runtime.clone())).unwrap();
     let socket = runtime.join("gateway.sock");
     let listener = tokio::net::UnixListener::bind(&socket).unwrap();
     let before = std::fs::symlink_metadata(&socket).unwrap();
@@ -84,10 +85,7 @@ async fn gateway_startup_failure_preserves_an_unowned_socket() {
     .unwrap();
     assert!(!output.status.success());
     let error = String::from_utf8_lossy(&output.stderr);
-    assert!(
-        error.contains("gateway socket is already present"),
-        "{error}"
-    );
+    assert!(error.contains("existing live publisher"), "{error}");
     let after = std::fs::symlink_metadata(&socket).unwrap();
     assert_eq!((before.dev(), before.ino()), (after.dev(), after.ino()));
     let client = tokio::net::UnixStream::connect(&socket).await.unwrap();

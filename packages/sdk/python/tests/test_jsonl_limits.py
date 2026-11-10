@@ -7,7 +7,7 @@ import sys
 import tempfile
 import unittest
 
-from omochi_ui import UnixSocketServerTransport
+from omochi_ui import LocalServerTransport
 
 
 MAX_FRAME_BYTES = 4 * 1024 * 1024
@@ -113,12 +113,12 @@ class JsonlLimitTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_unix_accepts_large_and_boundary_frames(self):
         with tempfile.TemporaryDirectory() as root:
-            transport = UnixSocketServerTransport("demo", runtime_dir=root)
+            transport = LocalServerTransport("demo", runtime_dir=root)
             try:
                 await transport.start()
                 for name, message, ending in accepted_frames():
                     with self.subTest(name=name):
-                        reader, writer = await asyncio.open_unix_connection(str(transport.socket_path))
+                        reader, writer = await asyncio.open_unix_connection(str(transport.endpoint["path"]))
                         try:
                             writer.write(encode(message) + ending)
                             await asyncio.wait_for(writer.drain(), timeout=10)
@@ -136,7 +136,7 @@ class JsonlLimitTests(unittest.IsolatedAsyncioTestCase):
     async def test_unix_rejects_only_the_oversized_connection(self):
         for name, frame in rejected_frames():
             with self.subTest(name=name), tempfile.TemporaryDirectory() as root:
-                transport = UnixSocketServerTransport("demo", runtime_dir=root)
+                transport = LocalServerTransport("demo", runtime_dir=root)
                 disconnected = asyncio.Event()
                 errors = []
                 accept = transport._accept
@@ -152,7 +152,7 @@ class JsonlLimitTests(unittest.IsolatedAsyncioTestCase):
                 transport._accept = observe_accept
                 try:
                     await transport.start()
-                    reader, writer = await asyncio.open_unix_connection(str(transport.socket_path))
+                    reader, writer = await asyncio.open_unix_connection(str(transport.endpoint["path"]))
                     try:
                         writer.write(frame)
                         await asyncio.wait_for(writer.drain(), timeout=10)
@@ -165,7 +165,7 @@ class JsonlLimitTests(unittest.IsolatedAsyncioTestCase):
                         await writer.wait_closed()
 
                     # A real message received on another connection is the liveness barrier.
-                    reader, writer = await asyncio.open_unix_connection(str(transport.socket_path))
+                    reader, writer = await asyncio.open_unix_connection(str(transport.endpoint["path"]))
                     try:
                         message = action("still alive")
                         writer.write(encode(message) + b"\n")

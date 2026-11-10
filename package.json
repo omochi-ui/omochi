@@ -4,7 +4,7 @@
   "license": "Apache-2.0",
   "packageManager": "bun@1.4.3",
   "scripts": {
-    "build": "bun run build:web && cargo build --manifest-path crates/Cargo.toml --locked -p omochi-cli -p omochi-utils",
+    "build": "bun run build:sdk-local && bun run build:web && cargo build --manifest-path crates/Cargo.toml --locked -p omochi-cli -p omochi-utils",
     "quickstart": "bun run build && bun run omochi-ui up --open examples/quickstart/omochi.toml",
     "test": "bun run build && bun run --filter './packages/**' test && bun run test:server-rust && bun check -p tests/native && OMOCHI_NATIVE_TEST=1 bun test tests/native packages/renderer/test/native.test.ts && bun run test:approval && bun run test:packaging && bun run test:sdk-ownership",
     "test:packaging": "bun run release:typecheck && bun test scripts/release.test.ts scripts/native-release.test.ts && python3 -B scripts/test_native_packaging.py",
@@ -21,7 +21,7 @@
     "release:pack": "bun scripts/release.ts pack",
     "release:smoke": "bun scripts/smoke-npm.ts",
     "release:stage:npm": "bun scripts/release.ts stage-npm",
-    "build:native": "bun run --filter @omochi-ui/core build && bun run --filter @omochi-ui/renderer build && bun run --filter @omochi-ui/hub-ui build && cargo build --manifest-path crates/Cargo.toml --locked -p omochi-cli -p omochi-utils",
+    "build:native": "bun run build:sdk-local && bun run --filter @omochi-ui/core build && bun run --filter @omochi-ui/renderer build && bun run --filter @omochi-ui/hub-ui build && cargo build --manifest-path crates/Cargo.toml --locked -p omochi-cli -p omochi-utils",
     "build:native:release": "python3 scripts/package-native.py",
     "test:native-renderer": "bun run build:native && OMOCHI_NATIVE_TEST=1 bun test packages/renderer/test/native.test.ts",
     "release:native:check": "bun scripts/native-release.ts check",
@@ -48,7 +48,8 @@
     "experiment:browser-dashboard": "bun experiments/browser-dashboard/run.ts",
     "build:hosted": "bun run build:web && bun run --filter @omochi-ui/hub-transport build:wasm && bun run --filter @omochi-ui/hub-ui build:hosted",
     "test:dashboard-sharing": "bun run build:native && bun run build:hosted && cargo build --manifest-path crates/Cargo.toml --locked -p omochi-hub --example dashboard_fixture && bun tests/browser/sharing.mjs",
-    "check:dashboard-app": "bun run --filter @omochi-ui/dashboard-app check"
+    "check:dashboard-app": "bun run --filter @omochi-ui/dashboard-app check",
+    "build:sdk-local": "python3 scripts/build-local.py"
   },
   "devDependencies": {
     "@happy-dom/global-registrator": "^21.0.4",

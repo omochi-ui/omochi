@@ -1,5 +1,5 @@
 [workspace]
-members = ["protocol", "downstream-core", "mdns", "transport", "discovery", "gateway", "hub", "cli", "utils", "native-bridge"]
+members = ["protocol", "process", "downstream-core", "mdns", "transport", "discovery", "gateway", "hub", "cli", "utils", "native-bridge"]
 resolver = "3"
 
 [workspace.package]

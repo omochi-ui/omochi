@@ -4,7 +4,6 @@ use crate::{
 };
 use anyhow::{Result, bail};
 use std::{
-    os::unix::fs::MetadataExt,
     path::{Path, PathBuf},
     time::Duration,
 };
@@ -46,16 +45,25 @@ impl Tail {
     }
     async fn read(&mut self, path: &Path, lines: usize) -> Result<()> {
         // Metadata and bytes come from the same descriptor, avoiding rotation races.
-        let mut file = tokio::fs::OpenOptions::new()
-            .read(true)
-            .custom_flags(libc::O_NONBLOCK)
-            .open(path)
-            .await?;
-        let info = file.metadata().await?;
-        if !info.is_file() {
-            bail!("path is not a regular file");
-        }
-        let identity = (info.dev(), info.ino());
+        let path = path.to_path_buf();
+        let (file, info, identity) = tokio::task::spawn_blocking(move || -> Result<_> {
+            let mut options = std::fs::OpenOptions::new();
+            options.read(true);
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::OpenOptionsExt;
+                options.custom_flags(libc::O_NONBLOCK);
+            }
+            let file = options.open(path)?;
+            let info = file.metadata()?;
+            if !info.is_file() {
+                bail!("path is not a regular file");
+            }
+            let identity = omochi_local::files::handle_identity(&file)?;
+            Ok((file, info, identity))
+        })
+        .await??;
+        let mut file = tokio::fs::File::from_std(file);
         let size = info.len();
         let initial = self.identity != Some(identity) || size < self.position;
         if initial {

@@ -29,12 +29,12 @@ mod error;
 #[cfg(feature = "runtime")]
 mod ir;
 #[cfg(feature = "runtime")]
+mod local_server;
+#[cfg(feature = "runtime")]
 mod reconcile;
 mod snapshot;
 #[cfg(feature = "runtime")]
 mod transport;
-#[cfg(feature = "runtime")]
-mod unix_server;
 
 #[cfg(feature = "runtime")]
 pub use app::{ActionContext, App, Runtime};
@@ -50,15 +50,15 @@ pub use error::{Error, Result};
 #[cfg(feature = "runtime")]
 pub use ir::{Declaration, JsonObject, LocalDeclaration, Node, Slot};
 #[cfg(feature = "runtime")]
+pub use local_server::{
+    LocalEndpoint, LocalServerOptions, LocalServerTransport, omochi_runtime_root,
+    prepare_omochi_runtime_root, validate_service_id,
+};
+#[cfg(feature = "runtime")]
 pub use reconcile::{PROTOCOL_VERSION, Reconciler};
 pub use snapshot::{A2uiSnapshot, SnapshotCursor};
 #[cfg(feature = "runtime")]
 pub use transport::{CallbackTransport, StdioTransport, Transport};
-#[cfg(feature = "runtime")]
-pub use unix_server::{
-    UnixSocketServerOptions, UnixSocketServerTransport, omochi_runtime_root,
-    prepare_omochi_runtime_root, validate_service_id,
-};
 
 #[cfg(feature = "runtime")]
 pub mod resources;

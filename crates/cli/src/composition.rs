@@ -1,15 +1,14 @@
 //! Existing composition format, executed without a shell or a JavaScript runtime.
 use anyhow::{Context, Result, bail};
 use omochi_hub::dashboards::{Panel, Reference};
+use omochi_process::{Child, Command, Stdio};
 use serde::Deserialize;
 use serde_json::{Value, json};
 use std::{
     collections::{BTreeMap, BTreeSet},
     path::{Path, PathBuf},
-    process::Stdio,
     time::Duration,
 };
-use tokio::process::{Child, Command};
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -86,7 +85,7 @@ fn parse(source: &str, root: &Path, node: &str) -> Result<Composition> {
     }
     let mut services = Vec::new();
     for (id, service) in &doc.services {
-        if !omochi_protocol::session::valid_service_id(id) {
+        if omochi_local::validate_service_id(id).is_err() {
             bail!("invalid service id: {id}");
         }
         let argv = match (&service.command, &service.utility) {
@@ -189,15 +188,10 @@ fn parse(source: &str, root: &Path, node: &str) -> Result<Composition> {
 /// Each command owns a process group so grandchildren are also terminated.
 pub struct Supervisor {
     children: Vec<Child>,
-    groups: Vec<i32>,
+    groups: Vec<omochi_process::Group>,
 }
 impl Supervisor {
     pub fn start(services: &[ServiceCommand], runtime: &Path) -> Result<Self> {
-        if runtime.file_name().and_then(|s| s.to_str()) != Some("omochi") {
-            bail!(
-                "up requires a runtime directory ending in /omochi to preserve the SDK XDG_RUNTIME_DIR contract"
-            );
-        }
         let mut supervisor = Self {
             children: vec![],
             groups: vec![],
@@ -208,41 +202,33 @@ impl Supervisor {
                 .args(&service.argv[1..])
                 .current_dir(&service.cwd)
                 .envs(&service.env)
-                .env(
-                    "XDG_RUNTIME_DIR",
-                    runtime
-                        .parent()
-                        .context("runtime directory needs a parent")?,
-                )
+                .env("OMOCHI_RUNTIME_DIR", runtime)
                 .stdin(Stdio::inherit())
                 .stdout(Stdio::inherit())
-                .stderr(Stdio::inherit())
-                .kill_on_drop(true)
-                .process_group(0);
+                .stderr(Stdio::inherit());
             let child = command
                 .spawn()
                 .with_context(|| format!("could not start {}", service.argv[0]))?;
-            supervisor.groups.push(child.id().unwrap() as i32);
+            supervisor.groups.push(child.group());
             supervisor.children.push(child);
         }
         Ok(supervisor)
     }
     fn signal(&self, signal: i32) {
-        for &group in &self.groups {
-            unsafe {
-                libc::kill(-group, signal);
-            }
+        for group in &self.groups {
+            group.signal(signal);
         }
     }
+
     pub async fn close(&mut self) {
-        self.signal(libc::SIGTERM);
+        self.signal(omochi_process::SIGTERM);
         let _ = tokio::time::timeout(Duration::from_secs(1), async {
             for child in &mut self.children {
                 let _ = child.wait().await;
             }
         })
         .await;
-        self.signal(libc::SIGKILL);
+        self.signal(omochi_process::SIGKILL);
         for child in &mut self.children {
             let _ = child.wait().await;
         }
@@ -251,28 +237,12 @@ impl Supervisor {
 }
 impl Drop for Supervisor {
     fn drop(&mut self) {
-        self.signal(libc::SIGKILL);
+        self.signal(omochi_process::SIGKILL);
     }
 }
 pub fn open_browser(url: &str) {
-    let executable = if cfg!(target_os = "macos") {
-        "open"
-    } else {
-        "xdg-open"
-    };
-    match Command::new(executable)
-        .arg(url)
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()
-    {
-        Ok(mut child) => {
-            tokio::spawn(async move {
-                let _ = child.wait().await;
-            });
-        }
-        Err(error) => eprintln!("[omochi-ui] could not open browser: {error}"),
+    if let Err(error) = omochi_process::open_browser(url) {
+        eprintln!("[omochi-ui] could not open browser: {error}");
     }
 }
 

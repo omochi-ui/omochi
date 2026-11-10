@@ -9,7 +9,7 @@ Choose the connection between an SDK app and its clients.
 
 | Transport | Use | Availability |
 | --- | --- | --- |
-| `UnixSocketServerTransport` | Publish an app for discovery by a Hub | Python, Node.js/Bun, Rust |
+| `LocalServerTransport` | Publish an app for discovery by a Hub | Python, Node.js/Bun, Rust |
 | `StdioTransport` | JSONL stdin/stdout for a bridge or custom client | All SDKs; default for `app.start()` |
 | `WebSocketTransport` | Attach a caller-owned WebSocket-like connection | Python, TypeScript |
 | `WebSocketServerTransport` | Host browser clients directly | Node.js/Bun |
@@ -17,17 +17,23 @@ Choose the connection between an SDK app and its clients.
 
 Python exports its transports from `omochi_ui`; TypeScript server transports are in `@omochi-ui/sdk/node`, and the other transports in `@omochi-ui/sdk`. Rust exports its `Transport` trait and adapters from `omochi_ui`.
 
-## Unix discovery
+## Local discovery
 
-See the [SDK guide](../../guides/sdks/) for complete examples. Run clients and services as the same OS user with the same runtime directory. The default is `$XDG_RUNTIME_DIR/omochi`, or `<system temporary directory>/omochi-<uid>/omochi` when unset or empty. Supply the SDK transport's runtime-root option when overriding this location; CLI `OMOCHI_RUNTIME_ROOT` does not configure standalone SDK apps.
+See the [SDK guide](../../guides/sdks/) for complete examples. Run clients and services as the same OS user with the same runtime directory. All SDKs use the shared native adapter: Unix domain sockets on Linux/macOS and named pipes on Windows 11, with access restricted to the current user.
 
-Choose a service ID matching `[A-Za-z0-9._-]{1,64}`, excluding `.` and `..`. Concurrent publishers with the same ID are rejected. Keep the ID stable to reuse saved layouts. TypeScript Unix discovery requires its native optional dependency on Linux/macOS x64 or arm64; keep optional dependencies enabled.
+Set `OMOCHI_RUNTIME_DIR` consistently or pass each transport's runtime directory option. Defaults are `$XDG_RUNTIME_DIR/omochi/v2` on Unix, `<system temporary directory>/omochi-<uid>/omochi/v2` without XDG, and the LocalAppData known folder's `Omochi\Runtime\v2` on Windows.
+
+Service IDs match `[a-z0-9._-]{1,64}`, excluding `.` and `..`. Uppercase is rejected. Concurrent publishers with the same ID are rejected; keep the ID stable to reuse saved layouts. IDs are stored directly in `svc-<id>~` directories without encoding.
+
+Node.js/Bun installations require optional dependencies enabled. Python platform wheels bundle the adapter; building from an sdist requires Cargo. Prebuilt adapters support Linux glibc/musl, macOS and Windows, each on x64 and ARM64.
+
+For the v2 upgrade, stop all publishers, Gateway and Hub together. Use `LocalServerTransport` and the option names below, choose a new empty directory for explicit old runtime paths, and replace socket-path accessors with typed `endpoint` values. Native identity and trust remain unchanged. See the [runtime contract](https://github.com/omochi-ui/omochi/blob/main/spec/local-service-ownership.md) for the manifest and ownership rules.
 
 | SDK | Runtime directory option | Capability option |
 | --- | --- | --- |
-| Python | `runtime_dir=` on `UnixSocketServerTransport` | `capabilities=` |
+| Python | `runtime_dir=` on `LocalServerTransport` | `capabilities=` |
 | TypeScript | `runtimeDir` in transport options | `capabilities` |
-| Rust | `UnixSocketServerOptions::with_runtime_dir(...)` | `.with_capabilities(...)` |
+| Rust | `LocalServerOptions::with_runtime_dir(...)` | `.with_capabilities(...)` |
 
 ## Stdio and custom clients
 
@@ -35,7 +41,7 @@ Choose a service ID matching `[A-Za-z0-9._-]{1,64}`, excluding `.` and `..`. Con
 
 For an explicit transport, use `await app.start(transport)` in Python/TypeScript and `app.start_with(transport).await` in Rust. Each transport carries one app. Configure renderer capabilities before the first Surface is rendered; enable a capability only when the client implements it.
 
-Python stdio and Unix transports accept up to 4 MiB of UTF-8 bytes per JSONL line, excluding LF; a preceding CR counts. Oversized lines end stdio reception with `ValueError` or close the offending Unix connection. A final line without LF is accepted within the same limit.
+Python stdio and local transports accept up to 4 MiB of UTF-8 bytes per JSONL line, excluding LF; a preceding CR counts. Oversized lines end stdio reception with `ValueError` or close the offending local connection. A final line without LF is accepted within the same limit.
 
 ## Direct WebSocket server
 
@@ -71,7 +77,7 @@ external browser access.
 
 In Python and TypeScript, `runtime.shutdown()` stops admitting transport messages,
 stops background tasks, and closes the resource registry. Built-in server transports
-also close their listeners and remove Unix discovery publications. Use
+also close their listeners and remove local discovery publications. Use
 `runtime.wait_closed()` (Python) or `runtime.waitClosed()` (TypeScript) to wait for
 cleanup to finish. An action already running may finish before `start()` returns.
 

@@ -6,19 +6,20 @@ use serde_json::json;
 use std::{future::Future, os::unix::fs::PermissionsExt};
 use tokio::{
     io::{AsyncRead, AsyncWrite},
-    net::UnixListener,
+    net::{UnixListener, UnixStream},
     task::JoinSet,
 };
 
 async fn fixture(root: &std::path::Path) -> (Gateway, JoinHandle<Result<()>>, JoinSet<()>) {
     std::fs::set_permissions(root, std::fs::Permissions::from_mode(0o700)).unwrap();
+    omochi_local::LocalRuntime::prepare(Some(root.to_path_buf())).unwrap();
     let mut sdks = JoinSet::new();
     for index in 0..MAX_SERVICES {
-        let dir = root.join(format!("app{index:03}"));
-        std::fs::create_dir(&dir).unwrap();
+        let dir = root.join(format!("svc-app{index:03}~"));
+        omochi_local::files::private_directory(&dir).unwrap();
         std::fs::write(
             dir.join("manifest.json"),
-            r#"{"name":"App","socket":"a2ui.sock"}"#,
+            json!({"version":2,"serviceId":format!("app{index:03}"),"name":"App","endpoint":{"kind":"unix","path":"a2ui.sock"}}).to_string(),
         )
         .unwrap();
         let listener = UnixListener::bind(dir.join("a2ui.sock")).unwrap();
@@ -157,7 +158,12 @@ async fn unix_multiple_hubs_keep_full_rosters_and_resource_capacity() {
         let (gateway, discovery, mut sdks) = fixture(root.path()).await;
         let path = root.path().join("gateway.sock");
         let server = gateway
-            .listen_unix(path.clone(), "a".repeat(64), "test".into())
+            .listen_local(
+                (path.clone()).parent().unwrap().to_path_buf(),
+                "a".repeat(64),
+                "test".into(),
+            )
+            .await
             .unwrap();
         let mut open = || async { UnixStream::connect(&path).await.unwrap().into_split() };
         let mut first = subscribe_all(&mut open).await;

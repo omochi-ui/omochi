@@ -124,7 +124,7 @@ do not send Japanese readers to English-only user references for missing details
 
 Keep the first-UI walkthrough centered on an installed Hub and utilities. SDK
 guides should show language-package installation, publishing an application with
-`UnixSocketServerTransport`, and displaying it in the Hub without cloning or
+`LocalServerTransport`, and displaying it in the Hub without cloning or
 building Omochi. Document other transport choices in the transport reference.
 
 Describe historical behavior only when readers need it to handle existing

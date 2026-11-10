@@ -2,7 +2,7 @@
 
 ## Start without a checkout
 
-On Linux or macOS with Node.js 22+:
+On Linux, macOS or Windows 11 with Node.js 22+:
 
 ```sh
 npx @omochi-ui/cli hub
@@ -10,7 +10,7 @@ npx @omochi-ui/cli hub
 
 Open http://127.0.0.1:5555/. The hub includes the dashboard UI and starts a local
 gateway automatically. Add your running SDK app or utility with **Add view**.
-SDK apps must use the discoverable Unix socket transport.
+SDK apps must use the discoverable `LocalServerTransport`.
 
 For regular use, install `npm install -g @omochi-ui/cli`, or build the published
 Rust package with `cargo install omochi-cli --locked`, then run `omochi-ui hub`.
@@ -69,10 +69,17 @@ though the trust removal is already durable.
 
 ## Breaking upgrade
 
-Stop old gateways/hubs first. SDK APIs and manifests are unchanged; gateway wire
-protocol and NodeIds are new. Pair devices again and recreate saved dashboards.
-Native state lives at $XDG_CONFIG_HOME/omochi/rust-v1 or
-$HOME/.config/omochi/rust-v1. Legacy state is left untouched.
+Stop publishers, gateways and hubs together before the local IPC v2 upgrade.
+SDKs now use `LocalServerTransport` and runtime format 2. Explicit old runtime
+paths require a new empty directory; legacy manifests are not read or migrated.
+Service IDs are lowercase and stored without encoding. Existing native identities
+and trust are retained; this local IPC change does not require pairing again.
+See `spec/local-service-ownership.md` in the repository for API migration.
+
+Unix native state lives at $XDG_CONFIG_HOME/omochi/rust-v1 or
+$HOME/.config/omochi/rust-v1; Windows uses the LocalAppData known folder's
+Omochi\rust-v1. Windows archives include `install.ps1`; run
+`./install.ps1 -Prefix "$HOME/bin"` in PowerShell to select an install directory.
 
 Linux binaries use their build runner's libc; choose an OS/architecture-compatible
 archive and libc, or build from source. This script does not codesign or notarize

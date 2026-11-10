@@ -8,7 +8,6 @@ use sha2::{Digest, Sha256};
 use std::{
     collections::BTreeMap,
     fs,
-    os::unix::fs::{MetadataExt, PermissionsExt},
     path::{Path, PathBuf},
 };
 
@@ -88,20 +87,7 @@ fn digest(secret: &str) -> String {
 impl Store {
     pub fn open(root: impl AsRef<Path>) -> Result<Self> {
         let root = root.as_ref().to_path_buf();
-        if !root.exists() {
-            fs::create_dir_all(&root)?;
-            fs::set_permissions(&root, fs::Permissions::from_mode(0o700))?;
-        }
-        let metadata = fs::symlink_metadata(&root)?;
-        unsafe extern "C" {
-            fn getuid() -> u32;
-        }
-        if metadata.uid() != unsafe { getuid() } {
-            bail!("state directory is owned by another user")
-        }
-        if !metadata.is_dir() || metadata.permissions().mode() & 0o077 != 0 {
-            bail!("state directory must be a private directory (0700)")
-        }
+        omochi_local::files::private_directory(&root)?;
         let store = Self { root };
         store.mutate(|_| Ok(()))?;
         Ok(store)

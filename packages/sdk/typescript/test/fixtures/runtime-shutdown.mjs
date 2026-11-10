@@ -9,7 +9,7 @@ import { PassThrough } from "node:stream";
 import { setImmediate } from "node:timers/promises";
 import { WebSocket } from "ws";
 import { App, CallbackTransport, StdioTransport, schema } from "@omochi-ui/sdk";
-import { UnixSocketServerTransport, WebSocketServerTransport } from "@omochi-ui/sdk/node";
+import { LocalServerTransport, WebSocketServerTransport } from "@omochi-ui/sdk/node";
 
 const mode = process.argv[2];
 const app = new App({});
@@ -75,13 +75,13 @@ if (mode === "custom" || mode === "late-rejection" || mode === "callback") {
 } else if (mode === "websocket" || mode === "unix") {
   const root = mode === "unix" ? await mkdtemp(path.join(tmpdir(), "omochi-shutdown-")) : null;
   const transport = root
-    ? new UnixSocketServerTransport({ serviceId: "app", runtimeDir: root })
+    ? new LocalServerTransport({ serviceId: "app", runtimeDir: root })
     : new WebSocketServerTransport({ port: 0 });
   try {
     const started = runtime.start(transport);
     await runtime.ready();
     await transport.ready;
-    const socketPath = transport.socketPath;
+    const socketPath = root ? transport.endpoint.path : null;
     const client = root ? createConnection(socketPath) : new WebSocket(transport.url);
     if (root) client.resume();
     await once(client, root ? "connect" : "open");

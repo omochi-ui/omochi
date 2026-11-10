@@ -56,8 +56,14 @@ jobs:
           bun -e 'console.log("version=" + (await Bun.file("packages/sdk/typescript/package.json").json()).version)' >> "$GITHUB_OUTPUT"
           echo "commit=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
-  typescript:
+  local-sdk:
     needs: prepare
+    uses: ./.github/workflows/local-sdk.yml
+    with:
+      ref: ${{ needs.prepare.outputs.commit }}
+
+  typescript:
+    needs: [prepare, local-sdk]
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -97,6 +103,11 @@ jobs:
       - run: python scripts/test-catalog-types.py
       - run: bun run check:dashboard-app
       - run: bun run --bun --filter '*' lint
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: local-node-*
+          merge-multiple: true
+          path: artifacts/local/
       - run: bun run release:pack
       - run: bun run release:smoke
       - uses: actions/upload-artifact@v7
@@ -107,7 +118,7 @@ jobs:
           retention-days: 14
 
   python:
-    needs: prepare
+    needs: [prepare, local-sdk]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     strategy:
@@ -122,18 +133,26 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: ${{ matrix.python }}
+      - uses: dtolnay/rust-toolchain@stable
+      - run: python scripts/build-local.py
       - run: python -m pip install ./packages/sdk/python
       - run: python -m unittest discover -s packages/sdk/python/tests -v
         env:
           PYTHONPATH: packages/sdk/python/src
-      - name: Build sdist and wheel, then check metadata
+      - uses: actions/download-artifact@v8
+        if: matrix.python == '3.11'
+        with:
+          pattern: local-python-*
+          merge-multiple: true
+          path: artifacts/python/
+      - name: Build sdist and check platform distributions
         if: matrix.python == '3.11'
         run: |
           python -m pip install build twine
-          python -m build --outdir artifacts/python packages/sdk/python
+          python -m build --sdist --outdir artifacts/python packages/sdk/python
           python -m twine check artifacts/python/*
           python -m venv "$RUNNER_TEMP/omochi-wheel"
-          "$RUNNER_TEMP/omochi-wheel/bin/python" -m pip install artifacts/python/*.whl
+          "$RUNNER_TEMP/omochi-wheel/bin/python" -m pip install $(find artifacts/python -name '*manylinux*x86_64.whl' -print -quit)
       - name: Import the installed wheel outside the checkout
         if: matrix.python == '3.11'
         working-directory: ${{ runner.temp }}
@@ -292,6 +311,7 @@ jobs:
         run: |
           python3 scripts/check-sdk-crates.py
           cmp "artifacts/rust/omochi-ui-$VERSION.crate" "packages/sdk/rust/target/package/omochi-ui-$VERSION.crate"
+          cmp "artifacts/rust/omochi-local-$VERSION.crate" "packages/sdk/rust/target/package/omochi-local-$VERSION.crate"
           cmp "artifacts/rust/omochi-ui-macros-$VERSION.crate" "packages/sdk/rust/target/package/omochi-ui-macros-$VERSION.crate"
       - uses: rust-lang/crates-io-auth-action@v1
         id: auth
@@ -306,6 +326,19 @@ jobs:
             echo 'Set CRATES_IO_BOOTSTRAP_TOKEN in the crates-io environment for the first publication.' >&2
             exit 1
           fi
+          local_status=$(curl --silent --show-error --location --retry 3 \
+            --user-agent 'omochi-release (https://github.com/omochi-ui/omochi)' \
+            --output "$RUNNER_TEMP/local-version.json" --write-out '%{http_code}' \
+            "https://crates.io/api/v1/crates/omochi-local/${{ needs.prepare.outputs.version }}")
+          case "$local_status" in
+            200)
+              expected=$(sha256sum "artifacts/rust/omochi-local-${{ needs.prepare.outputs.version }}.crate" | cut -d' ' -f1)
+              actual=$(jq -r '.version.checksum' "$RUNNER_TEMP/local-version.json")
+              test "$actual" = "$expected"
+              ;;
+            404) cargo publish --manifest-path packages/sdk/rust/local/Cargo.toml --locked ;;
+            *) echo "local crate lookup failed: HTTP $local_status" >&2; exit 1 ;;
+          esac
           macro_status=$(curl --silent --show-error --location --retry 3 \
             --user-agent 'omochi-release (https://github.com/omochi-ui/omochi)' \
             --output "$RUNNER_TEMP/macro-version.json" --write-out '%{http_code}' \

@@ -1,0 +1,112 @@
+name: Local SDK adapters
+on:
+  pull_request:
+    paths-ignore: ['apps/site/**', '.github/workflows/site.yml']
+  push:
+    branches: [main]
+  workflow_call:
+    inputs:
+      ref:
+        type: string
+        default: ''
+permissions:
+  contents: read
+jobs:
+  adapters:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { target: x86_64-unknown-linux-gnu, runner: ubuntu-22.04, image: manylinux_2_28_x86_64, libc: glibc }
+          - { target: aarch64-unknown-linux-gnu, runner: ubuntu-22.04-arm, image: manylinux_2_28_aarch64, libc: glibc }
+          - { target: x86_64-unknown-linux-musl, runner: ubuntu-22.04, image: musllinux_1_2_x86_64, libc: musl }
+          - { target: aarch64-unknown-linux-musl, runner: ubuntu-22.04-arm, image: musllinux_1_2_aarch64, libc: musl }
+          - { target: x86_64-apple-darwin, runner: macos-15-intel }
+          - { target: aarch64-apple-darwin, runner: macos-15 }
+          - { target: x86_64-pc-windows-msvc, runner: windows-2025 }
+          - { target: aarch64-pc-windows-msvc, runner: windows-11-arm }
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    env:
+      MACOSX_DEPLOYMENT_TARGET: '11.0'
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+          ref: ${{ inputs.ref || github.sha }}
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.14'
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            packages/sdk/rust -> target
+            crates -> target
+      - run: bun install --frozen-lockfile
+      - run: bun run --filter @omochi-ui/core build
+      - run: bun run --filter @omochi-ui/sdk build
+      - if: runner.os == 'Linux'
+        name: Build portable Linux distributions and run native tests
+        run: >-
+          docker run --rm -v "$PWD:/io" -w /io -e OMOCHI_LIBC=${{ matrix.libc }}
+          quay.io/pypa/${{ matrix.image }} bash scripts/ci-local-linux.sh
+      - if: runner.os != 'Linux'
+        run: python scripts/build-local.py --release
+      - if: runner.os != 'Linux'
+        run: python -m pip install build hatchling typing_extensions
+      - if: runner.os != 'Linux'
+        run: python -m build --wheel --outdir artifacts/local-python packages/sdk/python
+      - if: matrix.libc != 'musl'
+        run: python -m pip install typing_extensions
+      - if: matrix.libc != 'musl'
+        run: python scripts/test-local-adapters.py
+      - if: runner.os != 'Linux'
+        run: cargo test --manifest-path packages/sdk/rust/Cargo.toml -p omochi-local
+      - if: runner.os == 'Windows'
+        name: Reject another Windows user's token
+        shell: pwsh
+        run: |
+          $name = 'omochi_' + [guid]::NewGuid().ToString('N').Substring(0,8)
+          $password = 'Aa1!' + [guid]::NewGuid().ToString('N')
+          Write-Output "::add-mask::$password"
+          New-LocalUser -Name $name -Password (ConvertTo-SecureString $password -AsPlainText -Force) | Out-Null
+          Add-LocalGroupMember -Group (Get-LocalGroup -SID 'S-1-5-32-545').Name -Member $name
+          try {
+            $env:OMOCHI_ACL_TEST_USER = $name
+            $env:OMOCHI_ACL_TEST_PASSWORD = $password
+            cargo test --manifest-path packages/sdk/rust/Cargo.toml -p omochi-local --test windows_acl
+            if ($LASTEXITCODE -ne 0) { throw 'ACL isolation test failed' }
+          } finally { Remove-LocalUser -Name $name }
+      - if: matrix.libc != 'musl'
+        run: cargo test --manifest-path crates/Cargo.toml -p omochi-process
+      - if: runner.os == 'Windows'
+        name: Verify store locks and revocation acknowledgements
+        run: cargo test --manifest-path crates/Cargo.toml -p omochi-transport --test local_persistence
+      - if: runner.os == 'Windows'
+        name: Build native services with browser assets
+        run: bun run build:native
+      - if: runner.os == 'Windows'
+        run: python tests/sdk/socket_ownership.py
+      - if: runner.os == 'Windows'
+        name: Exercise SDK to gateway to hub
+        run: |
+          python -m pip install "websockets>=14"
+          python scripts/test-local-native.py
+      - uses: actions/upload-artifact@v7
+        with:
+          name: local-node-${{ matrix.target }}
+          path: artifacts/local/
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v7
+        with:
+          name: local-python-${{ matrix.target }}
+          path: artifacts/local-python/*.whl
+          if-no-files-found: error

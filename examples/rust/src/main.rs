@@ -1,6 +1,6 @@
 use omochi_ui::{
-    App, Result, UnixSocketServerOptions,
-    UnixSocketServerTransport,
+    App, Result, LocalServerOptions,
+    LocalServerTransport,
 };
 use serde::{Deserialize, Serialize};
 use omochi_ui::{ActionInput, Input, Text, TextVariant, Slider, Button, ButtonVariant};
@@ -55,8 +55,8 @@ async fn main() -> Result<()> {
     // Without it the app speaks JSONL on stdio, which is what `omochi-ui dev` expects.
     match std::env::var("OMOCHI_SERVICE") {
         Ok(service_id) if !service_id.is_empty() => {
-            let transport = UnixSocketServerTransport::bind(
-                UnixSocketServerOptions::new(service_id)
+            let transport = LocalServerTransport::bind(
+                LocalServerOptions::new(service_id)
                     .with_name("Rust example")
                     .with_icon("\u{1F980}"),
             )

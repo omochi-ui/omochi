@@ -45,13 +45,13 @@ def local_sdk(enabled, allow_dirty):
         return
     sdk = ROOT / 'packages/sdk/rust'
     version = tomllib.loads((sdk / 'Cargo.toml').read_text())['package']['version']
-    command = ['cargo', 'package', '--manifest-path', str(sdk / 'Cargo.toml'), '--workspace', '--locked', '--no-verify']
+    command = ['cargo', 'package', '--manifest-path', str(sdk / 'Cargo.toml'), '--workspace', '--exclude', 'omochi-local-node', '--exclude', 'omochi-local-ffi', '--locked', '--no-verify']
     if allow_dirty:
         command.append('--allow-dirty')
     subprocess.run(command, cwd=ROOT, check=True)
     with tempfile.TemporaryDirectory(prefix='omochi-native-sdk-') as temporary:
         packages = {}
-        for name in ['omochi-ui-macros', 'omochi-ui']:
+        for name in ['omochi-local', 'omochi-ui-macros', 'omochi-ui']:
             with tarfile.open(sdk / 'target/package' / f'{name}-{version}.crate') as archive:
                 archive.extractall(temporary, filter='data')
             packages[name] = Path(temporary) / f'{name}-{version}'

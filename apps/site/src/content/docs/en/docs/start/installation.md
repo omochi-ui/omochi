@@ -7,7 +7,7 @@ sidebar:
 
 ## Start the hub
 
-To display an SDK app or utility, start a hub on the same computer. On Linux or macOS with Node.js 22+, run from any directory:
+To display an SDK app or utility, start a hub on the same computer. On Linux, macOS or Windows 11 with Node.js 22+, run from any directory:
 
 ```sh
 npx @omochi-ui/cli hub

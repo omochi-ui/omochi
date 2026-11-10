@@ -1,0 +1,23 @@
+[package]
+name = "omochi-local"
+version = "0.2.2"
+edition = "2024"
+rust-version = "1.85"
+license = "Apache-2.0"
+description = "Private, owned local IPC and publication for Omochi SDKs"
+repository = "https://github.com/omochi-ui/omochi"
+include = ["src/**", "README.md", "LICENSE", "Cargo.toml", "Cargo.lock"]
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["net", "io-util", "sync", "time", "rt", "macros"] }
+tokio-util = { version = "0.7", features = ["rt"] }
+fs2 = "0.4.3"
+getrandom = "0.3"
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_Security_Authorization", "Win32_Storage_FileSystem", "Win32_System_Threading", "Win32_System_Memory", "Win32_UI_Shell", "Win32_System_Com", "Win32_System_Pipes", "Win32_System_IO"] }
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "process"] }
+tempfile = "3"

@@ -5,7 +5,6 @@ use serde_json::Value;
 use std::{
     collections::BTreeSet,
     fs,
-    os::unix::fs::{MetadataExt, PermissionsExt},
     path::{Path, PathBuf},
 };
 
@@ -122,20 +121,8 @@ impl DashboardStore {
     }
     pub fn open(root: impl AsRef<Path>) -> Result<Self> {
         let root = root.as_ref().to_owned();
-        if !root.exists() {
-            fs::create_dir_all(&root)?;
-            fs::set_permissions(&root, fs::Permissions::from_mode(0o700))?;
-        }
-        let meta = fs::symlink_metadata(&root)?;
-        unsafe extern "C" {
-            fn getuid() -> u32;
-        }
-        if !meta.is_dir() || meta.mode() & 0o077 != 0 || meta.uid() != unsafe { getuid() } {
-            return Err(ApiError::new(
-                503,
-                "Dashboard directory must be owned and private",
-            ));
-        }
+        omochi_local::files::private_directory(&root)
+            .map_err(|_| ApiError::new(503, "Dashboard directory must be owned and private"))?;
         Ok(Self { root })
     }
     fn read(&self) -> Result<Storage> {

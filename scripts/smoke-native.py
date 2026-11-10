@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Verify/extract/install an archive, then serve its embedded UI with no runtimes on PATH."""
-import argparse, hashlib, json, os, re, selectors, subprocess, tarfile, tempfile
+import argparse, hashlib, json, os, re, queue, shutil, signal, subprocess, tarfile, tempfile, threading
 from pathlib import Path
 from urllib.request import urlopen
 def main():
@@ -12,7 +12,9 @@ def main():
     with tempfile.TemporaryDirectory(prefix="omochi-native-") as directory:
         root = Path(directory)
         with tarfile.open(archive) as tar:
-            allowed = {"bin/omochi-ui","bin/omochi-utils","LICENSE","README.md","install.sh","manifest.json"}
+            suffix = '.exe' if os.name == 'nt' else ''
+            installer = 'install.ps1' if os.name == 'nt' else 'install.sh'
+            allowed = {"bin/omochi-ui" + suffix,"bin/omochi-utils" + suffix,"LICENSE","README.md",installer,"manifest.json"}
             assert {item.name for item in tar.getmembers()} == allowed
             for item in tar.getmembers():
                 assert item.isfile() and not item.name.startswith("/")
@@ -25,17 +27,22 @@ def main():
             assert name in allowed
             assert hashlib.sha256((root / name).read_bytes()).hexdigest() == checksum
         prefix = root / "installed with spaces"
-        subprocess.run(["/bin/sh",str(root / "install.sh"),str(prefix)],check=True)
+        if os.name == 'nt':
+            import ctypes
+            if not ctypes.windll.kernel32.GetConsoleWindow():
+                assert ctypes.windll.kernel32.AllocConsole(), 'console required for graceful shutdown test'
+            subprocess.run([shutil.which('pwsh') or 'powershell.exe', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', str(root / installer), '-Prefix', str(prefix)], check=True)
+        else:
+            subprocess.run(["/bin/sh",str(root / installer),str(prefix)],check=True)
         env = {**os.environ,"PATH":"/nonexistent"}
         for name in ("omochi-ui","omochi-utils"):
-            output = subprocess.check_output([str(prefix / name),"--help"],env=env,text=True)
+            output = subprocess.check_output([str(prefix / (name + suffix)),"--help"],env=env,text=True)
             assert "Usage:" in output
-        hub = subprocess.Popen([str(prefix / "omochi-ui"),"--config-dir",str(root / "config"),"--runtime-dir",str(root / "runtime"),"hub","--port","0"],env=env,stdout=subprocess.DEVNULL,stderr=subprocess.PIPE,text=True)
+        hub = subprocess.Popen([str(prefix / ("omochi-ui" + suffix)),"--config-dir",str(root / "config"),"--runtime-dir",str(root / "runtime"),"hub","--port","0"],env=env,stdout=subprocess.DEVNULL,stderr=subprocess.PIPE,text=True,creationflags=subprocess.CREATE_NEW_PROCESS_GROUP if os.name == 'nt' else 0)
         try:
-            selector = selectors.DefaultSelector()
-            selector.register(hub.stderr,selectors.EVENT_READ)
-            assert selector.select(10), "hub startup timed out"
-            line = hub.stderr.readline()
+            ready = queue.Queue()
+            threading.Thread(target=lambda: ready.put(hub.stderr.readline()), daemon=True).start()
+            line = ready.get(timeout=10)
             assert line.startswith("[omochi-ui] dashboard "), line
             url = line.split("dashboard ",1)[1].strip()
             with urlopen(url,timeout=5) as response:
@@ -49,9 +56,10 @@ def main():
             for endpoint in ("services","api/presets"):
                 with urlopen(url + endpoint,timeout=5) as response:
                     assert json.load(response) == []
-            hub.terminate()
+            hub.send_signal(signal.CTRL_BREAK_EVENT if os.name == 'nt' else signal.SIGTERM)
             assert hub.wait(timeout=10) == 0
             assert not (root / "runtime/gateway.sock").exists()
+            assert not (root / "runtime/gateway.json").exists()
         finally:
             if hub.poll() is None:
                 hub.kill()

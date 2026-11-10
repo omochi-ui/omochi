@@ -7,7 +7,7 @@ sidebar:
 
 ## Open the Hub
 
-On Linux or macOS with Node.js 22+, run this in terminal 1. See [installation](../installation/) for other options.
+On Linux, macOS or Windows 11 with Node.js 22+, run this in terminal 1. See [installation](../installation/) for other options.
 
 ```sh
 npx @omochi-ui/cli hub

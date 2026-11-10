@@ -5,7 +5,7 @@ sidebar:
   order: 3
 ---
 
-Native utilities publish discoverable surfaces without writing an SDK application. On Linux or macOS with Node.js 22+, start a hub from any directory:
+Native utilities publish discoverable surfaces without writing an SDK application. On Linux, macOS or Windows 11 with Node.js 22+, start a hub from any directory:
 
 ```sh
 npx @omochi-ui/cli hub

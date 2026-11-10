@@ -5,7 +5,7 @@ from .errors import A2UIError, CapabilityError, DeclarationError, ProtocolError
 from .reconcile import PROTOCOL_VERSION, STANDARD_CATALOG, Reconciler
 from .snapshot import A2uiSnapshot
 from .transport import CallbackTransport, StdioTransport, Transport, WebSocketTransport
-from .unix_server import UnixSocketServerTransport, omochi_runtime_root
+from .local_server import LocalServerTransport, omochi_runtime_root
 
 __all__ = [
     "A2UIError",
@@ -29,7 +29,7 @@ __all__ = [
     "Runtime",
     "Transport",
     "Tab",
-    "UnixSocketServerTransport",
+    "LocalServerTransport",
     "UI",
     "WebSocketTransport",
     "omochi_runtime_root",

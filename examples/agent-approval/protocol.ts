@@ -27,7 +27,7 @@ export interface ApprovalResponse extends Decision {
 }
 
 export function approvalSocketPath(env: NodeJS.ProcessEnv = process.env): string {
-  return env.OMOCHI_APPROVAL_SOCKET ?? path.join(omochiRuntimeRoot(env), "agent-approval", "approval.sock");
+  return env.OMOCHI_APPROVAL_SOCKET ?? path.join(env.OMOCHI_RUNTIME_DIR ?? omochiRuntimeRoot(), "svc-agent-approval~", "approval.sock");
 }
 
 export function record(value: unknown): Record<string, unknown> {

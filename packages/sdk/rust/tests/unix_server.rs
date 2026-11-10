@@ -1,9 +1,10 @@
+#![cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use omochi_ui::{
-    App, Error, ResourceRegistry, Transport, UnixSocketServerOptions, UnixSocketServerTransport,
+    App, Error, LocalServerOptions, LocalServerTransport, ResourceRegistry, Transport,
 };
 use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
@@ -53,12 +54,11 @@ async fn read_messages(stream: &mut BufReader<UnixStream>, count: usize) -> Vec<
 
 async fn ready_resource_client(
     root: &TempRoot,
-) -> (UnixSocketServerTransport, BufReader<UnixStream>, String) {
-    let mut transport = UnixSocketServerTransport::bind(
-        UnixSocketServerOptions::new("demo").with_runtime_dir(root.path()),
-    )
-    .await
-    .unwrap();
+) -> (LocalServerTransport, BufReader<UnixStream>, String) {
+    let mut transport =
+        LocalServerTransport::bind(LocalServerOptions::new("demo").with_runtime_dir(root.path()))
+            .await
+            .unwrap();
     let resources = ResourceRegistry::default();
     let uri = resources.bytes(b"media", "video/mp4").unwrap();
     transport.set_resources(resources);
@@ -101,10 +101,8 @@ async fn assert_eof(client: &mut BufReader<UnixStream>) {
 #[tokio::test]
 async fn runtime_render_failure_releases_service_while_runtime_is_retained() {
     let root = TempRoot::new("runtime-fail");
-    let options = UnixSocketServerOptions::new("demo").with_runtime_dir(root.path());
-    let transport = UnixSocketServerTransport::bind(options.clone())
-        .await
-        .unwrap();
+    let options = LocalServerOptions::new("demo").with_runtime_dir(root.path());
+    let transport = LocalServerTransport::bind(options.clone()).await.unwrap();
     let socket = transport.socket_path().to_owned();
     let directory = transport.directory().to_owned();
     let mut app = App::new(());
@@ -124,7 +122,7 @@ async fn runtime_render_failure_releases_service_while_runtime_is_retained() {
 
     // The retained Runtime must neither hold the ownership lock nor later remove
     // a successor's publication when shutdown or Drop runs again.
-    let mut successor = UnixSocketServerTransport::bind(options).await.unwrap();
+    let mut successor = LocalServerTransport::bind(options).await.unwrap();
     runtime.shutdown().await;
     drop(runtime);
     assert!(directory.join("manifest.json").exists());
@@ -135,10 +133,8 @@ async fn runtime_render_failure_releases_service_while_runtime_is_retained() {
 #[tokio::test]
 async fn runtime_shutdown_waits_for_owned_connections_to_stop() {
     let root = TempRoot::new("runtime-stop");
-    let options = UnixSocketServerOptions::new("demo").with_runtime_dir(root.path());
-    let transport = UnixSocketServerTransport::bind(options.clone())
-        .await
-        .unwrap();
+    let options = LocalServerOptions::new("demo").with_runtime_dir(root.path());
+    let transport = LocalServerTransport::bind(options.clone()).await.unwrap();
     let socket = transport.socket_path().to_owned();
     let mut client = BufReader::new(UnixStream::connect(&socket).await.unwrap());
     let mut runtime = App::new(()).build();
@@ -162,7 +158,7 @@ async fn runtime_shutdown_waits_for_owned_connections_to_stop() {
     .await
     .expect("runtime shutdown must close every connection")
     .unwrap();
-    let mut successor = UnixSocketServerTransport::bind(options).await.unwrap();
+    let mut successor = LocalServerTransport::bind(options).await.unwrap();
     drop(runtime);
     assert!(socket.exists());
     successor.close().await;
@@ -178,7 +174,7 @@ async fn close_stops_connections_and_resource_responses() {
     assert_eof(&mut client).await;
     assert!(transport.receive().await.unwrap().is_none());
     transport.close().await;
-    assert!(!root.path().join("demo").exists());
+    assert!(!root.path().join("svc-demo~").exists());
 }
 
 #[tokio::test]
@@ -189,7 +185,7 @@ async fn drop_stops_connections_and_resource_responses() {
     assert_eof(&mut client).await;
     let _ = client.get_mut().write_all(request.as_bytes()).await;
     assert_eof(&mut client).await;
-    assert!(!root.path().join("demo").exists());
+    assert!(!root.path().join("svc-demo~").exists());
 }
 
 #[tokio::test(flavor = "current_thread")]
@@ -203,15 +199,15 @@ async fn close_can_resume_after_its_future_is_cancelled() {
     transport.close().await;
     let _ = client.get_mut().write_all(request.as_bytes()).await;
     assert_eof(&mut client).await;
-    assert!(!root.path().join("demo").exists());
+    assert!(!root.path().join("svc-demo~").exists());
 }
 
 #[tokio::test(flavor = "current_thread")]
 async fn shutdown_rejects_a_connection_queued_before_accept_runs() {
     for use_drop in [false, true] {
         let root = TempRoot::new("queued");
-        let mut transport = UnixSocketServerTransport::bind(
-            UnixSocketServerOptions::new("demo").with_runtime_dir(root.path()),
+        let mut transport = LocalServerTransport::bind(
+            LocalServerOptions::new("demo").with_runtime_dir(root.path()),
         )
         .await
         .unwrap();
@@ -240,8 +236,8 @@ async fn shutdown_rejects_a_connection_queued_before_accept_runs() {
 #[tokio::test]
 async fn publishes_a_discoverable_service_and_fans_it_out() {
     let root = TempRoot::new("publish");
-    let mut transport = UnixSocketServerTransport::bind(
-        UnixSocketServerOptions::new("demo")
+    let mut transport = LocalServerTransport::bind(
+        LocalServerOptions::new("demo")
             .with_name("Demo")
             .with_icon("🎤")
             .with_runtime_dir(root.path()),
@@ -256,7 +252,7 @@ async fn publishes_a_discoverable_service_and_fans_it_out() {
             .unwrap();
     assert_eq!(
         manifest,
-        json!({ "name": "Demo", "icon": "🎤", "socket": "a2ui.sock" })
+        json!({ "version":2, "serviceId":"demo", "name": "Demo", "icon": "🎤", "endpoint": {"kind":"unix", "path":"a2ui.sock"} })
     );
     let mode = std::fs::metadata(&directory).unwrap().permissions().mode() & 0o777;
     assert_eq!(mode, 0o700);
@@ -325,29 +321,26 @@ async fn publishes_a_discoverable_service_and_fans_it_out() {
 #[tokio::test]
 async fn refuses_a_live_duplicate_and_recovers_a_stale_socket() {
     let root = TempRoot::new("duplicate");
-    let mut first = UnixSocketServerTransport::bind(
-        UnixSocketServerOptions::new("demo").with_runtime_dir(root.path()),
-    )
-    .await
-    .unwrap();
+    let mut first =
+        LocalServerTransport::bind(LocalServerOptions::new("demo").with_runtime_dir(root.path()))
+            .await
+            .unwrap();
 
-    let duplicate = UnixSocketServerTransport::bind(
-        UnixSocketServerOptions::new("demo").with_runtime_dir(root.path()),
-    )
-    .await;
+    let duplicate =
+        LocalServerTransport::bind(LocalServerOptions::new("demo").with_runtime_dir(root.path()))
+            .await;
     assert!(duplicate.is_err(), "a second instance must be refused");
 
     first.close().await;
-    assert!(!root.path().join("demo").exists());
+    assert!(!root.path().join("svc-demo~").exists());
 
     // A socket file left behind by a crash must not block the next start.
-    std::fs::create_dir_all(root.path().join("demo")).unwrap();
-    std::fs::write(root.path().join("demo/a2ui.sock"), b"").unwrap();
-    let mut restarted = UnixSocketServerTransport::bind(
-        UnixSocketServerOptions::new("demo").with_runtime_dir(root.path()),
-    )
-    .await
-    .unwrap();
+    std::fs::create_dir_all(root.path().join("svc-demo~")).unwrap();
+    drop(tokio::net::UnixListener::bind(root.path().join("svc-demo~/a2ui.sock")).unwrap());
+    let mut restarted =
+        LocalServerTransport::bind(LocalServerOptions::new("demo").with_runtime_dir(root.path()))
+            .await
+            .unwrap();
     assert!(restarted.socket_path().exists());
     restarted.close().await;
 }
@@ -356,8 +349,8 @@ async fn refuses_a_live_duplicate_and_recovers_a_stale_socket() {
 async fn rejects_a_service_id_that_would_escape_the_runtime_directory() {
     let root = TempRoot::new("ids");
     for service_id in [".", "..", "a/b", "", &"x".repeat(65)] {
-        let result = UnixSocketServerTransport::bind(
-            UnixSocketServerOptions::new(service_id).with_runtime_dir(root.path()),
+        let result = LocalServerTransport::bind(
+            LocalServerOptions::new(service_id).with_runtime_dir(root.path()),
         )
         .await;
         assert!(result.is_err(), "{service_id:?} must be rejected");
@@ -367,11 +360,10 @@ async fn rejects_a_service_id_that_would_escape_the_runtime_directory() {
 #[tokio::test]
 async fn drops_client_messages_that_carry_no_action() {
     let root = TempRoot::new("errors");
-    let mut transport = UnixSocketServerTransport::bind(
-        UnixSocketServerOptions::new("demo").with_runtime_dir(root.path()),
-    )
-    .await
-    .unwrap();
+    let mut transport =
+        LocalServerTransport::bind(LocalServerOptions::new("demo").with_runtime_dir(root.path()))
+            .await
+            .unwrap();
     transport
         .send(&json!({ "version": "v0.9", "createSurface": { "surfaceId": "main", "catalogId": "test" } }))
         .await
@@ -409,11 +401,11 @@ async fn ownership_process_fixture() {
     };
     announce("WAITING");
     command();
-    let mut options = UnixSocketServerOptions::new("demo");
+    let mut options = LocalServerOptions::new("demo");
     if let Some(root) = root {
         options = options.with_runtime_dir(root);
     }
-    let Ok(mut transport) = UnixSocketServerTransport::bind(options).await else {
+    let Ok(mut transport) = LocalServerTransport::bind(options).await else {
         announce("REJECTED");
         return;
     };
@@ -437,7 +429,7 @@ async fn isolates_malformed_client_frames() {
     let (mut transport, mut good, request) = ready_resource_client(&root).await;
 
     async fn verify(
-        transport: &mut UnixSocketServerTransport,
+        transport: &mut LocalServerTransport,
         good: &mut BufReader<UnixStream>,
         request: &str,
         action: &Value,
@@ -487,4 +479,16 @@ async fn isolates_malformed_client_frames() {
         verify(&mut transport, &mut good, &request, action).await;
     }
     transport.close().await;
+}
+
+trait SocketPath {
+    fn socket_path(&self) -> &std::path::Path;
+}
+impl SocketPath for LocalServerTransport {
+    fn socket_path(&self) -> &std::path::Path {
+        match self.endpoint() {
+            omochi_ui::LocalEndpoint::Unix { path } => path,
+            _ => panic!("Unix-only fixture"),
+        }
+    }
 }

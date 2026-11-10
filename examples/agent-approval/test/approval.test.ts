@@ -134,7 +134,8 @@ test("browser actions cross A2UI and resolve only the selected hook socket", asy
   const second = requestApproval({ ...request, agent: "cursor" }, { socketPath: app.socketPath });
   await waitFor(() => app.queue.pending.size === 2);
   const [firstId, secondId] = [...app.queue.pending.keys()];
-  const browser = createConnection(app.transport.socketPath!);
+  const endpoint = app.transport.endpoint!;
+  const browser = createConnection(endpoint.kind === "unix" ? endpoint.path : endpoint.name);
   t.after(() => new Promise<void>((resolve) => { browser.once("close", resolve); browser.end(); }));
   let snapshot = "";
   browser.on("data", (chunk) => { snapshot += chunk.toString(); });

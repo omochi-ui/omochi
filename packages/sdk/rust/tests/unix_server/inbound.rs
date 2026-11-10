@@ -95,11 +95,10 @@ async fn compact_utf8_bytes_are_released_on_receive_and_fail_at_the_exact_limit(
 async fn resources_continue_at_capacity_and_accepted_actions_keep_their_order() {
     tokio::time::timeout(Duration::from_secs(10), async {
         let root = TempRoot::new();
-        let mut transport = UnixSocketServerTransport::bind(
-            UnixSocketServerOptions::new("demo").with_runtime_dir(&root.0),
-        )
-        .await
-        .unwrap();
+        let mut transport =
+            LocalServerTransport::bind(LocalServerOptions::new("demo").with_runtime_dir(&root.0))
+                .await
+                .unwrap();
         transport.set_resources(ResourceRegistry::default());
         let mut client =
             BufReader::new(UnixStream::connect(transport.socket_path()).await.unwrap());
@@ -132,10 +131,8 @@ async fn resources_continue_at_capacity_and_accepted_actions_keep_their_order() 
 async fn byte_overflow_closes_all_clients_and_listener_before_receive_resumes() {
     tokio::time::timeout(Duration::from_secs(10), async {
         let root = TempRoot::new();
-        let options = UnixSocketServerOptions::new("demo").with_runtime_dir(&root.0);
-        let mut transport = UnixSocketServerTransport::bind(options.clone())
-            .await
-            .unwrap();
+        let options = LocalServerOptions::new("demo").with_runtime_dir(&root.0);
+        let mut transport = LocalServerTransport::bind(options.clone()).await.unwrap();
         transport.set_resources(ResourceRegistry::default());
         let mut clients = Vec::new();
         for _ in 0..2 {
@@ -167,7 +164,7 @@ async fn byte_overflow_closes_all_clients_and_listener_before_receive_resumes() 
         assert_overflow(transport.receive().await);
         transport.close().await;
         assert_overflow(transport.receive().await);
-        let mut successor = UnixSocketServerTransport::bind(options).await.unwrap();
+        let mut successor = LocalServerTransport::bind(options).await.unwrap();
         drop(transport);
         assert!(successor.socket_path().exists());
         successor.close().await;
@@ -180,10 +177,8 @@ async fn byte_overflow_closes_all_clients_and_listener_before_receive_resumes() 
 async fn runtime_finishes_only_the_running_action_after_overflow() {
     tokio::time::timeout(Duration::from_secs(10), async {
         let root = TempRoot::new();
-        let options = UnixSocketServerOptions::new("demo").with_runtime_dir(&root.0);
-        let transport = UnixSocketServerTransport::bind(options.clone())
-            .await
-            .unwrap();
+        let options = LocalServerOptions::new("demo").with_runtime_dir(&root.0);
+        let transport = LocalServerTransport::bind(options.clone()).await.unwrap();
         let socket = transport.socket_path().to_owned();
         let inbound = transport.inbound.clone();
         let entered = Arc::new(Notify::new());
@@ -223,7 +218,7 @@ async fn runtime_finishes_only_the_running_action_after_overflow() {
         assert_eq!(executions.load(Ordering::SeqCst), 1);
         assert!(runtime.is_closed());
         assert!(!socket.exists());
-        let mut successor = UnixSocketServerTransport::bind(options).await.unwrap();
+        let mut successor = LocalServerTransport::bind(options).await.unwrap();
         drop(runtime);
         assert!(socket.exists());
         successor.close().await;
@@ -236,11 +231,10 @@ async fn runtime_finishes_only_the_running_action_after_overflow() {
 async fn oversized_unterminated_frame_disconnects_only_its_sender() {
     tokio::time::timeout(Duration::from_secs(10), async {
         let root = TempRoot::new();
-        let mut transport = UnixSocketServerTransport::bind(
-            UnixSocketServerOptions::new("demo").with_runtime_dir(&root.0),
-        )
-        .await
-        .unwrap();
+        let mut transport =
+            LocalServerTransport::bind(LocalServerOptions::new("demo").with_runtime_dir(&root.0))
+                .await
+                .unwrap();
         transport.set_resources(ResourceRegistry::default());
         let mut bad = BufReader::new(UnixStream::connect(transport.socket_path()).await.unwrap());
         assert_eq!(read_message(&mut bad).await, hello());

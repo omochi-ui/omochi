@@ -1,0 +1,41 @@
+{
+  "version": 2,
+  "validServiceIds": [
+    "demo",
+    "con",
+    "nul",
+    "aux",
+    "lpt1",
+    "demo.",
+    "_",
+    "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  ],
+  "invalidServiceIds": [
+    "",
+    ".",
+    "..",
+    "Demo",
+    "a/b",
+    "a\\b",
+    "demo\n",
+    "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  ],
+  "unix": {
+    "version": 2,
+    "serviceId": "demo",
+    "name": "Demo",
+    "endpoint": {
+      "kind": "unix",
+      "path": "a2ui.sock"
+    }
+  },
+  "windows": {
+    "version": 2,
+    "serviceId": "demo",
+    "name": "Demo",
+    "endpoint": {
+      "kind": "namedPipe",
+      "name": "\\\\.\\pipe\\omochi-local-v2-0123456789abcdef0123456789abcdef"
+    }
+  }
+}

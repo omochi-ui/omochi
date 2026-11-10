@@ -1,5 +1,5 @@
 import { schema, App } from "@omochi-ui/sdk";
-import { UnixSocketServerTransport } from "@omochi-ui/sdk/node";
+import { LocalServerTransport } from "@omochi-ui/sdk/node";
 
 const state: { temperature: number; result: string | null } = {
   temperature: 50,
@@ -25,6 +25,6 @@ app.surface("main", (ui, current) => {
 const serviceId = process.env.OMOCHI_SERVICE;
 await app.start(
   serviceId
-    ? new UnixSocketServerTransport({ serviceId, name: "TypeScript example", icon: "\u{1F537}" })
+    ? new LocalServerTransport({ serviceId, name: "TypeScript example", icon: "\u{1F537}" })
     : undefined,
 );

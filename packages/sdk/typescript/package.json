@@ -25,7 +25,6 @@
   ],
   "dependencies": {
     "@a2ui/web_core": "0.15.0",
-    "@deepseek-ai/node-addon-system": "0.1.2",
     "@omochi-ui/core": "workspace:*",
     "ws": "^8.18.0"
   },
@@ -47,5 +46,15 @@
   "homepage": "https://github.com/omochi-ui/omochi#readme",
   "bugs": {
     "url": "https://github.com/omochi-ui/omochi/issues"
+  },
+  "optionalDependencies": {
+    "@omochi-ui/local-linux-x64-gnu": "0.2.2",
+    "@omochi-ui/local-linux-x64-musl": "0.2.2",
+    "@omochi-ui/local-linux-arm64-gnu": "0.2.2",
+    "@omochi-ui/local-linux-arm64-musl": "0.2.2",
+    "@omochi-ui/local-darwin-x64": "0.2.2",
+    "@omochi-ui/local-darwin-arm64": "0.2.2",
+    "@omochi-ui/local-win32-x64": "0.2.2",
+    "@omochi-ui/local-win32-arm64": "0.2.2"
   }
 }

@@ -2,6 +2,7 @@ fn private_root() -> tempfile::TempDir {
     use std::os::unix::fs::PermissionsExt;
     let root = tempfile::tempdir().unwrap();
     std::fs::set_permissions(root.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
+    omochi_local::LocalRuntime::prepare(Some(root.path().to_path_buf())).unwrap();
     root
 }
 use std::{process::Stdio, time::Duration};
@@ -36,7 +37,7 @@ async fn native_stream_replays_unicode_keeps_eof_and_exits_while_stdin_is_idle()
         } else {
             child.stdin = Some(input);
         }
-        let socket = tokio::net::UnixStream::connect(root.path().join("test/a2ui.sock"))
+        let socket = tokio::net::UnixStream::connect(root.path().join("svc-test~/a2ui.sock"))
             .await
             .unwrap();
         let mut lines = BufReader::new(socket).lines();
@@ -65,7 +66,7 @@ async fn native_stream_replays_unicode_keeps_eof_and_exits_while_stdin_is_idle()
                 .unwrap()
                 .success()
         );
-        assert!(!root.path().join("test/a2ui.sock").exists());
+        assert!(!root.path().join("svc-test~/a2ui.sock").exists());
     }
 }
 
@@ -89,7 +90,7 @@ async fn button_only_runs_on_action_and_publishes_completion() {
         .unwrap()
         .unwrap()
         .unwrap();
-    let socket = tokio::net::UnixStream::connect(root.path().join("button/a2ui.sock"))
+    let socket = tokio::net::UnixStream::connect(root.path().join("svc-button~/a2ui.sock"))
         .await
         .unwrap();
     let (read, mut write) = socket.into_split();
@@ -172,7 +173,7 @@ async fn process_restart_policies_and_manual_stop() {
             .unwrap()
             .unwrap()
             .unwrap();
-        let socket = tokio::net::UnixStream::connect(root.path().join("worker/a2ui.sock"))
+        let socket = tokio::net::UnixStream::connect(root.path().join("svc-worker~/a2ui.sock"))
             .await
             .unwrap();
         let (read, mut write) = socket.into_split();
@@ -301,7 +302,7 @@ async fn watch_diff_history_pause_and_resume() {
         .unwrap()
         .unwrap()
         .unwrap();
-    let socket = tokio::net::UnixStream::connect(root.path().join("watch/a2ui.sock"))
+    let socket = tokio::net::UnixStream::connect(root.path().join("svc-watch~/a2ui.sock"))
         .await
         .unwrap();
     let (read, mut write) = socket.into_split();
@@ -403,7 +404,7 @@ async fn watch_on_change_publishes_initial_result_and_timeout_is_visible() {
             .unwrap()
             .unwrap()
             .unwrap();
-        let socket = tokio::net::UnixStream::connect(root.path().join("watch/a2ui.sock"))
+        let socket = tokio::net::UnixStream::connect(root.path().join("svc-watch~/a2ui.sock"))
             .await
             .unwrap();
         let mut lines = BufReader::new(socket).lines();
@@ -488,7 +489,7 @@ async fn http_reports_unhealthy_and_recovery_through_native_action_loop() {
         .unwrap()
         .unwrap()
         .unwrap();
-    let socket = tokio::net::UnixStream::connect(root.path().join("health/a2ui.sock"))
+    let socket = tokio::net::UnixStream::connect(root.path().join("svc-health~/a2ui.sock"))
         .await
         .unwrap();
     let (read, mut write) = socket.into_split();

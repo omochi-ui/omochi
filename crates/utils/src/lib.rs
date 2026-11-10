@@ -2,6 +2,10 @@ pub mod button;
 pub mod command;
 pub mod events;
 pub mod http;
+#[cfg(unix)]
+pub mod input;
+#[cfg(windows)]
+#[path = "input_windows.rs"]
 pub mod input;
 pub mod mcp;
 pub mod output;

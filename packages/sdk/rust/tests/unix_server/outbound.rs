@@ -83,10 +83,8 @@ async fn oversized_single_frames_cancel_without_queueing() {
 async fn paused_reader_is_disconnected_without_harming_healthy_clients() {
     tokio::time::timeout(Duration::from_secs(30), async {
         let root = TempRoot::new();
-        let options = UnixSocketServerOptions::new("demo").with_runtime_dir(&root.0);
-        let mut transport = UnixSocketServerTransport::bind(options.clone())
-            .await
-            .unwrap();
+        let options = LocalServerOptions::new("demo").with_runtime_dir(&root.0);
+        let mut transport = LocalServerTransport::bind(options.clone()).await.unwrap();
         transport.set_resources(ResourceRegistry::default());
         transport.send(&create("main")).await.unwrap();
         let mut slow = BufReader::new(UnixStream::connect(transport.socket_path()).await.unwrap());
@@ -135,7 +133,7 @@ async fn paused_reader_is_disconnected_without_harming_healthy_clients() {
 
         transport.close().await;
         assert!(transport.shared.publication.lock().await.clients.is_empty());
-        let mut successor = UnixSocketServerTransport::bind(options).await.unwrap();
+        let mut successor = LocalServerTransport::bind(options).await.unwrap();
         successor.set_resources(ResourceRegistry::default());
         let mut next = BufReader::new(UnixStream::connect(successor.socket_path()).await.unwrap());
         assert_eq!(read_message(&mut next).await, hello());
@@ -149,8 +147,8 @@ async fn paused_reader_is_disconnected_without_harming_healthy_clients() {
 async fn large_bootstrap_streams_before_live_updates_and_resource_responses() {
     tokio::time::timeout(Duration::from_secs(30), async {
         let root = TempRoot::new();
-        let mut transport = UnixSocketServerTransport::bind(
-            UnixSocketServerOptions::new("demo").with_runtime_dir(&root.0),
+        let mut transport = LocalServerTransport::bind(
+            LocalServerOptions::new("demo").with_runtime_dir(&root.0),
         ).await.unwrap();
         let resources = ResourceRegistry::default();
         let uri = resources.bytes(b"media", "video/mp4").unwrap();
@@ -195,11 +193,10 @@ async fn large_bootstrap_streams_before_live_updates_and_resource_responses() {
 async fn active_replay_and_queued_live_frames_share_the_limit() {
     tokio::time::timeout(Duration::from_secs(30), async {
         let root = TempRoot::new();
-        let mut transport = UnixSocketServerTransport::bind(
-            UnixSocketServerOptions::new("demo").with_runtime_dir(&root.0),
-        )
-        .await
-        .unwrap();
+        let mut transport =
+            LocalServerTransport::bind(LocalServerOptions::new("demo").with_runtime_dir(&root.0))
+                .await
+                .unwrap();
         transport.set_resources(ResourceRegistry::default());
         transport.send(&create("main")).await.unwrap();
         let replay = update("main", json!("x".repeat(9 * 1024 * 1024)));
@@ -228,11 +225,10 @@ async fn active_replay_and_queued_live_frames_share_the_limit() {
 async fn resource_responses_share_the_budget_with_a_blocked_live_write() {
     tokio::time::timeout(Duration::from_secs(30), async {
         let root = TempRoot::new();
-        let mut transport = UnixSocketServerTransport::bind(
-            UnixSocketServerOptions::new("demo").with_runtime_dir(&root.0),
-        )
-        .await
-        .unwrap();
+        let mut transport =
+            LocalServerTransport::bind(LocalServerOptions::new("demo").with_runtime_dir(&root.0))
+                .await
+                .unwrap();
         let resources = ResourceRegistry::default();
         let uri = resources
             .bytes(&vec![0; crate::resources::CHUNK as usize], "video/mp4")
@@ -278,11 +274,10 @@ async fn resource_responses_share_the_budget_with_a_blocked_live_write() {
 async fn oversized_bootstrap_frame_disconnects_and_releases_registration() {
     tokio::time::timeout(Duration::from_secs(30), async {
         let root = TempRoot::new();
-        let mut transport = UnixSocketServerTransport::bind(
-            UnixSocketServerOptions::new("demo").with_runtime_dir(&root.0),
-        )
-        .await
-        .unwrap();
+        let mut transport =
+            LocalServerTransport::bind(LocalServerOptions::new("demo").with_runtime_dir(&root.0))
+                .await
+                .unwrap();
         transport.set_resources(ResourceRegistry::default());
         transport.send(&create("main")).await.unwrap();
         transport

@@ -5,7 +5,7 @@ use omochi_transport::{
     store::{Role, Store},
 };
 use omochi_ui::{
-    App, ButtonOptions, ImageOptions, UnixSocketServerOptions, UnixSocketServerTransport,
+    App, ButtonOptions, ImageOptions, LocalServerOptions, LocalServerTransport,
 };
 use serde_json::json;
 use std::{
@@ -49,8 +49,8 @@ async fn run() -> Result<()> {
         )?;
         Ok(())
     })?;
-    let transport = UnixSocketServerTransport::bind(
-        UnixSocketServerOptions::new("browser-spike")
+    let transport = LocalServerTransport::bind(
+        LocalServerOptions::new("browser-spike")
             .with_name("Browser spike SDK")
             .with_runtime_dir(&runtime),
     )

@@ -8,6 +8,7 @@ description = "Native Omochi application gateway"
 readme = "README.md"
 include = ["src/**", "tests/**", "Cargo.toml", "Cargo.lock", "README.md", "LICENSE"]
 [dependencies]
+omochi-local = { version = "=0.2.2", path = "../../packages/sdk/rust/local" }
 anyhow.workspace = true
 tokio.workspace = true
 serde_json.workspace = true

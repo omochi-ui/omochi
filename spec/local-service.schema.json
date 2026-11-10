@@ -1,0 +1,72 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Omochi local service manifest v2",
+  "type": "object",
+  "required": [
+    "version",
+    "serviceId",
+    "name",
+    "endpoint"
+  ],
+  "properties": {
+    "version": {
+      "const": 2
+    },
+    "serviceId": {
+      "type": "string",
+      "pattern": "^(?!\\.{1,2}$)[a-z0-9._-]{1,64}(?![\\s\\S])"
+    },
+    "name": {
+      "type": "string",
+      "pattern": "\\S"
+    },
+    "icon": {
+      "type": "string"
+    },
+    "endpoint": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "path"
+          ],
+          "properties": {
+            "kind": {
+              "const": "unix"
+            },
+            "path": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\u0000]+$",
+              "not": {
+                "enum": [
+                  ".",
+                  ".."
+                ]
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "name"
+          ],
+          "properties": {
+            "kind": {
+              "const": "namedPipe"
+            },
+            "name": {
+              "type": "string",
+              "pattern": "^\\\\\\\\\\.\\\\pipe\\\\omochi-local-v2-[0-9a-f]{32}(?![\\s\\S])"
+            }
+          }
+        }
+      ]
+    }
+  }
+}

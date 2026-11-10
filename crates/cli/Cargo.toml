@@ -11,6 +11,8 @@ include = ["src/**", "tests/**", "Cargo.toml", "Cargo.lock", "README.md", "LICEN
 name = "omochi-ui"
 path = "src/main.rs"
 [dependencies]
+omochi-process = { path = "../process", version = "=0.3.2" }
+omochi-local = { version = "=0.2.2", path = "../../packages/sdk/rust/local" }
 qrcode = { version = "0.14", default-features = false }
 anyhow.workspace = true
 tokio.workspace = true

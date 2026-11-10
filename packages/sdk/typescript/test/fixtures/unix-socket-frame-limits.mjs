@@ -5,11 +5,11 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { createInterface } from "node:readline";
 import { ResourceRegistry } from "@omochi-ui/sdk";
-import { UnixSocketServerTransport } from "@omochi-ui/sdk/node";
+import { LocalServerTransport } from "@omochi-ui/sdk/node";
 
 const limit = 4 * 1024 * 1024;
 const root = await mkdtemp(path.join(tmpdir(), "omochi-limits-"));
-const transport = new UnixSocketServerTransport({ serviceId: "demo", runtimeDir: root });
+const transport = new LocalServerTransport({ serviceId: "demo", runtimeDir: root });
 const resources = new ResourceRegistry();
 transport.resources = resources;
 const uri = resources.bytes(new Uint8Array([1, 2, 3]), "image/png");
@@ -34,7 +34,7 @@ function deadline(promise, name) {
   ]).finally(() => clearTimeout(timer));
 }
 async function connect() {
-  const socket = createConnection(transport.socketPath);
+  const socket = createConnection(transport.endpoint.path);
   clients.push(socket);
   socket.on("error", () => {}); // Oversized peers may receive ECONNRESET/EPIPE.
   const closed = new Promise((resolve) => socket.once("close", resolve));

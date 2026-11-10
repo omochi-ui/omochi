@@ -78,7 +78,7 @@ async fn run_with(
 mod tests {
     use super::*;
     use crate::command::Outcome;
-    use omochi_ui::UnixSocketServerOptions;
+    use omochi_ui::LocalServerOptions;
     use std::os::unix::fs::PermissionsExt;
 
     #[tokio::test]
@@ -86,7 +86,7 @@ mod tests {
         let root = tempfile::tempdir().unwrap();
         std::fs::set_permissions(root.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
         let (publisher, task) =
-            Publisher::open(UnixSocketServerOptions::new("button").with_runtime_dir(root.path()))
+            Publisher::open(LocalServerOptions::new("button").with_runtime_dir(root.path()))
                 .await
                 .unwrap();
         for _ in 0..3 {

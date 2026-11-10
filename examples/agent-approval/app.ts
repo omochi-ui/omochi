@@ -1,21 +1,11 @@
 import path from "node:path";
-import { mkdir, lstat, chmod } from "node:fs/promises";
-import { UnixSocketServerTransport } from "@omochi-ui/sdk/node";
+import { LocalServerTransport } from "@omochi-ui/sdk/node";
 import { ApprovalQueue } from "./queue.ts";
 import { startApprovalServer } from "./server.ts";
 import { createApprovalApp } from "./ui.ts";
 
 export async function startApprovalApp(options: { runtimeDir?: string; serviceId?: string; waitMs?: number } = {}) {
-  // Leave default-directory preparation to the SDK so it validates the fallback parent too.
-  if (options.runtimeDir !== undefined) {
-    await mkdir(options.runtimeDir, { recursive: true, mode: 0o700 });
-    const stats = await lstat(options.runtimeDir);
-    if (!stats.isDirectory() || (process.getuid && stats.uid !== process.getuid())) {
-      throw new Error(`Invalid or unowned runtime directory: ${options.runtimeDir}`);
-    }
-    await chmod(options.runtimeDir, 0o700);
-  }
-  const transport = new UnixSocketServerTransport({
+  const transport = new LocalServerTransport({
     serviceId: options.serviceId ?? process.env.OMOCHI_SERVICE ?? "agent-approval",
     name: "Agent approvals", icon: "✋", runtimeDir: options.runtimeDir,
   });

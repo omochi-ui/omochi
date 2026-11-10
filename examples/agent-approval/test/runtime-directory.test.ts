@@ -33,6 +33,7 @@ async function startInChild(t: TestContext, sandbox: string, runtimeDir?: string
   // environment or touch the user's real predictable fallback directory.
   const env: NodeJS.ProcessEnv = { ...process.env, TMPDIR: sandbox, TMP: sandbox, TEMP: sandbox, XDG_RUNTIME_DIR: "" };
   delete env.APP_CUSTOM_RUNTIME;
+  delete env.OMOCHI_RUNTIME_DIR;
   if (runtimeDir !== undefined) env.APP_CUSTOM_RUNTIME = runtimeDir;
   const child = Bun.spawn([process.execPath, "-e", childScript], { env, stdout: "pipe", stderr: "pipe" });
   t.after(async () => { child.kill(); await child.exited; });
@@ -50,7 +51,7 @@ for (const mode of [0o770, 0o777]) {
     await chmod(parent, mode);
     const result = await startInChild(t, sandbox);
     expect(result.exitCode).toBe(1);
-    expect(result.stderr).toContain("fallback runtime directory must be owned, a real directory, and not writable by other users");
+    expect(result.stderr).toContain("fallback runtime directory is unsafe");
     expect((await lstat(parent)).mode & 0o777).toBe(mode);
     expect(await readdir(parent)).toEqual([]);
   });
@@ -65,7 +66,7 @@ test("default approval runtime rejects a symlink fallback parent without touchin
   await symlink(target, parent);
   const result = await startInChild(t, sandbox);
   expect(result.exitCode).toBe(1);
-  expect(result.stderr).toContain("fallback runtime directory must be owned, a real directory, and not writable by other users");
+  expect(result.stderr).toContain("fallback runtime directory is unsafe");
   expect((await lstat(parent)).isSymbolicLink()).toBe(true);
   expect((await lstat(target)).mode & 0o777).toBe(0o755);
   expect(await readdir(target)).toEqual([]);
@@ -74,12 +75,12 @@ test("default approval runtime rejects a symlink fallback parent without touchin
 test("default approval runtime creates a private fallback and both sockets", async (t) => {
   const sandbox = await sandboxFor(t);
   const parent = path.join(sandbox, `omochi-${process.geteuid!()}`);
-  const root = path.join(parent, "omochi");
+  const root = path.join(parent, "omochi", "v2");
   const result = await startInChild(t, sandbox);
   expect(result.stderr).toBe("");
   expect(result.exitCode).toBe(0);
   expect(JSON.parse(result.stdout)).toEqual({
-    directory: path.join(root, "agent-approval"), approvalSocket: true, transportSocket: true,
+    directory: path.join(root, "svc-agent-approval~"), approvalSocket: true, transportSocket: true,
   });
   for (const directory of [parent, root]) {
     const metadata = await lstat(directory);
@@ -95,7 +96,7 @@ test("explicit approval runtime still creates and secures a custom directory", a
   expect(result.stderr).toBe("");
   expect(result.exitCode).toBe(0);
   expect(JSON.parse(result.stdout)).toEqual({
-    directory: path.join(root, "agent-approval"), approvalSocket: true, transportSocket: true,
+    directory: path.join(root, "svc-agent-approval~"), approvalSocket: true, transportSocket: true,
   });
   expect((await lstat(root)).mode & 0o777).toBe(0o700);
   expect(await readdir(sandbox)).toEqual(["custom"]);

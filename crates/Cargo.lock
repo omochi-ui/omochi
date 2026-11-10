@@ -2820,6 +2820,8 @@ dependencies = [
  "libc",
  "omochi-gateway",
  "omochi-hub",
+ "omochi-local",
+ "omochi-process",
  "omochi-protocol",
  "omochi-transport",
  "omochi-ui",
@@ -2854,6 +2856,7 @@ dependencies = [
  "futures-util",
  "iroh",
  "iroh-relay",
+ "omochi-local",
  "omochi-local-discovery",
  "omochi-protocol",
  "omochi-transport",
@@ -2883,6 +2886,7 @@ dependencies = [
  "iroh",
  "iroh-relay",
  "omochi-gateway",
+ "omochi-local",
  "omochi-protocol",
  "omochi-transport",
  "omochi-ui",
@@ -2902,11 +2906,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "omochi-local"
+version = "0.2.2"
+dependencies = [
+ "fs2",
+ "getrandom 0.3.4",
+ "libc",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tokio-util",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
 name = "omochi-local-discovery"
 version = "0.3.2"
 dependencies = [
  "anyhow",
  "notify",
+ "omochi-local",
  "omochi-protocol",
  "serde",
  "serde_json",
@@ -2955,6 +2974,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "omochi-process"
+version = "0.3.2"
+dependencies = [
+ "futures",
+ "libc",
+ "omochi-local",
+ "tempfile",
+ "tokio",
+ "which",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
 name = "omochi-protocol"
 version = "0.3.2"
 dependencies = [
@@ -2975,6 +3007,7 @@ dependencies = [
  "iroh-mdns-address-lookup",
  "iroh-relay",
  "n0-future",
+ "omochi-local",
  "omochi-mdns",
  "omochi-protocol",
  "rand 0.10.3",
@@ -2993,6 +3026,7 @@ dependencies = [
  "async-trait",
  "futures",
  "libc",
+ "omochi-local",
  "omochi-ui-macros",
  "serde",
  "serde_json",
@@ -3019,7 +3053,9 @@ dependencies = [
  "fs2",
  "futures-util",
  "libc",
+ "omochi-local",
  "omochi-local-discovery",
+ "omochi-process",
  "omochi-protocol",
  "omochi-ui",
  "reqwest",
@@ -3032,6 +3068,7 @@ dependencies = [
  "tokio",
  "tokio-util",
  "uuid",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -5002,6 +5039,15 @@ name = "weezl"
 version = "0.1.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a28ac98ddc8b9274cb41bb4d9d4d5c425b6020c50c46f25559911905610b4a88"
+
+[[package]]
+name = "which"
+version = "8.0.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bae2f2b2b816647a1cab1acc91f5bd20812d53cb344382635ec2181940c8034f"
+dependencies = [
+ "libc",
+]
 
 [[package]]
 name = "widestring"

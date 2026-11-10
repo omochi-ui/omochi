@@ -43,7 +43,6 @@ use omochi_protocol::{
 };
 use omochi_ui::A2uiSnapshot;
 use serde_json::{Value, json};
-#[cfg(unix)]
 use std::path::PathBuf;
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -54,8 +53,7 @@ use std::{
     },
     time::Duration,
 };
-#[cfg(unix)]
-use tokio::net::UnixStream;
+
 use tokio::{
     io::{AsyncRead, AsyncWrite},
     sync::{Mutex, broadcast},
@@ -67,16 +65,14 @@ type Reader = Pin<Box<dyn AsyncRead + Send>>;
 type Writer = Pin<Box<dyn AsyncWrite + Send>>;
 #[derive(Clone)]
 pub enum Connection {
-    #[cfg(unix)]
-    Unix(PathBuf),
+    Local(omochi_local::LocalEndpoint),
     Iroh(omochi_transport::EndpointConnection),
 }
 impl Connection {
     async fn open(&self, header: OpenStream) -> Result<(Reader, Writer)> {
         let (reader, mut writer): (Reader, Writer) = match self {
-            #[cfg(unix)]
-            Self::Unix(path) => {
-                let socket = UnixStream::connect(path).await?;
+            Self::Local(endpoint) => {
+                let socket = endpoint.connect().await?;
                 let (reader, writer) = socket.into_split();
                 (Box::pin(reader), Box::pin(writer))
             }
@@ -340,8 +336,7 @@ impl Hub {
     pub(crate) async fn allow_gateway(&self, id: &str) {
         self.state.lock().await.blocked_gateways.remove(id);
     }
-    #[cfg(unix)]
-    pub fn attach_unix(&self, path: PathBuf) -> JoinHandle<()> {
+    pub fn attach_local(&self, path: PathBuf) -> JoinHandle<()> {
         let hub = self.clone();
         tokio::spawn(async move {
             let mut delay = 100;
@@ -349,7 +344,11 @@ impl Hub {
                 if hub.stop.is_cancelled() {
                     return;
                 }
-                let _ = hub.run(Connection::Unix(path.clone()), None, true).await;
+                if let Ok(endpoint) = omochi_local::LocalRuntime::open(path.clone())
+                    .and_then(|runtime| runtime.gateway_endpoint())
+                {
+                    let _ = hub.run(Connection::Local(endpoint), None, true).await;
+                }
                 tokio::select! { _ = hub.stop.cancelled() => return, _ = tokio::time::sleep(Duration::from_millis(delay)) => {} }
                 delay = (delay * 2).min(5000);
             }
@@ -396,8 +395,7 @@ impl Hub {
                 }
                 Some(actual)
             }
-            #[cfg(unix)]
-            Connection::Unix(_) => expected,
+            Connection::Local(_) => expected,
         };
         let epoch = self.epoch.fetch_add(1, Ordering::Relaxed);
         let (mut reader, writer) = tokio::select! {
@@ -803,11 +801,12 @@ mod tests {
     async fn unix_gateway_to_hub_preserves_browser_routes_and_action_isolation() {
         let root = tempfile::tempdir().unwrap();
         std::fs::set_permissions(root.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
-        let app = root.path().join("app");
-        std::fs::create_dir(&app).unwrap();
+        omochi_local::LocalRuntime::prepare(Some(root.path().to_path_buf())).unwrap();
+        let app = root.path().join("svc-app~");
+        omochi_local::files::private_directory(&app).unwrap();
         std::fs::write(
             app.join("manifest.json"),
-            r#"{"name":"App","socket":"a2ui.sock"}"#,
+            r#"{"version":2,"serviceId":"app","name":"App","endpoint":{"kind":"unix","path":"a2ui.sock"}}"#,
         )
         .unwrap();
         let listener = tokio::net::UnixListener::bind(app.join("a2ui.sock")).unwrap();
@@ -828,10 +827,15 @@ mod tests {
         let discovery = gateway.discover(root.path().to_owned());
         let socket = root.path().join("gateway.sock");
         let server = gateway
-            .listen_unix(socket.clone(), node.clone(), "workstation".into())
+            .listen_local(
+                (socket.clone()).parent().unwrap().to_path_buf(),
+                node.clone(),
+                "workstation".into(),
+            )
+            .await
             .unwrap();
         let hub = Hub::new();
-        let attached = hub.attach_unix(socket);
+        let attached = hub.attach_local(socket.parent().unwrap().to_path_buf());
         tokio::time::timeout(Duration::from_secs(5), async {
             loop {
                 let subscription = hub.subscribe().await;

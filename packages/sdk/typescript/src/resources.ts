@@ -1,6 +1,7 @@
+import { createPrivateDirectory } from "./node/native-local.js";
 import { ReceiveQueue, ReceiveQueueOverflowError } from './receive-queue.js';
 import { randomBytes } from 'node:crypto';
-import { mkdtempSync, openSync, readSync, writeSync, closeSync, unlinkSync, rmdirSync } from 'node:fs';
+import { openSync, readSync, writeSync, closeSync, unlinkSync, rmdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { isResourceFrame, validResourceRequest, RESOURCE_PROTOCOL, type ResourceFrame } from '@omochi-ui/core';
@@ -23,7 +24,11 @@ export class ResourceRegistry {
   private register(mime: string | undefined, read: (buffer: Buffer) => number): string {
     if (this.closed) throw new Error('resource registry closed');
     if (!mime || !/^(image|audio|video)\/[a-zA-Z0-9.+-]+$/.test(mime)) throw new Error('explicit media MIME type required');
-    this.directory ??= mkdtempSync(path.join(tmpdir(), 'omochi-resources-'));
+    if (!this.directory) {
+      const directory = path.join(tmpdir(), `omochi-resources-${randomBytes(16).toString('hex')}`);
+      createPrivateDirectory(directory);
+      this.directory = directory;
+    }
     const id = randomBytes(16).toString('hex'), filename = path.join(this.directory, id);
     const fd = openSync(filename, 'wx', 0o600);
     let size = 0;

@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 // cannot silently select a different SDK API during these experiments.
 const repo = process.env.OMOCHI_HUB_ROOT ?? new URL('../../../', import.meta.url).pathname;
 const { App, schema } = await import(`${repo}/packages/sdk/typescript/src/index.ts`);
-const { UnixSocketServerTransport } = await import(`${repo}/packages/sdk/typescript/src/node/index.ts`);
+const { LocalServerTransport } = await import(`${repo}/packages/sdk/typescript/src/node/index.ts`);
 
 const app = new App({ temperature: 50, result: '' });
 const image = process.env.OMOCHI_IMAGE
@@ -24,4 +24,4 @@ app.surface('main', (ui, state) => {
   if (state.result) ui.text(state.result, { key: 'result' });
   if (image) ui.image(image, { key: 'resource-image', description: 'Image delivered over iroh', variant: 'icon' });
 });
-await app.start(new UnixSocketServerTransport({ serviceId: process.env.OMOCHI_SERVICE ?? 'flutter-example', name: 'Flutter integration' }));
+await app.start(new LocalServerTransport({ serviceId: process.env.OMOCHI_SERVICE ?? 'flutter-example', name: 'Flutter integration' }));

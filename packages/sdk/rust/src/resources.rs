@@ -1,10 +1,9 @@
 //! Immutable media registry and the transport-independent resources/1 responder.
 use crate::{Error, Result};
 use serde_json::{Value, json};
-use std::os::unix::fs::OpenOptionsExt;
 use std::{
     collections::HashMap,
-    fs::{self, File, OpenOptions},
+    fs::{self, File},
     io::{Read, Seek, SeekFrom, Write},
     path::{Path, PathBuf},
     sync::{Arc, Mutex},
@@ -134,18 +133,12 @@ impl ResourceRegistry {
         }
         if store.directory.is_none() {
             let dir = std::env::temp_dir().join(format!("omochi-resources-{}", random_id()?));
-            let mut builder = fs::DirBuilder::new();
-            use std::os::unix::fs::DirBuilderExt;
-            builder.mode(0o700).create(&dir)?;
+            omochi_local::files::new_private_directory(&dir)?;
             store.directory = Some(dir);
         }
         let id = random_id()?;
         let path = store.directory.as_ref().unwrap().join(&id);
-        let mut target = OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .mode(0o600)
-            .open(&path)?;
+        let mut target = omochi_local::files::private_file(&path, true)?;
         let mut size = 0;
         let result = (|| -> Result<()> {
             let mut buffer = [0u8; 65536];

@@ -6,8 +6,8 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from omochi_ui import ResourceRegistry, UnixSocketServerTransport
-from omochi_ui.unix_server import _MAX_PENDING_BYTES, _OutboundPeer, _encode_frame
+from omochi_ui import ResourceRegistry, LocalServerTransport
+from omochi_ui.local_server import _MAX_PENDING_BYTES, _OutboundPeer, _encode_frame
 
 
 class ControlledWriter:
@@ -55,7 +55,7 @@ class UnixSocketOutboundTests(unittest.IsolatedAsyncioTestCase):
         unicode_frame = _encode_frame({"text": "🎤"})
         self.assertEqual(len(unicode_frame), len('{"text":"🎤"}') + 4)
         budget = len(unicode_frame) * 2
-        with patch("omochi_ui.unix_server._MAX_PENDING_BYTES", budget):
+        with patch("omochi_ui.local_server._MAX_PENDING_BYTES", budget):
             peer.task = asyncio.create_task(peer.pump([]))
             peer.enqueue(unicode_frame)
             await asyncio.wait_for(writer.started.get(), 5)
@@ -75,7 +75,7 @@ class UnixSocketOutboundTests(unittest.IsolatedAsyncioTestCase):
     async def test_drain_releases_budget_and_oversized_frame_aborts(self):
         writer = ControlledWriter()
         peer = _OutboundPeer(writer)
-        with patch("omochi_ui.unix_server._MAX_PENDING_BYTES", 8):
+        with patch("omochi_ui.local_server._MAX_PENDING_BYTES", 8):
             peer.task = asyncio.create_task(peer.pump([]))
             peer.enqueue(b"1234567\n")
             await asyncio.wait_for(writer.started.get(), 5)
@@ -92,7 +92,7 @@ class UnixSocketOutboundTests(unittest.IsolatedAsyncioTestCase):
         expected = [_encode_frame(message) for message in bootstrap]
         live = _encode_frame({"live": 1})
         resource = _encode_frame({"resource": 1})
-        with patch("omochi_ui.unix_server._MAX_PENDING_BYTES", 40):
+        with patch("omochi_ui.local_server._MAX_PENDING_BYTES", 40):
             peer.task = asyncio.create_task(peer.pump(bootstrap))
             await asyncio.wait_for(writer.started.get(), 5)
             peer.enqueue(live)
@@ -111,7 +111,7 @@ class UnixSocketOutboundTests(unittest.IsolatedAsyncioTestCase):
     async def test_bootstrap_transition_aborts_when_live_leaves_no_room(self):
         writer = ControlledWriter()
         peer = _OutboundPeer(writer)
-        with patch("omochi_ui.unix_server._MAX_PENDING_BYTES", 20):
+        with patch("omochi_ui.local_server._MAX_PENDING_BYTES", 20):
             peer.task = asyncio.create_task(peer.pump([{}, {"long": "1234567"}]))
             await asyncio.wait_for(writer.started.get(), 5)
             peer.enqueue(b"123456789\n")
@@ -123,7 +123,7 @@ class UnixSocketOutboundTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_close_cancels_a_blocked_writer_and_discards_queued_frames(self):
         with tempfile.TemporaryDirectory() as root:
-            transport = UnixSocketServerTransport("demo", runtime_dir=root)
+            transport = LocalServerTransport("demo", runtime_dir=root)
             entered = asyncio.Event()
             writer = None
 
@@ -133,8 +133,8 @@ class UnixSocketOutboundTests(unittest.IsolatedAsyncioTestCase):
 
             try:
                 await transport.start()
-                with patch.object(asyncio.StreamWriter, "drain", blocked_drain):
-                    _, writer = await asyncio.open_unix_connection(str(transport.socket_path))
+                with patch("omochi_ui._native_local.Writer.drain", blocked_drain):
+                    _, writer = await asyncio.open_unix_connection(str(transport.endpoint["path"]))
                     await wait_until(lambda: bool(transport._clients))
                     peer = next(iter(transport._clients))
                     await transport.send(create("main"))
@@ -154,13 +154,13 @@ class UnixSocketOutboundTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_paused_reader_is_evicted_while_healthy_peer_and_reconnect_progress(self):
         with tempfile.TemporaryDirectory() as root:
-            transport = UnixSocketServerTransport("demo", runtime_dir=root)
+            transport = LocalServerTransport("demo", runtime_dir=root)
             resources = ResourceRegistry()
             transport.resources = resources
             writers = []
             try:
                 await transport.send(create("main"))
-                path = str(transport.socket_path)
+                path = str(transport.endpoint["path"])
                 slow_reader, slow_writer = await asyncio.open_unix_connection(path, limit=_MAX_PENDING_BYTES)
                 writers.append(slow_writer)
                 self.assertEqual(json.loads(await slow_reader.readline())["kind"], "hello")
@@ -195,11 +195,11 @@ class UnixSocketOutboundTests(unittest.IsolatedAsyncioTestCase):
                 await transport.close()
                 self.assertFalse(transport._clients)
                 self.assertFalse(transport._client_tasks)
-                successor = UnixSocketServerTransport("demo", runtime_dir=root)
+                successor = LocalServerTransport("demo", runtime_dir=root)
                 try:
                     await successor.start()
                     await transport.close()
-                    successor_reader, successor_writer = await asyncio.open_unix_connection(str(successor.socket_path))
+                    successor_reader, successor_writer = await asyncio.open_unix_connection(str(successor.endpoint["path"]))
                     writers.append(successor_writer)
                     await successor.send(create("successor"))
                     self.assertEqual(json.loads(await asyncio.wait_for(successor_reader.readline(), 5))["createSurface"]["surfaceId"], "successor")
@@ -213,7 +213,7 @@ class UnixSocketOutboundTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_real_large_bootstrap_keeps_captured_replay_before_updates_and_resources(self):
         with tempfile.TemporaryDirectory() as root:
-            transport = UnixSocketServerTransport("demo", runtime_dir=root)
+            transport = LocalServerTransport("demo", runtime_dir=root)
             resources = ResourceRegistry()
             transport.resources = resources
             uri = resources.bytes(b"media", "image/png")
@@ -233,7 +233,7 @@ class UnixSocketOutboundTests(unittest.IsolatedAsyncioTestCase):
                     await transport.send(create(str(index)))
                     await transport.send(update(str(index), payload))
                 with patch.object(_OutboundPeer, "_write", pause_hello):
-                    reader, writer = await asyncio.open_unix_connection(str(transport.socket_path), limit=_MAX_PENDING_BYTES)
+                    reader, writer = await asyncio.open_unix_connection(str(transport.endpoint["path"]), limit=_MAX_PENDING_BYTES)
                     await asyncio.wait_for(entered.wait(), 5)
                     peer = next(iter(transport._clients))
                     await transport.send(update("0", "live"))

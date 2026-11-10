@@ -14,9 +14,10 @@ documentation = "https://github.com/omochi-ui/omochi/blob/main/docs/sdk.md"
 [features]
 default = ["runtime"]
 # Embedded renderers only need the transport-independent snapshot materializer.
-runtime = ["dep:omochi-ui-macros", "dep:async-trait", "dep:futures", "dep:serde", "dep:tokio", "dep:libc"]
+runtime = ["dep:omochi-ui-macros", "dep:async-trait", "dep:futures", "dep:serde", "dep:tokio", "dep:libc", "dep:omochi-local"]
 
 [dependencies]
+omochi-local = { version = "=0.2.2", path = "local", optional = true }
 libc = { version = "0.2", optional = true }
 omochi-ui-macros = { version = "=0.2.2", path = "macros", optional = true }
 async-trait = { version = "0.1", optional = true }
@@ -30,5 +31,5 @@ tokio = { version = "1", features = ["io-std", "io-util", "macros", "net", "rt-m
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
 
 [workspace]
-members = ["macros"]
+members = ["macros", "local", "local-node", "local-ffi"]
 resolver = "3"

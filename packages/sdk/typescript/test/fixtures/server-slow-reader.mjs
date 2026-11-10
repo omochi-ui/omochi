@@ -5,13 +5,13 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { createInterface } from "node:readline";
 import { WebSocket } from "ws";
-import { UnixSocketServerTransport, WebSocketServerTransport } from "@omochi-ui/sdk/node";
+import { LocalServerTransport, WebSocketServerTransport } from "@omochi-ui/sdk/node";
 import { ResourceRegistry } from "@omochi-ui/sdk";
 
 const kind = process.argv[2];
 const root = await mkdtemp(path.join(tmpdir(), "omochi-slow-"));
 const makeTransport = () => kind === "unix"
-  ? new UnixSocketServerTransport({ serviceId: "demo", runtimeDir: root })
+  ? new LocalServerTransport({ serviceId: "demo", runtimeDir: root })
   : new WebSocketServerTransport({ port: 0 });
 const transport = makeTransport();
 const peers = [];
@@ -24,7 +24,7 @@ async function connect(paused = false) {
   const pending = [], waiters = [];
   const receive = text => { const value = JSON.parse(String(text)); const waiter = waiters.shift(); if (waiter) waiter(value); else pending.push(value); };
   const address = kind === "unix" ? undefined : new URL(transport.url);
-  const socket = kind === "unix" ? createConnection(transport.socketPath)
+  const socket = kind === "unix" ? createConnection(transport.endpoint.path)
     : paused ? createConnection({ host: address.hostname, port: Number(address.port) })
     : new WebSocket(transport.url);
   peers.push(socket);

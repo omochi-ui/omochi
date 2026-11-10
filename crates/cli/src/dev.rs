@@ -4,25 +4,8 @@ use omochi_hub::{
     dashboards::DashboardStore,
     http::{HttpState, serve},
 };
-use std::{
-    net::SocketAddr, os::unix::process::ExitStatusExt, path::PathBuf, process::Stdio,
-    time::Duration,
-};
-use tokio::process::Command;
-struct Group(i32);
-impl Group {
-    fn signal(&self, signal: i32) {
-        unsafe {
-            libc::kill(-self.0, signal);
-        }
-    }
-}
-impl Drop for Group {
-    fn drop(&mut self) {
-        self.signal(libc::SIGKILL);
-    }
-}
-
+use omochi_process::{Command, Stdio};
+use std::{net::SocketAddr, path::PathBuf, time::Duration};
 pub async fn run(command: Vec<String>, address: SocketAddr, root: PathBuf) -> Result<i32> {
     let mut shutdown = super::ShutdownSignal::new()?;
     let mut child = Command::new(command.first().context("command required after --")?)
@@ -30,10 +13,8 @@ pub async fn run(command: Vec<String>, address: SocketAddr, root: PathBuf) -> Re
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::inherit())
-        .process_group(0)
-        .kill_on_drop(true)
         .spawn()?;
-    let group = Group(child.id().unwrap() as i32);
+    let group = child.group();
     let (hub, mut stream) =
         Hub::attach_stdio(child.stdout.take().unwrap(), child.stdin.take().unwrap());
     let dashboards = DashboardStore::open(root).map_err(|e| anyhow::anyhow!(e.1))?;
@@ -52,7 +33,7 @@ pub async fn run(command: Vec<String>, address: SocketAddr, root: PathBuf) -> Re
         Ok(server) => server,
         Err(error) => {
             hub.shutdown();
-            group.signal(libc::SIGKILL);
+            group.signal(omochi_process::SIGKILL);
             let _ = child.wait().await;
             let _ = stream.await;
             return Err(error);
@@ -87,8 +68,11 @@ pub async fn run(command: Vec<String>, address: SocketAddr, root: PathBuf) -> Re
     let code = if protocol_error.is_some() {
         1
     } else {
-        exit.map(|s| s.code().unwrap_or_else(|| 128 + s.signal().unwrap_or(1)))
-            .unwrap_or(0)
+        exit.map(|s| {
+            s.code()
+                .unwrap_or_else(|| 128 + omochi_process::exit_signal(&s).unwrap_or(1))
+        })
+        .unwrap_or(0)
     };
     hub.shutdown_with_code(if protocol_error.is_some() {
         1002
@@ -99,12 +83,12 @@ pub async fn run(command: Vec<String>, address: SocketAddr, root: PathBuf) -> Re
     } else {
         1011
     });
-    group.signal(libc::SIGTERM);
+    group.signal(omochi_process::SIGTERM);
     if tokio::time::timeout(Duration::from_secs(1), child.wait())
         .await
         .is_err()
     {
-        group.signal(libc::SIGKILL);
+        group.signal(omochi_process::SIGKILL);
         let _ = child.wait().await;
     }
     if !stream_finished && !stream.is_finished() {

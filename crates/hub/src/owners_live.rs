@@ -51,6 +51,7 @@ mod tests {
     #[tokio::test]
     async fn unresponsive_owner_listener_is_an_error_without_restoring_revoked_records() {
         let root = tempfile::tempdir().unwrap();
+        omochi_local::files::private_directory(root.path()).unwrap();
         let store = OwnerStore::new(root.path().to_owned());
         let (grant, _) = store.create().unwrap();
         let lease = Lease::register(&store).unwrap();

@@ -13,6 +13,7 @@ browser = ["omochi-transport/file-store", "dep:axum", "dep:async-stream", "dep:f
 desktop = ["omochi-transport/desktop"]
 
 [dependencies]
+omochi-local = { version = "=0.2.2", path = "../../packages/sdk/rust/local" }
 anyhow.workspace = true
 sha2 = "0.11.1"
 tokio.workspace = true

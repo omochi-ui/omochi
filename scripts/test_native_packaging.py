@@ -170,15 +170,17 @@ class CrateSourceTests(unittest.TestCase):
 
     def test_unpublished_sdk_is_verified_from_archives_only_in_local_sdk_mode(self):
         sdk = self.root / 'packages/sdk/rust'
-        for directory, name in [(sdk, 'omochi-ui'), (sdk / 'macros', 'omochi-ui-macros')]:
+        for directory, name in [(sdk, 'omochi-ui'), (sdk / 'macros', 'omochi-ui-macros'), (sdk / 'local', 'omochi-local')]:
             (directory / 'src').mkdir(parents=True)
             (directory / 'Cargo.toml').write_text(
                 f'[package]\nname = "{name}"\nversion = "9.99.99"\nedition = "2024"\n')
         with (sdk / 'Cargo.toml').open('a') as file:
-            file.write('[workspace]\nmembers = ["macros"]\n[dependencies]\n'
-                       'omochi-ui-macros = { path = "macros", version = "=9.99.99" }\n')
+            file.write('[workspace]\nmembers = ["macros", "local"]\n[dependencies]\n'
+                       'omochi-ui-macros = { path = "macros", version = "=9.99.99" }\n'
+                       'omochi-local = { path = "local", version = "=9.99.99" }\n')
+        (sdk / 'local/src/lib.rs').write_text('pub fn local() {}\n')
         (sdk / 'macros/src/lib.rs').write_text('pub fn cursor() {}\n')
-        (sdk / 'src/lib.rs').write_text('pub fn snapshot_cursor() { omochi_ui_macros::cursor(); }\n')
+        (sdk / 'src/lib.rs').write_text('pub fn snapshot_cursor() { omochi_ui_macros::cursor(); omochi_local::local(); }\n')
         (self.workspace / 'hub/Cargo.toml').write_text(
             '[package]\nname = "omochi-hub"\nversion.workspace = true\nedition = "2024"\n'
             'include = ["src/**", "assets/**", "Cargo.toml", "Cargo.lock"]\n'
