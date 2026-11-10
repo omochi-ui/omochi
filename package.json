@@ -7,7 +7,7 @@
     "build": "bun run build:sdk-local && bun run build:web && cargo build --manifest-path crates/Cargo.toml --locked -p omochi-cli -p omochi-utils",
     "quickstart": "bun run build && bun run omochi-ui up --open examples/quickstart/omochi.toml",
     "test": "bun run build && bun run --filter './packages/**' test && bun run test:server-rust && bun check -p tests/native && OMOCHI_NATIVE_TEST=1 bun test tests/native packages/renderer/test/native.test.ts && bun run test:approval && bun run test:packaging && bun run test:sdk-ownership",
-    "test:packaging": "bun run release:typecheck && bun test scripts/release.test.ts scripts/native-release.test.ts && python3 -B scripts/test_native_packaging.py",
+    "test:packaging": "bun run release:typecheck && bun test scripts/release.test.ts scripts/native-release.test.ts && python3 -B scripts/test_native_packaging.py && python3 -B scripts/test_build_local.py",
     "test:renderer-package": "bun run build:web && bun scripts/test-renderer-package.ts",
     "test:approval": "bun check -p examples/agent-approval/tsconfig.json && bun test ./examples/agent-approval/test",
     "test:python": "PYTHONPATH=packages/sdk/python/src python3 -m unittest discover -s packages/sdk/python/tests -v",
