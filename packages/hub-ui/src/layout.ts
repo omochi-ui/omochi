@@ -80,7 +80,9 @@ export function reorderPanels(panels: Panel[], id: string, direction: -1 | 1): P
     result.push({ ...panel, x, y });
     x += panel.w; height = Math.max(height, panel.h);
   }
-  return compactPanels(result);
+  // Vertical compaction can lift a later panel into an earlier row's gap,
+  // undoing the requested order when the workspace sorts by y/x.
+  return result;
 }
 
 /** Append below the layout or into free space; retain the draft if no capacity remains. */

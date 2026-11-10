@@ -12,6 +12,9 @@ const constraints: LayoutConstraint[] = [...defaultConstraints, {
   constrainPosition: (_item, x, y) => ({ x, y: Math.min(100000, y) }),
 }];
 const handles = ['n', 's', 'e', 'w', 'ne', 'nw', 'se', 'sw'] as const;
+// Persisted panel IDs must contain non-whitespace text. RGL filters this ID
+// from layout callbacks, so keep its placeholder outside that namespace.
+const droppingItem = { i: '', x: 0, y: 0, w: 1, h: 1 };
 
 /** RGL owns pointer geometry; the editor owns the draft and explicit commits. */
 export function PanelGrid({ panels, editing, busy, narrow, onChange, children }: {
@@ -83,8 +86,10 @@ export function PanelGrid({ panels, editing, busy, narrow, onChange, children }:
     <GridLayout width={width} layout={layout} className={`panel-grid ${editing ? 'editing' : ''}`}
       gridConfig={{ cols: GRID_COLUMNS, rowHeight: GRID_ROW_HEIGHT, margin: [GRID_GAP, GRID_GAP], containerPadding: [0, 0] }}
       constraints={constraints}
+      droppingItem={droppingItem}
       compactor={editing && !narrow ? verticalCompactor : noCompactor}
-      dragConfig={{ enabled, handle: '.drag-handle', allowMobileScroll: true }}
+      // Track the entire press so cancellation also removes pending document listeners.
+      dragConfig={{ enabled, handle: '.drag-handle', allowMobileScroll: true, threshold: 0 }}
       resizeConfig={{ enabled, handles, handleComponent: (edge, ref) => <Button static ref={ref as Ref<HTMLButtonElement>}
         className={`react-resizable-handle resize-edge resize-${edge}`} aria-label={t('view.resizeHandle', { edge: t(`edge.${edge}`) })}
         tabIndex={-1} disabled={!enabled} /> }}

@@ -55,6 +55,17 @@ test('mobile reorder preserves sizes and packs rows without overlap', async () =
   assert.equal(reorderPanels(initial, 'a', -1), initial);
 });
 
+test('mobile reorder preserves visual order when a later panel fits an earlier gap', () => {
+  const initial = [{ ...panel('a', 0, 0), w: 4 }, { ...panel('b', 4, 0), w: 2 }, { ...panel('c', 0, 6), w: 10 }];
+  const visualOrder = (panels: Panel[]) => [...panels].sort((a, b) => a.y - b.y || a.x - b.x).map(p => p.id);
+  const down = reorderPanels(initial, 'b', 1);
+  validate(down);
+  assert.deepEqual(visualOrder(down), ['a', 'c', 'b']);
+  assert.deepEqual(down.map(p => [p.x, p.y, p.w, p.h]), [[0, 0, 4, 6], [0, 6, 10, 6], [10, 6, 2, 6]]);
+  assert.deepEqual(visualOrder(reorderPanels(down, 'b', -1)), ['a', 'b', 'c']);
+  assert.deepEqual(initial.map(p => [p.x, p.y]), [[0, 0], [4, 0], [0, 6]]);
+});
+
 function validate(panels: Panel[]): void {
   assert.deepEqual(validateBoardInput({ name: 'Layout', panels }).panels, panels);
 }
