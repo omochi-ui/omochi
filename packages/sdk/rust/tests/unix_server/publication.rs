@@ -1,27 +1,18 @@
 use super::*;
 use serde_json::json;
 use std::time::Duration;
-struct TempRoot(PathBuf);
-impl TempRoot {
-    fn new() -> Self {
-        Self(std::env::temp_dir().join(format!(
-                "om-pub-{}",
-                std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap()
-                    .as_nanos()
-            )))
-    }
+
+fn temp_root() -> tempfile::TempDir {
+    tempfile::Builder::new()
+        .prefix("om-pub-")
+        .tempdir()
+        .unwrap()
 }
-impl Drop for TempRoot {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.0);
-    }
-}
+
 async fn assert_atomic_subscription(publish_first: bool, update_existing: bool) {
-    let root = TempRoot::new();
+    let root = temp_root();
     let mut transport =
-        LocalServerTransport::bind(LocalServerOptions::new("demo").with_runtime_dir(&root.0))
+        LocalServerTransport::bind(LocalServerOptions::new("demo").with_runtime_dir(root.path()))
             .await
             .unwrap();
     let create = json!({
@@ -144,8 +135,8 @@ async fn subscription_before_publication_delivers_each_message_once() {
 
 #[tokio::test(flavor = "current_thread")]
 async fn aborted_supervisor_cannot_release_a_connection_future_publication() {
-    let root = TempRoot::new();
-    let options = LocalServerOptions::new("demo").with_runtime_dir(&root.0);
+    let root = temp_root();
+    let options = LocalServerOptions::new("demo").with_runtime_dir(root.path());
     let mut owner = LocalServerTransport::bind(options.clone()).await.unwrap();
     let (server, mut client) = UnixStream::pair().unwrap();
     let mut connection = Box::pin(serve_connection(
