@@ -46,7 +46,7 @@ impl Default for ResourceRegistry {
 }
 fn random_id() -> Result<String> {
     let mut bytes = [0u8; 16];
-    File::open("/dev/urandom")?.read_exact(&mut bytes)?;
+    getrandom::fill(&mut bytes).map_err(|error| std::io::Error::other(error.to_string()))?;
     Ok(bytes.iter().map(|b| format!("{b:02x}")).collect())
 }
 fn mime_for(path: &Path) -> Option<&'static str> {

@@ -11,7 +11,7 @@ Resolution order is an explicit SDK/CLI runtime directory, nonempty
 `OMOCHI_RUNTIME_DIR`, then the platform default:
 
 - Unix with XDG: `$XDG_RUNTIME_DIR/omochi/v2`.
-- Unix without XDG: `<tempdir>/omochi-<effective uid>/omochi/v2`.
+- Unix without XDG: `<tempdir>/omochi-<effective uid>/v2`.
 - Windows: the LocalAppData known folder, `Omochi\Runtime\v2`.
 
 Overrides specify the complete runtime root. `up` exports `OMOCHI_RUNTIME_DIR` to

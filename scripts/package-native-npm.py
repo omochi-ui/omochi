@@ -5,6 +5,7 @@ import hashlib
 import json
 import shutil
 import subprocess
+import sys
 import tarfile
 import tempfile
 import tomllib
@@ -46,7 +47,9 @@ def pack(directory, manifest, output):
     shutil.copy2(ROOT / 'LICENSE', directory / 'LICENSE')
     if not (directory / 'README.md').exists():
         shutil.copy2(ROOT / 'crates/DISTRIBUTION.md', directory / 'README.md')
-    result = subprocess.check_output(['npm', 'pack', '--ignore-scripts', '--json', '--pack-destination', str(output)], cwd=directory, text=True)
+    # Windows provides npm.cmd rather than an npm executable.
+    npm = 'npm.cmd' if sys.platform == 'win32' else 'npm'
+    result = subprocess.check_output([npm, 'pack', '--ignore-scripts', '--json', '--pack-destination', str(output)], cwd=directory, text=True)
     artifact = json.loads(result)[0]
     return {k: artifact[k] for k in ['name', 'version', 'filename', 'integrity']}
 

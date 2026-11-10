@@ -17,6 +17,29 @@ packaging = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(packaging)
 
 
+class NpmPackTests(unittest.TestCase):
+    def test_packs_with_installed_npm_and_paths_with_spaces(self):
+        with tempfile.TemporaryDirectory(prefix='omochi-npm-pack-') as root:
+            directory = Path(root) / 'package source'
+            output = Path(root) / 'packed artifacts'
+            (directory / 'bin').mkdir(parents=True)
+            output.mkdir()
+            (directory / 'bin/omochi-ui').write_bytes(b'fixture native binary')
+            manifest = {'name': '@omochi-ui/native-packaging-test', 'version': '0.0.0',
+                        'files': ['bin'], 'scripts': {'prepack': 'exit 1'}}
+
+            with patch.dict(os.environ, {'npm_config_cache': str(Path(root) / 'npm cache')}):
+                artifact = packaging.pack(directory, manifest, output)
+
+            self.assertEqual(artifact['name'], manifest['name'])
+            self.assertEqual(artifact['version'], manifest['version'])
+            self.assertTrue(artifact['integrity'].startswith('sha512-'))
+            with tarfile.open(output / artifact['filename']) as archive:
+                self.assertEqual(archive.extractfile('package/bin/omochi-ui').read(),
+                                 b'fixture native binary')
+                self.assertEqual(json.load(archive.extractfile('package/package.json')), manifest)
+
+
 class ArchiveTests(unittest.TestCase):
     def archive(self, root, *, version='0.2.0', target='x86_64-unknown-linux-gnu', corrupt_inner=False, duplicate=False, symlink=False):
         files = {name: name.encode() for name in ['bin/omochi-ui', 'bin/omochi-utils', 'LICENSE', 'README.md']}

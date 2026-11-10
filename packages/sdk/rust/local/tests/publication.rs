@@ -130,6 +130,97 @@ fn default_runtime_fixture() {
 }
 
 #[cfg(unix)]
+#[tokio::test]
+#[ignore = "isolated fallback-runtime publisher fixture"]
+async fn fallback_runtime_publisher_fixture() {
+    let runtime = LocalRuntime::prepare(None).unwrap();
+    let owner = runtime
+        .publish("temperature-typescript", "Temperature", None)
+        .await
+        .unwrap();
+    let service = runtime
+        .scan()
+        .unwrap()
+        .remove("temperature-typescript")
+        .unwrap();
+    let (client, server) = tokio::join!(service.endpoint.connect(), owner.accept());
+    drop(client.unwrap());
+    drop(server.unwrap());
+    owner.stop().await;
+}
+
+#[cfg(unix)]
+#[test]
+fn fallback_runtime_fits_macos_temporary_directory() {
+    // macOS commonly supplies a 45-byte per-user temporary directory.
+    let temp = tempfile::Builder::new()
+        .prefix("oc-")
+        .tempdir_in("/tmp")
+        .unwrap();
+    let temporary = temp
+        .path()
+        .join("t".repeat(45 - temp.path().as_os_str().len() - 1));
+    std::fs::create_dir(&temporary).unwrap();
+    let output = std::process::Command::new(std::env::current_exe().unwrap())
+        .args([
+            "--ignored",
+            "--exact",
+            "fallback_runtime_publisher_fixture",
+            "--nocapture",
+        ])
+        .env_remove("OMOCHI_RUNTIME_DIR")
+        .env_remove("XDG_RUNTIME_DIR")
+        .env("TMPDIR", &temporary)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "fallback publisher failed: {}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn fallback_runtime_rejects_unsafe_parent_before_touching_children() {
+    use std::os::unix::fs::{PermissionsExt, symlink};
+    for use_symlink in [false, true] {
+        let temp = tempfile::tempdir().unwrap();
+        let parent = temp
+            .path()
+            .join(format!("omochi-{}", unsafe { libc::geteuid() }));
+        let target = if use_symlink {
+            let target = temp.path().join("target");
+            std::fs::create_dir(&target).unwrap();
+            symlink(&target, &parent).unwrap();
+            target
+        } else {
+            std::fs::create_dir(&parent).unwrap();
+            std::fs::set_permissions(&parent, std::fs::Permissions::from_mode(0o777)).unwrap();
+            parent
+        };
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--ignored",
+                "--exact",
+                "default_runtime_fixture",
+                "--nocapture",
+            ])
+            .env_remove("OMOCHI_RUNTIME_DIR")
+            .env_remove("XDG_RUNTIME_DIR")
+            .env("TMPDIR", temp.path())
+            .output()
+            .unwrap();
+        assert!(!output.status.success(), "accepted unsafe fallback parent");
+        assert!(
+            std::fs::read_dir(&target).unwrap().next().is_none(),
+            "traversed unsafe fallback parent"
+        );
+    }
+}
+
+#[cfg(unix)]
 #[test]
 fn default_runtime_rejects_unsafe_xdg_before_touching_children() {
     use std::os::unix::fs::{PermissionsExt, symlink};

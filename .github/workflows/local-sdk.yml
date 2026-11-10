@@ -70,6 +70,9 @@ jobs:
         run: python scripts/test-local-adapters.py
       - if: runner.os != 'Linux'
         run: cargo test --manifest-path packages/sdk/rust/Cargo.toml -p omochi-local
+      - if: runner.os != 'Linux'
+        name: Verify Rust media registration
+        run: cargo test --manifest-path packages/sdk/rust/Cargo.toml -p omochi-ui --test resources
       - if: runner.os == 'Windows'
         name: Reject another Windows user's token
         shell: pwsh

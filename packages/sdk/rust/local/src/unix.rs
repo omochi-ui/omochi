@@ -14,7 +14,7 @@ pub fn default_runtime_root() -> io::Result<PathBuf> {
             Some(root) => PathBuf::from(root).join("omochi/v2"),
             None => std::env::temp_dir()
                 .join(format!("omochi-{}", unsafe { libc::geteuid() }))
-                .join("omochi/v2"),
+                .join("v2"),
         },
     )
 }
@@ -118,8 +118,7 @@ pub fn prepare_default_runtime() -> io::Result<PathBuf> {
         private_directory(&xdg.join("omochi"))?;
         private_directory(&root)?;
     } else {
-        let parent = root.parent().unwrap().parent().unwrap();
-        for path in [parent, root.parent().unwrap(), &root] {
+        for path in [root.parent().unwrap(), &root] {
             private_directory(path).map_err(|e| {
                 io::Error::new(
                     e.kind(),

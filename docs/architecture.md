@@ -187,7 +187,7 @@ variants.
 
 An explicit SDK/CLI runtime directory or nonempty `OMOCHI_RUNTIME_DIR` overrides
 the platform default. Unix defaults to `$XDG_RUNTIME_DIR/omochi/v2`, or
-`<tempdir>/omochi-<effective uid>/omochi/v2` without XDG. Windows defaults to the
+`<tempdir>/omochi-<effective uid>/v2` without XDG. Windows defaults to the
 LocalAppData known folder's `Omochi\Runtime\v2`. The root contains
 `runtime.json` with `{"version":2}`; `.runtime.lock~` serializes initialization.
 A nonempty root without the marker is rejected rather than migrated.
