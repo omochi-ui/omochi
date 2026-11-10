@@ -91,6 +91,9 @@ jobs:
       - if: matrix.libc != 'musl'
         run: cargo test --manifest-path crates/Cargo.toml -p omochi-process
       - if: runner.os == 'Windows'
+        name: Verify console Unicode and cancellable redirected input
+        run: cargo test --manifest-path crates/Cargo.toml -p omochi-utils --test windows_input
+      - if: runner.os == 'Windows'
         name: Verify store locks and revocation acknowledgements
         run: cargo test --manifest-path crates/Cargo.toml -p omochi-transport --test local_persistence
       - if: runner.os == 'Windows'
