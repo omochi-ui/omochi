@@ -44,6 +44,16 @@ class Fixture:
         path.mkdir(mode=0o700, exist_ok=True)
         return path
 
+    def runtime(self, index):
+        return self.root(index) / "runtime"
+
+    def environment(self, index):
+        return {
+            **os.environ,
+            "XDG_RUNTIME_DIR": str(self.root(index)),
+            "OMOCHI_RUNTIME_DIR": str(self.runtime(index)),
+        }
+
     def stop(self, processes, index):
         process = processes.pop(index, None)
         if process and process.poll() is None:
@@ -53,6 +63,10 @@ class Fixture:
             except subprocess.TimeoutExpired:
                 process.kill()
                 process.wait()
+        if process:
+            for stream in (process.stdin, process.stdout, process.stderr):
+                if stream:
+                    stream.close()
 
     def gateway(self, index):
         self.stop(self.gateways, index)
@@ -64,7 +78,7 @@ class Fixture:
                     "--config-dir",
                     str(root / "config"),
                     "--runtime-dir",
-                    str(root / "omochi"),
+                    str(self.runtime(index)),
                     "gateway",
                     "--remote",
                     "--pair",
@@ -73,6 +87,7 @@ class Fixture:
                     f"Native test {index + 1}",
                 ],
                 cwd=REPO,
+                env=self.environment(index),
                 stdout=subprocess.PIPE,
                 stderr=log,
                 text=True,
@@ -125,8 +140,7 @@ class Fixture:
                 ["bun", "run", str(APP / "tool/sdk_fixture.ts")],
                 cwd=REPO,
                 env={
-                    **os.environ,
-                    "XDG_RUNTIME_DIR": str(root),
+                    **self.environment(index),
                     "OMOCHI_SERVICE": "native-app"
                     if slot == 0
                     else f"native-app-{slot}",
@@ -221,13 +235,14 @@ class Handler(BaseHTTPRequestHandler):
                             "--config-dir",
                             str(root / "config"),
                             "--runtime-dir",
-                            str(root / "omochi"),
+                            str(fixture.runtime(index)),
                             "trust",
                             "forget",
                             identity,
                         ],
                         stdout=subprocess.DEVNULL,
                         stderr=subprocess.DEVNULL,
+                        env=fixture.environment(index),
                         check=True,
                         timeout=15,
                     )
