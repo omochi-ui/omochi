@@ -63,6 +63,34 @@ crate-type = ["cdylib"]
     with zipfile.ZipFile(next((project / 'dist').glob('*.whl'))) as wheel:
         assert wheel.read(f'omochi_ui/_native/{name}') == artifact.read_bytes(), \
             'Python wheel must contain the configured Cargo artifact, not a stale library'
+    # Cargo can return an existing cdylib selected by .cargo/config.toml even
+    # without CARGO_BUILD_TARGET. An incompatible file must never receive the
+    # current Python's platform tag. Change only the real binary's CPU field;
+    # Cargo's fresh compiler-artifact message still identifies that same file.
+    original = artifact.read_bytes()
+    foreign = bytearray(original)
+    if sys.platform == 'win32':
+        machine = int.from_bytes(foreign[60:64], 'little') + 4
+        current = int.from_bytes(foreign[machine:machine + 2], 'little')
+        foreign[machine:machine + 2] = (0xAA64 if current == 0x8664 else 0x8664).to_bytes(2, 'little')
+    elif sys.platform == 'darwin':
+        current = int.from_bytes(foreign[4:8], 'little')
+        foreign[4:8] = (0x100000C if current == 0x1000007 else 0x1000007).to_bytes(4, 'little')
+    else:
+        current = int.from_bytes(foreign[18:20], 'little')
+        foreign[18:20] = (183 if current == 62 else 62).to_bytes(2, 'little')
+    try:
+        artifact.write_bytes(foreign)
+        for selection in ('config', 'environment'):
+            selected_env = env | ({'CARGO_BUILD_TARGET': host} if selection == 'environment' else {})
+            result = subprocess.run([sys.executable, '-m', 'build', '--wheel', '--outdir',
+                                     str(project / f'rejected-{selection}')], cwd=project,
+                                    env=selected_env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+            assert result.returncode != 0, f'{selection}: a foreign native library received a host wheel tag'
+            assert 'does not match wheel platform' in result.stdout, result.stdout
+            assert not list((project / f'rejected-{selection}').glob('*.whl'))
+    finally:
+        artifact.write_bytes(original)
 
 
 def main():

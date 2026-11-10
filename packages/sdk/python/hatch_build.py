@@ -3,10 +3,39 @@ import json
 import os
 from pathlib import Path
 import platform
+import struct
 import subprocess
 import sys
 import sysconfig
 from hatchling.builders.hooks.plugin.interface import BuildHookInterface
+
+
+def validate_native_platform(artifact, tag):
+    """Check the actual Cargo-selected binary, including targets from config files."""
+    actual = None
+    with Path(artifact).open('rb') as library:
+        header = library.read(64)
+        if header[:6] == b'\x7fELF\x02\x01':  # ELF64, little endian
+            architecture = {62: 'x86_64', 183: 'aarch64'}.get(int.from_bytes(header[18:20], 'little'))
+            if architecture:
+                actual = f'linux_{architecture}'
+        elif header[:4] == b'\xcf\xfa\xed\xfe':  # 64-bit Mach-O, little endian
+            architecture = {0x1000007: 'x86_64', 0x100000C: 'arm64'}.get(int.from_bytes(header[4:8], 'little'))
+            if architecture:
+                actual = f'macosx_11_0_{architecture}'
+        elif header[:2] == b'MZ':
+            library.seek(int.from_bytes(header[60:64], 'little'))
+            pe = library.read(6)
+            if pe[:4] == b'PE\0\0':
+                architecture = {0x8664: 'amd64', 0xAA64: 'arm64'}.get(int.from_bytes(pe[4:6], 'little'))
+                if architecture:
+                    actual = f'win_{architecture}'
+    if actual != tag:
+        raise ValueError(
+            f'Native library platform {actual or "unknown"} does not match wheel platform {tag}; '
+            'build with Cargo configured for this Python platform (cross-platform wheels are unsupported)'
+        )
+
 
 class CustomBuildHook(BuildHookInterface):
     def initialize(self, version, build_data):
@@ -28,6 +57,8 @@ class CustomBuildHook(BuildHookInterface):
             return
         if self.target_name != 'wheel':
             return
+        if struct.calcsize('P') != 8:
+            raise ValueError('Native wheels require a 64-bit Python interpreter')
         if sys.platform == 'win32': os.environ.setdefault('RUSTFLAGS', '-C target-feature=+crt-static')
         if sys.platform == 'darwin': os.environ.setdefault('MACOSX_DEPLOYMENT_TARGET', '11.0')
         target = os.environ.get('CARGO_BUILD_TARGET')
@@ -49,8 +80,9 @@ class CustomBuildHook(BuildHookInterface):
             artifacts.extend(filename for filename in message['filenames'] if Path(filename).name == name)
         if len(artifacts) != 1:
             raise ValueError(f'Cargo must report exactly one {name} artifact; build one target at a time')
-        build_data['force_include'][artifacts[0]] = f'omochi_ui/_native/{name}'
-        build_data['pure_python'] = False
         tag = sysconfig.get_platform().replace('-', '_').replace('.', '_')
         if apple: tag = 'macosx_11_0_' + ('arm64' if platform.machine() == 'arm64' else 'x86_64')
+        validate_native_platform(artifacts[0], tag)
+        build_data['force_include'][artifacts[0]] = f'omochi_ui/_native/{name}'
+        build_data['pure_python'] = False
         build_data['tag'] = 'py3-none-' + tag
