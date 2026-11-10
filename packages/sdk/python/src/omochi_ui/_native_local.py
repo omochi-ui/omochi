@@ -87,7 +87,7 @@ async def request(op: str, handle: int = 0, data: bytes = b"", **options: Any) -
     _load()
     loop = asyncio.get_running_loop()
     future: asyncio.Future[bytes] = loop.create_future()
-    command = json.dumps({"op": op, "id": handle, **options}).encode()
+    command = json.dumps({"op": op, "id": handle, **options}, ensure_ascii=False).encode("utf-8")
     with _state_lock:
         if _stopping:
             raise RuntimeError("Local native runtime is shutting down")
