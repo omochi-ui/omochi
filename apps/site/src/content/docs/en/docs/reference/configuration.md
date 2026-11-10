@@ -15,7 +15,7 @@ sidebar:
 | Runtime directory | `$XDG_RUNTIME_DIR/omochi/v2` |
 | Native identity, trust, and dashboards | `$XDG_CONFIG_HOME/omochi/rust-v1`, or `$HOME/.config/omochi/rust-v1` |
 
-`--config-dir` or `OMOCHI_CONFIG_DIR` changes native state storage. `--runtime-dir` or `OMOCHI_RUNTIME_DIR` selects the complete runtime directory. SDK transport options take precedence over the same environment variable. Without XDG, Unix uses `<system temporary directory>/omochi-<uid>/omochi/v2`. Windows defaults to LocalAppData KnownFolder `Omochi\Runtime\v2` for runtime and `Omochi\rust-v1` for native state.
+`--config-dir` or `OMOCHI_CONFIG_DIR` changes native state storage. `--runtime-dir` or `OMOCHI_RUNTIME_DIR` selects the complete runtime directory. SDK transport options take precedence over the same environment variable. Without XDG, Unix uses `<system temporary directory>/omochi-<effective uid>/v2`. Windows defaults to LocalAppData KnownFolder `Omochi\Runtime\v2` for runtime and `Omochi\rust-v1` for native state.
 
 SDK apps, Gateway and Hub must use the same directory. `up` exports `OMOCHI_RUNTIME_DIR` to its children; explicit paths can have any final component. `OMOCHI_SERVICE` is the service ID passed by `up`; bundled examples use it to select local discovery.
 

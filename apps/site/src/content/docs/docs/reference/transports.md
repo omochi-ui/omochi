@@ -21,7 +21,7 @@ Pythonは`omochi_ui`、TypeScriptのサーバーTransportは`@omochi-ui/sdk/node
 
 実行可能な例は[SDKガイド](../../guides/sdks/)を参照してください。クライアントとサービスは同じOSユーザー・実行時ディレクトリを使います。全SDKが共通のnativeアダプターを使い、Linux/macOSではUnixドメインソケット、Windows 11ではnamed pipeで接続します。アクセスは現在のユーザーだけに制限します。
 
-`OMOCHI_RUNTIME_DIR`を揃えるか、各Transportの実行時ディレクトリを指定してください。既定はUnixでは`$XDG_RUNTIME_DIR/omochi/v2`、XDG未設定なら`<システム一時ディレクトリ>/omochi-<uid>/omochi/v2`、WindowsではLocalAppData KnownFolderの`Omochi\Runtime\v2`です。
+`OMOCHI_RUNTIME_DIR`を揃えるか、各Transportの実行時ディレクトリを指定してください。既定はUnixでは`$XDG_RUNTIME_DIR/omochi/v2`、XDG未設定なら`<システム一時ディレクトリ>/omochi-<実効UID>/v2`、WindowsではLocalAppData KnownFolderの`Omochi\Runtime\v2`です。
 
 サービスIDは`[a-z0-9._-]{1,64}`に一致し、`.`・`..`以外にします。大文字は拒否します。同じIDでの同時公開は拒否されます。保存した配置を再利用する場合はIDを固定してください。保存先は符号化せず`svc-<id>~`とします。
 

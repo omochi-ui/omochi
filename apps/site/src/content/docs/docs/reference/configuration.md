@@ -15,7 +15,7 @@ sidebar:
 | 実行時ディレクトリ | `$XDG_RUNTIME_DIR/omochi/v2` |
 | ネイティブのID・信頼・ダッシュボード | `$XDG_CONFIG_HOME/omochi/rust-v1`、未設定なら`$HOME/.config/omochi/rust-v1` |
 
-`--config-dir`か`OMOCHI_CONFIG_DIR`でnative状態の保存先を変えます。`--runtime-dir`か`OMOCHI_RUNTIME_DIR`は実行時ディレクトリ全体を指定します。SDK Transportの明示オプションは同じ環境変数より優先します。XDG未設定のUnixでは`<システム一時ディレクトリ>/omochi-<uid>/omochi/v2`を使います。Windowsの既定はLocalAppData KnownFolderの`Omochi\Runtime\v2`、native状態は`Omochi\rust-v1`です。
+`--config-dir`か`OMOCHI_CONFIG_DIR`でnative状態の保存先を変えます。`--runtime-dir`か`OMOCHI_RUNTIME_DIR`は実行時ディレクトリ全体を指定します。SDK Transportの明示オプションは同じ環境変数より優先します。XDG未設定のUnixでは`<システム一時ディレクトリ>/omochi-<実効UID>/v2`を使います。Windowsの既定はLocalAppData KnownFolderの`Omochi\Runtime\v2`、native状態は`Omochi\rust-v1`です。
 
 SDKアプリ・Gateway・Hubは同じディレクトリを使ってください。`up`は子プロセスへ`OMOCHI_RUNTIME_DIR`を渡し、パス末尾の制約はありません。`OMOCHI_SERVICE`は`up`が渡すサービスIDで、同梱exampleではローカル検出の選択に使います。
 

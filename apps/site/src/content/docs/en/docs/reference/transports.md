@@ -21,7 +21,7 @@ Python exports its transports from `omochi_ui`; TypeScript server transports are
 
 See the [SDK guide](../../guides/sdks/) for complete examples. Run clients and services as the same OS user with the same runtime directory. All SDKs use the shared native adapter: Unix domain sockets on Linux/macOS and named pipes on Windows 11, with access restricted to the current user.
 
-Set `OMOCHI_RUNTIME_DIR` consistently or pass each transport's runtime directory option. Defaults are `$XDG_RUNTIME_DIR/omochi/v2` on Unix, `<system temporary directory>/omochi-<uid>/omochi/v2` without XDG, and the LocalAppData known folder's `Omochi\Runtime\v2` on Windows.
+Set `OMOCHI_RUNTIME_DIR` consistently or pass each transport's runtime directory option. Defaults are `$XDG_RUNTIME_DIR/omochi/v2` on Unix, `<system temporary directory>/omochi-<effective uid>/v2` without XDG, and the LocalAppData known folder's `Omochi\Runtime\v2` on Windows.
 
 Service IDs match `[a-z0-9._-]{1,64}`, excluding `.` and `..`. Uppercase is rejected. Concurrent publishers with the same ID are rejected; keep the ID stable to reuse saved layouts. IDs are stored directly in `svc-<id>~` directories without encoding.
 
