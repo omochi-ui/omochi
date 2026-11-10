@@ -14,6 +14,48 @@ fn command(root: &Path) -> Command {
     command.env("PATH", "/nonexistent").kill_on_drop(true);
     command
 }
+
+#[tokio::test]
+async fn runtime_environment_ignores_empty_values_and_defers_to_cli() {
+    for selection in ["empty", "environment", "explicit"] {
+        let root = tempfile::tempdir().unwrap();
+        let mut child = Command::new(env!("CARGO_BIN_EXE_omochi-ui"));
+        child
+            .args(["id", "--config-dir"])
+            .arg(root.path().join("config"))
+            .env("XDG_RUNTIME_DIR", root.path())
+            .env(
+                "OMOCHI_RUNTIME_DIR",
+                if selection == "empty" {
+                    std::ffi::OsString::new()
+                } else {
+                    root.path().join("environment").into_os_string()
+                },
+            );
+        let expected = match selection {
+            "empty" => root.path().join("omochi/v2"),
+            "environment" => root.path().join("environment"),
+            _ => {
+                child.arg("--runtime-dir").arg(root.path().join("explicit"));
+                root.path().join("explicit")
+            }
+        };
+        let output = tokio::time::timeout(Duration::from_secs(10), child.output())
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{selection}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(expected.join("runtime.json").is_file(), "{selection}");
+        if selection == "explicit" {
+            assert!(!root.path().join("environment").exists());
+        }
+    }
+}
+
 #[tokio::test]
 async fn gateway_invalid_relay_allows_restart_in_the_same_runtime() {
     let root = tempfile::tempdir().unwrap();

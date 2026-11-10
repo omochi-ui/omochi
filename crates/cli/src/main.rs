@@ -25,7 +25,8 @@ const DEFAULT_WEB_URL: &str = "https://app.omochi.fyi/";
 struct Cli {
     #[arg(long, global = true, env = "OMOCHI_CONFIG_DIR")]
     config_dir: Option<PathBuf>,
-    #[arg(long, global = true, env = "OMOCHI_RUNTIME_DIR")]
+    #[arg(long, global = true, env = std::env::var_os("OMOCHI_RUNTIME_DIR")
+        .filter(|value| !value.is_empty()).map(|_| "OMOCHI_RUNTIME_DIR"))]
     runtime_dir: Option<PathBuf>,
     #[command(subcommand)]
     command: Command,

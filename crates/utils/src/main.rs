@@ -21,7 +21,8 @@ struct Common {
     service_id: Option<String>,
     #[arg(long)]
     name: Option<String>,
-    #[arg(long, env = "OMOCHI_RUNTIME_DIR")]
+    #[arg(long, env = std::env::var_os("OMOCHI_RUNTIME_DIR")
+        .filter(|value| !value.is_empty()).map(|_| "OMOCHI_RUNTIME_DIR"))]
     runtime_dir: Option<PathBuf>,
 }
 #[derive(Subcommand)]

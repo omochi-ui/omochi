@@ -10,6 +10,65 @@ use tokio::{
     io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
     process::Command,
 };
+
+#[tokio::test]
+async fn runtime_environment_ignores_empty_values_and_defers_to_cli() {
+    for selection in ["empty", "environment", "explicit"] {
+        let root = tempfile::tempdir().unwrap();
+        let mut command = Command::new(env!("CARGO_BIN_EXE_omochi-utils"));
+        command
+            .args(["stream", "--service-id", "runtime-env"])
+            .env("XDG_RUNTIME_DIR", root.path())
+            .env(
+                "OMOCHI_RUNTIME_DIR",
+                if selection == "empty" {
+                    std::ffi::OsString::new()
+                } else {
+                    root.path().join("environment").into_os_string()
+                },
+            )
+            .stdin(Stdio::piped())
+            .stderr(Stdio::piped())
+            .kill_on_drop(true);
+        let expected = match selection {
+            "empty" => root.path().join("omochi/v2"),
+            "environment" => root.path().join("environment"),
+            _ => {
+                command
+                    .arg("--runtime-dir")
+                    .arg(root.path().join("explicit"));
+                root.path().join("explicit")
+            }
+        };
+        let mut child = command.spawn().unwrap();
+        let mut logs = BufReader::new(child.stderr.take().unwrap()).lines();
+        let ready = tokio::time::timeout(Duration::from_secs(5), logs.next_line())
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        assert!(
+            ready.starts_with("Published service runtime-env"),
+            "{ready}"
+        );
+        assert!(expected.join("svc-runtime-env~/manifest.json").is_file());
+        if selection == "explicit" {
+            assert!(!root.path().join("environment").exists());
+        }
+        assert_eq!(
+            unsafe { libc::kill(child.id().unwrap() as i32, libc::SIGTERM) },
+            0
+        );
+        assert!(
+            tokio::time::timeout(Duration::from_secs(5), child.wait())
+                .await
+                .unwrap()
+                .unwrap()
+                .success()
+        );
+    }
+}
+
 #[tokio::test]
 async fn native_stream_replays_unicode_keeps_eof_and_exits_while_stdin_is_idle() {
     for eof in [false, true] {
