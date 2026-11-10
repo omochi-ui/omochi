@@ -133,6 +133,8 @@ export default {
       "down": "↓ Down",
       "taller": "Height +"
     },
+    "compactionHelp": "Views automatically pack upward. Moving down may return a view to its previous position when there is empty space above. Save to keep your changes.",
+    "resizeHandle": "Resize view {{edge}}",
     "keyboardHelp": "Use arrow keys on the move handle, or select Adjust layout for move and resize buttons.",
     "detailsTitle": "View details",
     "moveLabel": "Move {{name}}",

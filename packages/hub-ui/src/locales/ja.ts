@@ -135,6 +135,8 @@ export default {
       "down": "↓ 下",
       "taller": "高さ +"
     },
+    "compactionHelp": "ビューは上方向に自動で詰められます。下へ移動しても、空白があれば元の位置に戻ることがあります。保存するまで変更は確定しません。",
+    "resizeHandle": "ビューのサイズを変更（{{edge}}）",
     "keyboardHelp": "移動ハンドルで矢印キーを使うか、「レイアウトを調整」の移動・サイズ変更ボタンを使ってください。",
     "detailsTitle": "ビューの詳細",
     "moveLabel": "「{{name}}」を移動",

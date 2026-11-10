@@ -35,7 +35,7 @@ try {
   const services = await (await fetch(`${url}services`)).json();
   const service = services.find(s => s.status === 'connected');
   const reference = { nodeId: service.node.id, serviceId: 'tasks', surfaceId: 'main' };
-  const response = await fetch(`${url}api/dashboards`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: 'Daily overview', panels: [{ id: 'one', title: 'Task runner', reference, x: 0, y: 0, w: 6, h: 6 }] }) });
+  const response = await fetch(`${url}api/dashboards`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: 'Daily overview', panels: [{ id: 'one', title: 'Task runner', reference, x: 0, y: 4, w: 6, h: 6 }] }) });
   assert.equal(response.ok, true, await response.clone().text());
   const dashboard = await response.json();
   const chrome = spawn(process.env.CHROMIUM_BIN ?? 'chromium', ['--headless', '--no-sandbox', '--disable-gpu', '--disable-dev-shm-usage', '--no-first-run', '--no-default-browser-check', '--remote-debugging-port=0', `--user-data-dir=${temporary}/chrome`, 'about:blank'], { stdio: ['ignore', 'ignore', 'pipe'] });
@@ -65,6 +65,14 @@ try {
     if (result.exceptionDetails) throw new Error(JSON.stringify(result.exceptionDetails));
     return result.result.value;
   };
+  const geometry = () => evaluate(`(() => {
+    const grid = document.querySelector('.panel-grid').getBoundingClientRect();
+    const panel = document.querySelector('.panel').getBoundingClientRect();
+    const column = (grid.width + 16) / 12;
+    return { x: Math.round((panel.left-grid.left)/column), y: Math.round((panel.top-grid.top)/56),
+      w: Math.round((panel.width+16)/column), h: Math.round((panel.height+16)/56) };
+  })()`);
+  const frame = () => evaluate("new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))");
   const text = () => evaluate('document.body?.innerText ?? ""');
   const click = async label => {
     await until(() => evaluate(`Array.from(document.querySelectorAll('button')).some(b => b.textContent.replace('▧', '').trim() === ${JSON.stringify(label)} && !b.disabled)`), `button ${label}`);
@@ -86,6 +94,7 @@ try {
   };
   await cdp('Runtime.enable'); await cdp('Page.enable');
   await cdp('Emulation.setUserAgentOverride', { userAgent: await evaluate('navigator.userAgent'), acceptLanguage: 'ja-JP,ja,en-US,en' });
+  await cdp('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'reduce' }] });
   await cdp('Emulation.setDeviceMetricsOverride', { width: 1440, height: 1000, deviceScaleFactor: 1, mobile: false });
   await cdp('Page.navigate', { url: `${url}?dashboard=${dashboard.id}` });
   await until(async () => (await text()).includes('Task runner') && (await text()).includes('Ready'), 'live dashboard');
@@ -137,6 +146,12 @@ try {
     const luminance = color => color.match(/[\d.]+/g).slice(0,3).map(Number).map(v=>v/255).map(v=>v<=.04045?v/12.92:((v+.055)/1.055)**2.4).reduce((sum,v,i)=>sum+v*[.2126,.7152,.0722][i],0);
     for(const pair of colors) { const a=luminance(pair.color), b=luminance(pair.background); pair.ratio=(Math.max(a,b)+.05)/(Math.min(a,b)+.05); assert.ok(pair.ratio>=4.5,JSON.stringify(pair)); }
     await writeFile(path.join(output,'contrast.json'),JSON.stringify(colors,null,2));
+    assert.equal((await geometry()).y, 4, 'viewing preserves the saved gap');
+    await click('Edit dashboard');
+    await until(async () => (await geometry()).y === 0, 'editing compacts saved gaps');
+    assert.equal((await (await fetch(`${url}api/dashboards/${dashboard.id}`)).json()).panels[0].y, 4, 'editing does not persist automatically');
+    await click('Cancel'); await click('Discard changes');
+    await until(async () => (await geometry()).y === 4, 'cancel restores saved gap');
     await click('Edit dashboard');
     assert.equal(await evaluate("window.savedSurface === document.querySelector('.omochi-surface')"), true);
     await click('Details');
@@ -174,30 +189,45 @@ try {
     assert.equal(await evaluate("document.querySelectorAll('.resize-edge').length"), 8);
     await click('Adjust layout');
     await evaluate("document.querySelector('.adjust-controls [aria-label=\"Wider\"]').click()");
-    assert.equal(await evaluate("document.querySelector('.panel').style.gridColumn"), '1 / span 7');
+    await until(async () => (await geometry()).w === 7, 'wider geometry');
     await cdp('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 });
     await cdp('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 });
     await until(() => evaluate("!document.querySelector('.adjust-controls:popover-open')"), 'layout menu dismissed before dragging');
     // Pointer moves are previews; escape returns the original rectangle.
+    const initialGeometry = await geometry();
+    const columnWidth = await evaluate("(document.querySelector('.panel-grid').clientWidth + 16) / 12");
     const bounds = await evaluate("(() => { const r = document.querySelector('.drag-handle').getBoundingClientRect(); return {x:r.x+r.width/2,y:r.y+r.height/2}; })()");
     await screenshot('before-drag.png');
     await cdp('Input.dispatchMouseEvent', { type: 'mouseMoved', ...bounds });
     await cdp('Input.dispatchMouseEvent', { type: 'mousePressed', ...bounds, button: 'left', buttons: 1, clickCount: 1 });
-    await cdp('Input.dispatchMouseEvent', { type: 'mouseMoved', x: bounds.x, y: bounds.y + 112, button: 'left', buttons: 1 });
-    await until(() => evaluate("document.querySelector('.panel').style.gridRow === '3 / span 6'"), 'move preview');
+    await frame();
+    await cdp('Input.dispatchMouseEvent', { type: 'mouseMoved', x: bounds.x + columnWidth, y: bounds.y, button: 'left', buttons: 1 });
+    await until(async () => (await geometry()).x === 1, 'move preview');
     await cdp('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape' });
-    await cdp('Input.dispatchMouseEvent', { type: 'mouseReleased', x: bounds.x, y: bounds.y + 112, button: 'left' });
-    assert.equal(await evaluate("document.querySelector('.panel').style.gridRow"), '1 / span 6');
+    await cdp('Input.dispatchMouseEvent', { type: 'mouseReleased', x: bounds.x + columnWidth, y: bounds.y, button: 'left' });
+    await until(async () => JSON.stringify(await geometry()) === JSON.stringify(initialGeometry), 'cancelled drag geometry');
     const resizeBounds = await evaluate("(() => { const r=document.querySelector('.resize-se').getBoundingClientRect(); return {x:r.x+r.width/2,y:r.y+r.height/2}; })()");
     await cdp('Input.dispatchMouseEvent', { type: 'mouseMoved', ...resizeBounds });
     await cdp('Input.dispatchMouseEvent', { type: 'mousePressed', ...resizeBounds, button: 'left', buttons: 1, clickCount: 1 });
+    await frame();
     await cdp('Input.dispatchMouseEvent', { type: 'mouseMoved', x: resizeBounds.x, y: resizeBounds.y+56, button: 'left', buttons: 1 });
-    await until(()=>evaluate("document.querySelector('.panel').style.gridRow==='1 / span 7'"),'resize preview');
+    await until(async () => (await geometry()).h === 7, 'resize preview');
     await cdp('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape' });
     await cdp('Input.dispatchMouseEvent', { type: 'mouseReleased', x: resizeBounds.x, y: resizeBounds.y+56, button: 'left' });
+    await until(async () => JSON.stringify(await geometry()) === JSON.stringify(initialGeometry), 'cancelled resize geometry');
     await evaluate("document.querySelector('.drag-handle').focus()");
+    await cdp('Input.dispatchKeyEvent', { type: 'keyDown', key: 'ArrowRight', code: 'ArrowRight' });
+    await until(async () => (await geometry()).x === 1, 'keyboard movement');
     await cdp('Input.dispatchKeyEvent', { type: 'keyDown', key: 'ArrowDown', code: 'ArrowDown' });
-    await until(() => evaluate("document.querySelector('.panel').style.gridRow === '2 / span 6'"), 'keyboard movement');
+    assert.equal((await geometry()).y, 0, 'vertical compaction closes empty rows');
+    const beforeTouch = await geometry();
+    const touchHandle = await evaluate("(() => { const r=document.querySelector('.drag-handle').getBoundingClientRect(); return {x:r.x+r.width/2,y:r.y+r.height/2}; })()");
+    await cdp('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ ...touchHandle, id: 1 }] });
+    await frame();
+    await cdp('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: touchHandle.x + columnWidth, y: touchHandle.y, id: 1 }] });
+    await until(async () => (await geometry()).x === beforeTouch.x + 1, 'touch move preview');
+    await cdp('Input.dispatchTouchEvent', { type: 'touchCancel', touchPoints: [] });
+    await until(async () => JSON.stringify(await geometry()) === JSON.stringify(beforeTouch), 'touch cancellation restores geometry');
     await click('Add view'); await input('#search-views', 'no-such-view');
     await until(async () => (await text()).includes('No views match'), 'empty search'); await screenshot('search-empty.png');
     await click('Clear search');
@@ -220,7 +250,7 @@ try {
     assert.equal(unnamedButtons.length,0);
     await writeFile(path.join(output,'accessibility.json'), JSON.stringify(ax,null,2));
     const saved = await (await fetch(`${url}api/dashboards`)).json();
-    assert.equal(saved[0].panels[0].w, 7); assert.equal(saved[0].panels[0].y, 1);
+    assert.equal(saved[0].panels[0].w, 7); assert.equal(saved[0].panels[0].y, 0); assert.equal(saved[0].panels[0].x, 1);
     await cdp('Page.reload'); await until(async () => (await text()).includes('Task runner'), 'reload saved');
     // Conflict retains the draft and offers recovery.
     await click('Edit dashboard'); await input('[aria-label="Dashboard name"]', 'Local changes');
@@ -231,6 +261,7 @@ try {
     await language('en');
     assert.equal(await evaluate("document.querySelector('.dashboard-name').value"), 'Local changes');
     await screenshot('save-error.png');
+    await delay(1100); // A background poll must not clear the save-conflict recovery.
     await click('Discard and reload'); await click('Discard changes');
     await until(async () => (await text()).includes('Changed elsewhere'), 'reload conflict');
     // A dispatched save owns the draft until it settles; navigation must wait.
@@ -262,9 +293,54 @@ try {
     await until(()=>evaluate("document.querySelectorAll('.panel').length===2"),'added second view');
     await click('Save dashboard');
     await until(async () => (await text()).includes('Dashboard saved.'), 'save second view');
+    // Every edge and corner previews with RGL and rolls back without saving.
+    await click('Edit dashboard');
+    const allEdgesBaseline = await geometry();
+    for (const edge of ['n', 's', 'e', 'w', 'ne', 'nw', 'se', 'sw']) {
+      await evaluate(`document.querySelector('.resize-${edge}').scrollIntoView({block:'center'})`);
+      await frame();
+      const handle = await evaluate(`(() => { const r=document.querySelector('.resize-${edge}').getBoundingClientRect(); return {x:r.x+r.width/2,y:r.y+r.height/2}; })()`);
+      const dx = edge.includes('e') || edge.includes('w') ? await evaluate("(document.querySelector('.panel-grid').clientWidth + 16) / 12") : 0;
+      const dy = edge.includes('n') || edge.includes('s') ? 56 : 0;
+      await cdp('Input.dispatchMouseEvent', { type: 'mouseMoved', ...handle });
+      await cdp('Input.dispatchMouseEvent', { type: 'mousePressed', ...handle, button: 'left', buttons: 1, clickCount: 1 });
+      await frame();
+      await cdp('Input.dispatchMouseEvent', { type: 'mouseMoved', x: handle.x + dx / 2, y: handle.y + dy / 2, button: 'left', buttons: 1 });
+      await frame();
+      await cdp('Input.dispatchMouseEvent', { type: 'mouseMoved', x: handle.x + dx, y: handle.y + dy, button: 'left', buttons: 1 });
+      await until(async () => { const next = await geometry(); return next.w !== allEdgesBaseline.w || next.h !== allEdgesBaseline.h; }, `${edge} resize preview`).catch(async error => {
+        console.log({edge, handle, geometry:await geometry(), hit:await evaluate(`document.elementFromPoint(${handle.x},${handle.y})?.outerHTML`)});
+        await screenshot('failed-resize.png'); throw error;
+      });
+      await cdp('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape' });
+      await cdp('Input.dispatchMouseEvent', { type: 'mouseReleased', x: handle.x + dx, y: handle.y + dy, button: 'left' });
+      await until(async () => JSON.stringify(await geometry()) === JSON.stringify(allEdgesBaseline), `${edge} resize rollback`);
+    }
+    await click('Cancel');
+    await until(() => evaluate("!document.querySelector('.dashboard-name')"), 'cancelled gestures leave the draft clean');
+    await click('Edit dashboard');
+    // A completed resize commits to the draft, then the existing Save API.
+    const south = await evaluate("(() => { const r=document.querySelector('.resize-s').getBoundingClientRect(); return {x:r.x+r.width/2,y:r.y+r.height/2}; })()");
+    const resizedId = await evaluate("document.querySelector('.panel').dataset.panelId");
+    await cdp('Input.dispatchMouseEvent', { type: 'mouseMoved', ...south });
+    await cdp('Input.dispatchMouseEvent', { type: 'mousePressed', ...south, button: 'left', buttons: 1, clickCount: 1 });
+    await frame();
+    await cdp('Input.dispatchMouseEvent', { type: 'mouseMoved', x: south.x, y: south.y + 56, button: 'left', buttons: 1 });
+    await cdp('Input.dispatchMouseEvent', { type: 'mouseReleased', x: south.x, y: south.y + 56, button: 'left' });
+    await until(async () => (await geometry()).h === allEdgesBaseline.h + 1, 'completed resize');
+    await input('.dashboard-name', 'Daily overview');
+    await evaluate('window.scrollTo(0, 0)'); await screenshot('rgl-editing.png');
+    await click('Save dashboard');
+    await until(async () => (await text()).includes('Dashboard saved.'), 'saved RGL resize');
+    assert.equal((await (await fetch(`${url}api/dashboards/${dashboard.id}`)).json()).panels.find(p => p.id === resizedId).h, allEdgesBaseline.h + 1);
+
+    const beforeResize = await (await fetch(`${url}api/dashboards/${dashboard.id}`)).json();
+    await evaluate("window.mobileSurface = document.querySelector('.omochi-surface'); window.surfaceButton = window.mobileSurface.querySelector('button'); window.surfaceButton.focus()");
     await cdp('Emulation.setDeviceMetricsOverride', { width: 320, height: 844, deviceScaleFactor: 1, mobile: true });
     await until(() => evaluate("getComputedStyle(document.querySelector('.panel-grid')).display === 'flex'"), 'mobile layout');
     assert.equal(await evaluate('document.documentElement.scrollWidth <= innerWidth'), true);
+    assert.equal(await evaluate("window.mobileSurface === document.querySelector('.omochi-surface') && document.activeElement === window.surfaceButton"), true, 'mobile breakpoint preserves surface and focus');
+    assert.deepEqual(await (await fetch(`${url}api/dashboards/${dashboard.id}`)).json(), beforeResize, 'resizing never saves geometry');
     await screenshot('mobile.png');
     await language('ja');
     assert.equal(await evaluate('document.documentElement.scrollWidth <= innerWidth'), true);
@@ -276,7 +352,7 @@ try {
     await click('ボード表示を終了');
     await language('en');
     await click('Edit dashboard');
-    assert.equal(await evaluate("document.querySelectorAll('.resize-edge').length"), 0);
+    assert.equal(await evaluate("Array.from(document.querySelectorAll('.resize-edge')).filter(el => el.checkVisibility()).length"), 0);
     assert.equal((await text()).includes('Move up'), true);
     const firstId=await evaluate("document.querySelector('.panel').dataset.panelId");
     await click('Move down');

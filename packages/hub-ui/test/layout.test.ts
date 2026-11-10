@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from '@omochi-ui/core/testing';
-import { appendPanel, placePanel, reorderPanels } from '../src/layout.js';
+import { appendPanel, applyGridLayout, compactPanels, placePanel, reorderPanels, toGridLayout } from '../src/layout.js';
 import { overlaps, type Panel } from '../src/contracts.js';
 import { validateBoardInput } from '../src/board-codec.js';
 const panel = (id: string, x: number, y: number): Panel => ({ id, title: id, x, y, w: 6, h: 6,
@@ -74,12 +74,12 @@ test('mobile reorder keeps the valid draft when repacking would exceed the store
   assert.equal(result, initial);
 });
 
-test('appending preserves bottom placement including the maximum allowed start row', () => {
+test('appending compacts existing gaps before keeping the appended view below its column', () => {
   for (const bottom of [6, 100000]) {
     const initial = [{ ...panel('a', 0, bottom - 6), w: 12 }];
     const result = appendPanel(initial, panel('b', 0, 0));
     validate(result);
-    assert.deepEqual(result, [...initial, panel('b', 0, bottom)]);
+    assert.deepEqual(result, [{ ...initial[0]!, y: 0 }, panel('b', 0, 6)]);
   }
 });
 
@@ -89,7 +89,8 @@ test('appending finds bounded free space when the bottom exceeds the stored row 
     validate(initial);
     const result = appendPanel(initial, panel('c', 0, 0));
     validate(result);
-    assert.deepEqual(result.slice(0, -1), initial);
+    assert.equal(result[0]!.y, 0);
+    assert.equal(result[1]!.y, width === 6 ? 6 : 12);
     assert.deepEqual(result.at(-1), width === 6 ? panel('c', 6, 0) : panel('c', 0, 6));
   }
 });
@@ -103,4 +104,44 @@ test('appending keeps the valid draft when no bounded placement or panel capacit
     validate(result);
     assert.equal(result, initial);
   }
+});
+
+
+test('grid conversion round trips geometry by id while preserving board metadata and excluding RGL metadata', () => {
+  const initial = [panel('a', 0, 0), panel('b', 6, 0)];
+  const layout = toGridLayout(initial);
+  assert.equal(applyGridLayout(initial, layout), initial);
+  const result = applyGridLayout(initial, [{ ...layout[1]!, h: 7, static: true }, layout[0]!]);
+  assert.deepEqual(result, [initial[0]!, { ...initial[1]!, h: 7 }]);
+  validate(result);
+});
+
+test('invalid grid callbacks leave the entire valid draft intact', () => {
+  const initial = [panel('a', 0, 0), panel('b', 6, 0)];
+  const layout = toGridLayout(initial);
+  for (const invalid of [layout.slice(1), [layout[0]!, layout[0]!], [{ ...layout[0]!, i: 'unknown' }, layout[1]!],
+    ...[{ x: -1 }, { x: 7 }, { y: 100001 }, { y: NaN }, { h: 1001 }, { w: 0 }, { x: 0.5 }, { w: 12 }]
+      .map(change => [{ ...layout[0]!, ...change }, layout[1]!])]) {
+    assert.equal(applyGridLayout(initial, invalid), initial);
+  }
+});
+
+test('editing closes gaps without mutating saved geometry and deletion can restore its original snapshot', () => {
+  const saved = [panel('a', 0, 4), panel('b', 0, 20), panel('c', 6, 9)];
+  const snapshot = structuredClone(saved);
+  const edited = compactPanels(saved);
+  assert.deepEqual(saved, snapshot);
+  assert.deepEqual(edited.map(p => [p.id, p.y]), [['a', 0], ['b', 6], ['c', 0]]);
+  const removed = compactPanels(edited.filter(p => p.id !== 'a'));
+  assert.equal(removed.find(p => p.id === 'b')!.y, 0);
+  validate(removed);
+  assert.deepEqual(compactPanels(edited), edited);
+});
+
+test('keyboard movement uses vertical compaction and metadata edits retain position', () => {
+  const a = panel('a', 0, 0), b = panel('b', 0, 6);
+  assert.deepEqual(placePanel([a], { ...a, y: 10 }), [a]);
+  const renamed = placePanel([a, b], { ...b, title: 'Renamed' });
+  assert.deepEqual(renamed, [a, { ...b, title: 'Renamed' }]);
+  validate(placePanel([a, b], { ...a, y: 6 }));
 });

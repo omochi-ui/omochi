@@ -8,14 +8,17 @@ export function useDashboards(boards: BoardRepository) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
   const reloadSequence = useRef(0);
-  const reload = useCallback(async () => {
+  const loaded = useRef(false);
+  const reload = useCallback(async (background = false) => {
     const sequence = ++reloadSequence.current;
-    setLoading(true);
+    // Background invalidation must not unmount live surfaces or discard focus.
+    if (!loaded.current) setLoading(true);
     try {
       const [nextDashboards, nextPresets] = await Promise.all([
         boards.list(), boards.presets(),
       ]);
       if (sequence !== reloadSequence.current) return;
+      loaded.current = true;
       setDashboards(nextDashboards);
       setPresets(nextPresets);
       setSelected(id => {
@@ -27,12 +30,13 @@ export function useDashboards(boards: BoardRepository) {
         if (requestedDashboard && nextDashboards.some(d => d.id === requestedDashboard)) return `dashboard:${requestedDashboard}`;
         return nextDashboards[0] ? `dashboard:${nextDashboards[0].id}` : nextPresets[0] ? `preset:${nextPresets[0].id}` : '';
       });
-      setError(null);
+      if (!background) setError(null);
     } catch (reason) { if (sequence === reloadSequence.current) setError(reason instanceof Error ? reason : new BoardFault('StorageUnavailable')); }
     finally { if (sequence === reloadSequence.current) setLoading(false); }
   }, [boards]);
   useEffect(() => {
-    void reload(); const unsubscribe = boards.subscribe(() => { void reload(); });
+    loaded.current = false;
+    void reload(); const unsubscribe = boards.subscribe(() => { void reload(true); });
     return () => { reloadSequence.current++; unsubscribe(); };
   }, [boards, reload]);
   return { dashboards, setDashboards, presets, selected, setSelected, loading, error, setError, reload };
