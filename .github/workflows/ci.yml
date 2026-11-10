@@ -52,9 +52,9 @@ jobs:
       - run: python -m pip install ./packages/sdk/python mypy pyright
       - run: bun run test
       - run: python scripts/test-catalog-types.py
-      - run: bun run check:dashboard-app
-      - run: bun run lint:web
-      - run: bun run typecheck:web
+      - name: Test dashboard Worker
+        run: bun test ./test
+        working-directory: apps/dashboard
 
   python:
     runs-on: ubuntu-latest
@@ -100,11 +100,8 @@ jobs:
         with:
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: packages/sdk/rust -> target
-      - run: cargo fmt --manifest-path packages/sdk/rust/Cargo.toml --check
       - run: cargo test --manifest-path packages/sdk/rust/Cargo.toml --locked
       - run: python3 scripts/check-sdk-crates.py

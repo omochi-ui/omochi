@@ -14,7 +14,7 @@ anyhow.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 omochi-protocol = { path = "../protocol", version = "=0.3.2" }
-notify = "=8.2.1"
+notify = "=8.2.2"
 
 [dev-dependencies]
 tempfile = "3"

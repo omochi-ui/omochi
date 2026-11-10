@@ -1,0 +1,99 @@
+name: Lint
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: lint-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  FLUTTER_VERSION: '3.47.9'
+  CARGO_INCREMENTAL: '0'
+
+jobs:
+  check:
+    name: Full check
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - name: Cache Bun packages
+        uses: actions/cache@v6
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('.bun-version') }}-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            bun-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('.bun-version') }}-
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+      - uses: astral-sh/setup-uv@v10.3.3
+        with:
+          enable-cache: true
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: lint
+          workspaces: |
+            crates -> target
+            packages/sdk/rust -> target
+            packages/hub-transport -> target
+            examples/rust -> target
+            experiments/browser-dashboard/transport -> target
+            experiments/browser-hub -> target
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      - name: Install native formatters
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang-format shfmt
+          # Swift and its formatter are preinstalled on the Ubuntu runner.
+          swift format --version
+      - name: Download JVM formatters
+        env:
+          KTFMT_JAR: ${{ runner.temp }}/formatters/ktfmt.jar
+          GOOGLE_JAVA_FORMAT_JAR: ${{ runner.temp }}/formatters/google-java-format.jar
+        run: |
+          mkdir -p "$(dirname "$KTFMT_JAR")"
+          curl --fail --silent --show-error --location --retry 3 \
+            https://github.com/Kotlin/ktfmt/releases/download/v0.65/ktfmt-0.65-with-dependencies.jar \
+            --output "$KTFMT_JAR"
+          curl --fail --silent --show-error --location --retry 3 \
+            https://github.com/google/google-java-format/releases/download/v2.0.0/google-java-format-2.0.0-all-deps.jar \
+            --output "$GOOGLE_JAVA_FORMAT_JAR"
+          printf '%s  %s\n' \
+            aba9753b6ab387926179ab7318ba8e0c33dad483ebc72f633e79522265b15214 "$KTFMT_JAR" \
+            c78feb48c549fa7114b7ea11db3b456808f7b371ffe84e6643a44dd2f9588639 "$GOOGLE_JAVA_FORMAT_JAR" \
+            | sha256sum --check
+          printf 'KTFMT_JAR=%s\nGOOGLE_JAVA_FORMAT_JAR=%s\n' \
+            "$KTFMT_JAR" "$GOOGLE_JAVA_FORMAT_JAR" >> "$GITHUB_ENV"
+      - run: bun install --frozen-lockfile
+      - run: uv sync --locked
+      - run: flutter pub get --enforce-lockfile
+        working-directory: apps/mobile
+      - run: bun run check
