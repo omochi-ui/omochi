@@ -11,6 +11,9 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
+    "build:types": "tsc -p tsconfig.json --emitDeclarationOnly",
+    "typecheck": "bun check -p tsconfig.test.json",
+    "lint": "oxlint",
     "build:wasm": "bun ../../scripts/build-hub-transport.ts",
     "test": "cargo test --manifest-path Cargo.toml --locked --lib && bun test ./test"
   },

@@ -7,7 +7,8 @@
     "build:hosted": "bun check -p tsconfig.hosted.json && vite build --config vite.hosted.config.ts",
     "build:browser-test": "bun check -p tsconfig.browser-test.json && vite build --config vite.browser-test.config.ts",
     "test": "bun check -p tsconfig.test.json && bun test --preload ../../../tests/setup-dom.ts ./test",
-    "lint": "oxlint src test"
+    "lint": "oxlint src test",
+    "typecheck": "bun check -p tsconfig.hosted.json && bun check -p tsconfig.browser-test.json && bun check -p tsconfig.test.json"
   },
   "dependencies": {
     "@omochi-ui/browser-hub": "workspace:*",

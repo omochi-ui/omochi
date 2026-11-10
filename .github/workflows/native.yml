@@ -65,7 +65,7 @@ jobs:
           CARGO_TARGET_DIR: ${{ github.workspace }}/crates/target
       - run: OMOCHI_NATIVE_TEST=1 OMOCHI_NATIVE_PROFILE=release bun test tests/native/mcp.test.ts
       - run: OMOCHI_NATIVE_TEST=1 OMOCHI_NATIVE_PROFILE=release bun test packages/renderer/test/native.test.ts
-      - run: cargo clippy --manifest-path crates/Cargo.toml --release --locked --all-targets -- -D warnings
+      - run: bun run lint:rust:server
       - name: Cache iroh-relay binary
         if: runner.os == 'Linux'
         id: relay-cache

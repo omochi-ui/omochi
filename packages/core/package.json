@@ -27,7 +27,9 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "test": "bun check -p tsconfig.test.json && bun test ./test",
-    "typecheck": "bun check -p tsconfig.json"
+    "typecheck": "bun check -p tsconfig.test.json",
+    "build:types": "tsc -p tsconfig.json --emitDeclarationOnly",
+    "lint": "oxlint"
   },
   "dependencies": {
     "@a2ui/web_core": "0.15.0"

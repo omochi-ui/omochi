@@ -11,7 +11,7 @@
     "test": "bun check -p tsconfig.test.json && bun test ./test",
     "lint": "oxlint",
     "preview": "vite preview",
-    "typecheck": "bun check -b"
+    "typecheck": "bun check -b && bun check -p tsconfig.test.json"
   },
   "dependencies": {
     "@omochi-ui/renderer": "workspace:*",

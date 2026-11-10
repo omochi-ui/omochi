@@ -7,7 +7,9 @@
     "build": "bun run --cwd ../.. build:hosted",
     "dev": "bun run build && wrangler dev --ip 127.0.0.1",
     "deploy": "bun run build && wrangler deploy",
-    "check": "bun check -p tsconfig.json && bun test ./test",
+    "check": "bun run typecheck && bun test ./test",
+    "typecheck": "bun --check --tsconfig-override tsconfig.json",
+    "lint": "oxlint",
     "test:preview": "bun run build && node test/preview.mjs",
     "dry-run": "bun run build && wrangler deploy --dry-run"
   },

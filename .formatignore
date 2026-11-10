@@ -1,0 +1,22 @@
+# Bun glob patterns, relative to the repository root. Shared by all formatters.
+# Git-ignored files are already omitted, including files under nested .gitignore.
+vendor/**
+artifacts/**
+**/node_modules/**
+**/target/**
+**/build/**
+**/dist/**
+**/dist-*/**
+**/generated/**
+**/.dart_tool/**
+**/.venv/**
+
+# Checked-in generated code and exact code-generation expectations.
+crates/cli/tests/fixtures/**/expected.*
+apps/mobile/**/flutter/generated_plugin_registrant.*
+apps/mobile/macos/Flutter/GeneratedPluginRegistrant.swift
+**/*.g.dart
+**/*.freezed.dart
+
+# Generated Gradle launcher.
+apps/mobile/android/gradlew

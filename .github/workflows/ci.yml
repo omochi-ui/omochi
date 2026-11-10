@@ -53,7 +53,8 @@ jobs:
       - run: bun run test
       - run: python scripts/test-catalog-types.py
       - run: bun run check:dashboard-app
-      - run: bun run --bun --filter '*' lint
+      - run: bun run lint:web
+      - run: bun run typecheck:web
 
   python:
     runs-on: ubuntu-latest

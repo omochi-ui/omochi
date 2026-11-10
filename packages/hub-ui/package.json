@@ -19,7 +19,8 @@
   },
   "scripts": {
     "build": "bun check -p tsconfig.app.json && vite build && tsc -p tsconfig.contracts.json",
-    "typecheck": "bun check -p tsconfig.app.json",
+    "build:types": "tsc -p tsconfig.contracts.json --emitDeclarationOnly",
+    "typecheck": "bun check -p tsconfig.app.json && bun check -p tsconfig.hosted.json && bun check -p tsconfig.contracts.json && bun check -p tsconfig.test.json",
     "dev": "vite",
     "lint": "oxlint",
     "test": "bun check -p tsconfig.test.json && bun test ./test",
